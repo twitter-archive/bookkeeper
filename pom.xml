@@ -31,6 +31,7 @@
   	<module>hedwig-protocol</module>
   	<module>bookkeeper-server</module>
   	<module>bookkeeper-benchmark</module>
+    <module>twitter-hedwig-benchmark</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

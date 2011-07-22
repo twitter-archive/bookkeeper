@@ -36,9 +36,9 @@ public class HedwigBenchmark implements Callable<Void> {
 
     static final String TOPIC_PREFIX = "topic-";
 
-    private final HedwigClient client;
-    private final HedwigPublisher publisher;
-    private final HedwigSubscriber subscriber;
+    protected final HedwigClient client;
+    protected final HedwigPublisher publisher;
+    protected final HedwigSubscriber subscriber;
 
     public HedwigBenchmark(ClientConfiguration cfg) {
         client = new HedwigClient(cfg);

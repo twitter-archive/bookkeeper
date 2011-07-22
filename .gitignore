@@ -1,1 +1,6 @@
 target/
+*.iml
+*.ipr
+*.iws
+*.log
+build/
