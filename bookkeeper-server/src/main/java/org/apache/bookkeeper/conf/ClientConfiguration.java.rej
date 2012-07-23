@@ -1,0 +1,17 @@
+***************
+*** 179,185 ****
+       * @return zookeeper servers
+       */
+      public String getZkServers() {
+-         return getString(ZK_SERVERS, "localhost");
+      }
+  
+      /**
+--- 179,185 ----
+       * @return zookeeper servers
+       */
+      public String getZkServers() {
++         return getString(ZK_SERVERS, "127.0.0.1");
+      }
+  
+      /**

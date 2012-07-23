@@ -1,0 +1,33 @@
+***************
+*** 413,418 ****
+              throws KeeperException, IOException, InterruptedException, BKException {
+          final CountDownLatch connectLatch = new CountDownLatch(1);
+          final int bookies;
+          ZooKeeper zk = null;
+          try {
+              final String servers = conf.getZkServers();
+--- 413,419 ----
+              throws KeeperException, IOException, InterruptedException, BKException {
+          final CountDownLatch connectLatch = new CountDownLatch(1);
+          final int bookies;
++         String bookieRegistrationPath = conf.getZkLedgersRootPath() + "/" + conf.getBookiesAvailableNode();
+          ZooKeeper zk = null;
+          try {
+              final String servers = conf.getZkServers();
+***************
+*** 427,433 ****
+                  LOG.error("Couldn't connect to zookeeper at " + servers);
+                  throw new IOException("Couldn't connect to zookeeper " + servers);
+              }
+-             bookies = zk.getChildren("/ledgers/available", false).size();
+          } finally {
+              if (zk != null) {
+                  zk.close();
+--- 428,434 ----
+                  LOG.error("Couldn't connect to zookeeper at " + servers);
+                  throw new IOException("Couldn't connect to zookeeper " + servers);
+              }
++             bookies = zk.getChildren(bookieRegistrationPath, false).size();
+          } finally {
+              if (zk != null) {
+                  zk.close();

@@ -1,0 +1,10 @@
+***************
+*** 258,261 ****
+          assertEquals("Incorrect number of successes", numThreadsEach, numSuccess);
+          assertEquals("Incorrect number of failures", numThreadsEach, numFails);
+      }
+- }--- 258,261 ----
+          assertEquals("Incorrect number of successes", numThreadsEach, numSuccess);
+          assertEquals("Incorrect number of failures", numThreadsEach, numFails);
+      }
++ }
