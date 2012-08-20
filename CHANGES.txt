@@ -28,6 +28,8 @@ Trunk (unreleased changes)
 
       BOOKKEEPER-352: Should not use static ServerStats/BKStats instance in TestServerStats/TestBKStats (sijie via fpj)
 
+      BOOKKEEPER-338: Create Version.NEW and Version.ANY static instances of Version so that were not passing around nulls (sijie via ivank)
+
       bookkeeper-server:
 
         BOOKKEEPER-183: Provide tools to read/check data files in bookie server (sijie via ivank)
@@ -51,6 +53,8 @@ Trunk (unreleased changes)
         BOOKKEEPER-349: Entry logger should close all the chennels which are there in Map, instead of closing only current channel. (umamaheswararao via sijie)
 
         BOOKKEEPER-326: DeadLock during ledger recovery (rakeshr via ivank)
+
+        BOOKKEEPER-372: Check service name in bookie start/stop script. (nijel via ivank)
 
       hedwig-client:
 
@@ -82,6 +86,10 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-246: Recording of underreplication of ledger entries (ivank)
 
+        BOOKKEEPER-247: Detection of under replication (ivank)
+
+        BOOKKEEPER-299: Provide LedgerFragmentReplicator which should replicate the fragments found from LedgerChecker (umamahesh via ivank)
+
       hedwig-server:
 
         BOOKKEEPER-250: Need a ledger manager like interface to manage metadata operations in Hedwig (sijie via ivank)
@@ -91,6 +99,10 @@ Trunk (unreleased changes)
         BOOKKEEPER-331: Let hedwig support returning message seq id for publish requests. (Mridul via sijie)
 
         BOOKKEEPER-340: Test backward compatibility for hedwig between different versions. (sijie via ivank)
+
+        BOOKKEEPER-283: Improve Hedwig Console to use Hedwig Metadata Manager. (sijie via ivank)
+
+        BOOKKEEPER-332: Add SubscriptionPreferences to record all preferences for a subscription (sijie via ivank)
 
       hedwig-client:
 
