@@ -24,7 +24,7 @@ import org.apache.hedwig.exceptions.PubSubException.ServerNotResponsibleForTopic
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubRequest;
 import org.apache.hedwig.protoextensions.PubSubResponseUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
-import org.apache.hedwig.server.netty.ServerStats;
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.HedwigSocketAddress;
@@ -46,7 +46,7 @@ public abstract class BaseHandler implements Handler {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                ServerStats.getInstance().getOpStats(request.getType()).incrementFailedOps();
+                StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(request.getType()).registerFailedEvent();
             }
 
             @Override
@@ -54,7 +54,7 @@ public abstract class BaseHandler implements Handler {
                 if (!owner.equals(cfg.getServerAddr())) {
                     channel.write(PubSubResponseUtils.getResponseForException(
                                       new ServerNotResponsibleForTopicException(owner.toString()), request.getTxnId()));
-                    ServerStats.getInstance().incrementRequestsRedirect();
+                    StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
                     return;
                 }
                 handleRequestAtOwner(request, channel);

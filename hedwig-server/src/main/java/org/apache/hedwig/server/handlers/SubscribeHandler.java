@@ -45,8 +45,8 @@ import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.ChannelEndPoint;
 import org.apache.hedwig.server.delivery.DeliveryManager;
-import org.apache.hedwig.server.netty.ServerStats;
-import org.apache.hedwig.server.netty.ServerStats.OpStats;
+import org.apache.hedwig.server.stats.OpStatsLogger;
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
@@ -63,7 +63,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
     ConcurrentHashMap<TopicSubscriber, Channel> sub2Channel;
     ConcurrentHashMap<Channel, TopicSubscriber> channel2sub;
     // op stats
-    private final OpStats subStats;
+    private final OpStatsLogger subStatsLogger;
 
     public SubscribeHandler(TopicManager topicMgr, DeliveryManager deliveryManager, PersistenceManager persistenceMgr,
                             SubscriptionManager subMgr, ServerConfiguration cfg) {
@@ -73,7 +73,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         this.subMgr = subMgr;
         sub2Channel = new ConcurrentHashMap<TopicSubscriber, Channel>();
         channel2sub = new ConcurrentHashMap<Channel, TopicSubscriber>();
-        subStats = ServerStats.getInstance().getOpStats(OperationType.SUBSCRIBE);
+        subStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE);
     }
 
     public void channelDisconnected(Channel channel) {
@@ -83,7 +83,10 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         synchronized (channel) {
             TopicSubscriber topicSub = channel2sub.remove(channel);
             if (topicSub != null) {
-                sub2Channel.remove(topicSub);
+                if (null != sub2Channel.remove(topicSub)) {
+                    StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
+                            .dec();
+                }
             }
         }
     }
@@ -94,7 +97,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         if (!request.hasSubscribeRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing subscribe request data");
-            subStats.incrementFailedOps();
+            subStatsLogger.registerFailedEvent();
             return;
         }
 
@@ -106,8 +109,8 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         } catch (ServerNotResponsibleForTopicException e) {
             channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId())).addListener(
                 ChannelFutureListener.CLOSE);
-            subStats.incrementFailedOps();
-            ServerStats.getInstance().incrementRequestsRedirect();
+            subStatsLogger.registerFailedEvent();
+            StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
             return;
         }
 
@@ -123,7 +126,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId())).addListener(
                     ChannelFutureListener.CLOSE);
-                subStats.incrementFailedOps();
+                subStatsLogger.registerFailedEvent();
             }
 
             @Override
@@ -138,7 +141,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                         // channel got disconnected while we were processing the
                         // subscribe request,
                         // nothing much we can do in this case
-                        subStats.incrementFailedOps();
+                        subStatsLogger.registerFailedEvent();
                         return;
                     }
 
@@ -148,12 +151,16 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                             "subscription for this topic, subscriberId is already being served on a different channel");
                         channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
                         .addListener(ChannelFutureListener.CLOSE);
-                        subStats.incrementFailedOps();
+                        subStatsLogger.registerFailedEvent();
                         return;
                     } else {
                         // channel2sub is just a cache, so we can add to it
                         // without synchronization
-                        channel2sub.put(channel, topicSub);
+                        if (null == channel2sub.put(channel, topicSub)) {
+                            StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
+                                    .inc();
+                        }
+
                     }
                 }
                 // initialize the message filter
@@ -204,7 +211,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 logger.info("Subscribe request (" + request.getTxnId() + ") for (topic:" + topic.toStringUtf8()
                           + ", subscriber:" + subscriberId.toStringUtf8() + ") from channel " + channel.getRemoteAddress()
                           + " succeed - its subscription data is " + SubscriptionStateUtils.toString(subData));
-                subStats.updateLatency(MathUtils.now() - requestTime);
+                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
 
                 // want to start 1 ahead of the consume ptr
                 MessageSeqId lastConsumedSeqId = subData.getState().getMsgId();

@@ -61,6 +61,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String BK_ENSEMBLE_SIZE = "bk_ensemble_size";
     protected final static String BK_QUORUM_SIZE = "bk_quorum_size";
     protected final static String RETRY_REMOTE_SUBSCRIBE_THREAD_RUN_INTERVAL = "retry_remote_subscribe_thread_run_interval";
+    protected final static String STATS_HTTP_PORT = "stats_http_port";
     protected final static String MAX_ENTRIES_PER_LEDGER = "max_entries_per_ledger";
 
     // manager related settings
@@ -294,6 +295,11 @@ public class ServerConfiguration extends AbstractConfiguration {
     // copies of each ledger entry is written).
     public int getBkQuorumSize() {
         return conf.getInt(BK_QUORUM_SIZE, 2);
+    }
+
+    // The port on which the http server exporting stats runs.
+    public int getStatsHttpPort() {
+        return conf.getInt(STATS_HTTP_PORT, 9002);
     }
 
     /**

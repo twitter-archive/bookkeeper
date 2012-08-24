@@ -14,6 +14,7 @@
 
 package org.apache.hedwig.server.netty;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -38,18 +39,66 @@ public class ServerStats {
         private final long maxLatency, minLatency;
         private final double avgLatency;
         private final long numSuccessOps, numFailedOps;
-        private final String latencyHist;
+        private final long[] latencyBuckets;
+        private long[] cumulativeLatencyBuckets = null;
 
         @ConstructorProperties({"maxLatency", "minLatency", "avgLatency",
-                                "numSuccessOps", "numFailedOps", "latencyHist"})
+                                "numSuccessOps", "numFailedOps", "latencyBuckets"})
         public OpStatData(long maxLatency, long minLatency, double avgLatency,
-                          long numSuccessOps, long numFailedOps, String latencyHist) {
+                          long numSuccessOps, long numFailedOps, long[] latencyBuckets) {
             this.maxLatency = maxLatency;
             this.minLatency = minLatency == Long.MAX_VALUE ? 0 : minLatency;
             this.avgLatency = avgLatency;
             this.numSuccessOps = numSuccessOps;
             this.numFailedOps = numFailedOps;
-            this.latencyHist = latencyHist;
+            this.latencyBuckets = latencyBuckets;
+        }
+        synchronized private void updateCumulativeLatencies() {
+            if (this.cumulativeLatencyBuckets != null) {
+                return;
+            }
+            this.cumulativeLatencyBuckets = Arrays.copyOf(this.latencyBuckets, this.latencyBuckets.length);
+            for (int i = 1; i < this.latencyBuckets.length; i++) {
+                this.cumulativeLatencyBuckets[i] += this.cumulativeLatencyBuckets[i-1];
+            }
+        }
+
+        /**
+         * @param percentile as a percentage 99.99, 99.9 etc.
+         * @return
+         */
+        private long percentileLatency(double percentile) {
+            double actualPercentile = percentile/100.0;
+            updateCumulativeLatencies();
+            long target = (long)(this.numSuccessOps * actualPercentile);
+            for (int i = 0; i < this.cumulativeLatencyBuckets.length; i++) {
+                if (this.cumulativeLatencyBuckets[i] >= target) {
+                    return i;
+                }
+            }
+            // Should never reach here
+            return this.cumulativeLatencyBuckets.length;
+        }
+
+        public long[] getLatencyBuckets() {
+            return latencyBuckets;
+        }
+
+        public long[] getCumulativeBucket() {
+            updateCumulativeLatencies();
+            return cumulativeLatencyBuckets;
+        }
+
+        public long getP99Latency() {
+            return percentileLatency(99.0);
+        }
+
+        public long getP999Latency() {
+            return percentileLatency(99.9);
+        }
+
+        public long getP9999Latency() {
+            return percentileLatency(99.99);
         }
 
         public long getMaxLatency() {
@@ -71,17 +120,14 @@ public class ServerStats {
         public long getNumFailedOps() {
             return numFailedOps;
         }
-
-        public String getLatencyHist() {
-            return latencyHist;
-        }
     }
 
     /**
      * Operation Statistics
      */
     public static class OpStats {
-        static final int NUM_BUCKETS = 3*9 + 2;
+        // For now try to get granularity up to 2000ms.
+        static final int NUM_BUCKETS = 2002;
 
         long maxLatency = 0;
         long minLatency = Long.MAX_VALUE;
@@ -106,7 +152,7 @@ public class ServerStats {
             if (latency < 0) {
                 // less than 0ms . Ideally this should not happen.
                 // We have seen this latency negative in some cases due to the
-                // behaviors of JVM. Ignoring the statistics updation for such
+                // behaviors of JVM. Ignoring the statistics update for such
                 // cases.
                 LOG.warn("Latency time coming negative");
                 return;
@@ -119,31 +165,19 @@ public class ServerStats {
             if (latency > maxLatency) {
                 maxLatency = latency;
             }
-            int bucket;
-            if (latency <= 100) { // less than 100ms
-                bucket = (int)(latency / 10);
-            } else if (latency <= 1000) { // 100ms ~ 1000ms
-                bucket = 1 * 9 + (int)(latency / 100);
-            } else if (latency <= 10000) { // 1s ~ 10s
-                bucket = 2 * 9 + (int)(latency / 1000);
-            } else { // more than 10s
-                bucket = 3 * 9 + 1;
+            int bucket = (int)latency;
+            // latencyBuckets[NUM_BUCKETS-1] has values for latencies greater than NUM_BUCKETS-2
+            if (bucket > NUM_BUCKETS - 1) {
+                bucket = NUM_BUCKETS - 1;
             }
             ++latencyBuckets[bucket];
         }
 
         synchronized public OpStatData toOpStatData() {
             double avgLatency = numSuccessOps > 0 ? totalLatency / numSuccessOps : 0.0f;
-            StringBuilder sb = new StringBuilder();
-            for (int i=0; i<NUM_BUCKETS; i++) {
-                sb.append(latencyBuckets[i]);
-                if (i != NUM_BUCKETS - 1) {
-                    sb.append(',');
-                }
-            }
-
+            long[] latencyBucketClone = Arrays.copyOf(this.latencyBuckets, latencyBuckets.length);
             return new OpStatData(maxLatency, minLatency, avgLatency,
-                                  numSuccessOps, numFailedOps, sb.toString());
+                                  numSuccessOps, numFailedOps, latencyBucketClone);
         }
 
     }
@@ -164,6 +198,8 @@ public class ServerStats {
     AtomicLong numRequestsReceived = new AtomicLong(0);
     AtomicLong numRequestsRedirect = new AtomicLong(0);
     AtomicLong numMessagesDelivered = new AtomicLong(0);
+    AtomicLong numTopics = new AtomicLong(0);
+    AtomicLong persistQueueSize = new AtomicLong(0);
 
     /**
      * Stats of operations
@@ -188,6 +224,18 @@ public class ServerStats {
         numMessagesDelivered.incrementAndGet();
     }
 
+    public void setNumTopics(long n) {
+        numTopics.getAndSet(n);
+    }
+
+    public void incrementPersistQueueSize() {
+        persistQueueSize.incrementAndGet();
+    }
+
+    public void decrementPersistQueueSize() {
+        persistQueueSize.decrementAndGet();
+    }
+
     public long getNumRequestsReceived() {
         return numRequestsReceived.get();
     }
@@ -198,5 +246,13 @@ public class ServerStats {
 
     public long getNumMessagesDelivered() {
         return numMessagesDelivered.get();
+    }
+
+    public long getNumTopics() {
+        return numTopics.get();
+    }
+
+    public long getPersistQueueSize() {
+        return persistQueueSize.get();
     }
 }

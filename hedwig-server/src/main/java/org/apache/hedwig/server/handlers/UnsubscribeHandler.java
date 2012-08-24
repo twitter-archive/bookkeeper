@@ -28,9 +28,9 @@ import org.apache.hedwig.protocol.PubSubProtocol.UnsubscribeRequest;
 import org.apache.hedwig.protoextensions.PubSubResponseUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.DeliveryManager;
-import org.apache.hedwig.server.netty.ServerStats;
-import org.apache.hedwig.server.netty.ServerStats.OpStats;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
+import org.apache.hedwig.server.stats.OpStatsLogger;
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
@@ -39,14 +39,14 @@ public class UnsubscribeHandler extends BaseHandler {
     SubscriptionManager subMgr;
     DeliveryManager deliveryMgr;
     // op stats
-    final OpStats unsubStats;
+    final OpStatsLogger unsubStatsLogger;
 
     public UnsubscribeHandler(TopicManager tm, ServerConfiguration cfg, SubscriptionManager subMgr,
                               DeliveryManager deliveryMgr) {
         super(tm, cfg);
         this.subMgr = subMgr;
         this.deliveryMgr = deliveryMgr;
-        unsubStats = ServerStats.getInstance().getOpStats(OperationType.UNSUBSCRIBE);
+        unsubStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.UNSUBSCRIBE);
     }
 
     @Override
@@ -54,7 +54,7 @@ public class UnsubscribeHandler extends BaseHandler {
         if (!request.hasUnsubscribeRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing unsubscribe request data");
-            unsubStats.incrementFailedOps();
+            unsubStatsLogger.registerFailedEvent();
             return;
         }
 
@@ -67,14 +67,14 @@ public class UnsubscribeHandler extends BaseHandler {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                unsubStats.incrementFailedOps();
+                unsubStatsLogger.registerFailedEvent();
             }
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
                 deliveryMgr.stopServingSubscriber(topic, subscriberId);
                 channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId()));
-                unsubStats.updateLatency(MathUtils.now() - requestTime);
+                unsubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
             }
         }, null);
 

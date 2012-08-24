@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,7 +109,9 @@ public abstract class AbstractTopicManager implements TopicManager {
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
-                topics.add(topic);
+                if (topics.add(topic)) {
+                    StatsInstanceProvider.getStatsLoggerInstance().getNumTopicsLogger().inc();
+                }
                 if (cfg.getRetentionSecs() > 0) {
                     scheduler.schedule(new Runnable() {
                         @Override
@@ -147,7 +150,7 @@ public abstract class AbstractTopicManager implements TopicManager {
                         originalCallback.operationFailed(ctx, exception);
                     }
                 };
-                
+
                 realReleaseTopic(topic, cb, originalContext);
             }
         };
@@ -161,7 +164,9 @@ public abstract class AbstractTopicManager implements TopicManager {
     private void realReleaseTopic(ByteString topic, Callback<Void> callback, Object ctx) {
         for (TopicOwnershipChangeListener listener : listeners)
             listener.lostTopic(topic);
-        topics.remove(topic);
+        if (topics.remove(topic)) {
+            StatsInstanceProvider.getStatsLoggerInstance().getNumTopicsLogger().dec();
+        }
         postReleaseCleanup(topic, callback, ctx);
     }
 

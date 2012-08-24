@@ -26,6 +26,9 @@ import com.google.protobuf.ByteString;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.util.Callback;
 
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
+import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
+
 public class TopicOpQueuer {
     /**
      * Map from topic to the queue of operations for that topic.
@@ -41,6 +44,24 @@ public class TopicOpQueuer {
     public interface Op extends Runnable {
     }
 
+    /**
+     * Update the persist queue size in StatsInstanceProvider only for the necessary Op.
+     * We do this all in one file so as not to distribute these calls to different operations.
+     * @param op
+     * @param increment if true, increment, else decrement
+     */
+    private void updatePersistQueueSize(Op op, boolean increment) {
+        if (op instanceof BookkeeperPersistenceManager.ConsumeUntilOp
+                || op instanceof BookkeeperPersistenceManager.PersistOp
+                || op instanceof BookkeeperPersistenceManager.RangeScanOp
+                || op instanceof BookkeeperPersistenceManager.UpdateLedgerOp) {
+            if (increment) {
+                StatsInstanceProvider.getStatsLoggerInstance().getPersistQueueSizeLogger().inc();
+            } else {
+                StatsInstanceProvider.getStatsLoggerInstance().getPersistQueueSizeLogger().dec();
+            }
+        }
+    }
     public abstract class AsynchronousOp<T> implements Op {
         final public ByteString topic;
         final public Callback<T> cb;
@@ -51,12 +72,18 @@ public class TopicOpQueuer {
             this.cb = new Callback<T>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
+                    // We finished running an async op. Decrement the persist queue size
+                    // if required
+                    updatePersistQueueSize(AsynchronousOp.this, false);
                     cb.operationFailed(ctx, exception);
                     popAndRunNext(topic);
                 }
 
                 @Override
                 public void operationFinished(Object ctx, T resultOfOperation) {
+                    // We finished running an async op. Decrement the persist queue size
+                    // if required
+                    updatePersistQueueSize(AsynchronousOp.this, false);
                     cb.operationFinished(ctx, resultOfOperation);
                     popAndRunNext(topic);
                 }
@@ -75,6 +102,9 @@ public class TopicOpQueuer {
         @Override
         public final void run() {
             runInternal();
+            // We finished running a sync op. Decrement the persist queue size if
+            // required.
+            updatePersistQueueSize(SynchronousOp.this, false);
             popAndRunNext(topic);
         }
 
@@ -99,10 +129,13 @@ public class TopicOpQueuer {
                 topic2ops.put(topic, ops);
             }
             ops.add(op);
+            // increment = true
+            updatePersistQueueSize(op, true);
             size = ops.size();
         }
-        if (size == 1)
+        if (size == 1) {
             op.run();
+        }
     }
 
     public Runnable peek(ByteString topic) {

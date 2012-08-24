@@ -184,7 +184,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         tm.addTopicOwnershipChangeListener(this);
     }
 
-    class RangeScanOp extends TopicOpQueuer.SynchronousOp {
+    public class RangeScanOp extends TopicOpQueuer.SynchronousOp {
         RangeScanRequest request;
         int numMessagesRead = 0;
         long totalSizeRead = 0;
@@ -346,7 +346,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         // Nothing to do here. this is just a hint that we cannot use.
     }
 
-    class UpdateLedgerOp extends TopicOpQueuer.AsynchronousOp<Void> {
+    public class UpdateLedgerOp extends TopicOpQueuer.AsynchronousOp<Void> {
         private long ledgerDeleted;
 
         public UpdateLedgerOp(ByteString topic, final Callback<Void> cb, final Object ctx, final long ledgerDeleted) {
@@ -396,7 +396,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
     }
 
-    class ConsumeUntilOp extends TopicOpQueuer.SynchronousOp {
+    public class ConsumeUntilOp extends TopicOpQueuer.SynchronousOp {
         private final long seqId;
 
         public ConsumeUntilOp(ByteString topic, long seqId) {

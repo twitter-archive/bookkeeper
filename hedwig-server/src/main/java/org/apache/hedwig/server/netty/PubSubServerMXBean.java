@@ -18,7 +18,7 @@
 
 package org.apache.hedwig.server.netty;
 
-import org.apache.hedwig.server.netty.ServerStats.OpStatData;
+import org.apache.hedwig.server.stats.OpStatsData;
 
 /**
  * PubSub Server MBean
@@ -28,22 +28,22 @@ public interface PubSubServerMXBean {
     /**
      * @return publish stats
      */
-    public OpStatData getPubStats();
+    public OpStatsData getPubStats();
 
     /**
      * @return subscription stats
      */
-    public OpStatData getSubStats();
+    public OpStatsData getSubStats();
 
     /**
      * @return unsub stats
      */
-    public OpStatData getUnsubStats();
+    public OpStatsData getUnsubStats();
 
     /**
      * @return consume stats
      */
-    public OpStatData getConsumeStats();
+    public OpStatsData getConsumeStats();
 
     /**
      * @return number of requests received
@@ -59,5 +59,20 @@ public interface PubSubServerMXBean {
      * @return number of messages delivered
      */
     public long getNumMessagesDelivered();
+
+    /**
+     * @return number of topics owned by the hub
+     */
+    public long getNumTopics();
+
+    /**
+     * @return number of requests in the persistence manager
+     */
+    public long getPersistQueueSize();
+
+    /**
+     * @return return 1 if the server is up and running. Sanity check.
+     */
+    public int getIsUp();
 
 }

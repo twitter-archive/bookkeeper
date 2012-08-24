@@ -26,23 +26,23 @@ import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubRequest;
 import org.apache.hedwig.protoextensions.PubSubResponseUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
-import org.apache.hedwig.server.netty.ServerStats;
-import org.apache.hedwig.server.netty.ServerStats.OpStats;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.persistence.PersistRequest;
 import org.apache.hedwig.server.persistence.PersistenceManager;
+import org.apache.hedwig.server.stats.OpStatsLogger;
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
 
 public class PublishHandler extends BaseHandler {
 
     private PersistenceManager persistenceMgr;
-    private final OpStats pubStats;
+    private final OpStatsLogger pubStatsLogger;
 
     public PublishHandler(TopicManager topicMgr, PersistenceManager persistenceMgr, ServerConfiguration cfg) {
         super(topicMgr, cfg);
         this.persistenceMgr = persistenceMgr;
-        this.pubStats = ServerStats.getInstance().getOpStats(OperationType.PUBLISH);
+        this.pubStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.PUBLISH);
     }
 
     @Override
@@ -50,7 +50,7 @@ public class PublishHandler extends BaseHandler {
         if (!request.hasPublishRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing publish request data");
-            pubStats.incrementFailedOps();
+            pubStatsLogger.registerFailedEvent();
             return;
         }
 
@@ -63,13 +63,13 @@ public class PublishHandler extends BaseHandler {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                pubStats.incrementFailedOps();
+                pubStatsLogger.registerFailedEvent();
             }
 
             @Override
             public void operationFinished(Object ctx, PubSubProtocol.MessageSeqId resultOfOperation) {
                 channel.write(getSuccessResponse(request.getTxnId(), resultOfOperation));
-                pubStats.updateLatency(MathUtils.now() - requestTime);
+                pubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
             }
         }, null);
 

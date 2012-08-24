@@ -43,6 +43,7 @@ import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
 import org.apache.hedwig.protoextensions.PubSubResponseUtils;
 import org.apache.hedwig.server.handlers.ChannelDisconnectListener;
 import org.apache.hedwig.server.handlers.Handler;
+import org.apache.hedwig.server.stats.StatsInstanceProvider;
 
 @ChannelPipelineCoverage("all")
 public class UmbrellaHandler extends SimpleChannelHandler {
@@ -154,7 +155,7 @@ public class UmbrellaHandler extends SimpleChannelHandler {
         }
 
         handler.handleRequest(request, channel);
-        ServerStats.getInstance().incrementRequestsReceived();
+        StatsInstanceProvider.getStatsLoggerInstance().getRequestsReceivedLogger().inc();
     }
 
 }

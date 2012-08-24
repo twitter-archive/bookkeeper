@@ -30,10 +30,23 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 
+import com.twitter.common.application.ShutdownRegistry;
+import com.twitter.common.base.Supplier;
+import com.twitter.common.net.http.handlers.VarsJsonHandler;
+import com.twitter.common.quantity.Amount;
+import com.twitter.common.quantity.Time;
+import com.twitter.common.stats.JvmStats;
+import com.twitter.common.stats.Stat;
+import com.twitter.common.stats.Stats;
+import com.twitter.common.net.http.handlers.VarsHandler;
+import com.twitter.common.stats.TimeSeriesRepository;
+import com.twitter.common.stats.TimeSeriesRepositoryImpl;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.commons.configuration.ConfigurationException;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.KeeperException;
@@ -49,6 +62,7 @@ import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 import org.jboss.netty.logging.InternalLoggerFactory;
 import org.jboss.netty.logging.Log4JLoggerFactory;
+import org.eclipse.jetty.server.Server;
 
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
@@ -116,6 +130,10 @@ public class PubSubServer {
     NettyHandlerBean jmxNettyBean;
     PubSubServerBean jmxServerBean;
     final ThreadGroup tg;
+
+    // Export stats
+    private ShutdownRegistry.ShutdownRegistryImpl shutDownRegistry;
+    private Server jettyServer;
 
     protected PersistenceManager instantiatePersistenceManager(TopicManager topicMgr) throws IOException,
         InterruptedException {
@@ -292,6 +310,13 @@ public class PubSubServer {
 
         // unregister jmx
         unregisterJMX();
+
+        // stop exporting stats
+        try {
+            stopStatsExporter();
+        } catch (Exception e) {
+            logger.error("Error while stopping the stats exporter");
+        }
     }
 
     protected void registerJMX(Map<OperationType, Handler> handlers) {
@@ -336,6 +361,51 @@ public class PubSubServer {
         }
         jmxNettyBean = null;
         jmxServerBean = null;
+    }
+
+    /**
+     * Starts a Jetty HTTP server and necessary servlets using which stats are exported.
+     */
+    protected void startStatsExporter() throws Exception {
+        // Create the ShutdownRegistry needed for our sampler
+        this.shutDownRegistry = new ShutdownRegistry.ShutdownRegistryImpl();
+
+        // Start the sampler. Sample every 1 second and retain for 1 hour
+        // TODO(Aniruddha): Make this configurable if needed.
+        TimeSeriesRepository sampler = new TimeSeriesRepositoryImpl(Stats.STAT_REGISTRY,
+                Amount.of(1L, Time.SECONDS), Amount.of(1L, Time.HOURS));
+        sampler.start(this.shutDownRegistry);
+
+        // Export JVM stats
+        JvmStats.export();
+        // Configure handlers
+        Supplier<Iterable<Stat<?>>> supplier = new Supplier<Iterable<Stat<?>>>() {
+            @Override
+            public Iterable<Stat<?>> get() {
+                return Stats.getVariables();
+            }
+        };
+        // Start jetty.
+        this.jettyServer = new Server(conf.getStatsHttpPort());
+        ServletContextHandler context = new ServletContextHandler();
+        context.setContextPath("/");
+        this.jettyServer.setHandler(context);
+        context.addServlet(new ServletHolder(new VarsHandler(supplier)), "/vars");
+        context.addServlet(new ServletHolder(new VarsJsonHandler(supplier)), "/vars.json");
+        this.jettyServer.start();
+    }
+
+    /**
+     * Stop all operations that were started for exporting stats.
+     */
+    protected void stopStatsExporter() throws Exception {
+
+        if (this.jettyServer != null) {
+            this.jettyServer.stop();
+        }
+        if (this.shutDownRegistry != null) {
+            this.shutDownRegistry.execute();
+        }
     }
 
     /**
@@ -408,6 +478,9 @@ public class PubSubServer {
                     }
                     // register jmx
                     registerJMX(handlers);
+
+                    // Start the HTTP server for exposing stats.
+                    startStatsExporter();
                 } catch (Exception e) {
                     ConcurrencyUtils.put(queue, Either.right(e));
                     return;
