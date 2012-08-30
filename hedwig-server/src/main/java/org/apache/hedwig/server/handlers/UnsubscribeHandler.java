@@ -51,10 +51,11 @@ public class UnsubscribeHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
+        final long requestTimeMillis = MathUtils.now();
         if (!request.hasUnsubscribeRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing unsubscribe request data");
-            unsubStatsLogger.registerFailedEvent();
+            unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             return;
         }
 
@@ -62,19 +63,18 @@ public class UnsubscribeHandler extends BaseHandler {
         final ByteString topic = request.getTopic();
         final ByteString subscriberId = unsubRequest.getSubscriberId();
 
-        final long requestTime = MathUtils.now();
         subMgr.unsubscribe(topic, subscriberId, new Callback<Void>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                unsubStatsLogger.registerFailedEvent();
+                unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
                 deliveryMgr.stopServingSubscriber(topic, subscriberId);
                 channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId()));
-                unsubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
+                unsubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
             }
         }, null);
 

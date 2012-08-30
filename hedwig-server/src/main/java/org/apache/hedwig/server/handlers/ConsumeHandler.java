@@ -17,6 +17,7 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.channel.Channel;
 
 import org.apache.hedwig.exceptions.PubSubException;
@@ -34,34 +35,33 @@ import org.apache.hedwig.util.Callback;
 public class ConsumeHandler extends BaseHandler {
 
     SubscriptionManager sm;
-    Callback<Void> noopCallback = new NoopCallback<Void>();
     final OpStatsLogger consumeStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME);
-
-    class NoopCallback<T> implements Callback<T> {
-        @Override
-        public void operationFailed(Object ctx, PubSubException exception) {
-            consumeStatsLogger.registerFailedEvent();
-        }
-
-        public void operationFinished(Object ctx, T resultOfOperation) {
-            // we don't collect consume process time
-            consumeStatsLogger.registerSuccessfulEvent(0);
-        };
-    }
 
     @Override
     public void handleRequestAtOwner(PubSubRequest request, Channel channel) {
+        final long requestTimeMillis = MathUtils.now();
         if (!request.hasConsumeRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing consume request data");
-            consumeStatsLogger.registerFailedEvent();
+            // We don't collect consume process time.
+            consumeStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             return;
         }
 
         ConsumeRequest consumeRequest = request.getConsumeRequest();
 
         sm.setConsumeSeqIdForSubscriber(request.getTopic(), consumeRequest.getSubscriberId(),
-                                        consumeRequest.getMsgId(), noopCallback, null);
+                                        consumeRequest.getMsgId(), new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void ignoreVal) {
+                consumeStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+            }
+
+            @Override
+            public void operationFailed(Object ctx, PubSubException e) {
+                consumeStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            }
+        }, null);
 
     }
 

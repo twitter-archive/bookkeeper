@@ -93,11 +93,11 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
-
+        final long requestTimeMillis = MathUtils.now();
         if (!request.hasSubscribeRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing subscribe request data");
-            subStatsLogger.registerFailedEvent();
+            subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             return;
         }
 
@@ -109,7 +109,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         } catch (ServerNotResponsibleForTopicException e) {
             channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId())).addListener(
                 ChannelFutureListener.CLOSE);
-            subStatsLogger.registerFailedEvent();
+            subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
             return;
         }
@@ -119,14 +119,13 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
 
         MessageSeqId lastSeqIdPublished = MessageSeqId.newBuilder(seqId).setLocalComponent(seqId.getLocalComponent()).build();
 
-        final long requestTime = MathUtils.now();
         subMgr.serveSubscribeRequest(topic, subRequest, lastSeqIdPublished, new Callback<SubscriptionData>() {
 
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId())).addListener(
                     ChannelFutureListener.CLOSE);
-                subStatsLogger.registerFailedEvent();
+                subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }
 
             @Override
@@ -141,7 +140,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                         // channel got disconnected while we were processing the
                         // subscribe request,
                         // nothing much we can do in this case
-                        subStatsLogger.registerFailedEvent();
+                        subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                         return;
                     }
 
@@ -151,7 +150,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                             "subscription for this topic, subscriberId is already being served on a different channel");
                         channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
                         .addListener(ChannelFutureListener.CLOSE);
-                        subStatsLogger.registerFailedEvent();
+                        subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                         return;
                     } else {
                         // channel2sub is just a cache, so we can add to it
@@ -185,7 +184,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                                   + "It might be introduced by programming error in message filter.";
                     logger.error(errMsg, re);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, re);
-                    subStats.incrementFailedOps();
+                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
                     .addListener(ChannelFutureListener.CLOSE);
                     return;
@@ -194,7 +193,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                                   + ", subscriber:" + subscriberId.toStringUtf8() + ").";
                     logger.error(errMsg, t);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, t);
-                    subStats.incrementFailedOps();
+                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
                     .addListener(ChannelFutureListener.CLOSE);
                     return;
@@ -211,7 +210,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 logger.info("Subscribe request (" + request.getTxnId() + ") for (topic:" + topic.toStringUtf8()
                           + ", subscriber:" + subscriberId.toStringUtf8() + ") from channel " + channel.getRemoteAddress()
                           + " succeed - its subscription data is " + SubscriptionStateUtils.toString(subData));
-                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
+                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
 
                 // want to start 1 ahead of the consume ptr
                 MessageSeqId lastConsumedSeqId = subData.getState().getMsgId();

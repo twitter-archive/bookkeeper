@@ -47,29 +47,29 @@ public class PublishHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
+        final long requestTimeMillis = MathUtils.now();
         if (!request.hasPublishRequest()) {
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing publish request data");
-            pubStatsLogger.registerFailedEvent();
+            pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             return;
         }
 
         Message msgToSerialize = Message.newBuilder(request.getPublishRequest().getMsg()).setSrcRegion(
                                      cfg.getMyRegionByteString()).build();
 
-        final long requestTime = MathUtils.now();
         PersistRequest persistRequest = new PersistRequest(request.getTopic(), msgToSerialize,
         new Callback<PubSubProtocol.MessageSeqId>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                pubStatsLogger.registerFailedEvent();
+                pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }
 
             @Override
             public void operationFinished(Object ctx, PubSubProtocol.MessageSeqId resultOfOperation) {
                 channel.write(getSuccessResponse(request.getTxnId(), resultOfOperation));
-                pubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTime);
+                pubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
             }
         }, null);
 

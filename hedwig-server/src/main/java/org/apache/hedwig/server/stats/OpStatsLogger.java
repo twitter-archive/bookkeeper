@@ -7,16 +7,17 @@ package org.apache.hedwig.server.stats;
 public interface OpStatsLogger {
 
     /**
-     * Increment the failed op counter.
+     * Increment the failed op counter with the given eventLatencyMillis.
+     * @param eventLatencyMillis The event latency in milliseconds.
      */
-    public void registerFailedEvent();
+    public void registerFailedEvent(long eventLatencyMillis);
 
     /**
-     * An operation succeeded with the given latency. Update
+     * An operation succeeded with the given eventLatencyMillis. Update
      * stats to reflect the same
-     * @param latency
+     * @param eventLatencyMillis The event latency in milliseconds.
      */
-    public void registerSuccessfulEvent(long latency);
+    public void registerSuccessfulEvent(long eventLatencyMillis);
 
     /**
      * @return Returns an OpStatsData object with necessary values. We need this function

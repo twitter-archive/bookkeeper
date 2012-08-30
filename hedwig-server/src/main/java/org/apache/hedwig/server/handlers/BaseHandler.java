@@ -17,6 +17,7 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.channel.Channel;
 
 import org.apache.hedwig.exceptions.PubSubException;
@@ -41,12 +42,14 @@ public abstract class BaseHandler implements Handler {
 
 
     public void handleRequest(final PubSubRequest request, final Channel channel) {
+        final long requestTimeMillis = MathUtils.now();
         topicMgr.getOwner(request.getTopic(), request.getShouldClaim(),
         new Callback<HedwigSocketAddress>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(request.getType()).registerFailedEvent();
+                StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(request.getType())
+                    .registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }
 
             @Override
