@@ -45,6 +45,12 @@
     <dependency>
       <groupId>com.twitter.common</groupId>
       <artifactId>net-http-handlers</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>javax.servlet</groupId>
+          <artifactId>servlet-api</artifactId>
+        </exclusion>
+      </exclusions>
       <version>0.0.39</version>
       <scope>compile</scope>
     </dependency>

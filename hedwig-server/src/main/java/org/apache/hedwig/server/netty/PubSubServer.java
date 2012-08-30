@@ -480,7 +480,9 @@ public class PubSubServer {
                     registerJMX(handlers);
 
                     // Start the HTTP server for exposing stats.
-                    startStatsExporter();
+                    if (conf.getStatsExport()) {
+                        startStatsExporter();
+                    }
                 } catch (Exception e) {
                     ConcurrencyUtils.put(queue, Either.right(e));
                     return;
