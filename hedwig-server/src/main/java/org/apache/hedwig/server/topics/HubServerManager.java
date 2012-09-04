@@ -19,6 +19,7 @@ package org.apache.hedwig.server.topics;
 
 import java.io.IOException;
 
+import org.apache.hedwig.protocol.PubSubProtocol;
 import org.apache.hedwig.util.Callback;
 
 /**
@@ -105,4 +106,20 @@ interface HubServerManager {
      *          Callback context.
      */
     public void chooseLeastLoadedHub(Callback<HubInfo> callback, Object ctx);
+
+    /**
+     * Try to rebalance the load within the cluster. This function will get
+     * the {@link HubLoad} from all available hubs within the cluster, and then
+     * shed additional load.
+     *
+     * @param tolerancePercentage
+     *          the percentage of load above average that is permissible.
+     * @param maxLoadToShed
+     *          the maximum amount of load to shed per call.
+     * @param callback
+     *          Callback indicating whether we reduced load or not.
+     * @param ctx
+     */
+    public void rebalanceCluster(double tolerancePercentage, PubSubProtocol.HubLoadData maxLoadToShed,
+                                 Callback<Boolean> callback, Object ctx);
 }

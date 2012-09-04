@@ -48,7 +48,7 @@ public class HubLoad implements Comparable<HubLoad> {
     }
 
     // how many topics that a hub server serves
-    long numTopics; 
+    long numTopics;
 
     public HubLoad(long num) {
         this.numTopics = num;
@@ -58,6 +58,7 @@ public class HubLoad implements Comparable<HubLoad> {
         this.numTopics = data.getNumTopics();
     }
 
+    // TODO: Make this threadsafe (BOOKKEEPER-379)
     public HubLoad setNumTopics(long numTopics) {
         this.numTopics = numTopics;
         return this;

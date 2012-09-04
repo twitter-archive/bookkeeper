@@ -21,7 +21,9 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -29,6 +31,7 @@ import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.common.ServerConfiguration;
@@ -179,6 +182,52 @@ public abstract class AbstractTopicManager implements TopicManager {
     @Override
     public final void releaseTopic(ByteString topic, Callback<Void> cb, Object ctx) {
         queuer.pushAndMaybeRun(topic, new ReleaseOp(topic, cb, ctx));
+    }
+
+    @Override
+    public final void releaseTopics(int numTopics, final Callback<Long> callback, final Object ctx) {
+        // This is a best effort function. We sacrifice accuracy to not hold a lock on the topics set.
+        List<ByteString> topicList = getTopicList();
+        // Make sure we release only as many topics as we own.
+        final long numTopicsToRelease = Math.min(topicList.size(), numTopics);
+        // Shuffle the list of topics we own, so that we release a random subset.
+        Collections.shuffle(topicList);
+        Callback<Void> mcb = CallbackUtils.multiCallback((int)numTopicsToRelease, new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void ignoreVal) {
+                callback.operationFinished(ctx, numTopicsToRelease);
+            }
+
+            @Override
+            public void operationFailed(Object ctx, PubSubException e) {
+                long notReleased = 0;
+                if (e instanceof PubSubException.CompositeException) {
+                    notReleased = ((PubSubException.CompositeException)e).getExceptions().size();
+                }
+                callback.operationFinished(ctx, numTopicsToRelease - notReleased);
+            }
+        }, ctx);
+
+        // Try to release "numTopicsToRelease" topics. It's okay if we're not
+        // able to release some topics. We signal that we tried by invoking the callback's
+        // operationFinished() with the actual number of topics released.
+        logger.info("This hub is releasing {} topics", numTopicsToRelease);
+        long releaseCount = 0;
+        for (ByteString topic : topicList) {
+            if (++releaseCount > numTopicsToRelease) {
+                break;
+            }
+            releaseTopic(topic, mcb, ctx);
+        }
+    }
+
+    @Override
+    public List<ByteString> getTopicList() {
+        List<ByteString> topicList;
+        synchronized (this.topics) {
+            topicList = Lists.newArrayList(this.topics);
+        }
+        return topicList;
     }
 
     /**

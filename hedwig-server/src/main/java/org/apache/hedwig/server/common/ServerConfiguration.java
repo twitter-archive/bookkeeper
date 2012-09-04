@@ -32,6 +32,7 @@ import org.apache.commons.configuration.ConfigurationException;
 import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.hedwig.conf.AbstractConfiguration;
+import org.apache.hedwig.protocol.PubSubProtocol;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.util.HedwigSocketAddress;
 
@@ -64,6 +65,9 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String STATS_EXPORT = "stats_export";
     protected final static String STATS_HTTP_PORT = "stats_http_port";
     protected final static String MAX_ENTRIES_PER_LEDGER = "max_entries_per_ledger";
+    protected final static String REBALANCE_TOLERANCE_PERCENTAGE = "rebalance_tolerance";
+    protected final static String REBALANCE_MAX_SHED = "rebalance_max_shed";
+    protected final static String REBALANCE_INTERVAL_SEC = "rebalance_interval_sec";
 
     // manager related settings
     protected final static String METADATA_MANAGER_BASED_TOPIC_MANAGER_ENABLED = "metadata_manager_based_topic_manager_enabled";
@@ -319,6 +323,33 @@ public class ServerConfiguration extends AbstractConfiguration {
         return conf.getLong(MAX_ENTRIES_PER_LEDGER, 0L);
     }
 
+    /**
+     * Get the tolerance percentage for the rebalancer. The rebalancer will not
+     * shed load if it's current load is less than average + average*tolerancePercentage/100.0
+     * @return
+     */
+    public double getRebalanceTolerance() {
+        return conf.getDouble(REBALANCE_TOLERANCE_PERCENTAGE, 10.0);
+    }
+
+    /**
+     * Get the maximum load the rebalancer can shed at once. Default is 50.
+     * @return
+     */
+    public PubSubProtocol.HubLoadData getRebalanceMaxShed() {
+        return PubSubProtocol.HubLoadData.newBuilder().setNumTopics(
+                conf.getLong(REBALANCE_MAX_SHED, 50)).build();
+    }
+
+    /**
+     * Get the interval(in seconds) between rebalancing attempts. The default is
+     * 5 minutes.
+     * @return
+     */
+    public long getRebalanceInterval() {
+        return conf.getLong(REBALANCE_INTERVAL_SEC, 300);
+    }
+
     /*
      * Is this a valid configuration that we can run with? This code might grow
      * over time.
@@ -346,7 +377,14 @@ public class ServerConfiguration extends AbstractConfiguration {
         if (getStatsExport() && getStatsHttpPort() <= 0) {
             throw new ConfigurationException("Http port to export stats should be positive.");
         }
-
+        // Validate that the rebalance tolerance percentage is not negative.
+        if (getRebalanceTolerance() < 0.0) {
+            throw new ConfigurationException("The rebalance tolerance percentage cannot be negative.");
+        }
+        // Validate that the maximum load to shed during a rebalance is not negative.
+        if (getRebalanceMaxShed().getNumTopics() < 0L) {
+            throw new ConfigurationException("The maximum load to shed during a rebalance cannot be negative.");
+        }
         // add other checks here
     }
 
