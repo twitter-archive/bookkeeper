@@ -1,4 +1,4 @@
-/*
+/**
  *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -21,37 +21,42 @@
 
 package org.apache.bookkeeper.replication;
 
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.CreateMode;
-import org.apache.zookeeper.ZooDefs.Ids;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
-import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
-import org.apache.bookkeeper.meta.LedgerManagerFactory;
-import org.apache.bookkeeper.test.ZooKeeperUtil;
-import org.apache.bookkeeper.conf.ServerConfiguration;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.junit.Test;
-import org.junit.Before;
-import org.junit.After;
-import static org.junit.Assert.*;
-
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ArrayList;
 import java.util.Set;
-import java.util.HashSet;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
+import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
+import org.apache.bookkeeper.proto.DataFormats.UnderreplicatedLedgerFormat;
+import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
+import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.test.ZooKeeperUtil;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.protobuf.TextFormat;
 
 /**
  * Test the zookeeper implementation of the ledger replication manager
@@ -68,6 +73,9 @@ public class TestLedgerUnderreplicationManager {
     ZooKeeper zkc1 = null;
     ZooKeeper zkc2 = null;
 
+    String basePath;
+    String urLedgerPath;
+
     @Before
     public void setupZooKeeper() throws Exception {
         zkUtil = new ZooKeeperUtil();
@@ -81,6 +89,9 @@ public class TestLedgerUnderreplicationManager {
         zkc2 = zkUtil.getNewZooKeeperClient();
         lmf1 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc1);
         lmf2 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc2);
+        basePath = conf.getZkLedgersRootPath() + '/'
+                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE;
+        urLedgerPath = basePath + "/ledgers";
     }
 
     @After
@@ -157,7 +168,7 @@ public class TestLedgerUnderreplicationManager {
             assertTrue(ledgers.remove(l));
         }
 
-        Future f = getLedgerToReplicate(m);
+        Future<Long> f = getLedgerToReplicate(m);
         try {
             f.get(5, TimeUnit.SECONDS);
             fail("Shouldn't be able to find a ledger to replicate");
@@ -305,7 +316,6 @@ public class TestLedgerUnderreplicationManager {
         String missingReplica2 = "localhost:3182";
 
         LedgerUnderreplicationManager m1 = lmf1.newLedgerUnderreplicationManager();
-        LedgerUnderreplicationManager m2 = lmf2.newLedgerUnderreplicationManager();
 
         Long ledgerA = 0xfeadeefdacL;
         m1.markLedgerUnderreplicated(ledgerA, missingReplica1);
@@ -341,6 +351,18 @@ public class TestLedgerUnderreplicationManager {
         m1.markLedgerUnderreplicated(ledgerA, missingReplica1);
         m2.markLedgerUnderreplicated(ledgerA, missingReplica1);
 
+        // verify duplicate missing replica
+        UnderreplicatedLedgerFormat.Builder builderA = UnderreplicatedLedgerFormat
+                .newBuilder();
+        String znode = getUrLedgerZnode(ledgerA);
+        byte[] data = zkc1.getData(znode, false, null);
+        TextFormat.merge(new String(data, Charset.forName("UTF-8")), builderA);
+        List<String> replicaList = builderA.getReplicaList();
+        assertEquals("Published duplicate missing replica : " + replicaList, 1,
+                replicaList.size());
+        assertTrue("Published duplicate missing replica : " + replicaList,
+                replicaList.contains(missingReplica1));
+
         Future<Long> fA = getLedgerToReplicate(m1);
         Long lA = fA.get(5, TimeUnit.SECONDS);
 
@@ -354,6 +376,158 @@ public class TestLedgerUnderreplicationManager {
             fail("Shouldn't be able to find a ledger to replicate");
         } catch (TimeoutException te) {
             // correct behaviour
+        }
+    }
+
+    /**
+     * Test that multiple LedgerUnderreplicationManagers should be able to take
+     * lock and release for same ledger
+     */
+    @Test(timeout = 30000)
+    public void testMultipleManagersShouldBeAbleToTakeAndReleaseLock()
+            throws Exception {
+        String missingReplica1 = "localhost:3181";
+        final LedgerUnderreplicationManager m1 = lmf1
+                .newLedgerUnderreplicationManager();
+        final LedgerUnderreplicationManager m2 = lmf2
+                .newLedgerUnderreplicationManager();
+        Long ledgerA = 0xfeadeefdacL;
+        m1.markLedgerUnderreplicated(ledgerA, missingReplica1);
+        final int iterationCount = 100;
+        final CountDownLatch latch1 = new CountDownLatch(iterationCount);
+        final CountDownLatch latch2 = new CountDownLatch(iterationCount);
+        Thread thread1 = new Thread() {
+            @Override
+            public void run() {
+                takeLedgerAndRelease(m1, latch1, iterationCount);
+            }
+        };
+
+        Thread thread2 = new Thread() {
+            @Override
+            public void run() {
+                takeLedgerAndRelease(m2, latch2, iterationCount);
+            }
+        };
+        thread1.start();
+        thread2.start();
+
+        // wait until at least one thread completed
+        while (!latch1.await(50, TimeUnit.MILLISECONDS)
+                && !latch2.await(50, TimeUnit.MILLISECONDS)) {
+            Thread.sleep(50);
+        }
+
+        m1.close();
+        m2.close();
+
+        // After completing 'lock acquire,release' job, it should notify below
+        // wait
+        latch1.await();
+        latch2.await();
+    }
+
+    /**
+     * Test verifies failures of bookies which are resembling each other.
+     *
+     * BK servers named like*********************************************
+     * 1.cluster.com, 2.cluster.com, 11.cluster.com, 12.cluster.com
+     * *******************************************************************
+     *
+     * BKserver IP:HOST like*********************************************
+     * localhost:3181, localhost:318, localhost:31812
+     * *******************************************************************
+     */
+    @Test
+    public void testMarkSimilarMissingReplica() throws Exception {
+        List<String> missingReplica = new ArrayList<String>();
+        missingReplica.add("localhost:3181");
+        missingReplica.add("localhost:318");
+        missingReplica.add("localhost:31812");
+        missingReplica.add("1.cluster.com");
+        missingReplica.add("2.cluster.com");
+        missingReplica.add("11.cluster.com");
+        missingReplica.add("12.cluster.com");
+        verifyMarkLedgerUnderreplicated(missingReplica);
+    }
+
+    /**
+     * Test multiple bookie failures for a ledger and marked as underreplicated
+     * one after another.
+     */
+    @Test
+    public void testManyFailuresInAnEnsemble() throws Exception {
+        List<String> missingReplica = new ArrayList<String>();
+        missingReplica.add("localhost:3181");
+        missingReplica.add("localhost:3182");
+        verifyMarkLedgerUnderreplicated(missingReplica);
+    }
+
+    private void verifyMarkLedgerUnderreplicated(Collection<String> missingReplica)
+            throws KeeperException, InterruptedException,
+            CompatibilityException, UnavailableException {
+        Long ledgerA = 0xfeadeefdacL;
+        String znodeA = getUrLedgerZnode(ledgerA);
+        LedgerUnderreplicationManager replicaMgr = lmf1
+                .newLedgerUnderreplicationManager();
+        for (String replica : missingReplica) {
+            replicaMgr.markLedgerUnderreplicated(ledgerA, replica);
+        }
+
+        String urLedgerA = getData(znodeA);
+        UnderreplicatedLedgerFormat.Builder builderA = UnderreplicatedLedgerFormat
+                .newBuilder();
+        for (String replica : missingReplica) {
+            builderA.addReplica(replica);
+        }
+        List<String> replicaList = builderA.getReplicaList();
+
+        for (String replica : missingReplica) {
+            assertTrue("UrLedger:" + urLedgerA
+                    + " doesn't contain failed bookie :" + replica, replicaList
+                    .contains(replica));
+        }
+    }
+
+    private String getData(String znode) {
+        try {
+            byte[] data = zkc1.getData(znode, false, null);
+            return new String(data);
+        } catch (KeeperException e) {
+            LOG.error("Exception while reading data from znode :" + znode);
+        } catch (InterruptedException e) {
+            LOG.error("Exception while reading data from znode :" + znode);
+        }
+        return "";
+
+    }
+
+    private String getParentZnodePath(String base, long ledgerId) {
+        String subdir1 = String.format("%04x", ledgerId >> 48 & 0xffff);
+        String subdir2 = String.format("%04x", ledgerId >> 32 & 0xffff);
+        String subdir3 = String.format("%04x", ledgerId >> 16 & 0xffff);
+        String subdir4 = String.format("%04x", ledgerId & 0xffff);
+
+        return String.format("%s/%s/%s/%s/%s", base, subdir1, subdir2, subdir3,
+                subdir4);
+    }
+
+    private String getUrLedgerZnode(long ledgerId) {
+        return String.format("%s/urL%010d", getParentZnodePath(urLedgerPath,
+                ledgerId), ledgerId);
+    }
+
+    private void takeLedgerAndRelease(final LedgerUnderreplicationManager m,
+            final CountDownLatch latch, int numberOfIterations) {
+        for (int i = 0; i < numberOfIterations; i++) {
+            try {
+                long ledgerToRereplicate = m.getLedgerToRereplicate();
+                m.releaseUnderreplicatedLedger(ledgerToRereplicate);
+            } catch (UnavailableException e) {
+                LOG.error("UnavailableException when "
+                        + "taking or releasing lock", e);
+            }
+            latch.countDown();
         }
     }
 }

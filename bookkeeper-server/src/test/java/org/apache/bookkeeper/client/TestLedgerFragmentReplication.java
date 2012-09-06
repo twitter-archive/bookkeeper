@@ -99,7 +99,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         // 0-9 entries should be copy to new bookie
         
         for (LedgerFragment lf : result) {
-            assertTrue(admin.replicateLedgerFragment(lh, lf, newBkAddr));
+            admin.replicateLedgerFragment(lh, lf, newBkAddr);
         }
 
         // Killing all bookies except newly replicated bookie
@@ -121,6 +121,64 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         verifyRecoveredLedgers(lh, 0, 9);
     }
 
+    /**
+     * Tests that fragment re-replication fails on last unclosed ledger
+     * fragments.
+     */
+    @Test
+    public void testReplicateLFFailsOnlyOnLastUnClosedFragments()
+            throws Exception {
+        byte[] data = "TestLedgerFragmentReplication".getBytes();
+        LedgerHandle lh = bkc.createLedger(3, 3, BookKeeper.DigestType.CRC32,
+                "testpasswd".getBytes());
+
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(data);
+        }
+        InetSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
+                .get(0L).get(0);
+
+        startNewBookie();
+        LOG.info("Killing Bookie", replicaToKill);
+        killBookie(replicaToKill);
+
+        // Lets reform ensemble
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(data);
+        }
+
+        InetSocketAddress replicaToKill2 = lh.getLedgerMetadata()
+                .getEnsembles().get(0L).get(1);
+
+        int startNewBookie2 = startNewBookie();
+        LOG.info("Killing Bookie", replicaToKill2);
+        killBookie(replicaToKill2);
+
+        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+                .getLocalHost().getHostAddress(), startNewBookie2);
+        LOG.info("New Bookie addr :" + newBkAddr);
+        Set<LedgerFragment> result = getFragmentsToReplicate(lh);
+
+        BookKeeperAdmin admin = new BookKeeperAdmin(baseClientConf);
+        // 0-9 entries should be copy to new bookie
+
+        int unclosedCount = 0;
+        for (LedgerFragment lf : result) {
+            if (lf.isClosed()) {
+                admin.replicateLedgerFragment(lh, lf, newBkAddr);
+            } else {
+                unclosedCount++;
+                try {
+                    admin.replicateLedgerFragment(lh, lf, newBkAddr);
+                    fail("Shouldn't be able to rereplicate unclosed ledger");
+                } catch (BKException bke) {
+                    // correct behaviour
+                }
+            }
+        }
+        assertEquals("Should be only one unclosed fragment", 1, unclosedCount);
+    }
+    
     /**
      * Tests that ReplicateLedgerFragment should return false if replication
      * fails
@@ -157,8 +215,11 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         InetSocketAddress additionalBK = new InetSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         for (LedgerFragment lf : fragments) {
-            assertFalse("Replication should fail", admin
-                    .replicateLedgerFragment(lh, lf, additionalBK));
+            try {
+                admin.replicateLedgerFragment(lh, lf, additionalBK);
+            } catch (BKException.BKLedgerRecoveryException e) {
+                // expected
+            }
         }
     }
 

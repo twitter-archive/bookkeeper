@@ -64,7 +64,7 @@ import org.slf4j.LoggerFactory;
 public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationManager {
     static final Logger LOG = LoggerFactory.getLogger(ZkLedgerUnderreplicationManager.class);
     static final Charset UTF8 = Charset.forName("UTF-8");
-
+    public static final String UNDER_REPLICATION_NODE = "underreplication";
     static final String LAYOUT="BASIC";
     static final int LAYOUT_VERSION=1;
 
@@ -92,8 +92,9 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
 
     public ZkLedgerUnderreplicationManager(AbstractConfiguration conf, ZooKeeper zkc)
             throws KeeperException, InterruptedException, ReplicationException.CompatibilityException {
-        basePath = conf.getZkLedgersRootPath() + "/underreplication";
-        layoutZNode = basePath + "/LAYOUT";
+        basePath = conf.getZkLedgersRootPath() + '/'
+                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE;
+        layoutZNode = basePath + '/' + LedgerLayout.LAYOUT_ZNODE;
         urLedgerPath = basePath + "/ledgers";
         urLockPath = basePath + "/locks";
 
@@ -204,7 +205,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
     @Override
     public void markLedgerUnderreplicated(long ledgerId, String missingReplica)
             throws ReplicationException.UnavailableException {
-        LOG.debug("markLedgerUnderreplicated {} {}", ledgerId, missingReplica);
+        LOG.debug("markLedgerUnderreplicated(ledgerId={}, missingReplica={})", ledgerId, missingReplica);
         try {
             String znode = getUrLedgerZnode(ledgerId);
             while (true) {
@@ -220,12 +221,11 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                     }
                     try {
                         byte[] bytes = zkc.getData(znode, false, s);
+                        builder.clear();
                         TextFormat.merge(new String(bytes, UTF8), builder);
                         UnderreplicatedLedgerFormat data = builder.build();
-                        for (String r : data.getReplicaList()) {
-                            if (r.equals(missingReplica)) {
-                                break; // nothing to add
-                            }
+                        if (data.getReplicaList().contains(missingReplica)) {
+                            return; // nothing to add
                         }
                         builder.addReplica(missingReplica);
                         zkc.setData(znode,
@@ -335,7 +335,8 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                 Watcher w = new Watcher() {
                         public void process(WatchedEvent e) {
                             if (e.getType() == Watcher.Event.EventType.NodeChildrenChanged
-                                || e.getType() == Watcher.Event.EventType.NodeDeleted) {
+                                || e.getType() == Watcher.Event.EventType.NodeDeleted
+                                || e.getType() == Watcher.Event.EventType.NodeCreated) {
                                 changedLatch.countDown();
                             }
                         }

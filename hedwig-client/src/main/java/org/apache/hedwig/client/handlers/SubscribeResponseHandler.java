@@ -23,7 +23,7 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
 
-import org.jboss.netty.channel.ChannelFuture;
+import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -39,7 +39,11 @@ import org.apache.hedwig.exceptions.PubSubException.ServiceDownException;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
+import org.apache.hedwig.protocol.PubSubProtocol.ResponseBody;
 import org.apache.hedwig.protocol.PubSubProtocol.StatusCode;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscribeResponse;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
+import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 
 public class SubscribeResponseHandler {
 
@@ -90,7 +94,14 @@ public class SubscribeResponseHandler {
         // If this was not a successful response to the Subscribe request, we
         // won't be using the Netty Channel created so just close it.
         if (!response.getStatusCode().equals(StatusCode.SUCCESS)) {
-            HedwigClientImpl.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            try {
+                HedwigClientImpl.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            } catch (NoResponseHandlerException e) {
+                // Log an error. But should we also return and not process anything further?
+                logger.error("No response handler found while trying to close channel explicitly while handling a " +
+                        "failed subscription response.", e);
+                // Continue closing the channel because this is an unexpected event and state should be reset.
+            }
             channel.close();
         }
 
@@ -110,12 +121,28 @@ public class SubscribeResponseHandler {
                 // Subscribe request.
                 origSubData = pubSubData;
 
+                SubscriptionPreferences preferences = null;
+                if (response.hasResponseBody()) {
+                    ResponseBody respBody = response.getResponseBody();
+                    if (respBody.hasSubscribeResponse()) {
+                        SubscribeResponse resp = respBody.getSubscribeResponse();
+                        if (resp.hasPreferences()) {
+                            preferences = resp.getPreferences();
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Receive subscription preferences for (topic:" + pubSubData.topic.toStringUtf8()
+                                           + ", subscriber:" + pubSubData.subscriberId.toStringUtf8() + ") :"
+                                           + SubscriptionStateUtils.toString(preferences));
+                            }
+                        }
+                    }
+                }
+
                 // Store the mapping for the TopicSubscriber to the Channel.
                 // This is so we can control the starting and stopping of
                 // message deliveries from the server on that Channel. Store
                 // this only on a successful ack response from the server.
                 TopicSubscriber topicSubscriber = new TopicSubscriber(pubSubData.topic, pubSubData.subscriberId);
-                responseHandler.getSubscriber().setChannelForTopic(topicSubscriber, channel);
+                responseHandler.getSubscriber().setChannelAndPreferencesForTopic(topicSubscriber, channel, preferences);
                 // Lazily create the Set (from a concurrent hashmap) to keep track
                 // of outstanding Messages to be consumed by the client app. At this
                 // stage, delivery for that topic hasn't started yet so creation of

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.apache.hedwig.protocol.PubSubProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,7 @@ import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.client.exceptions.AlreadyStartDeliveryException;
 import org.apache.hedwig.client.exceptions.InvalidSubscriberIdException;
 import org.apache.hedwig.client.handlers.PubSubCallback;
+import org.apache.hedwig.filter.ClientMessageFilter;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.ClientAlreadySubscribedException;
 import org.apache.hedwig.exceptions.PubSubException.ClientNotSubscribedException;
@@ -72,6 +74,8 @@ public class HedwigSubscriber implements Subscriber {
     // it. We can also get the ResponseHandler tied to the Channel via the
     // Channel Pipeline.
     protected final ConcurrentMap<TopicSubscriber, Channel> topicSubscriber2Channel = new ConcurrentHashMap<TopicSubscriber, Channel>();
+    protected final ConcurrentMap<TopicSubscriber, SubscriptionPreferences> topicSubscriber2Preferences =
+        new ConcurrentHashMap<TopicSubscriber, SubscriptionPreferences>();
 
     // Concurrent Map to store Message handler for each topic + sub id combination.
     // Store it here instead of in SubscriberResponseHandler as we don't want to lose the handler
@@ -372,6 +376,11 @@ public class HedwigSubscriber implements Subscriber {
             preferencesBuilder.setMessageBound(cfg.getSubscriptionMessageBound());
         }
 
+        // set message filter
+        if (options.hasMessageFilter()) {
+            preferencesBuilder.setMessageFilter(options.getMessageFilter());
+        }
+
         // set user options
         if (options.hasOptions()) {
             preferencesBuilder.setOptions(options.getOptions());
@@ -441,7 +450,15 @@ public class HedwigSubscriber implements Subscriber {
         // Before we do the write, store this information into the
         // ResponseHandler so when the server responds, we know what
         // appropriate Callback Data to invoke for the given txn ID.
-        HedwigClientImpl.getResponseHandlerFromChannel(channel).txn2PubSubData.put(txnId, pubSubData);
+        try {
+            HedwigClientImpl.getResponseHandlerFromChannel(channel).txn2PubSubData.put(txnId, pubSubData);
+        } catch (Exception e) {
+            logger.error("No response handler found while storing the subscribe callback.");
+            // Call operationFailed on the pubsubdata callback to indicate failure
+            pubSubData.getCallback().operationFailed(pubSubData.context, new CouldNotConnectException("No response " +
+                    "handler found while attempting to subscribe."));
+            return;
+        }
 
         // Finally, write the Subscribe request through the Channel.
         if (logger.isDebugEnabled())
@@ -529,6 +546,30 @@ public class HedwigSubscriber implements Subscriber {
         startDelivery(topic, subscriberId, messageHandler, false);
     }
 
+    public void startDeliveryWithFilter(final ByteString topic, final ByteString subscriberId,
+                                        MessageHandler messageHandler,
+                                        ClientMessageFilter messageFilter)
+            throws ClientNotSubscribedException, AlreadyStartDeliveryException {
+        if (null == messageHandler || null == messageFilter) {
+            throw new NullPointerException("Null message handler or message filter is provided.");
+        }
+        TopicSubscriber topicSubscriber = new TopicSubscriber(topic, subscriberId);
+        SubscriptionPreferences preferences = topicSubscriber2Preferences.get(topicSubscriber);
+        if (null == preferences) {
+            throw new ClientNotSubscribedException("No subscription preferences found to filter messages for topic: "
+                    + topic.toStringUtf8() + ", subscriberId: " + subscriberId.toStringUtf8());
+        }
+        // pass subscription preferences to message filter
+        if (logger.isDebugEnabled()) {
+            logger.debug("Start delivering messages with filter on topic: " + topic.toStringUtf8()
+                         + ", subscriberId: " + subscriberId.toStringUtf8() + ", preferences: "
+                         + SubscriptionStateUtils.toString(preferences));
+        }
+        messageFilter.setSubscriptionPreferences(topic, subscriberId, preferences);
+        messageHandler = new FilterableMessageHandler(messageHandler, messageFilter);
+        startDelivery(topic, subscriberId, messageHandler, false);
+    }
+
     public void restartDelivery(final ByteString topic, final ByteString subscriberId)
         throws ClientNotSubscribedException, AlreadyStartDeliveryException {
         startDelivery(topic, subscriberId, null, true);
@@ -574,8 +615,30 @@ public class HedwigSubscriber implements Subscriber {
                 }
             }
         }
-        HedwigClientImpl.getResponseHandlerFromChannel(topicSubscriberChannel).getSubscribeResponseHandler()
-        .setMessageHandler(messageHandler);
+        try {
+            HedwigClientImpl.getResponseHandlerFromChannel(topicSubscriberChannel).getSubscribeResponseHandler()
+            .setMessageHandler(messageHandler);
+        } catch (NoResponseHandlerException e) {
+            // We did not find a response handler. So remove this subscription handler and throw an exception.
+            topicSubscriber2MessageHandler.remove(topicSubscriber);
+            asyncCloseSubscription(topic, subscriberId, new Callback<Void>() {
+                @Override
+                public void operationFinished(Object ctx, Void resultOfOperation) {
+                    logger.warn("Closed subscription for topic " + topic.toStringUtf8() + " and subscriber " +
+                    subscriberId.toStringUtf8());
+                }
+
+                @Override
+                public void operationFailed(Object ctx, PubSubException exception) {
+                    logger.warn("Error while closing subscription for topic " + topic.toStringUtf8() + " and subscriber " +
+                            subscriberId.toStringUtf8());
+                }
+            }, null);
+
+            // We should tell the client to resubscribe.
+            throw new ClientNotSubscribedException("Closed subscription for topic " + topic.toStringUtf8() + " and" +
+                    "subscriber Id "  + subscriberId.toStringUtf8());
+        }
         // Now make the TopicSubscriber Channel readable (it is set to not be
         // readable when the initial subscription is done). Note that this is an
         // asynchronous call. If this fails (not likely), the futureListener
@@ -611,8 +674,13 @@ public class HedwigSubscriber implements Subscriber {
         // Unregister the MessageHandler for the subscribe Channel's
         // Response Handler.
         Channel topicSubscriberChannel = topicSubscriber2Channel.get(topicSubscriber);
-        HedwigClientImpl.getResponseHandlerFromChannel(topicSubscriberChannel).getSubscribeResponseHandler()
-        .setMessageHandler(null);
+        try {
+            HedwigClientImpl.getResponseHandlerFromChannel(topicSubscriberChannel).getSubscribeResponseHandler()
+                .setMessageHandler(null);
+        } catch (NoResponseHandlerException e) {
+            // Here it's okay if we can't set the response handler's message handler to null. We should just remove it.
+            logger.warn("Could not set message handler to null for subscription channel " + topicSubscriberChannel + ", ignoring.");
+        }
         this.topicSubscriber2MessageHandler.remove(topicSubscriber);
         // Now make the TopicSubscriber channel not-readable. This will buffer
         // up messages if any are sent from the server. Note that this is an
@@ -666,7 +734,13 @@ public class HedwigSubscriber implements Subscriber {
             Channel channel = topicSubscriber2Channel.get(topicSubscriber);
             topicSubscriber2Channel.remove(topicSubscriber);
             // Close the subscribe channel asynchronously.
-            HedwigClientImpl.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            try {
+                HedwigClientImpl.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            } catch (NoResponseHandlerException e) {
+                // Don't close the channel if you can't find the handler.
+                logger.warn("No response handler found, so could not close subscription channel " + channel);
+            }
+            // We still close the channel as this is an unexpected event and should be handled as one.
             ChannelFuture future = channel.close();
             future.addListener(new ChannelFutureListener() {
                 @Override
@@ -696,7 +770,8 @@ public class HedwigSubscriber implements Subscriber {
         return topicSubscriber2Channel.get(topic);
     }
 
-    public void setChannelForTopic(TopicSubscriber topic, Channel channel) {
+    public void setChannelAndPreferencesForTopic(TopicSubscriber topic, Channel channel,
+                                                 SubscriptionPreferences preferences) {
         synchronized (closeLock) {
             if (closed) {
                 channel.close();
@@ -706,11 +781,17 @@ public class HedwigSubscriber implements Subscriber {
             if (oldc != null) {
                 channel.close();
             }
+            if (null != preferences) {
+                topicSubscriber2Preferences.put(topic, preferences);
+            }
         }
     }
 
-    public void removeChannelForTopic(TopicSubscriber topic) {
-        topicSubscriber2Channel.remove(topic);
+    public void removeTopicSubscriber(TopicSubscriber topic) {
+        synchronized (topic) {
+            topicSubscriber2Preferences.remove(topic);
+            topicSubscriber2Channel.remove(topic);
+        }
     }
 
     void close() {
@@ -720,7 +801,11 @@ public class HedwigSubscriber implements Subscriber {
 
         // Close all of the open Channels.
         for (Channel channel : topicSubscriber2Channel.values()) {
-            client.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            try {
+                client.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
+            } catch (NoResponseHandlerException e) {
+                logger.error("No response handler found while trying to close subscription channel.");
+            }
             channel.close().awaitUninterruptibly();
         }
         topicSubscriber2Channel.clear();

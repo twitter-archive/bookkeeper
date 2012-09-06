@@ -15,18 +15,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hedwig.server.subscriptions;
+#ifndef FILTERABLE_MESSAGE_HANDLER_H
+#define FILTERABLE_MESSAGE_HANDLER_H
 
-import org.apache.hedwig.protocol.PubSubProtocol.Message;
+#include <hedwig/callback.h>
+#include <hedwig/protocol.h>
 
-public class TrueFilter implements MessageFilter {
-    protected final static TrueFilter instance = new TrueFilter();
+#ifdef USE_BOOST_TR1
+#include <boost/tr1/memory.hpp>
+#else 
+#include <tr1/memory>
+#endif
 
-    public static TrueFilter instance() {
-        return instance;
-    }
+namespace Hedwig {
 
-    public boolean testMessage(Message message) {
-        return true;
-    }
-}
+  class FilterableMessageHandler : public MessageHandlerCallback {
+  public:
+    FilterableMessageHandler(const MessageHandlerCallbackPtr& msgHandler,
+                             const ClientMessageFilterPtr& msgFilter);
+
+    virtual void consume(const std::string& topic, const std::string& subscriberId,
+                         const Message& msg, OperationCallbackPtr& callback);
+
+    virtual ~FilterableMessageHandler();
+  private:
+    const MessageHandlerCallbackPtr msgHandler;
+    const ClientMessageFilterPtr msgFilter;
+  };
+
+};
+
+#endif
+

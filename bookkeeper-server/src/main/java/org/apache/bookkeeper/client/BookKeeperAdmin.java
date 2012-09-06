@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.RecoverCallback;
+import org.apache.bookkeeper.client.BookKeeper.SyncOpenCallback;
 import org.apache.bookkeeper.client.LedgerFragmentReplicator.SingleFragmentCallback;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
@@ -136,6 +137,20 @@ public class BookKeeperAdmin {
     }
 
     /**
+     * Constructor that takes in a BookKeeper instance . This will be useful,
+     * when users already has bk instance ready.
+     * 
+     * @param bkc
+     *            - bookkeeper instance
+     */
+    public BookKeeperAdmin(final BookKeeper bkc) {
+        this.bkc = bkc;
+        this.zk = bkc.zk;
+        this.bookiesPath = bkc.getConf().getZkAvailableBookiesPath();
+        this.lfr = new LedgerFragmentReplicator(bkc);
+    }
+
+    /**
      * Gracefully release resources that this client uses.
      *
      * @throws InterruptedException
@@ -163,6 +178,31 @@ public class BookKeeperAdmin {
     public void asyncOpenLedger(final long lId, final OpenCallback cb, final Object ctx) {
         new LedgerOpenOp(bkc, lId, cb, ctx).initiate();
     }
+    
+    /**
+     * Open a ledger as an administrator. This means that no digest password
+     * checks are done. Otherwise, the call is identical to
+     * BookKeeper#openLedger
+     * 
+     * @param lId
+     *            - ledger identifier
+     * @see BookKeeper#openLedger
+     */
+    public LedgerHandle openLedger(final long lId) throws InterruptedException,
+            BKException {
+        SyncCounter counter = new SyncCounter();
+        counter.inc();
+        new LedgerOpenOp(bkc, lId, new SyncOpenCallback(), counter).initiate();
+        /*
+         * Wait
+         */
+        counter.block(0);
+        if (counter.getrc() != BKException.Code.OK) {
+            throw BKException.create(counter.getrc());
+        }
+
+        return counter.getLh();
+    }
 
     /**
      * Open a ledger as an administrator without recovering the ledger. This means
@@ -180,6 +220,32 @@ public class BookKeeperAdmin {
      */
     public void asyncOpenLedgerNoRecovery(final long lId, final OpenCallback cb, final Object ctx) {
         new LedgerOpenOp(bkc, lId, cb, ctx).initiateWithoutRecovery();
+    }
+    
+    /**
+     * Open a ledger as an administrator without recovering the ledger. This
+     * means that no digest password checks are done. Otherwise, the call is
+     * identical to BookKeeper#openLedgerNoRecovery
+     * 
+     * @param lId
+     *            ledger identifier
+     * @see BookKeeper#openLedgerNoRecovery
+     */
+    public LedgerHandle openLedgerNoRecovery(final long lId)
+            throws InterruptedException, BKException {
+        SyncCounter counter = new SyncCounter();
+        counter.inc();
+        new LedgerOpenOp(bkc, lId, new SyncOpenCallback(), counter)
+                .initiateWithoutRecovery();
+        /*
+         * Wait
+         */
+        counter.block(0);
+        if (counter.getrc() != BKException.Code.OK) {
+            throw BKException.create(counter.getrc());
+        }
+
+        return counter.getLh();
     }
 
     // Object used for calling async methods and waiting for them to complete.
@@ -548,9 +614,8 @@ public class BookKeeperAdmin {
                                 }
                             }
                         }
-                        LedgerFragment ledgerFragment = new LedgerFragment(lh.ledgerId,
-                        startEntryId, endEntryId, bookieIndex,
-                        currentEnsemble, lh.distributionSchedule);
+                        LedgerFragment ledgerFragment = new LedgerFragment(lh,
+                                startEntryId, endEntryId, bookieIndex);
                         asyncRecoverLedgerFragment(lh, ledgerFragment, cb, newBookie);
                     } catch(InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -593,11 +658,11 @@ public class BookKeeperAdmin {
      *            - LedgerFragment to replicate
      * @param targetBookieAddress
      *            - target Bookie, to where entries should be replicated.
-     * @return true - if replication success, false if fails to replicate.
      */
-    boolean replicateLedgerFragment(LedgerHandle lh,
+    public void replicateLedgerFragment(LedgerHandle lh,
             final LedgerFragment ledgerFragment,
-            InetSocketAddress targetBookieAddress) throws InterruptedException {
+            InetSocketAddress targetBookieAddress) throws InterruptedException,
+            BKException {
         final SyncCounter syncCounter = new SyncCounter();
         ResultCallBack resultCallBack = new ResultCallBack(syncCounter);
         SingleFragmentCallback sfcb = new SingleFragmentCallback(
@@ -606,18 +671,14 @@ public class BookKeeperAdmin {
         syncCounter.inc();
         lfr.replicate(lh, ledgerFragment, sfcb, targetBookieAddress);
         syncCounter.block(0);
-        return resultCallBack.getResult();
+        if (syncCounter.getrc() != BKException.Code.OK) {
+            throw BKException.create(syncCounter.getrc());
+        }
     }
 
     /** This is the class for getting the replication result */
     static class ResultCallBack implements AsyncCallback.VoidCallback {
-
-        private boolean result;
         private SyncCounter sync;
-
-        public boolean getResult() {
-            return this.result;
-        }
 
         public ResultCallBack(SyncCounter sync) {
             this.sync = sync;
@@ -625,12 +686,7 @@ public class BookKeeperAdmin {
 
         @Override
         public void processResult(int rc, String s, Object obj) {
-
-            if (rc != BKException.Code.OK) {
-                this.result = false;
-            } else {
-                this.result = true;
-            }
+            sync.setrc(rc);
             sync.dec();
         }
     }

@@ -15,17 +15,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hedwig.server.subscriptions;
+package org.apache.hedwig.client.exceptions;
 
-import org.apache.hedwig.protocol.PubSubProtocol.Message;
+/**
+ * This is a Hedwig client side exception thrown when it can't get the response
+ * handler from the channel pipeline responsible for a PubSubRequest.
+ */
+public class NoResponseHandlerException extends Exception {
+    private static final long serialVersionUID = 1L;
 
-public interface MessageFilter {
+    public NoResponseHandlerException(String message) {
+        super(message);
+    }
 
-    /**
-     * Tests whether a particular message passes the filter or not
-     *
-     * @param message
-     * @return
-     */
-    public boolean testMessage(Message message);
+    public NoResponseHandlerException(String message, Throwable t) {
+        super(message, t);
+    }
 }

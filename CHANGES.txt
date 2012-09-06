@@ -58,11 +58,31 @@ Trunk (unreleased changes)
 
  	BOOKKEEPER-354: [BOOKKEEPER-296] [Documentation] Modify the bookkeeper start script and document the bookkeeper stop command in bookkeeperConfig.xml (Kiran BC via ivank)
  
+        BOOKKEEPER-378: ReplicationWorker may not get ZK watcher notification on UnderReplication ledger lock deletion. (umamaheswararao & ivank via ivank)
+
+        BOOKKEEPER-380: ZkLedgerUnderreplicationManager.markLedgerUnderreplicated() is adding duplicate missingReplicas while multiple bk failed for the same ledger (rakeshr via ivank)
+
+        BOOKKEEPER-381: ReadLastConfirmedOp's Logger class name is wrong (surendra via sijie)
+
+        BOOKKEEPER-382: space missed at concatenations in GarbageCollectorThread logging (Brahma via sijie)
+
+        BOOKKEEPER-337: Add entry fails with MetadataVersionException when last ensemble has morethan one bookie failures (rakeshr via ivank)
+
+        BOOKKEEPER-376: LedgerManagers should consider 'underreplication' node as a special Znode (Uma via sijie)
+
+        BOOKKEEPER-384: Clean up LedgerManagerFactory and LedgerManager usage in tests (rakeshr via ivank)
+
+        BOOKKEEPER-385: replicateLedgerFragment should throw Exceptions in error conditions (umamahesh via ivank)
+
+        BOOKKEEPER-386: It should not be possible to replicate a ledger fragment which is at the end of an open ledger (ivank & umamahesh via ivank)
+
       hedwig-client:
 
         BOOKKEEPER-274: Hedwig cpp client library should not link to cppunit which is just used for test. (sijie via ivank)
 
         BOOKKEEPER-320: Let hedwig cpp client could publish messages using Message object instead of string. (jiannan via ivank)
+
+        BOOKKEEPER-371: NPE in hedwig hub client causes hedwig hub to shut down. (Aniruddha via sijie)
 
       hedwig-server:
 
@@ -92,6 +112,12 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-299: Provide LedgerFragmentReplicator which should replicate the fragments found from LedgerChecker (umamahesh via ivank)
 
+        BOOKKEEPER-248: Rereplicating of under replicated data (umamahesh via ivank)
+
+        BOOKKEEPER-304: Prepare bookie vs ledgers cache and will be used by the Auditor (rakeshr via ivank)
+
+        BOOKKEEPER-272: Provide automatic mechanism to know bookie failures (rakeshr via ivank)
+
       hedwig-server:
 
         BOOKKEEPER-250: Need a ledger manager like interface to manage metadata operations in Hedwig (sijie via ivank)
@@ -106,9 +132,15 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-332: Add SubscriptionPreferences to record all preferences for a subscription (sijie via ivank)
 
+        BOOKKEEPER-333: server-side message filter (sijie via ivank)
+
       hedwig-client:
 
         BOOKKEEPER-306: Change C++ client to use gtest for testing (ivank via sijie)
+
+        BOOKKEEPER-334: client-side message filter for java client. (sijie via ivank)
+
+        BOOKKEEPER-335: client-side message filter for cpp client. (sijie via ivank)
 
 Release 4.1.0 - 2012-06-07
 
