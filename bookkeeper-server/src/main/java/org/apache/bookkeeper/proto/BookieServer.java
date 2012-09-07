@@ -434,7 +434,7 @@ public class BookieServer implements NIOServerFactory.PacketProcessor, Bookkeepe
                 rsp[1].putLong(entryId);
                 rsp[1].flip();
             }
-            LOG.debug("Sending response for: " + entryId + ", " + new String(rsp[1].array()));
+            LOG.debug("Sending response for: " + entryId + ", length: " + rsp[1].remaining());
             src.sendResponse(rsp);
             break;
         default:
