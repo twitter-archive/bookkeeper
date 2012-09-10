@@ -199,16 +199,6 @@ public class RegionManager implements SubscriptionEventListener {
                         @Override
                         public void deliver(final ByteString topic, ByteString subscriberId, Message msg,
                         final Callback<Void> callback, final Object context) {
-                            // When messages are first published
-                            // locally, the PublishHandler sets the
-                            // source region in the Message.
-                            if (msg.hasSrcRegion()) {
-                                Message.newBuilder(msg).setMsgId(
-                                    MessageSeqId.newBuilder(msg.getMsgId()).addRemoteComponents(
-                                        RegionSpecificSeqId.newBuilder().setRegion(
-                                            msg.getSrcRegion()).setSeqId(
-                                            msg.getMsgId().getLocalComponent())));
-                            }
                             pm.persistMessage(new PersistRequest(topic, msg, new Callback<MessageSeqId>() {
                                 @Override
                                 public void operationFinished(Object ctx, MessageSeqId resultOfOperation) {

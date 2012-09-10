@@ -176,10 +176,10 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
      *         persisting to Derby
      * @throws UnexpectedConditionException
      */
-    private long adjustTopicSeqIdForPublish(ByteString topic, Message messageToPublish)
+    private MessageSeqId adjustTopicSeqIdForPublish(ByteString topic, Message messageToPublish)
             throws UnexpectedConditionException {
         long retValue = 0;
-        MessageSeqId oldId;
+        MessageSeqId oldId, seqIdToReturn;
         MessageSeqId.Builder newIdBuilder = MessageSeqId.newBuilder();
 
         do {
@@ -190,15 +190,14 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
             newIdBuilder.setLocalComponent(retValue);
 
             if (messageToPublish.hasMsgId()) {
-                // take a region-wise max
-                MessageIdUtils.takeRegionMaximum(newIdBuilder, messageToPublish.getMsgId(), oldId);
-
+                MessageIdUtils.takeRegionSpecificMaximum(newIdBuilder, oldId, messageToPublish.getMsgId(),
+                                                         messageToPublish.getSrcRegion());
             } else {
                 newIdBuilder.addAllRemoteComponents(oldId.getRemoteComponentsList());
             }
-        } while (!currTopicSeqIds.replace(topic, oldId, newIdBuilder.build()));
+        } while (!currTopicSeqIds.replace(topic, oldId, (seqIdToReturn = newIdBuilder.build())));
 
-        return retValue;
+        return seqIdToReturn;
 
     }
 
@@ -220,23 +219,23 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
             return;
         }
 
-        long seqId;
-
+        MessageSeqId seqId;
+        Message messageToPersist = message;
         try {
             seqId = adjustTopicSeqIdForPublish(topic, message);
+            messageToPersist = Message.newBuilder(message).setMsgId(seqId).build();
         } catch (UnexpectedConditionException e) {
             callback.operationFailed(ctx, e);
             return;
         }
         PreparedStatement stmt;
-
         boolean triedCreatingTable = false;
         while (true) {
             try {
-                message.getBody();
                 stmt = conn.prepareStatement("INSERT INTO " + getTableNameForTopic(topic) + " VALUES(?,?)");
-                stmt.setLong(1, seqId);
-                stmt.setBlob(2, new SerialBlob(message.toByteArray()));
+                stmt.setLong(1, seqId.getLocalComponent());
+                // Persist the message but with the new sequence ID;
+                stmt.setBlob(2, new SerialBlob(messageToPersist.toByteArray()));
 
                 int rowCount = stmt.executeUpdate();
                 stmt.close();
@@ -259,7 +258,7 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
                 return;
             }
         }
-        callback.operationFinished(ctx, MessageIdUtils.mergeLocalSeqId(message, seqId).getMsgId());
+        callback.operationFinished(ctx, messageToPersist.getMsgId());
     }
 
     /*

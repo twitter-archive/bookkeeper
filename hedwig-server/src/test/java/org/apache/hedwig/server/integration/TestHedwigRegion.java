@@ -17,10 +17,18 @@
  */
 package org.apache.hedwig.server.integration;
 
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.SynchronousQueue;
+import org.apache.hedwig.client.data.TopicSubscriber;
+import org.apache.hedwig.server.regions.HedwigHubClient;
+import org.apache.hedwig.server.regions.HedwigHubSubscriber;
+import org.jboss.netty.channel.Channel;
+import org.joor.Reflect;
 
+import java.lang.reflect.Field;
+import java.util.*;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.hedwig.server.netty.PubSubServer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -74,6 +82,109 @@ public class TestHedwigRegion extends HedwigRegionTestBase {
         super.tearDown();
     }
 
+    /**
+     * Sets all channels in every alternate client in the server's RegionManager's client list
+     * to the value indicated by setReadable.
+     * @param server
+     */
+    public void setRegionManagerAlternateRegionClientsUnreadable(PubSubServer server, boolean setReadable) {
+        try {
+            List<HedwigHubClient> clients =  Reflect
+                    .on(server)
+                    .field("rm")
+                    .get("clients");
+            int md = 0;
+            for (HedwigHubClient client : clients) {
+
+                // Set every alternate region unreadable
+                if (md++ % 2 == 1){
+                    continue;
+                }
+                // JOOR doesn't let you access private members of a superclass. Use
+                // good ol' reflection instead
+                Field f = client.getClass().getSuperclass().getDeclaredField("sub");
+                f.setAccessible(true);
+                HedwigHubSubscriber sub = (HedwigHubSubscriber)f.get(client);
+                Field tf = sub.getClass().getSuperclass().getDeclaredField("topicSubscriber2Channel");
+                tf.setAccessible(true);
+                Map<TopicSubscriber, Channel> sub2channel = (Map<TopicSubscriber, Channel>)tf.get(sub);
+
+                for (Channel c : sub2channel.values()) {
+                    c.setReadable(setReadable);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error while using reflections", e);
+            assertTrue(1 == 0);
+        }
+    }
+
+    /**
+     * We set the link from region-0 to region-2 unreadable before we publish. We publish a message in region-0.
+     * This message reaches the subscriber in region-0 and in region-1, but not in region-2. We then publish a message
+     * in region-1. This reaches the subscribers in region-0 and region-2. When it reaches the subscriber in region-2,
+     * the remote component should only contain region-1 and not region-0. This is checked in the TestMessageHandler.
+     * Finally the last message in consumed and it should have both the IDs, and the region-0 remote component should be
+     * 1.
+     * TODO(Aniruddha): Add a more robust test case.
+     */
+    @Test
+    public void testMultiRegionSequenceIdsDeterministic() throws Exception {
+        // We need at least 3 regions for any meaningful test.
+        assertTrue(numRegions >= 3);
+        ByteString topic = ByteString.copyFromUtf8("Topic-0");
+        List<HedwigClient> clientList = new ArrayList<HedwigClient>(regionClientsMap.values());
+
+        // The regions are inserted in reverse order in the startUp function. For sanity we do the same
+        // here. Set up local subscriptions.
+        int subCount = 2;
+        for (HedwigClient client : regionClientsMap.values()) {
+            client.getSubscriber().subscribe(topic,
+                    ByteString.copyFromUtf8("LocalSubscriber-"+subCount), CreateOrAttach.CREATE_OR_ATTACH);
+            subCount--;
+        }
+
+        // Now start delivery.
+        subCount = 2;
+        for (HedwigClient client : regionClientsMap.values()) {
+            client.getSubscriber().startDelivery(topic,
+                    ByteString.copyFromUtf8("LocalSubscriber-"+subCount), new TestMessageHandler(consumeQueue));
+            subCount--;
+        }
+
+        // Now, for region-2, we set the connection to region-0 unreadable.
+        final List<PubSubServer> serverList = regionServersMap.values().iterator().next();
+        for (PubSubServer server : serverList) {
+            setRegionManagerAlternateRegionClientsUnreadable(server, false);
+        }
+
+        // Publish in region-0
+        clientList.get(2).getPublisher().publish(topic,
+                Message.newBuilder().setBody(ByteString.copyFromUtf8("Message-"+(0))).build());
+
+        // Make sure that the first published message reaches the client in region-0 and in region-1
+        // But not in region-2
+        for (int i = 0; i < 2; i++) {
+            assertTrue(consumeQueue.take());
+        }
+        assertTrue(consumeQueue.poll(1, TimeUnit.SECONDS) == null);
+
+        // Publish in region-1
+        clientList.get(1).getPublisher().publish(topic,
+                Message.newBuilder().setBody(ByteString.copyFromUtf8("Message-"+(1))).build());
+
+        // 3 messages should be consumed.
+        for (int i = 0; i < 3; i++) {
+            assertTrue(consumeQueue.take());
+        }
+        assertTrue(consumeQueue.poll(1, TimeUnit.SECONDS) == null);
+        // Now set the channels readable on the first region. The last message should be consumed.
+        for(PubSubServer server : serverList) {
+            setRegionManagerAlternateRegionClientsUnreadable(server, true);
+        }
+        assertTrue(consumeQueue.take());
+    }
+
     @Test
     public void testMultiRegionSubscribeAndConsume() throws Exception {
         int batchSize = 10;
@@ -94,7 +205,6 @@ public class TestHedwigRegion extends HedwigRegionTestBase {
                                                      ByteString.copyFromUtf8("LocalSubscriber"), new TestMessageHandler(consumeQueue));
             }
         }
-
         // Now start publishing messages for the subscribed topics in one of the
         // regions and verify that it gets delivered and consumed in all of the
         // other ones.

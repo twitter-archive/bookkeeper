@@ -18,11 +18,10 @@
 package org.apache.hedwig.server.integration;
 
 import java.net.InetSocketAddress;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
+import java.util.*;
 import java.util.concurrent.SynchronousQueue;
 
+import org.apache.hedwig.protocol.PubSubProtocol;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -136,10 +135,17 @@ public class TestHedwigHub extends HedwigHubTestBase {
         // consumeQueue once.
         private HashSet<MessageSeqId> consumedMessages = new HashSet<MessageSeqId>();
         private long largestMsgSeqIdConsumed = -1;
+        private MessageSeqId lastConsumedMessageId = null;
         private final SynchronousQueue<Boolean> consumeQueue;
+        private String name = "";
 
         public TestMessageHandler(SynchronousQueue<Boolean> consumeQueue) {
             this.consumeQueue = consumeQueue;
+        }
+
+        public TestMessageHandler(SynchronousQueue<Boolean> consumeQueue, String name) {
+            this.consumeQueue = consumeQueue;
+            this.name = name;
         }
 
         public void deliver(ByteString topic, ByteString subscriberId, final Message msg, Callback<Void> callback,
@@ -148,6 +154,48 @@ public class TestHedwigHub extends HedwigHubTestBase {
                 // New message to consume. Add it to the Set of consumed
                 // messages.
                 consumedMessages.add(msg.getMsgId());
+                if (lastConsumedMessageId != null) {
+                    // Map of region sequence ids from the last consumed message
+                    Map<ByteString, PubSubProtocol.RegionSpecificSeqId> remoteComponents = new HashMap<ByteString, PubSubProtocol.RegionSpecificSeqId>();
+                    for (PubSubProtocol.RegionSpecificSeqId rssid : lastConsumedMessageId.getRemoteComponentsList()) {
+                        remoteComponents.put(rssid.getRegion(), rssid);
+                    }
+                    for (PubSubProtocol.RegionSpecificSeqId rssid : msg.getMsgId().getRemoteComponentsList()) {
+                        long lastId = (remoteComponents.containsKey(rssid.getRegion()) ? remoteComponents.get(rssid.getRegion()).getSeqId() : -1);
+                        long newId = rssid.getSeqId();
+
+                        if (rssid.getRegion().equals(msg.getSrcRegion())) {
+                            // Make sure that any new message we get from the message source region has remote region sequence id
+                            // in an increasing order
+                            if (newId < lastId) {
+                                new Thread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (logger.isDebugEnabled()) {
+                                            logger.debug("Remote component of the message is"
+                                                    + " less than the last seen value for this region.");
+                                        }
+                                        ConcurrencyUtils.put(consumeQueue, false);
+                                    }
+                                }).start();
+                            }
+                        } else {
+                            // Any remote id apart from the source region for this message should not be updated
+                            if (newId != lastId) {
+                                new Thread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (logger.isDebugEnabled()) {
+                                            logger.debug("Remote component for a region other than the source region" +
+                                                    "was updated with this message.");
+                                        }
+                                        ConcurrencyUtils.put(consumeQueue, false);
+                                    }
+                                }).start();
+                            }
+                        }
+                    }
+                }
                 // Check that the msg seq ID is incrementing by 1 compared to
                 // the last consumed message. Don't do this check if this is the
                 // initial message being consumed.
@@ -173,6 +221,7 @@ public class TestHedwigHub extends HedwigHubTestBase {
                 }
                 // Store the consumed message as the new last msg id consumed.
                 largestMsgSeqIdConsumed = msg.getMsgId().getLocalComponent();
+                lastConsumedMessageId = msg.getMsgId();
             } else {
                 if (logger.isDebugEnabled())
                     logger.debug("Consumed a message that we've processed already: " + msg);

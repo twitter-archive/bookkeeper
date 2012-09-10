@@ -122,6 +122,34 @@ public class MessageIdUtils {
     }
 
     /**
+     * Return the union of remote components of lastPushedSeqId modified in a way such that if
+     * the region equals srcRegion, we take the maximum of the remote sequence ID of lastPushedSeqId and the
+     * local component of srcRegionSeqId else just use the sequence ID from lastPushedSeqId
+     */
+    public static void takeRegionSpecificMaximum(MessageSeqId.Builder newIdBuilder, MessageSeqId lastPushedSeqId,
+                                                 MessageSeqId srcRegionSeqId, ByteString srcRegion) {
+        boolean hasRegion = false;
+        RegionSpecificSeqId newRssid = RegionSpecificSeqId.newBuilder().setRegion(srcRegion)
+                                       .setSeqId(srcRegionSeqId.getLocalComponent()).build();
+        for (RegionSpecificSeqId lastPushedRssid : lastPushedSeqId.getRemoteComponentsList()) {
+            if(lastPushedRssid.getRegion().equals(srcRegion)) {
+                hasRegion = true;
+                RegionSpecificSeqId srcRegionRssid = lastPushedRssid;
+                if (lastPushedRssid.getSeqId() < srcRegionSeqId.getLocalComponent()) {
+                    srcRegionRssid = newRssid;
+                }
+                newIdBuilder.addRemoteComponents(srcRegionRssid);
+            } else {
+                // TODO(Aniruddha): Should we simply discard the message if it was redelivered? Currently we don't.
+                newIdBuilder.addRemoteComponents(lastPushedRssid);
+            }
+        }
+        if (!hasRegion) {
+            newIdBuilder.addRemoteComponents(newRssid);
+        }
+    }
+
+    /**
      * Returns the element-wise vector maximum of the two vectors id1 and id2,
      * if we imagine them to be sparse representations of vectors.
      */

@@ -198,14 +198,15 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
 
             // Original message that was persisted didn't have the local seq-id.
             // Lets add that in
-            Message messageWithLocalSeqId = MessageIdUtils.mergeLocalSeqId(originalRequest.getMessage(),
-                                            resultOfOperation.getLocalComponent());
+            Message messageToCache = Message.newBuilder(originalRequest.getMessage()).setMsgId(resultOfOperation).build();
 
+            // No longer have to merge the localsequence ID as we get the modified message
             // Now enqueue a request to add this newly persisted message to our
             // cache
+
             CacheKey cacheKey = new CacheKey(originalRequest.getTopic(), resultOfOperation.getLocalComponent());
 
-            enqueueWithoutFailure(new ScanResponse(cacheKey, messageWithLocalSeqId));
+            enqueueWithoutFailure(new ScanResponse(cacheKey, messageToCache));
         }
 
     }
