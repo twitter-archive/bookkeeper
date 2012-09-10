@@ -104,7 +104,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
         int bookieIndex = lh.distributionSchedule.getBookieIndex(entry.entryId, entry.nextReplicaIndexToReadFrom);
         entry.nextReplicaIndexToReadFrom++;
-        lh.bk.bookieClient.readEntry(ensemble.get(bookieIndex), lh.ledgerId, entry.entryId, 
+        lh.bk.bookieClient.readEntry(ensemble.get(bookieIndex), lh.ledgerId, entry.entryId,
                                      this, entry);
     }
 
@@ -127,7 +127,10 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         // an empty ledger with quorum (bk1, bk2), bk2 is failed forever.
         // bk1 return NoLedgerException, client do ReattemptRead to bk2 but bk2 isn't connected
         // so the read 0 entry would failed. this ledger could never be closed.
-        if (startEntryId == endEntryId) {
+
+        // This is a hack so that the code below doesn't affect our configuration as we use a quorum size of 3.
+        // This should go away once a permanent solution is found for BOOKKEEPER-365 and BOOKKEEPER-355
+        if (lh.metadata.getQuorumSize() == 2 && startEntryId == endEntryId) {
             if (BKException.Code.NoSuchLedgerExistsException == rc ||
                 BKException.Code.NoSuchEntryException == rc) {
                 lh.opCounterSem.release();
