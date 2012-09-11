@@ -17,8 +17,12 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.hedwig.server.subscriptions.SubscriptionEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -57,11 +61,13 @@ import org.apache.hedwig.util.Callback;
 public class SubscribeHandler extends BaseHandler implements ChannelDisconnectListener {
     static Logger logger = LoggerFactory.getLogger(SubscribeHandler.class);
 
-    private DeliveryManager deliveryMgr;
-    private PersistenceManager persistenceMgr;
-    private SubscriptionManager subMgr;
+    private final DeliveryManager deliveryMgr;
+    private final PersistenceManager persistenceMgr;
+    private final SubscriptionManager subMgr;
     ConcurrentHashMap<TopicSubscriber, Channel> sub2Channel;
     ConcurrentHashMap<Channel, TopicSubscriber> channel2sub;
+    // The list of subscriber ids for a particular topic
+    ConcurrentHashMap<ByteString, Set<ByteString>> topic2subs;
     // op stats
     private final OpStatsLogger subStatsLogger;
 
@@ -73,7 +79,35 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         this.subMgr = subMgr;
         sub2Channel = new ConcurrentHashMap<TopicSubscriber, Channel>();
         channel2sub = new ConcurrentHashMap<Channel, TopicSubscriber>();
+        topic2subs = new ConcurrentHashMap<ByteString, Set<ByteString>>();
         subStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE);
+        // Register a subscription event listener so that we can close delivery to the subscriber
+        // when we lose that subscription.
+        subMgr.addListener(new SubscriptionEventListener() {
+            @Override
+            public void onFirstLocalSubscribe(ByteString topic, boolean synchronous, Callback<Void> cb) {
+                // We don't care about subscription requests. This is a no-op.
+            }
+
+            @Override
+            public void onLastLocalUnsubscribe(ByteString topic) {
+                // The SubscriptionManager calls this to notify loss of a topic.
+                // We notify the delivery manager which in turn closes the channel
+                // and stops delivery.
+                Set<ByteString> subscribers = topic2subs.get(topic);
+                Set<ByteString> subscriberSetCopy;
+                synchronized (subscribers) {
+                    // Don't call the delivery manager function under a lock because all new subscriptions
+                    // would be blocked till this completes.
+                    subscriberSetCopy = new HashSet<ByteString>(subscribers);
+                }
+                for (ByteString subId : subscriberSetCopy) {
+                    // this should trigger a channel.close() which will invoke channelDisconnected
+                    // and clear subscription channels.
+                    deliveryMgr.stopServingSubscriber(topic, subId);
+                }
+            }
+        });
     }
 
     public void channelDisconnected(Channel channel) {
@@ -87,6 +121,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                     StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
                             .dec();
                 }
+                // Also remove from the topic2subs set
+                topic2subs.get(topicSub.getTopic()).remove(topicSub.getSubscriberId());
+                topic2subs.remove(topicSub.getTopic(), Collections.emptySet());
             }
         }
     }
@@ -163,7 +200,13 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                             StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
                                     .inc();
                         }
-
+                        // Also add this channel to topic2subs
+                        Set<ByteString> subscribers = topic2subs
+                                .putIfAbsent(topic, Collections.synchronizedSet(new HashSet<ByteString>()));
+                        if (null == subscribers) {
+                            subscribers = topic2subs.get(topic);
+                        }
+                        subscribers.add(subscriberId);
                     }
                 }
                 // initialize the message filter
