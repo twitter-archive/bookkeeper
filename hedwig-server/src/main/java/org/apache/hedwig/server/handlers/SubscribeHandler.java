@@ -111,6 +111,10 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 ChannelFutureListener.CLOSE);
             subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
+            // The exception's getMessage() gives us the actual owner for the topic
+            logger.info("Redirecting a subscribe request for subId: " + request.getSubscribeRequest().getSubscriberId().toStringUtf8()
+                    + " and topic: " + request.getTopic().toStringUtf8() + " from client: " + channel.getRemoteAddress()
+                    + " to remote host: " + e.getMessage());
             return;
         }
 

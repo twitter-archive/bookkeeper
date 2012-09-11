@@ -29,9 +29,12 @@ import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.HedwigSocketAddress;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class BaseHandler implements Handler {
 
+    private static final Logger logger = LoggerFactory.getLogger(BaseHandler.class);
     protected TopicManager topicMgr;
     protected ServerConfiguration cfg;
 
@@ -58,6 +61,9 @@ public abstract class BaseHandler implements Handler {
                     channel.write(PubSubResponseUtils.getResponseForException(
                                       new ServerNotResponsibleForTopicException(owner.toString()), request.getTxnId()));
                     StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
+                    logger.info("Redirecting a request of type: " + request.getType()
+                            + " for topic: " + request.getTopic().toStringUtf8() + " from client: " + channel.getRemoteAddress()
+                            + " to remote host: " + owner.toString());
                     return;
                 }
                 handleRequestAtOwner(request, channel);
