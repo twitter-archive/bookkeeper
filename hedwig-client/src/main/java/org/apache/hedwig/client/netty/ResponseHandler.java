@@ -313,6 +313,8 @@ public class ResponseHandler extends SimpleChannelHandler {
             // contacted or attempted to from this request as we are starting a
             // "fresh" subscribe request.
             origSubData.clearServersList();
+            // Clear the shouldClaim flag
+            origSubData.shouldClaim = false;
             // Set a new type of VoidCallback for this async call. We need this
             // hook so after the subscribe reconnect has completed, delivery for
             // that topic subscriber should also be restarted (if it was that
