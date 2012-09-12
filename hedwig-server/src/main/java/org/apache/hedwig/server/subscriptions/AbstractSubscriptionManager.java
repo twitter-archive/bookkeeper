@@ -259,6 +259,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 private void finish() {
                     topic2LocalCounts.remove(topic);
+                    // Also make sure we don't serve this subscription request later.
+                    top2sub2seq.remove(topic);
                     // Since we decrement local count when some of remote subscriptions failed,
                     // while we don't unsubscribe those succeed subscriptions. so we can't depends
                     // on local count, just try to notify unsubscribe.

@@ -303,7 +303,9 @@ public class ResponseHandler extends SimpleChannelHandler {
             // Subscribe channel disconnected so first close and clear all
             // cached Channel data set up for this topic subscription.
             sub.closeSubscription(origSubData.topic, origSubData.subscriberId);
-            client.clearAllTopicsForHost(host);
+            // If the subscribe channel is lost, the topic might have moved.
+            // We only clear the entry for that topic.
+            client.clearTopicForHost(origSubData.topic, host);
             // Since the connection to the server host that was responsible
             // for the topic died, we are not sure about the state of that
             // server. Resend the original subscribe request data to the default

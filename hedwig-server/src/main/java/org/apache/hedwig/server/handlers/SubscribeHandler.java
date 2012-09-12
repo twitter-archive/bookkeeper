@@ -87,6 +87,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             @Override
             public void onFirstLocalSubscribe(ByteString topic, boolean synchronous, Callback<Void> cb) {
                 // We don't care about subscription requests. This is a no-op.
+                cb.operationFinished(null, null);
             }
 
             @Override

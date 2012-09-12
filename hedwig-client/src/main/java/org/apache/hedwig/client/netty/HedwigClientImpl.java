@@ -376,6 +376,27 @@ public class HedwigClientImpl implements Client {
         }
     }
 
+    // If a subscribe channel goes down, the topic might have moved. We only clear out that
+    // topic for the host and not all cached information.
+    public void clearTopicForHost(ByteString topic, InetSocketAddress host) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Clearing topic: " + topic.toStringUtf8() + " for host: "
+                    + host);
+        }
+        if (topic2Host.remove(topic, host)) {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Removed topic to host mapping for topic: " + topic.toStringUtf8()
+                        + " and host: " + host);
+            }
+        }
+        if (host2Topics.get(host).remove(topic)) {
+            host2Topics.remove(host, new ConcurrentLinkedQueue<ByteString>());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Removed topic: " + topic.toStringUtf8() + " from host: " + host);
+            }
+        }
+    }
+
     // Public getter to see if the client has been stopped.
     public boolean hasStopped() {
         return isStopped;

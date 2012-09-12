@@ -165,11 +165,11 @@ public abstract class AbstractTopicManager implements TopicManager {
     }
 
     private void realReleaseTopic(ByteString topic, Callback<Void> callback, Object ctx) {
-        for (TopicOwnershipChangeListener listener : listeners)
-            listener.lostTopic(topic);
         if (topics.remove(topic)) {
             StatsInstanceProvider.getStatsLoggerInstance().getNumTopicsLogger().dec();
         }
+        for (TopicOwnershipChangeListener listener : listeners)
+            listener.lostTopic(topic);
         postReleaseCleanup(topic, callback, ctx);
     }
 
