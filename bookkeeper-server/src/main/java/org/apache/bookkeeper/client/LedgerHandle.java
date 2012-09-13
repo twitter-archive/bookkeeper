@@ -213,7 +213,7 @@ public class LedgerHandle {
      * Close this ledger synchronously.
      * @see #asyncClose
      */
-    public void close() 
+    public void close()
             throws InterruptedException, BKException {
         SyncCounter counter = new SyncCounter();
         counter.inc();
@@ -228,11 +228,11 @@ public class LedgerHandle {
 
     /**
      * Asynchronous close, any adds in flight will return errors.
-     * 
-     * Closing a ledger will ensure that all clients agree on what the last entry 
-     * of the ledger is. This ensures that, once the ledger has been closed, all 
-     * reads from the ledger will return the same set of entries. 
-     * 
+     *
+     * Closing a ledger will ensure that all clients agree on what the last entry
+     * of the ledger is. This ensures that, once the ledger has been closed, all
+     * reads from the ledger will return the same set of entries.
+     *
      * @param cb
      *          callback implementation
      * @param ctx
@@ -265,9 +265,9 @@ public class LedgerHandle {
                     prevLastEntryId = metadata.getLastEntryId();
                     prevLength = metadata.getLength();
 
-                    // synchronized on LedgerHandle.this to ensure that 
-                    // lastAddPushed can not be updated after the metadata 
-                    // is closed. 
+                    // synchronized on LedgerHandle.this to ensure that
+                    // lastAddPushed can not be updated after the metadata
+                    // is closed.
                     metadata.setLength(length);
 
                     // Close operation is idempotent, so no need to check if we are
@@ -413,7 +413,7 @@ public class LedgerHandle {
         SyncAddCallback callback = new SyncAddCallback();
         asyncAddEntry(data, offset, length, callback, counter);
         counter.block(0);
-        
+
         if (counter.getrc() != BKException.Code.OK) {
             throw BKException.create(counter.getrc());
         }
@@ -492,7 +492,7 @@ public class LedgerHandle {
         final long currentLength;
         synchronized(this) {
             // synchronized on this to ensure that
-            // the ledger isn't closed between checking and 
+            // the ledger isn't closed between checking and
             // updating lastAddPushed
             if (metadata.isClosed()) {
                 LOG.warn("Attempt to add to closed ledger: " + ledgerId);
@@ -524,14 +524,14 @@ public class LedgerHandle {
     }
 
     /**
-     * Obtains asynchronously the last confirmed write from a quorum of bookies. This 
+     * Obtains asynchronously the last confirmed write from a quorum of bookies. This
      * call obtains the the last add confirmed each bookie has received for this ledger
      * and returns the maximum. If the ledger has been closed, the value returned by this
      * call may not correspond to the id of the last entry of the ledger, since it reads
-     * the hint of bookies. Consequently, in the case the ledger has been closed, it may 
-     * return a different value than getLastAddConfirmed, which returns the local value 
+     * the hint of bookies. Consequently, in the case the ledger has been closed, it may
+     * return a different value than getLastAddConfirmed, which returns the local value
      * of the ledger handle.
-     * 
+     *
      * @see #getLastAddConfirmed()
      *
      * @param cb
@@ -593,18 +593,18 @@ public class LedgerHandle {
      * obtains the the last add confirmed each bookie has received for this ledger
      * and returns the maximum. If the ledger has been closed, the value returned by this
      * call may not correspond to the id of the last entry of the ledger, since it reads
-     * the hint of bookies. Consequently, in the case the ledger has been closed, it may 
-     * return a different value than getLastAddConfirmed, which returns the local value 
+     * the hint of bookies. Consequently, in the case the ledger has been closed, it may
+     * return a different value than getLastAddConfirmed, which returns the local value
      * of the ledger handle.
-     * 
+     *
      * @see #getLastAddConfirmed()
-     * 
+     *
      * @return The entry id of the last confirmed write or {@link #INVALID_ENTRY_ID INVALID_ENTRY_ID}
      *         if no entry has been confirmed
      * @throws InterruptedException
      * @throws BKException
      */
-    
+
     public long readLastConfirmed()
             throws InterruptedException, BKException {
         LastConfirmedCtx ctx = new LastConfirmedCtx();
@@ -757,24 +757,29 @@ public class LedgerHandle {
         }
 
         @Override
-        public void operationComplete(int newrc, LedgerMetadata newMeta) {
-            if (newrc != BKException.Code.OK) {
-                LOG.error("Error reading new metadata from ledger "
-                        + "after changing ensemble, code=" + newrc);
-                handleUnrecoverableErrorDuringAdd(rc);
-            } else {
-                if (!resolveConflict(newMeta)) {
-                    LOG.error("Could not resolve ledger metadata conflict "
-                            + "while changing ensemble to: "
-                            + ensembleInfo.newEnsemble
-                            + ", old meta data is \n"
-                            + new String(metadata.serialize())
-                            + "\n, new meta data is \n"
-                            + new String(newMeta.serialize())
-                            + "\n ,closing ledger");
-                    handleUnrecoverableErrorDuringAdd(rc);
+        public void operationComplete(final int newrc, final LedgerMetadata newMeta) {
+            bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
+                @Override
+                public void safeRun() {
+                    if (newrc != BKException.Code.OK) {
+                        LOG.error("Error reading new metadata from ledger "
+                                + "after changing ensemble, code=" + newrc);
+                        handleUnrecoverableErrorDuringAdd(rc);
+                    } else {
+                        if (!resolveConflict(newMeta)) {
+                            LOG.error("Could not resolve ledger metadata conflict "
+                                    + "while changing ensemble to: "
+                                    + ensembleInfo.newEnsemble
+                                    + ", old meta data is \n"
+                                    + new String(metadata.serialize())
+                                    + "\n, new meta data is \n"
+                                    + new String(newMeta.serialize())
+                                    + "\n ,closing ledger");
+                            handleUnrecoverableErrorDuringAdd(rc);
+                        }
+                    }
                 }
-            }
+            });
         }
 
         /**
@@ -887,7 +892,7 @@ public class LedgerHandle {
             // noop
         }
     }
-    
+
     private static class SyncReadCallback implements ReadCallback {
         /**
          * Implementation of callback interface for synchronous read method.
@@ -903,7 +908,7 @@ public class LedgerHandle {
          */
         public void readComplete(int rc, LedgerHandle lh,
                                  Enumeration<LedgerEntry> seq, Object ctx) {
-            
+
             SyncCounter counter = (SyncCounter) ctx;
             synchronized (counter) {
                 counter.setSequence(seq);
@@ -944,7 +949,7 @@ public class LedgerHandle {
          */
         public void readLastConfirmedComplete(int rc, long lastConfirmed, Object ctx) {
             LastConfirmedCtx lcCtx = (LastConfirmedCtx) ctx;
-            
+
             synchronized(lcCtx) {
                 lcCtx.setRC(rc);
                 lcCtx.setLastConfirmed(lastConfirmed);
