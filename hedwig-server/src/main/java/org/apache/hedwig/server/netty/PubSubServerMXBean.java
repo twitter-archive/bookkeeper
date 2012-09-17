@@ -18,7 +18,7 @@
 
 package org.apache.hedwig.server.netty;
 
-import org.apache.hedwig.server.stats.OpStatsData;
+import org.apache.bookkeeper.stats.OpStatsData;
 
 /**
  * PubSub Server MBean

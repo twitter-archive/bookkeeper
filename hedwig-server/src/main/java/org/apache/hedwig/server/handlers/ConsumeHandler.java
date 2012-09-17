@@ -17,7 +17,9 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.jboss.netty.channel.Channel;
 
 import org.apache.hedwig.exceptions.PubSubException;
@@ -26,8 +28,6 @@ import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubRequest;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
-import org.apache.hedwig.server.stats.OpStatsLogger;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
@@ -35,7 +35,7 @@ import org.apache.hedwig.util.Callback;
 public class ConsumeHandler extends BaseHandler {
 
     SubscriptionManager sm;
-    final OpStatsLogger consumeStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME);
+    final OpStatsLogger consumeStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME);
 
     @Override
     public void handleRequestAtOwner(PubSubRequest request, Channel channel) {

@@ -28,6 +28,7 @@ import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -149,6 +150,8 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         }
 
         if (metadata.isClosed()) {
+            // Opened a new ledger
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
             // Ledger was closed properly
             cb.openComplete(BKException.Code.OK, lh, this.ctx);
             return;
@@ -159,6 +162,8 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                     @Override
                     public void operationComplete(int rc, Void result) {
                         if (rc == BKException.Code.OK) {
+                            // Opened a new ledger
+                            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
                             cb.openComplete(BKException.Code.OK, lh, LedgerOpenOp.this.ctx);
                         } else if (rc == BKException.Code.UnauthorizedAccessException) {
                             cb.openComplete(BKException.Code.UnauthorizedAccessException, null, LedgerOpenOp.this.ctx);
@@ -176,13 +181,15 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                     if (rc != BKException.Code.OK) {
                         cb.openComplete(BKException.Code.ReadException, null, LedgerOpenOp.this.ctx);
                     } else {
+                        // Opened a new ledger
+                        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
                         lh.lastAddConfirmed = lh.lastAddPushed = lastConfirmed;
                         cb.openComplete(BKException.Code.OK, lh, LedgerOpenOp.this.ctx);
                     }
                 }
-                
+
             }, null);
-            
+
         }
     }
 }

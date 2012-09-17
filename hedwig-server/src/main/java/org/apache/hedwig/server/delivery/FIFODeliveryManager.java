@@ -49,7 +49,8 @@ import org.apache.hedwig.server.persistence.MapMethods;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.persistence.ScanCallback;
 import org.apache.hedwig.server.persistence.ScanRequest;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 
 public class FIFODeliveryManager implements Runnable, DeliveryManager {
 
@@ -421,7 +422,8 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager {
                 moveDeliveryPtrForward(this, prevId, lastLocalSeqIdDelivered);
             }
             // increment deliveried message
-            StatsInstanceProvider.getStatsLoggerInstance().getMessagesDeliveredLogger().inc();
+            ServerStatsProvider.getStatsLoggerInstance()
+                    .getSimpleStatLogger(HedwigServerSimpleStatType.TOTAL_MESSAGES_DELIVERED).inc();
             deliverNextMessage();
         }
 

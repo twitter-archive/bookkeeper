@@ -22,6 +22,9 @@ import java.net.InetSocketAddress;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -46,18 +49,19 @@ class PendingAddOp implements WriteCallback {
     int numResponsesPending;
     LedgerHandle lh;
     boolean isRecoveryAdd = false;
+    long requestTimeMillis;
 
     PendingAddOp(LedgerHandle lh, AddCallback cb, Object ctx) {
         this.lh = lh;
         this.cb = cb;
         this.ctx = ctx;
         this.entryId = LedgerHandle.INVALID_ENTRY_ID;
-        
+
         successesSoFar = new boolean[lh.metadata.getQuorumSize()];
         numResponsesPending = successesSoFar.length;
     }
 
-    /** 
+    /**
      * Enable the recovery add flag for this operation.
      * @see LedgerHandle#asyncRecoveryAddEntry
      */
@@ -111,6 +115,7 @@ class PendingAddOp implements WriteCallback {
     }
 
     void initiate(ChannelBuffer toSend) {
+        requestTimeMillis = MathUtils.now();
         this.toSend = toSend;
         for (int i = 0; i < successesSoFar.length; i++) {
             int bookieIndex = lh.distributionSchedule.getBookieIndex(entryId, i);
@@ -162,7 +167,16 @@ class PendingAddOp implements WriteCallback {
     }
 
     void submitCallback(final int rc) {
+        long latencyMillis = MathUtils.now() - requestTimeMillis;
+        if (rc != BKException.Code.OK) {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
+                    .registerFailedEvent(latencyMillis);
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
+                    .registerSuccessfulEvent(latencyMillis);
+        }
         cb.addComplete(rc, lh, entryId, ctx);
+        lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
         lh.opCounterSem.release();
     }
 

@@ -33,6 +33,8 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookieClient;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -64,6 +66,9 @@ public class BookKeeper {
     final CountDownLatch connectLatch = new CountDownLatch(1);
     final static int zkConnectTimeoutMs = 5000;
     final ClientSocketChannelFactory channelFactory;
+
+    // The stats logger for this client.
+    private final BookkeeperClientStatsLogger statsLogger = ClientStatsProvider.getStatsLoggerInstance();
 
     // whether the socket factory is one we created, or is owned by whoever
     // instantiated us
@@ -108,7 +113,7 @@ public class BookKeeper {
 
     /**
      * Create a bookkeeper client using a configuration object.
-     * A zookeeper client and a client socket factory will be 
+     * A zookeeper client and a client socket factory will be
      * instantiated as part of this constructor.
      *
      * @param conf
@@ -293,7 +298,7 @@ public class BookKeeper {
 
     /**
      * Synchronous call to create ledger. Parameters match those of
-     * {@link #asyncCreateLedger(int, int, DigestType, byte[], 
+     * {@link #asyncCreateLedger(int, int, DigestType, byte[],
      *                           AsyncCallback.CreateCallback, Object)}
      *
      * @param ensSize
@@ -305,14 +310,14 @@ public class BookKeeper {
      * @throws BKException
      */
     public LedgerHandle createLedger(int ensSize, int qSize,
-                                     DigestType digestType, byte passwd[]) 
+                                     DigestType digestType, byte passwd[])
             throws InterruptedException, BKException {
         SyncCounter counter = new SyncCounter();
         counter.inc();
         /*
          * Calls asynchronous version
          */
-        asyncCreateLedger(ensSize, qSize, digestType, passwd, 
+        asyncCreateLedger(ensSize, qSize, digestType, passwd,
                           new SyncCreateCallback(), counter);
 
         /*
@@ -329,19 +334,19 @@ public class BookKeeper {
 
     /**
      * Open existing ledger asynchronously for reading.
-     * 
-     * Opening a ledger with this method invokes fencing and recovery on the ledger 
-     * if the ledger has not been closed. Fencing will block all other clients from 
-     * writing to the ledger. Recovery will make sure that the ledger is closed 
-     * before reading from it. 
      *
-     * Recovery also makes sure that any entries which reached one bookie, but not a 
+     * Opening a ledger with this method invokes fencing and recovery on the ledger
+     * if the ledger has not been closed. Fencing will block all other clients from
+     * writing to the ledger. Recovery will make sure that the ledger is closed
+     * before reading from it.
+     *
+     * Recovery also makes sure that any entries which reached one bookie, but not a
      * quorum, will be replicated to a quorum of bookies. This occurs in cases were
      * the writer of a ledger crashes after sending a write request to one bookie but
-     * before being able to send it to the rest of the bookies in the quorum. 
+     * before being able to send it to the rest of the bookies in the quorum.
      *
      * If the ledger is already closed, neither fencing nor recovery will be applied.
-     * 
+     *
      * @see LedgerHandle#asyncClose
      *
      * @param lId
@@ -365,14 +370,14 @@ public class BookKeeper {
      * unsealed forever if there is no external mechanism to detect the failure
      * of the writer and the ledger is not open in a safe manner, invoking the
      * recovery procedure.
-     * 
-     * Opening a ledger without recovery does not fence the ledger. As such, other
-     * clients can continue to write to the ledger. 
      *
-     * This method returns a read only ledger handle. It will not be possible 
-     * to add entries to the ledger. Any attempt to add entries will throw an 
+     * Opening a ledger without recovery does not fence the ledger. As such, other
+     * clients can continue to write to the ledger.
+     *
+     * This method returns a read only ledger handle. It will not be possible
+     * to add entries to the ledger. Any attempt to add entries will throw an
      * exception.
-     * 
+     *
      * Reads from the returned ledger will only be able to read entries up until
      * the lastConfirmedEntry at the point in time at which the ledger was opened.
      *
@@ -501,6 +506,13 @@ public class BookKeeper {
     }
 
     /**
+     * Get the stats logger
+     */
+    public BookkeeperClientStatsLogger getStatsLogger() {
+        return this.statsLogger;
+    }
+
+    /**
      * Shuts down client.
      *
      */
@@ -555,9 +567,9 @@ public class BookKeeper {
         public void openComplete(int rc, LedgerHandle lh, Object ctx) {
             SyncCounter counter = (SyncCounter) ctx;
             counter.setLh(lh);
-            
+
             LOG.debug("Open complete: " + rc);
-            
+
             counter.setrc(rc);
             counter.dec();
         }

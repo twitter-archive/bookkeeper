@@ -17,6 +17,8 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.jboss.netty.channel.Channel;
 import com.google.protobuf.ByteString;
 
@@ -29,8 +31,6 @@ import org.apache.hedwig.protoextensions.PubSubResponseUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.DeliveryManager;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
-import org.apache.hedwig.server.stats.OpStatsLogger;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
@@ -46,7 +46,7 @@ public class UnsubscribeHandler extends BaseHandler {
         super(tm, cfg);
         this.subMgr = subMgr;
         this.deliveryMgr = deliveryMgr;
-        unsubStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.UNSUBSCRIBE);
+        unsubStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.UNSUBSCRIBE);
     }
 
     @Override

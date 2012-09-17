@@ -24,9 +24,10 @@ import java.util.concurrent.ScheduledExecutorService;
 
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.exceptions.PubSubException;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.util.Callback;
 
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
 
 public class TopicOpQueuer {
@@ -45,7 +46,7 @@ public class TopicOpQueuer {
     }
 
     /**
-     * Update the persist queue size in StatsInstanceProvider only for the necessary Op.
+     * Update the persist queue size in ServerStatsProvider only for the necessary Op.
      * We do this all in one file so as not to distribute these calls to different operations.
      * @param op
      * @param increment if true, increment, else decrement
@@ -56,9 +57,11 @@ public class TopicOpQueuer {
                 || op instanceof BookkeeperPersistenceManager.RangeScanOp
                 || op instanceof BookkeeperPersistenceManager.UpdateLedgerOp) {
             if (increment) {
-                StatsInstanceProvider.getStatsLoggerInstance().getPersistQueueSizeLogger().inc();
+                ServerStatsProvider.getStatsLoggerInstance()
+                        .getSimpleStatLogger(HedwigServerSimpleStatType.PERSIST_QUEUE).inc();
             } else {
-                StatsInstanceProvider.getStatsLoggerInstance().getPersistQueueSizeLogger().dec();
+                ServerStatsProvider.getStatsLoggerInstance()
+                        .getSimpleStatLogger(HedwigServerSimpleStatType.PERSIST_QUEUE).dec();
             }
         }
     }

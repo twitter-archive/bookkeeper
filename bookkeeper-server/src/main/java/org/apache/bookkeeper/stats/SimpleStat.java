@@ -1,4 +1,4 @@
-package org.apache.hedwig.server.stats;
+package org.apache.bookkeeper.stats;
 
 /**
  * Simple stats that require only increment and decrement

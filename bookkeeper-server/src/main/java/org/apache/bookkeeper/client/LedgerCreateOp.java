@@ -29,6 +29,7 @@ import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -126,7 +127,8 @@ class LedgerCreateOp implements GenericCallback<Long> {
             cb.createComplete(BKException.Code.IncorrectParameterException, null, this.ctx);
             return;
         }
-
+        // Opened a new ledger
+        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
         // return the ledger handle back
         cb.createComplete(BKException.Code.OK, lh, this.ctx);
     }

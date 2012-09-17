@@ -1,5 +1,6 @@
 package org.apache.hedwig.server.stats;
 
+import org.apache.bookkeeper.stats.OpStatsData;
 import org.apache.hedwig.protocol.PubSubProtocol;
 
 /**

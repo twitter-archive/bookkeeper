@@ -17,7 +17,9 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.hedwig.protocol.PubSubProtocol;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.jboss.netty.channel.Channel;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -29,8 +31,6 @@ import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.persistence.PersistRequest;
 import org.apache.hedwig.server.persistence.PersistenceManager;
-import org.apache.hedwig.server.stats.OpStatsLogger;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
 
@@ -42,7 +42,7 @@ public class PublishHandler extends BaseHandler {
     public PublishHandler(TopicManager topicMgr, PersistenceManager persistenceMgr, ServerConfiguration cfg) {
         super(topicMgr, cfg);
         this.persistenceMgr = persistenceMgr;
-        this.pubStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.PUBLISH);
+        this.pubStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.PUBLISH);
     }
 
     @Override

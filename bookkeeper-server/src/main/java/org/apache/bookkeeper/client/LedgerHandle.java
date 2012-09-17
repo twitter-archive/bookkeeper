@@ -41,6 +41,8 @@ import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.SafeRunnable;
 
 import org.slf4j.Logger;
@@ -256,6 +258,8 @@ public class LedgerHandle {
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
+                // Closed a ledger
+                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
                 final long prevLastEntryId;
                 final long prevLength;
                 final State prevState;
@@ -482,6 +486,7 @@ public class LedgerHandle {
                 +") or length("+length+")");
         }
         try {
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).inc();
             opCounterSem.acquire();
         } catch (InterruptedException e) {
             cb.addComplete(BKException.Code.InterruptedException,
@@ -496,6 +501,7 @@ public class LedgerHandle {
             // updating lastAddPushed
             if (metadata.isClosed()) {
                 LOG.warn("Attempt to add to closed ledger: " + ledgerId);
+                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
                 LedgerHandle.this.opCounterSem.release();
                 cb.addComplete(BKException.Code.LedgerClosedException,
                                LedgerHandle.this, INVALID_ENTRY_ID, ctx);
@@ -505,6 +511,7 @@ public class LedgerHandle {
             entryId = ++lastAddPushed;
             currentLength = addToLength(length);
             op.setEntryId(entryId);
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
             pendingAddOps.add(op);
         }
 
@@ -518,6 +525,7 @@ public class LedgerHandle {
                 }
             });
         } catch (RuntimeException e) {
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
             opCounterSem.release();
             throw e;
         }
@@ -646,6 +654,7 @@ public class LedgerHandle {
                 return;
             }
             pendingAddOps.remove();
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).dec();
             lastAddConfirmed = pendingAddOp.entryId;
             pendingAddOp.submitCallback(BKException.Code.OK);
         }
@@ -719,11 +728,14 @@ public class LedgerHandle {
 
         @Override
         public void operationComplete(final int rc, Void result) {
-
             bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     if (rc == BKException.Code.MetadataVersionException) {
+                        // We changed the ensemble, but got a version exception. We
+                        // should still consider this as an ensemble change
+                        bk.getStatsLogger().getSimpleStatLogger(
+                                BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
                         rereadMetadata(new ReReadLedgerMetadataCb(rc,
                                 ensembleInfo));
                         return;
@@ -735,6 +747,9 @@ public class LedgerHandle {
                         handleUnrecoverableErrorDuringAdd(rc);
                         return;
                     }
+                    // We've successfully changed an ensemble
+                    bk.getStatsLogger().getSimpleStatLogger(
+                            BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
                     // the failed bookie has been replaced
                     unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
                 }
@@ -819,6 +834,9 @@ public class LedgerHandle {
                     writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
                 }
             } else {
+                // We've successfully changed an ensemble
+                bk.getStatsLogger().getSimpleStatLogger(
+                        BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
                 unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
             }
@@ -879,6 +897,11 @@ public class LedgerHandle {
                 }
             }
         });
+    }
+
+    public BookkeeperClientStatsLogger getStatsLogger() {
+        // We log everything to one client logger. So just return the stats logger for bk
+        return bk.getStatsLogger();
     }
 
     static class NoopCloseCallback implements CloseCallback {

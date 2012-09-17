@@ -1,4 +1,6 @@
-package org.apache.hedwig.server.stats;
+package org.apache.bookkeeper.stats;
+
+import org.apache.bookkeeper.stats.OpStatsData;
 
 /**
  * This interface handles logging of statistics related to each operation (PUBLISH,

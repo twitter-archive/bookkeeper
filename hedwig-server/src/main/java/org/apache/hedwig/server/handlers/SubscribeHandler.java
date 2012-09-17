@@ -22,6 +22,8 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.server.subscriptions.SubscriptionEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,8 +51,7 @@ import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.ChannelEndPoint;
 import org.apache.hedwig.server.delivery.DeliveryManager;
-import org.apache.hedwig.server.stats.OpStatsLogger;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
@@ -80,7 +81,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         sub2Channel = new ConcurrentHashMap<TopicSubscriber, Channel>();
         channel2sub = new ConcurrentHashMap<Channel, TopicSubscriber>();
         topic2subs = new ConcurrentHashMap<ByteString, Set<ByteString>>();
-        subStatsLogger = StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE);
+        subStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE);
         // Register a subscription event listener so that we can close delivery to the subscriber
         // when we lose that subscription.
         subMgr.addListener(new SubscriptionEventListener() {
@@ -119,8 +120,8 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             TopicSubscriber topicSub = channel2sub.remove(channel);
             if (topicSub != null) {
                 if (null != sub2Channel.remove(topicSub)) {
-                    StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
-                            .dec();
+                    ServerStatsProvider.getStatsLoggerInstance()
+                            .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).dec();
                 }
                 // Also remove from the topic2subs set
                 topic2subs.get(topicSub.getTopic()).remove(topicSub.getSubscriberId());
@@ -148,7 +149,8 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId())).addListener(
                 ChannelFutureListener.CLOSE);
             subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
-            StatsInstanceProvider.getStatsLoggerInstance().getRequestsRedirectLogger().inc();
+            ServerStatsProvider.getStatsLoggerInstance()
+                    .getSimpleStatLogger(HedwigServerSimpleStatType.TOTAL_REQUESTS_REDIRECT).inc();
             // The exception's getMessage() gives us the actual owner for the topic
             logger.info("Redirecting a subscribe request for subId: " + request.getSubscribeRequest().getSubscriberId().toStringUtf8()
                     + " and topic: " + request.getTopic().toStringUtf8() + " from client: " + channel.getRemoteAddress()
@@ -198,8 +200,8 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                         // channel2sub is just a cache, so we can add to it
                         // without synchronization
                         if (null == channel2sub.put(channel, topicSub)) {
-                            StatsInstanceProvider.getStatsLoggerInstance().getNumSubscriptionsLogger()
-                                    .inc();
+                            ServerStatsProvider.getStatsLoggerInstance()
+                                    .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).inc();
                         }
                         // Also add this channel to topic2subs
                         Set<ByteString> subscribers = topic2subs

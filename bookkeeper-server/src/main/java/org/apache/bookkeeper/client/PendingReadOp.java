@@ -32,6 +32,9 @@ import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -57,6 +60,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long numPendingReads;
     long startEntryId;
     long endEntryId;
+    long requestTimeMillis;
 
     PendingReadOp(LedgerHandle lh, long startEntryId, long endEntryId, ReadCallback cb, Object ctx) {
 
@@ -71,7 +75,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
     public void initiate() throws InterruptedException {
         long nextEnsembleChange = startEntryId, i = startEntryId;
-
+        this.requestTimeMillis = MathUtils.now();
         ArrayList<InetSocketAddress> ensemble = null;
         do {
 
@@ -79,6 +83,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 LOG.debug("Acquiring lock: " + i);
             }
 
+            lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).inc();
             lh.opCounterSem.acquire();
 
             if (i == nextEnsembleChange) {
@@ -97,6 +102,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         if (entry.nextReplicaIndexToReadFrom >= lh.metadata.getQuorumSize()) {
             // we are done, the read has failed from all replicas, just fail the
             // read
+            lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
             lh.opCounterSem.release();
             submitCallback(lastErrorCode);
             return;
@@ -133,6 +139,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         if (lh.metadata.getQuorumSize() == 2 && startEntryId == endEntryId) {
             if (BKException.Code.NoSuchLedgerExistsException == rc ||
                 BKException.Code.NoSuchEntryException == rc) {
+                lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
                 lh.opCounterSem.release();
                 submitCallback(rc);
                 return;
@@ -169,6 +176,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             LOG.debug("Releasing lock: " + entryId);
         }
 
+        lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
         lh.opCounterSem.release();
 
         if(numPendingReads < 0)
@@ -176,6 +184,14 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     }
 
     private void submitCallback(int code) {
+        long latencyMillis = MathUtils.now() - requestTimeMillis;
+        if (code != BKException.Code.OK) {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+                    .registerFailedEvent(latencyMillis);
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+                    .registerSuccessfulEvent(latencyMillis);
+        }
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);
     }
     public boolean hasMoreElements() {

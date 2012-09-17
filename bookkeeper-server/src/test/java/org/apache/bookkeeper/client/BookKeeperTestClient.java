@@ -24,6 +24,7 @@ package org.apache.bookkeeper.client;
 import java.io.IOException;
 import java.util.concurrent.Executors;
 
+import com.twitter.common.stats.Stats;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
@@ -48,6 +49,7 @@ public class BookKeeperTestClient extends BookKeeper {
     public BookKeeperTestClient(ClientConfiguration conf)
             throws IOException, InterruptedException, KeeperException {
         super(conf);
+        Stats.flush();
     }
 
     public ZooKeeper getZkHandle() {

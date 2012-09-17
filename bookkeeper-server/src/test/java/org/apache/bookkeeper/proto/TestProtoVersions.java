@@ -21,6 +21,7 @@
 
 package org.apache.bookkeeper.proto;
 
+import org.apache.bookkeeper.stats.PCBookieClientStatsImpl;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
@@ -59,7 +60,7 @@ public class TestProtoVersions {
     }
 
     private void testVersion(int version, int expectedresult) throws Exception {
-        PerChannelBookieClient bc = new PerChannelBookieClient(base.executor, base.channelFactory, 
+        PerChannelBookieClient bc = new PerChannelBookieClient(base.executor, base.channelFactory,
                 new InetSocketAddress(InetAddress.getLocalHost(), base.port), new AtomicLong(0));
         final AtomicInteger outerrc = new AtomicInteger(-1);
         final CountDownLatch connectLatch = new CountDownLatch(1);
@@ -70,7 +71,7 @@ public class TestProtoVersions {
                 }
             });
         connectLatch.await(5, TimeUnit.SECONDS);
-        
+
         assertEquals("client not connected", BKException.Code.OK, outerrc.get());
         outerrc.set(-1000);
         final CountDownLatch readLatch = new CountDownLatch(1);
@@ -80,9 +81,9 @@ public class TestProtoVersions {
                     readLatch.countDown();
                 }
             };
-        bc.readCompletions.put(bc.newCompletionKey(1, 1),
-                               new PerChannelBookieClient.ReadCompletion(cb, this));
-        
+        bc.readCompletions.put( bc.newCompletionKey(1, 1),
+                               new PerChannelBookieClient.ReadCompletion(new PCBookieClientStatsImpl("temp_pcbookie_client"), cb, this));
+
         int totalHeaderSize = 4 // for the length of the packet
             + 4 // for request type
             + 8 // for ledgerId
@@ -94,12 +95,12 @@ public class TestProtoVersions {
         tmpEntry.writeInt(new BookieProtocol.PacketHeader((byte)version, BookieProtocol.READENTRY, (short)0).toInt());
         tmpEntry.writeLong(1);
         tmpEntry.writeLong(1);
-        
-        
+
+
         bc.channel.write(tmpEntry).awaitUninterruptibly();
         readLatch.await(5, TimeUnit.SECONDS);
         assertEquals("Expected result differs", expectedresult, outerrc.get());
-        
+
         bc.close();
     }
 

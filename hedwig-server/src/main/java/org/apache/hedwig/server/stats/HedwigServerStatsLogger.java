@@ -1,5 +1,8 @@
 package org.apache.hedwig.server.stats;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.SimpleStat;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.hedwig.protocol.PubSubProtocol;
 
 /**
@@ -7,45 +10,14 @@ import org.apache.hedwig.protocol.PubSubProtocol;
  * The Getter and Logger interfaces are different because some backends might export
  * stats internally and the getters would have to be no-ops.
  */
-public interface HedwigServerStatsLogger {
+public interface HedwigServerStatsLogger extends StatsLogger {
 
     /**
-     * @return Get the OpStatsLogger for a particular operation type
+     * An enum representing the simple stats logged by this logger
      */
-    public OpStatsLogger getOpStatsLogger(PubSubProtocol.OperationType type);
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the total requests received
-     */
-    public SimpleStat getRequestsReceivedLogger();
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the total redirected requests
-     */
-    public SimpleStat getRequestsRedirectLogger();
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the delivered messages
-     */
-    public SimpleStat getMessagesDeliveredLogger();
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the number of topics
-     */
-    public SimpleStat getNumTopicsLogger();
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the persist queue size
-     */
-    public SimpleStat getPersistQueueSizeLogger();
-
-    /**
-     * @return Get the {@link SimpleStatImpl} representing the number of subscriptions
-     */
-    public SimpleStat getNumSubscriptionsLogger();
-
-    /**
-     * Clear state.
-     */
-    public void clear();
+    public static enum HedwigServerSimpleStatType {
+        TOTAL_REQUESTS_RECEIVED, TOTAL_REQUESTS_REDIRECT, TOTAL_MESSAGES_DELIVERED,
+        NUM_TOPICS, PERSIST_QUEUE, NUM_SUBSCRIPTIONS
+    }
 }
+

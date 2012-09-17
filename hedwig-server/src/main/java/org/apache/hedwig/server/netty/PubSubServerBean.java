@@ -18,9 +18,9 @@
 
 package org.apache.hedwig.server.netty;
 
+import org.apache.bookkeeper.stats.OpStatsData;
 import org.apache.hedwig.server.jmx.HedwigMBeanInfo;
-import org.apache.hedwig.server.stats.StatsInstanceProvider;
-import org.apache.hedwig.server.stats.OpStatsData;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 
 import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 
@@ -47,47 +47,47 @@ public class PubSubServerBean implements PubSubServerMXBean, HedwigMBeanInfo {
 
     @Override
     public OpStatsData getPubStats() {
-        return StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.PUBLISH).toOpStatsData();
+        return ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.PUBLISH).toOpStatsData();
     }
 
     @Override
     public OpStatsData getSubStats() {
-        return StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE).toOpStatsData();
+        return ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE).toOpStatsData();
     }
 
     @Override
     public OpStatsData getUnsubStats() {
-        return StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.UNSUBSCRIBE).toOpStatsData();
+        return ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.UNSUBSCRIBE).toOpStatsData();
     }
 
     @Override
     public OpStatsData getConsumeStats() {
-        return StatsInstanceProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME).toOpStatsData();
+        return ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME).toOpStatsData();
     }
 
     @Override
     public long getNumRequestsReceived() {
-        return StatsInstanceProvider.getStatsGetterInstance().getNumRequestsReceived();
+        return ServerStatsProvider.getStatsGetterInstance().getNumRequestsReceived();
     }
 
     @Override
     public long getNumRequestsRedirect() {
-        return StatsInstanceProvider.getStatsGetterInstance().getNumRequestsRedirect();
+        return ServerStatsProvider.getStatsGetterInstance().getNumRequestsRedirect();
     }
 
     @Override
     public long getNumMessagesDelivered() {
-        return StatsInstanceProvider.getStatsGetterInstance().getNumMessagesDelivered();
+        return ServerStatsProvider.getStatsGetterInstance().getNumMessagesDelivered();
     }
 
     @Override
     public long getNumTopics() {
-        return StatsInstanceProvider.getStatsGetterInstance().getNumTopics();
+        return ServerStatsProvider.getStatsGetterInstance().getNumTopics();
     }
 
     @Override
     public long getPersistQueueSize() {
-        return StatsInstanceProvider.getStatsGetterInstance().getPersistQueueSize();
+        return ServerStatsProvider.getStatsGetterInstance().getPersistQueueSize();
     }
 
     @Override

@@ -1,4 +1,4 @@
-package org.apache.hedwig.server.stats;
+package org.apache.bookkeeper.stats;
 
 /**
  * This class provides a read view of operation specific stats.

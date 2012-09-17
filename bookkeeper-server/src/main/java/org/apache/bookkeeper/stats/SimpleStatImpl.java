@@ -1,4 +1,4 @@
-package org.apache.hedwig.server.stats;
+package org.apache.bookkeeper.stats;
 
 import com.twitter.common.stats.Rate;
 import com.twitter.common.stats.Stats;
