@@ -45,8 +45,10 @@ class PendingAddOp implements WriteCallback {
     AddCallback cb;
     Object ctx;
     long entryId;
-    boolean[] successesSoFar;
-    int numResponsesPending;
+
+    DistributionSchedule.AckSet ackSet;
+    boolean completed = false;
+
     LedgerHandle lh;
     boolean isRecoveryAdd = false;
     long requestTimeMillis;
@@ -57,8 +59,8 @@ class PendingAddOp implements WriteCallback {
         this.ctx = ctx;
         this.entryId = LedgerHandle.INVALID_ENTRY_ID;
 
-        successesSoFar = new boolean[lh.metadata.getQuorumSize()];
-        numResponsesPending = successesSoFar.length;
+        ackSet = lh.distributionSchedule.getAckSet();
+
     }
 
     /**
@@ -74,11 +76,11 @@ class PendingAddOp implements WriteCallback {
         this.entryId = entryId;
     }
 
-    void sendWriteRequest(int bookieIndex, int arrayIndex) {
+    void sendWriteRequest(int bookieIndex) {
         int flags = isRecoveryAdd ? BookieProtocol.FLAG_RECOVERY_ADD : BookieProtocol.FLAG_NONE;
 
         lh.bk.bookieClient.addEntry(lh.metadata.currentEnsemble.get(bookieIndex), lh.ledgerId, lh.ledgerKey, entryId, toSend,
-                this, arrayIndex, flags);
+                this, bookieIndex, flags);
     }
 
     void unsetSuccessAndSendWriteRequest(int bookieIndex) {
@@ -86,15 +88,6 @@ class PendingAddOp implements WriteCallback {
             // this addOp hasn't yet had its mac computed. When the mac is
             // computed, its write requests will be sent, so no need to send it
             // now
-            return;
-        }
-
-        int replicaIndex = lh.distributionSchedule.getReplicaIndex(entryId, bookieIndex);
-        if (replicaIndex < 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Leaving unchanged, ledger: " + lh.ledgerId + " entry: " + entryId + " bookie index: "
-                          + bookieIndex);
-            }
             return;
         }
 
@@ -106,28 +99,23 @@ class PendingAddOp implements WriteCallback {
         // if we had already heard a success from this array index, need to
         // increment our number of responses that are pending, since we are
         // going to unset this success
-        if (successesSoFar[replicaIndex]) {
-            successesSoFar[replicaIndex] = false;
-            numResponsesPending++;
-        }
+        ackSet.removeBookie(bookieIndex);
+        completed = false;
 
-        sendWriteRequest(bookieIndex, replicaIndex);
+        sendWriteRequest(bookieIndex);
     }
 
     void initiate(ChannelBuffer toSend) {
         requestTimeMillis = MathUtils.now();
         this.toSend = toSend;
-        for (int i = 0; i < successesSoFar.length; i++) {
-            int bookieIndex = lh.distributionSchedule.getBookieIndex(entryId, i);
-            sendWriteRequest(bookieIndex, i);
+        for (int bookieIndex : lh.distributionSchedule.getWriteSet(entryId)) {
+            sendWriteRequest(bookieIndex);
         }
     }
 
     @Override
     public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
-
-        Integer replicaIndex = (Integer) ctx;
-        int bookieIndex = lh.distributionSchedule.getBookieIndex(entryId, replicaIndex);
+        int bookieIndex = (Integer) ctx;
 
         if (!lh.metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
             // ensemble has already changed, failure of this addr is immaterial
@@ -153,14 +141,12 @@ class PendingAddOp implements WriteCallback {
             return;
         }
 
-
-        if (!successesSoFar[replicaIndex]) {
-            successesSoFar[replicaIndex] = true;
-            numResponsesPending--;
+        if (ackSet.addBookieAndCheck(bookieIndex) && !completed) {
+            completed = true;
 
             // do some quick checks to see if some adds may have finished. All
             // this will be checked under locks again
-            if (numResponsesPending == 0 && lh.pendingAddOps.peek() == this) {
+            if (lh.pendingAddOps.peek() == this) {
                 lh.sendAddSuccessCallbacks();
             }
         }

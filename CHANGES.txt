@@ -82,6 +82,8 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-383: NPE in BookieJournalTest  (sijie via ivank)
 
+        BOOKKEEPER-396: Compilation issue in TestClient.java of BenchMark ( showing this in eclipse) (umamahesh via sijie)
+
       hedwig-protocol:
 
         BOOKKEEPER-394: CompositeException message is not useful (Stu Hood via sijie)
@@ -129,6 +131,10 @@ Trunk (unreleased changes)
         BOOKKEEPER-272: Provide automatic mechanism to know bookie failures (rakeshr via ivank)
 
         BOOKKEEPER-300: Create Bookie format command (Vinay via sijie)
+
+        BOOKKEEPER-208: Separate write quorum from ack quorum (ivank)
+
+        BOOKKEEPER-325: Delay the replication of a ledger if RW found that its last fragment is in underReplication. (umamahesh via ivank)
 
       hedwig-server:
 
