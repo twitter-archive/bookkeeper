@@ -426,6 +426,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
+                    final AtomicInteger localSubscriberCount = topic2LocalCounts.get(topic);
                     Callback<Void> cb2 = new Callback<Void>() {
 
                         @Override
@@ -447,15 +448,6 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                                     finish();
                                 }
                                 private void finish() {
-                                    // we should decrement local count when remote subscription failed
-                                    if (!SubscriptionStateUtils.isHubSubscriber(subRequest.getSubscriberId())) {
-                                        // since the subscribe op is executed one by one in queue order,
-                                        // so the following codes only happened when remote subscription failed.
-                                        // it is safe to decrement the local count so next subscribe op
-                                        // could have the chance to subscribe remote.
-                                        AtomicInteger count = topic2LocalCounts.get(topic);
-                                        if (count != null) { count.decrementAndGet(); }
-                                    }
                                     cb.operationFailed(ctx, exception);
                                 }
                             }, ctx);
@@ -466,16 +458,16 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                             topicSubscriptions.put(subscriberId, new InMemorySubscriptionState(subData));
 
                             updateMessageBound(topic);
-
+                            // All remote subscriptions succeeded so update the local count.
+                            localSubscriberCount.incrementAndGet();
                             cb.operationFinished(ctx, subData);
                         }
 
                     };
 
-                    AtomicInteger count = topic2LocalCounts.get(topic);
                     if (!SubscriptionStateUtils.isHubSubscriber(subRequest.getSubscriberId())
-                        && count != null
-                        && count.incrementAndGet() == 1)
+                        && localSubscriberCount != null
+                        && localSubscriberCount.get() == 0)
                         notifySubscribe(topic, subRequest.getSynchronous(), cb2, ctx);
                     else
                         cb2.operationFinished(ctx, resultOfOperation);

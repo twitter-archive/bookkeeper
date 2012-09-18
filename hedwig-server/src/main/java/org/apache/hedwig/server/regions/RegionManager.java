@@ -156,7 +156,7 @@ public class RegionManager implements SubscriptionEventListener {
             topics.add(topic);
         }
     }
-    
+
     /**
      * Do remote subscribe for a specified topic.
      *
@@ -274,8 +274,8 @@ public class RegionManager implements SubscriptionEventListener {
         queue.pushAndMaybeRun(topic, queue.new AsynchronousOp<Void>(topic, cb, null) {
             @Override
             public void run() {
-                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER, 
-                        "[" + myRegion.toStringUtf8() + "] all cross-region subscriptions succeeded", 
+                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER,
+                        "[" + myRegion.toStringUtf8() + "] all cross-region subscriptions succeeded",
                         "[" + myRegion.toStringUtf8() + "] at least one cross-region subscription failed");
                 final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), postCb, ctx);
                 for (final HedwigHubClient client : clients) {
@@ -328,7 +328,14 @@ public class RegionManager implements SubscriptionEventListener {
                         mcb.operationFailed(ctx, e);
                         continue;
                     }
-                    sub.asyncUnsubscribe(topic, mySubId, mcb, null);
+                    try {
+                        // Stop delivery and then unsubscribe if needed.
+                        sub.stopDelivery(topic, mySubId);
+                        sub.asyncUnsubscribe(topic, mySubId, mcb, null);
+                    } catch (PubSubException.ClientNotSubscribedException e) {
+                        LOGGER.error("Tried to stop delivery for topic: " + topic.toStringUtf8() + " and subscriber: "
+                                + mySubId.toStringUtf8() + ", but we were not subscribed.");
+                    }
                 }
             }
         });
