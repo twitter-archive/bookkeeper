@@ -30,7 +30,7 @@ public class ClientStatsProvider {
     public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(InetSocketAddress addr) {
         Logger.getLogger(Stats.class.getName()).setLevel(Level.SEVERE);
         String statName = new StringBuilder("per_channel_bookie_client_")
-                .append(addr.getHostName().replace('.', '_'))
+                .append(addr.getHostName().replace('.', '_').replace('-', '_'))
                 .append("_")
                 .append(addr.getPort())
                 .toString();
