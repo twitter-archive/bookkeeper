@@ -22,6 +22,8 @@ import java.util.LinkedList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.hedwig.client.api.MessageHandler;
+import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -300,6 +302,9 @@ public class ResponseHandler extends SimpleChannelHandler {
                 }
             }
         } else {
+            // We want to retry, so get the current message handler for this pair of topic, subscriber-id.
+            // We save this here because closeSubscription will clear the data.
+            MessageHandler existingMessageHandler = subHandler.getMessageHandler();
             // Subscribe channel disconnected so first close and clear all
             // cached Channel data set up for this topic subscription.
             sub.closeSubscription(origSubData.topic, origSubData.subscriberId);
@@ -315,15 +320,28 @@ public class ResponseHandler extends SimpleChannelHandler {
             origSubData.clearServersList();
             // Clear the shouldClaim flag
             origSubData.shouldClaim = false;
+            // If we don't have a message handler set, we don't reconnect.
+            if (null == existingMessageHandler) {
+                // This has happened because startDelivery was not called on this earlier. We will leave it up to
+                // the client application to handle this correctly and re subscribe. If it calls startDelivery after this,
+                // it's okay because that will throw a ClientNotSubscribed exception.
+                logger.warn("No message handler found for the subscription channel for topic: " + origSubData.topic.toStringUtf8()
+                        + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not attempt a reconnect.");
+                return;
+            }
             // Set a new type of VoidCallback for this async call. We need this
             // hook so after the subscribe reconnect has completed, delivery for
             // that topic subscriber should also be restarted (if it was that
             // case before the channel disconnect).
-            origSubData.setCallback(new SubscribeReconnectCallback(origSubData, client));
+            origSubData.setCallback(new SubscribeReconnectCallback(origSubData, client, existingMessageHandler));
             origSubData.context = null;
             if (logger.isDebugEnabled())
                 logger.debug("Disconnected subscribe channel so reconnect with origSubData: " + origSubData);
-            client.doConnect(origSubData, cfg.getDefaultServerHost());
+            // Don't reconnect if this is a hedwig hub subscriber
+            // TODO(Aniruddha): Fix this when we move on to non synchronous subscriptions across DCs
+            if (!SubscriptionStateUtils.isHubSubscriber(origSubData.subscriberId)) {
+                client.doConnect(origSubData, cfg.getDefaultServerHost());
+            }
         }
 
         // Finally, all of the PubSubRequests that are still waiting for an ack

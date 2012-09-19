@@ -574,8 +574,11 @@ public class HedwigSubscriber implements Subscriber {
         startDelivery(topic, subscriberId, messageHandler, false);
     }
 
-    public void restartDelivery(final ByteString topic, final ByteString subscriberId)
+    public void restartDelivery(final ByteString topic, final ByteString subscriberId, MessageHandler handler)
         throws ClientNotSubscribedException, AlreadyStartDeliveryException {
+        // Put this message handler in the map. We do this to maintain backward compatibility as we
+        // don't want to break the signature for startDelivery
+        topicSubscriber2MessageHandler.put(new TopicSubscriber(topic, subscriberId), handler);
         startDelivery(topic, subscriberId, null, true);
     }
 
@@ -728,6 +731,16 @@ public class HedwigSubscriber implements Subscriber {
         if (logger.isDebugEnabled())
             logger.debug("Closing subscription asynchronously for topic: " + topic.toStringUtf8() + ", subscriberId: "
                          + subscriberId.toStringUtf8());
+        // First stop delivery for this subscription. In case this subscription is started again, we don't want to find
+        // an existing message handler to stop us from subscribing. Unsubscribing from a topic also invokes
+        // this method, so it's better to do this here. Moreover, close subscription should leave us in a state
+        // where a fresh subscribe request can succeed.
+        try {
+            stopDelivery(topic, subscriberId);
+        } catch (ClientNotSubscribedException e) {
+            logger.error("Tried to stop delivery for topic: " + topic.toStringUtf8() + " and subscriber: "
+                    + subscriberId.toStringUtf8() + ", but we were not subscribed.");
+        }
         TopicSubscriber topicSubscriber = new TopicSubscriber(topic, subscriberId);
         // Remove all cached references for the TopicSubscriber
         Channel channel = topicSubscriber2Channel.remove(topicSubscriber);

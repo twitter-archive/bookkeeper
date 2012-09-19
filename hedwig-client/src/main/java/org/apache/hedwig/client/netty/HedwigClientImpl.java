@@ -389,8 +389,12 @@ public class HedwigClientImpl implements Client {
                         + " and host: " + host);
             }
         }
-        if (host2Topics.get(host).remove(topic)) {
-            host2Topics.remove(host, new ConcurrentLinkedQueue<ByteString>());
+        ConcurrentLinkedQueue<ByteString> topicList = host2Topics.get(host);
+        if (null != topicList) {
+            topicList.remove(topic);
+            if (topicList.isEmpty()) {
+                host2Topics.remove(host, new ConcurrentLinkedQueue<ByteString>());
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("Removed topic: " + topic.toStringUtf8() + " from host: " + host);
             }

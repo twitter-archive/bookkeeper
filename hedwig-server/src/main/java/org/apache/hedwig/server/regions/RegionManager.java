@@ -328,14 +328,7 @@ public class RegionManager implements SubscriptionEventListener {
                         mcb.operationFailed(ctx, e);
                         continue;
                     }
-                    try {
-                        // Stop delivery and then unsubscribe if needed.
-                        sub.stopDelivery(topic, mySubId);
-                        sub.asyncUnsubscribe(topic, mySubId, mcb, null);
-                    } catch (PubSubException.ClientNotSubscribedException e) {
-                        LOGGER.error("Tried to stop delivery for topic: " + topic.toStringUtf8() + " and subscriber: "
-                                + mySubId.toStringUtf8() + ", but we were not subscribed.");
-                    }
+                    sub.asyncUnsubscribe(topic, mySubId, mcb, null);
                 }
             }
         });

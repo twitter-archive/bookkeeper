@@ -51,13 +51,15 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
     private final HedwigClientImpl client;
     private final HedwigSubscriber sub;
     private final ClientConfiguration cfg;
+    private final MessageHandler handler;
 
     // Constructor
-    public SubscribeReconnectCallback(PubSubData origSubData, HedwigClientImpl client) {
+    public SubscribeReconnectCallback(PubSubData origSubData, HedwigClientImpl client, MessageHandler handler) {
         this.origSubData = origSubData;
         this.client = client;
         this.sub = client.getSubscriber();
         this.cfg = client.getConfiguration();
+        this.handler = handler;
     }
 
     class SubscribeReconnectRetryTask extends TimerTask {
@@ -79,7 +81,7 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
         // if delivery was started at the time the original subscribe channel
         // was disconnected.
         try {
-            sub.restartDelivery(origSubData.topic, origSubData.subscriberId);
+            sub.restartDelivery(origSubData.topic, origSubData.subscriberId, handler);
         } catch (ClientNotSubscribedException e) {
             // This exception should never be thrown here but just in case,
             // log an error and just keep retrying the subscribe request.
