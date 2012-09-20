@@ -195,32 +195,40 @@ public class RegionManager implements SubscriptionEventListener {
                 if (LOGGER.isDebugEnabled())
                     LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region subscription done for topic " + topic.toStringUtf8());
                 try {
-                    sub.startDelivery(topic, mySubId, new MessageHandler() {
-                        @Override
-                        public void deliver(final ByteString topic, ByteString subscriberId, Message msg,
-                        final Callback<Void> callback, final Object context) {
-                            pm.persistMessage(new PersistRequest(topic, msg, new Callback<MessageSeqId>() {
-                                @Override
-                                public void operationFinished(Object ctx, MessageSeqId resultOfOperation) {
-                                    if (LOGGER.isDebugEnabled())
-                                        LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd succeeded for topic "
-                                                     + topic.toStringUtf8());
-                                    callback.operationFinished(context, null);
-                                }
+                    if (client.getHubSubscriber().getMessageHandler(topic, mySubId) == null) {
+                        // Start delivery only if we don't have an existing message handler.
 
-                                @Override
-                                public void operationFailed(Object ctx, PubSubException exception) {
-                                    if (LOGGER.isDebugEnabled())
-                                        LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd failed for topic "
-                                                     + topic.toStringUtf8(), exception);
-                                    callback.operationFailed(context, exception);
-                                }
-                            }, null));
-                        }
-                    });
-                    if (LOGGER.isDebugEnabled())
-                        LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region start-delivery succeeded for topic "
-                                     + topic.toStringUtf8());
+                        sub.startDelivery(topic, mySubId, new MessageHandler() {
+                            @Override
+                            public void deliver(final ByteString topic, ByteString subscriberId, Message msg,
+                            final Callback<Void> callback, final Object context) {
+                                pm.persistMessage(new PersistRequest(topic, msg, new Callback<MessageSeqId>() {
+                                    @Override
+                                    public void operationFinished(Object ctx, MessageSeqId resultOfOperation) {
+                                        if (LOGGER.isDebugEnabled())
+                                            LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd succeeded for topic "
+                                                         + topic.toStringUtf8());
+
+                                        callback.operationFinished(context, null);
+                                    }
+
+                                    @Override
+                                    public void operationFailed(Object ctx, PubSubException exception) {
+                                        if (LOGGER.isDebugEnabled())
+                                            LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd failed for topic "
+                                                         + topic.toStringUtf8(), exception);
+                                        callback.operationFailed(context, exception);
+                                    }
+                                }, null));
+                            }
+                        });
+                        if (LOGGER.isDebugEnabled())
+                            LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region start-delivery succeeded for topic "
+                                    + topic.toStringUtf8());
+                    } else {
+                        LOGGER.warn("We already have an existing message handler, so we will let the client subscriber" +
+                                " retry and restart delivery for topic: " + topic.toStringUtf8() + ", sub: " + mySubId.toStringUtf8());
+                    }
                     mcb.operationFinished(ctx, null);
                 } catch (PubSubException ex) {
                     if (LOGGER.isDebugEnabled())

@@ -337,11 +337,7 @@ public class ResponseHandler extends SimpleChannelHandler {
             origSubData.context = null;
             if (logger.isDebugEnabled())
                 logger.debug("Disconnected subscribe channel so reconnect with origSubData: " + origSubData);
-            // Don't reconnect if this is a hedwig hub subscriber
-            // TODO(Aniruddha): Fix this when we move on to non synchronous subscriptions across DCs
-            if (!SubscriptionStateUtils.isHubSubscriber(origSubData.subscriberId)) {
-                client.doConnect(origSubData, cfg.getDefaultServerHost());
-            }
+            client.doConnect(origSubData, cfg.getDefaultServerHost());
         }
 
         // Finally, all of the PubSubRequests that are still waiting for an ack

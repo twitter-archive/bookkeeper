@@ -18,6 +18,8 @@
 package org.apache.hedwig.server.regions;
 
 import com.google.protobuf.ByteString;
+import org.apache.hedwig.client.api.MessageHandler;
+import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.client.exceptions.InvalidSubscriberIdException;
 import org.apache.hedwig.client.netty.HedwigClientImpl;
 import org.apache.hedwig.client.netty.HedwigSubscriber;
@@ -81,6 +83,10 @@ public class HedwigHubSubscriber extends HedwigSubscriber {
     public void asyncUnsubscribe(final ByteString topic, final ByteString subscriberId, final Callback<Void> callback,
                                  final Object context) {
         asyncUnsubscribe(topic, subscriberId, callback, context, true);
+    }
+
+    public MessageHandler getMessageHandler(ByteString topic, ByteString subscriberId) {
+        return this.topicSubscriber2MessageHandler.get(new TopicSubscriber(topic, subscriberId));
     }
 
 }

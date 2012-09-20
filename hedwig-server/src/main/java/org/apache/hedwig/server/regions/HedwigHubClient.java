@@ -30,11 +30,13 @@ import org.apache.hedwig.client.netty.HedwigClientImpl;
  */
 public class HedwigHubClient extends HedwigClientImpl {
 
+    private final HedwigHubSubscriber hubSubscriber;
     // Constructor when we already have a ChannelFactory instantiated.
     public HedwigHubClient(ClientConfiguration cfg, ClientSocketChannelFactory channelFactory) {
         super(cfg, channelFactory);
         // Override the type of HedwigSubscriber with the hub specific one.
-        setSubscriber(new HedwigHubSubscriber(this));
+        this.hubSubscriber = new HedwigHubSubscriber(this);
+        setSubscriber(this.hubSubscriber);
     }
 
     // Constructor when we don't have a ChannelFactory. The super constructor
@@ -42,7 +44,11 @@ public class HedwigHubClient extends HedwigClientImpl {
     public HedwigHubClient(ClientConfiguration cfg) {
         super(cfg);
         // Override the type of HedwigSubscriber with the hub specific one.
-        setSubscriber(new HedwigHubSubscriber(this));
+        this.hubSubscriber = new HedwigHubSubscriber(this);
+        setSubscriber(this.hubSubscriber);
     }
 
+    public HedwigHubSubscriber getHubSubscriber() {
+        return this.hubSubscriber;
+    }
 }
