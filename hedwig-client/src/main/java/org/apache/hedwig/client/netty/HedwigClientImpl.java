@@ -18,10 +18,11 @@
 package org.apache.hedwig.client.netty;
 
 import java.net.InetSocketAddress;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -54,6 +55,10 @@ public class HedwigClientImpl implements Client {
 
     private static final Logger logger = LoggerFactory.getLogger(HedwigClientImpl.class);
 
+    // Empty Topic Set
+    private final static Set<ByteString> EMPTY_TOPIC_SET =
+            new HashSet<ByteString>();
+
     // Global counter used for generating unique transaction ID's for
     // publish and subscribe requests
     protected final AtomicLong globalCounter = new AtomicLong();
@@ -75,8 +80,12 @@ public class HedwigClientImpl implements Client {
     // also want to remove all topic mappings the host was responsible for.
     // The second Map is used as the inverted version of the first one.
     protected final ConcurrentMap<ByteString, InetSocketAddress> topic2Host = new ConcurrentHashMap<ByteString, InetSocketAddress>();
-    private final ConcurrentMap<InetSocketAddress, ConcurrentLinkedQueue<ByteString>> host2Topics =
-        new ConcurrentHashMap<InetSocketAddress, ConcurrentLinkedQueue<ByteString>>();
+    // The inverse mapping is used only when clearing all topics. For performance
+    // consideration, we don't guarantee host2Topics to be consistent with
+    // topic2Host. it would be better to not rely on this mapping for anything
+    // significant.
+    private final ConcurrentMap<InetSocketAddress, Set<ByteString>> host2Topics =
+        new ConcurrentHashMap<InetSocketAddress, Set<ByteString>>();
 
     // Each client instantiation will have a Timer for running recurring
     // threads. One such timer task thread to is to timeout long running
@@ -291,29 +300,50 @@ public class HedwigClientImpl implements Client {
         // mapping from the topic to this host. For all other non-redirected
         // server statuses, we consider that as a successful connection to the
         // correct topic master.
+        final ByteString topic = pubSubData.topic;
         InetSocketAddress host = getHostFromChannel(channel);
-        InetSocketAddress existingHost = topic2Host.get(pubSubData.topic);
-        if (existingHost != null && existingHost.equals(host)) {
+        InetSocketAddress oldHost = topic2Host.putIfAbsent(topic, host);
+        if (oldHost != null && oldHost.equals(host)) {
             // Entry in map exists for the topic but it is the same as the
             // current host. In this case there is nothing to do.
             return;
         }
 
-        // Store the relevant mappings for this topic and host combination.
-        if (topic2Host.putIfAbsent(pubSubData.topic, host) == null) {
-            if (logger.isDebugEnabled())
-                logger.debug("Stored info for topic: " + pubSubData.topic.toStringUtf8() + ", old host: "
-                            + existingHost + ", new host: " + host);
+        if (null != oldHost) {
+            if (topic2Host.replace(topic, oldHost, host)) {
+                // Store the relevant mappings for this topic and host combination.
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Storing info for topic: " + topic.toStringUtf8()
+                            + ", old host: " + oldHost + ", new host: " + host);
+                }
+                clearTopicForHost(topic, oldHost);
+            } else {
+                logger.warn("Ownership of topic: " + topic.toStringUtf8()
+                         + " has been changed from " + oldHost + " to "
+                         + topic2Host.get(topic) + " when storing host: " + host);
+                return;
+            }
+        } else {
+             if (logger.isDebugEnabled()) {
+                 logger.debug("Storing info for topic: {}, host: {}.",
+                              topic.toStringUtf8(), host);
+             }
         }
-        ConcurrentLinkedQueue<ByteString> topicsForHost = host2Topics.get(host);
-        if (topicsForHost == null) {
-            ConcurrentLinkedQueue<ByteString> newTopicsList = new ConcurrentLinkedQueue<ByteString>();
-            topicsForHost = host2Topics.putIfAbsent(host, newTopicsList);
-            if (topicsForHost == null) {
-              topicsForHost = newTopicsList;
+        Set<ByteString> topicsForHost = host2Topics.get(host);
+        if (null == topicsForHost) {
+            Set<ByteString> newTopicsSet = new HashSet<ByteString>();
+            topicsForHost = host2Topics.putIfAbsent(host, newTopicsSet);
+            if (null == topicsForHost) {
+                topicsForHost = newTopicsSet;
             }
         }
-        topicsForHost.add(pubSubData.topic);
+        synchronized (topicsForHost) {
+            // check whether the ownership changed, since it might happened
+            // after replace succeed
+            if (host.equals(topic2Host.get(topic))) {
+                topicsForHost.add(topic);
+            }
+        }
     }
 
     /**
@@ -364,12 +394,16 @@ public class HedwigClientImpl implements Client {
             logger.debug("Clearing all topics for host: " + host);
         // For each of the topics that the host was responsible for,
         // remove it from the topic2Host mapping.
-        ConcurrentLinkedQueue<ByteString> topicsForHost = host2Topics.get(host);
+        Set<ByteString> topicsForHost = host2Topics.get(host);
         if (topicsForHost != null) {
-            for (ByteString topic : topicsForHost) {
-                if (logger.isDebugEnabled())
-                    logger.debug("Removing mapping for topic: " + topic.toStringUtf8() + " from host: " + host);
-                topic2Host.remove(topic, host);
+            synchronized (topicsForHost) {
+                for (ByteString topic : topicsForHost) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Removing mapping for topic: {} from host: {}.",
+                                     topic.toStringUtf8(), host);
+                    }
+                    topic2Host.remove(topic, host);
+                }
             }
             // Now it is safe to remove the host2Topics mapping entry.
             host2Topics.remove(host, topicsForHost);
@@ -380,24 +414,31 @@ public class HedwigClientImpl implements Client {
     // topic for the host and not all cached information.
     public void clearTopicForHost(ByteString topic, InetSocketAddress host) {
         if (logger.isDebugEnabled()) {
-            logger.debug("Clearing topic: " + topic.toStringUtf8() + " for host: "
-                    + host);
+            logger.debug("Clearing topic: {} for host: {}",
+                         topic.toStringUtf8(), host);
         }
         if (topic2Host.remove(topic, host)) {
             if (logger.isDebugEnabled()) {
-                logger.debug("Removed topic to host mapping for topic: " + topic.toStringUtf8()
-                        + " and host: " + host);
+                logger.debug("Removed topic to host mapping for topic: {} and host: {}",
+                             topic.toStringUtf8(), host);
             }
         }
-        ConcurrentLinkedQueue<ByteString> topicList = host2Topics.get(host);
-        if (null != topicList) {
-            topicList.remove(topic);
-            if (topicList.isEmpty()) {
-                host2Topics.remove(host, new ConcurrentLinkedQueue<ByteString>());
-            }
-            if (logger.isDebugEnabled()) {
-                logger.debug("Removed topic: " + topic.toStringUtf8() + " from host: " + host);
-            }
+        Set<ByteString> topicsForHost = host2Topics.get(host);
+        if (null != topicsForHost) {
+             boolean removed;
+             synchronized (topicsForHost) {
+                 removed = topicsForHost.remove(topic);
+             }
+             if (removed) {
+                 if (logger.isDebugEnabled()) {
+                     logger.debug("Removed topic: {} from host: {}",
+                                  topic.toStringUtf8(), host);
+                 }
+                 if (topicsForHost.isEmpty()) {
+                     // remove only topic set is empty
+                     host2Topics.remove(host, EMPTY_TOPIC_SET);
+                 }
+             }
         }
     }
 
