@@ -162,12 +162,14 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                     @Override
                     public void operationComplete(int rc, Void result) {
                         if (rc == BKException.Code.OK) {
-                            // Opened a new ledger
                             bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
                             cb.openComplete(BKException.Code.OK, lh, LedgerOpenOp.this.ctx);
                         } else if (rc == BKException.Code.UnauthorizedAccessException) {
                             cb.openComplete(BKException.Code.UnauthorizedAccessException, null, LedgerOpenOp.this.ctx);
                         } else {
+                            // Do this in case of error because the recover() function closes the ledger and as a result
+                            // decrements this counter.
+                            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
                             cb.openComplete(BKException.Code.LedgerRecoveryException, null, LedgerOpenOp.this.ctx);
                         }
                     }

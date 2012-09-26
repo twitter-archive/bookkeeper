@@ -98,6 +98,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 // and stops delivery.
                 Set<ByteString> subscribers = topic2subs.get(topic);
                 Set<ByteString> subscriberSetCopy;
+                if (null == subscribers) {
+                    return;
+                }
                 synchronized (subscribers) {
                     // Don't call the delivery manager function under a lock because all new subscriptions
                     // would be blocked till this completes.
@@ -124,8 +127,11 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                             .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).dec();
                 }
                 // Also remove from the topic2subs set
-                topic2subs.get(topicSub.getTopic()).remove(topicSub.getSubscriberId());
-                topic2subs.remove(topicSub.getTopic(), Collections.emptySet());
+                Set<ByteString> subscriberSet = topic2subs.get(topicSub.getTopic());
+                if (null != subscriberSet) {
+                    subscriberSet.remove(topicSub.getSubscriberId());
+                    topic2subs.remove(topicSub.getTopic(), Collections.emptySet());
+                }
             }
         }
     }

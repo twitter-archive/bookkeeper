@@ -363,10 +363,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             TopicInfo topicInfo = topicInfos.get(topic);
             if (null != topicInfo) {
                 topicInfo.lastSeqIdDelivered = seqId;
-                // Set the pending value to the difference of the last entry acked by bookkeeper (successfully published)
+                // Set the pending value to the difference of the last pushed sequence id
                 // and the last sequence Id delivered.
+                long seqId = topicInfo.lastSeqIdPushed.getLocalComponent();
                 ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
-                        topic, topicInfo.lastEntryIdAckedInCurrentLedger - topicInfo.lastSeqIdDelivered, false);
+                        topic, seqId - topicInfo.lastSeqIdDelivered, false);
             }
         }
     }
@@ -668,10 +669,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 }
 
                 topicInfo.lastEntryIdAckedInCurrentLedger = entryId;
-                // Set the pending value to the difference of the last entry acked by bookkeeper (successfully published)
+                // Set the pending value to the difference of the last local sequence id
                 // and the last sequence Id delivered.
                 ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
-                        topic, topicInfo.lastEntryIdAckedInCurrentLedger - topicInfo.lastSeqIdDelivered, false);
+                        topic, localSeqId - topicInfo.lastSeqIdDelivered, false);
 
                 request.getCallback().operationFinished(ctx, responseSeqId);
                 // if this acked entry is the last entry of current ledger
