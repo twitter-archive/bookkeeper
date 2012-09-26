@@ -647,6 +647,8 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
         }
 
         public void performRequest() {
+            // Let the real persistence manager know about this.
+            realPersistenceManager.deliveredUntil(topic, seqId);
             SortedSet<Long> orderedSeqIds = orderedIndexOnSeqId.get(topic);
             if (orderedSeqIds == null) {
                 return;

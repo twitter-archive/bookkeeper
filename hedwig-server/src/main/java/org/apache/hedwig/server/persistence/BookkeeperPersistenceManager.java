@@ -37,6 +37,8 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.PerTopicStatType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,6 +154,13 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
 
         final static int UNLIMITED = 0;
         int messageBound = UNLIMITED;
+
+        /**
+         * Hint from the delivery manager about the last sequence id that has been delivered
+         * for this topic. We use this to log information about pending messages that need to
+         * be delivered.
+         */
+        long lastSeqIdDelivered = 0;
     }
 
     Map<ByteString, TopicInfo> topicInfos = new ConcurrentHashMap<ByteString, TopicInfo>();
@@ -342,8 +351,28 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         queuer.pushAndMaybeRun(request.topic, new RangeScanOp(request, scanSeqId, numMsgsRead, totalSizeRead));
     }
 
+    public class DeliveredUntilOp extends TopicOpQueuer.SynchronousOp {
+        private final long seqId;
+
+        public DeliveredUntilOp(ByteString topic, long seqId) {
+            queuer.super(topic);
+            this.seqId = seqId;
+        }
+        @Override
+        public void runInternal() {
+            TopicInfo topicInfo = topicInfos.get(topic);
+            if (null != topicInfo) {
+                topicInfo.lastSeqIdDelivered = seqId;
+                // Set the pending value to the difference of the last entry acked by bookkeeper (successfully published)
+                // and the last sequence Id delivered.
+                ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
+                        topic, topicInfo.lastEntryIdAckedInCurrentLedger - topicInfo.lastSeqIdDelivered, false);
+            }
+        }
+    }
+
     public void deliveredUntil(ByteString topic, Long seqId) {
-        // Nothing to do here. this is just a hint that we cannot use.
+        queuer.pushAndMaybeRun(topic, new DeliveredUntilOp(topic, seqId));
     }
 
     public class UpdateLedgerOp extends TopicOpQueuer.AsynchronousOp<Void> {
@@ -595,7 +624,15 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
 
         topicInfo.lastSeqIdPushed = builder.build();
+
         Message msgToSerialize = Message.newBuilder(request.message).setMsgId(topicInfo.lastSeqIdPushed).build();
+
+        // If this is a cross region message, update the last seen message for this topic.
+        // If the original request has a message id, it implies that it did not originate from this region.
+        if (request.message.hasMsgId()) {
+            ServerStatsProvider.getStatsLoggerInstance().setPerTopicLastSeenMessage(PerTopicStatType.CROSS_REGION, topic,
+                    msgToSerialize, false);
+        }
 
         final MessageSeqId responseSeqId = msgToSerialize.getMsgId();
         topicInfo.currentLedgerRange.handle.asyncAddEntry(msgToSerialize.toByteArray(),
@@ -631,6 +668,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 }
 
                 topicInfo.lastEntryIdAckedInCurrentLedger = entryId;
+                // Set the pending value to the difference of the last entry acked by bookkeeper (successfully published)
+                // and the last sequence Id delivered.
+                ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
+                        topic, topicInfo.lastEntryIdAckedInCurrentLedger - topicInfo.lastSeqIdDelivered, false);
+
                 request.getCallback().operationFinished(ctx, responseSeqId);
                 // if this acked entry is the last entry of current ledger
                 // we can add a ChangeLedgerOp to execute to change ledger
@@ -694,6 +736,13 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 cb.operationFinished(ctx, null);
                 return;
             }
+            // We acquired a topic. So populate the per topic stat map for locally pending deliveries and cross
+            // region delivery. If anything from here on fails, ReleaseOp will clear these entries.
+            ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
+                    topic, 0, true);
+            // The last seen message is set to null.
+            ServerStatsProvider.getStatsLoggerInstance().setPerTopicLastSeenMessage(PerTopicStatType.CROSS_REGION,
+                    topic, null, true);
 
             // read persistence info
             tpManager.readTopicPersistenceInfo(topic, new Callback<Versioned<LedgerRanges>>() {
@@ -1001,7 +1050,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         @Override
         public void runInternal() {
             TopicInfo topicInfo = topicInfos.remove(topic);
-
+            // Remove the mapped value for locally pending messages for this topic.
+            ServerStatsProvider.getStatsLoggerInstance().removePerTopicLogger(PerTopicStatType.LOCAL_PENDING, topic);
+            // Remove the mapped value for cross region delivery stats.
+            ServerStatsProvider.getStatsLoggerInstance().removePerTopicLogger(PerTopicStatType.CROSS_REGION, topic);
             if (topicInfo == null) {
                 return;
             }

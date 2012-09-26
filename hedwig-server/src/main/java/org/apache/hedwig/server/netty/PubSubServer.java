@@ -24,12 +24,15 @@ import java.net.MalformedURLException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.protobuf.ByteString;
 import com.twitter.common.application.ShutdownRegistry;
 import com.twitter.common.base.Supplier;
 import com.twitter.common.net.http.handlers.VarsJsonHandler;
@@ -44,7 +47,12 @@ import com.twitter.common.stats.TimeSeriesRepositoryImpl;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.lang.StringUtils;
+import org.apache.hedwig.protocol.PubSubProtocol;
+import org.apache.hedwig.server.stats.*;
+import org.apache.hedwig.util.Pair;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
@@ -87,6 +95,7 @@ import org.apache.hedwig.server.persistence.ReadAheadCache;
 import org.apache.hedwig.server.regions.HedwigHubClientFactory;
 import org.apache.hedwig.server.regions.RegionManager;
 import org.apache.hedwig.server.ssl.SslServerContextFactory;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.PerTopicStatType;
 import org.apache.hedwig.server.subscriptions.InMemorySubscriptionManager;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.subscriptions.MMSubscriptionManager;
@@ -395,6 +404,69 @@ public class PubSubServer {
         context.addServlet(new ServletHolder(new VarsHandler(supplier)), "/vars");
         context.addServlet(new ServletHolder(new VarsJsonHandler(supplier)), "/vars.json");
         this.jettyServer.start();
+
+        // Print the pending message value per topic every 1 minute
+        scheduler.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                String newLine = System.getProperty("line.separator");
+                StringBuilder sb = new StringBuilder("Number of messages pending delivery to the most lagging subscriber.");
+                sb.append(newLine);
+                sb.append("\tTopic\tMessages pending delivery").append(newLine);
+                ConcurrentMap<ByteString, PerTopicStat> topicMap = ServerStatsProvider.getStatsLoggerInstance().getPerTopicLogger(
+                        PerTopicStatType.LOCAL_PENDING);
+                long totalTopics = 0;
+                long maxPending = 0;
+                for (ConcurrentMap.Entry<ByteString, PerTopicStat> entry : topicMap.entrySet()) {
+                    PerTopicPendingMessageStat value = (PerTopicPendingMessageStat)entry.getValue();
+                    ByteString topic = entry.getKey();
+                    AtomicLong pendingValue;
+                    if (null == (pendingValue = value.getPending())) {
+                        // The mapped value is null. Move on.
+                        continue;
+                    }
+                    totalTopics++;
+                    maxPending = Math.max(maxPending, pendingValue.get());
+                    sb.append("\t");
+                    sb.append(topic.toStringUtf8());
+                    sb.append("\t");
+                    sb.append(value.getPending().get());
+                    sb.append("\t").append(newLine);
+                }
+                sb.append("Total Topics : ").append(totalTopics)
+                        .append(", Max Pending : ").append(maxPending).append(newLine).append(newLine);
+                logger.info(sb.toString());
+            }
+        }, 60, 60, TimeUnit.SECONDS);
+
+        // Print the per topic cross region received messages every 5 minutes.
+        scheduler.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                String newLine = System.getProperty("line.separator");
+                StringBuilder sb = new StringBuilder("Cross region received messages.");
+                sb.append(newLine);
+                sb.append("\tTopic\tInfo").append(newLine);
+                ConcurrentMap<ByteString, PerTopicStat> topicMap = ServerStatsProvider.getStatsLoggerInstance().getPerTopicLogger(
+                        PerTopicStatType.CROSS_REGION);
+                for (ConcurrentMap.Entry<ByteString, PerTopicStat> entry : topicMap.entrySet()) {
+                    PerTopicCrossRegionStat value = (PerTopicCrossRegionStat)entry.getValue();
+                    ByteString topic = entry.getKey();
+                    ConcurrentMap<ByteString, Pair<PubSubProtocol.Message, Long>> regionMap = value.getRegionMap();
+                    sb.append("\t").append(topic.toStringUtf8()).append("\t");
+                    for (ConcurrentMap.Entry<ByteString, Pair<PubSubProtocol.Message, Long>> regionEntry : regionMap.entrySet()) {
+                        sb.append("region:").append(regionEntry.getKey().toStringUtf8()).append(", ");
+                        sb.append("age:").append(MathUtils.now() - regionEntry.getValue().second()).append(", ");
+                        PubSubProtocol.Message message = regionEntry.getValue().first();
+                        sb.append("Vector Clock:").append(message.getMsgId().toString().replaceAll(newLine, "; ")).append(newLine);
+                        sb.append("\t").append(StringUtils.repeat(" ", topic.toStringUtf8().length())).append("\t");
+                    }
+                    sb.append(newLine);
+                }
+                sb.append(newLine).append(newLine);
+                logger.info(sb.toString());
+            }
+        }, 300, 300, TimeUnit.SECONDS);
     }
 
     /**
