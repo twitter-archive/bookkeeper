@@ -80,6 +80,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
     private BookKeeper bk;
     private TopicPersistenceManager tpManager;
     private ServerConfiguration cfg;
+    final private ByteString myRegion;
     private TopicManager tm;
 
     // max number of entries allowed in a ledger
@@ -187,6 +188,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         this.bk = bk;
         this.tpManager = metaManagerFactory.newTopicPersistenceManager();
         this.cfg = cfg;
+        this.myRegion = ByteString.copyFromUtf8(cfg.getMyRegion());
         this.tm = tm;
         this.maxEntriesPerLedger = cfg.getMaxEntriesPerLedger();
         queuer = new TopicOpQueuer(executor);
@@ -629,8 +631,8 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         Message msgToSerialize = Message.newBuilder(request.message).setMsgId(topicInfo.lastSeqIdPushed).build();
 
         // If this is a cross region message, update the last seen message for this topic.
-        // If the original request has a message id, it implies that it did not originate from this region.
-        if (request.message.hasMsgId()) {
+        // If this server's region does not match the origin of the message, it's a cross region message.
+        if (!request.message.getSrcRegion().equals(myRegion)) {
             ServerStatsProvider.getStatsLoggerInstance().setPerTopicLastSeenMessage(PerTopicStatType.CROSS_REGION, topic,
                     msgToSerialize, false);
         }
@@ -740,7 +742,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             // We acquired a topic. So populate the per topic stat map for locally pending deliveries and cross
             // region delivery. If anything from here on fails, ReleaseOp will clear these entries.
             ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
-                    topic, 0, true);
+                    topic, -1, true);
             // The last seen message is set to null.
             ServerStatsProvider.getStatsLoggerInstance().setPerTopicLastSeenMessage(PerTopicStatType.CROSS_REGION,
                     topic, null, true);

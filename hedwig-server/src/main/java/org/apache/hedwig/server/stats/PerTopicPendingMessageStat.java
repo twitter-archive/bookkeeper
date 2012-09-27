@@ -16,7 +16,7 @@ public class PerTopicPendingMessageStat extends PerTopicStat {
 
     public PerTopicPendingMessageStat(ByteString topic) {
         super(topic);
-        this.pending = new AtomicLong(0);
+        this.pending = new AtomicLong(-1);
     }
 
     @Override

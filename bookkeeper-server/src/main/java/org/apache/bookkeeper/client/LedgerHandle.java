@@ -260,8 +260,11 @@ public class LedgerHandle {
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
-                // Closed a ledger
-                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
+                // Don't update the stat if you're closing an already closed ledger
+                if (!metadata.isClosed()) {
+                    // Closed a ledger
+                    bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
+                }
                 final long prevLastEntryId;
                 final long prevLength;
                 final State prevState;

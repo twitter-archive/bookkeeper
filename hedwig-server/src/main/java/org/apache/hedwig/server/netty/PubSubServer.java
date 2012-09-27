@@ -456,9 +456,14 @@ public class PubSubServer {
                     sb.append("\t").append(topic.toStringUtf8()).append("\t");
                     for (ConcurrentMap.Entry<ByteString, Pair<PubSubProtocol.Message, Long>> regionEntry : regionMap.entrySet()) {
                         sb.append("region:").append(regionEntry.getKey().toStringUtf8()).append(", ");
-                        sb.append("age:").append(MathUtils.now() - regionEntry.getValue().second()).append(", ");
+                        sb.append("age-millis:").append(MathUtils.now() - regionEntry.getValue().second()).append(", ");
                         PubSubProtocol.Message message = regionEntry.getValue().first();
-                        sb.append("Vector Clock:").append(message.getMsgId().toString().replaceAll(newLine, "; ")).append(newLine);
+                        sb.append("Vector Clock:[localComponent:");
+                        sb.append(message.getMsgId().getLocalComponent()).append(", remoteComponents:[");
+                        for (PubSubProtocol.RegionSpecificSeqId seqId : message.getMsgId().getRemoteComponentsList()) {
+                            sb.append(seqId.getRegion().toStringUtf8()).append(":").append(seqId.getSeqId()).append(",");
+                        }
+                        sb.append("]]");
                         sb.append("\t").append(StringUtils.repeat(" ", topic.toStringUtf8().length())).append("\t");
                     }
                     sb.append(newLine);
