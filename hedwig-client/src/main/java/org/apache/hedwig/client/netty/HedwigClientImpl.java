@@ -20,11 +20,12 @@ package org.apache.hedwig.client.netty;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
@@ -87,10 +88,11 @@ public class HedwigClientImpl implements Client {
     private final ConcurrentMap<InetSocketAddress, Set<ByteString>> host2Topics =
         new ConcurrentHashMap<InetSocketAddress, Set<ByteString>>();
 
-    // Each client instantiation will have a Timer for running recurring
-    // threads. One such timer task thread to is to timeout long running
-    // PubSubRequests that are waiting for an ack response from the server.
-    private final Timer clientTimer = new Timer(true);
+    // Each client instantiation will have a ScheduledExecutorService for running recurring
+    // threads such retrying Subscriptions, timing out PubSub requests waiting for an ack and
+    // retrying message consumption.
+    private final ScheduledExecutorService clientScheduledExecutor = Executors
+            .newSingleThreadScheduledExecutor(new ExceptionSafeThreadFactory("ClientTimerThread"));
 
     // Boolean indicating if the client is running or has stopped.
     // Once we stop the client, we should sidestep all of the connect,
@@ -114,6 +116,7 @@ public class HedwigClientImpl implements Client {
     // Base constructor that takes in a Configuration object.
     // This will create its own client socket channel factory.
     protected HedwigClientImpl(ClientConfiguration cfg) {
+        // TODO(Aniruddha): Figure out if netty threads should also log(or handle in some other way) uncaught exceptions.
         this(cfg, new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool()));
         ownChannelFactory = true;
     }
@@ -132,7 +135,8 @@ public class HedwigClientImpl implements Client {
         }
         // Schedule all of the client timer tasks. Currently we only have the
         // Request Timeout task.
-        clientTimer.schedule(new PubSubRequestTimeoutTask(), 0, cfg.getTimeoutThreadRunInterval());
+        clientScheduledExecutor.scheduleWithFixedDelay(new PubSubRequestTimeoutTask(), 0L,
+                cfg.getTimeoutThreadRunInterval(), TimeUnit.MILLISECONDS);
     }
 
     // Public getters for the various components of a client.
@@ -169,11 +173,8 @@ public class HedwigClientImpl implements Client {
     // We should have a configured timeout so if that passes from the time a
     // write was successfully done to the server, we can fail this async PubSub
     // transaction. The caller could possibly redo the transaction if needed at
-    // a later time. Creating a timeout cleaner TimerTask to do this here.
-    class PubSubRequestTimeoutTask extends TimerTask {
-        /**
-         * Implement the TimerTask's abstract run method.
-         */
+    // a later time.
+    class PubSubRequestTimeoutTask implements Runnable {
         @Override
         public void run() {
             if (logger.isDebugEnabled())
@@ -236,8 +237,8 @@ public class HedwigClientImpl implements Client {
         logger.info("Stopping the client!");
         // Set the client boolean flag to indicate the client has stopped.
         isStopped = true;
-        // Stop the timer and all timer task threads.
-        clientTimer.cancel();
+        // Shutdown the executor.
+        clientScheduledExecutor.shutdownNow();
 
         pub.close();
         sub.close();
@@ -447,11 +448,43 @@ public class HedwigClientImpl implements Client {
         return isStopped;
     }
 
-    // Public getter to get the client's Timer object.
-    // This is so we can reuse this and not have to create multiple Timer
-    // objects.
-    public Timer getClientTimer() {
-        return clientTimer;
+    // Public getter to get the client's Scheduled executor service object.
+    // This is so we can reuse this and not have to create multiple executors.
+    public ScheduledExecutorService getClientScheduledExecutor() {
+        return clientScheduledExecutor;
     }
 
+    // This ThreadFactory returns threads that catch any uncaught exception
+    // and log it at a log level of error.
+    public static class ExceptionSafeThreadFactory implements ThreadFactory {
+        private ThreadFactory defaultTF = Executors.defaultThreadFactory();
+        private String threadPrefix;
+        private AtomicLong numThreads = new AtomicLong(0);
+        public ExceptionSafeThreadFactory(String threadPrefix) {
+            this.threadPrefix = threadPrefix;
+        }
+
+        public ExceptionSafeThreadFactory() {
+            this.threadPrefix = null;
+        }
+
+        // We wrap the newThread function provided by the default thread factory
+        // and return the thread with an uncaught exception handler attached to it.
+        public Thread newThread(Runnable r) {
+            long tNum = numThreads.getAndIncrement();
+            Thread defaultThread = defaultTF.newThread(r);
+            defaultThread.setUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread thread, Throwable throwable) {
+                    // TODO(Aniruddha): Consider handling uncaught exceptions differently. Currently we just log them.
+                    logger.error("Uncaught exception handler for thread: " + thread.getName() + " caught " +
+                            "exception : " + throwable.getMessage());
+                }
+            });
+            if (null != this.threadPrefix && !this.threadPrefix.equals("")) {
+                defaultThread.setName(this.threadPrefix + "-" + tNum);
+            }
+            return defaultThread;
+        }
+    }
 }

@@ -322,12 +322,11 @@ public class ResponseHandler extends SimpleChannelHandler {
             origSubData.shouldClaim = false;
             // If we don't have a message handler set, we don't reconnect.
             if (null == existingMessageHandler) {
-                // This has happened because startDelivery was not called on this earlier. We will leave it up to
-                // the client application to handle this correctly and re subscribe. If it calls startDelivery after this,
-                // it's okay because that will throw a ClientNotSubscribed exception.
+                // This has happened because startDelivery was not called on this earlier. We just log this
+                // and continue with the subscription. We pass a null message handler and as a result
+                // we don't restart delivery.
                 logger.warn("No message handler found for the subscription channel for topic: " + origSubData.topic.toStringUtf8()
                         + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not attempt a reconnect.");
-                return;
             }
             // Set a new type of VoidCallback for this async call. We need this
             // hook so after the subscribe reconnect has completed, delivery for

@@ -17,7 +17,7 @@
  */
 package org.apache.hedwig.client.handlers;
 
-import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hedwig.protocol.PubSubProtocol;
 import org.slf4j.Logger;
@@ -51,6 +51,7 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
     private final HedwigClientImpl client;
     private final HedwigSubscriber sub;
     private final ClientConfiguration cfg;
+    // If the handler is null, we should not restart delivery.
     private final MessageHandler handler;
 
     // Constructor
@@ -59,10 +60,12 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
         this.client = client;
         this.sub = client.getSubscriber();
         this.cfg = client.getConfiguration();
+        // The value for the handler could be null if we haven't started delivery for this topic,subscriber
+        // pair. In this case we will not attempt to restart delivery.
         this.handler = handler;
     }
 
-    class SubscribeReconnectRetryTask extends TimerTask {
+    class SubscribeReconnectRetryTask implements Runnable {
         @Override
         public void run() {
             if (logger.isDebugEnabled())
@@ -80,17 +83,19 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
         // Now we want to restart delivery for the subscription channel only
         // if delivery was started at the time the original subscribe channel
         // was disconnected.
-        try {
-            sub.restartDelivery(origSubData.topic, origSubData.subscriberId, handler);
-        } catch (ClientNotSubscribedException e) {
-            // This exception should never be thrown here but just in case,
-            // log an error and just keep retrying the subscribe request.
-            logger.error("Subscribe was successful but error starting delivery for topic: "
-                         + origSubData.topic.toStringUtf8() + ", subscriberId: "
-                         + origSubData.subscriberId.toStringUtf8(), e);
-            retrySubscribeRequest();
-        } catch (AlreadyStartDeliveryException asde) {
-            // should not reach here
+        if (null != handler) {
+            try {
+                sub.restartDelivery(origSubData.topic, origSubData.subscriberId, handler);
+            } catch (ClientNotSubscribedException e) {
+                // This exception should never be thrown here but just in case,
+                // log an error and just keep retrying the subscribe request.
+                logger.error("Subscribe was successful but error starting delivery for topic: "
+                             + origSubData.topic.toStringUtf8() + ", subscriberId: "
+                             + origSubData.subscriberId.toStringUtf8(), e);
+                retrySubscribeRequest();
+            } catch (AlreadyStartDeliveryException asde) {
+                // should not reach here
+            }
         }
     }
 
@@ -111,7 +116,7 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
 
         // Retry the subscribe request but only after waiting for a
         // preconfigured amount of time.
-        client.getClientTimer().schedule(new SubscribeReconnectRetryTask(),
-                                         client.getConfiguration().getSubscribeReconnectRetryWaitTime());
+        client.getClientScheduledExecutor().schedule(new SubscribeReconnectRetryTask(),
+                client.getConfiguration().getSubscribeReconnectRetryWaitTime(), TimeUnit.MILLISECONDS);
     }
 }

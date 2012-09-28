@@ -17,7 +17,7 @@
  */
 package org.apache.hedwig.client.handlers;
 
-import java.util.TimerTask;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.apache.hedwig.client.netty.ResponseHandler;
@@ -50,7 +50,7 @@ public class MessageConsumeCallback implements Callback<Void> {
         this.client = client;
     }
 
-    class MessageConsumeRetryTask extends TimerTask {
+    class MessageConsumeRetryTask implements Runnable {
         private final MessageConsumeData messageConsumeData;
         private final TopicSubscriber topicSubscriber;
 
@@ -116,8 +116,8 @@ public class MessageConsumeCallback implements Callback<Void> {
         // what duration to sleep based on how many times we've retried, or
         // perhaps what the last amount of time we slept was. We could stick
         // some of this meta-data into the MessageConsumeData when we retry.
-        client.getClientTimer().schedule(new MessageConsumeRetryTask(messageConsumeData, topicSubscriber),
-                                         client.getConfiguration().getMessageConsumeRetryWaitTime());
+        client.getClientScheduledExecutor().schedule(new MessageConsumeRetryTask(messageConsumeData, topicSubscriber),
+                client.getConfiguration().getMessageConsumeRetryWaitTime(), TimeUnit.MILLISECONDS);
     }
 
 }
