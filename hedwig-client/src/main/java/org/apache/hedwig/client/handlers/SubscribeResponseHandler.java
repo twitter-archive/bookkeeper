@@ -185,8 +185,9 @@ public class SubscribeResponseHandler {
             // cases.
             logger.error("Unexpected error response from server for PubSubResponse: " + response);
             pubSubData.getCallback().operationFailed(pubSubData.context, new ServiceDownException(
-                                                    "Server responded with a status code of: " +
-                                                        response.getStatusCode()));
+                                                    "Server responded with a status code of: "
+                                                    + response.getStatusCode() +
+                                                    " and message: " + response.getStatusMsg()));
             break;
         }
     }
