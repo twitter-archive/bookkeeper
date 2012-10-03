@@ -65,7 +65,7 @@ public class ConnectCallback implements ChannelFutureListener {
 
         // Check if the connection to the server was done successfully.
         if (!future.isSuccess()) {
-            logger.error("Error connecting to host: " + host);
+            logger.error("Error connecting to host: " + host + " with PubSubData: " + this.pubSubData);
 
             future.getChannel().close();
 
@@ -79,7 +79,7 @@ public class ConnectCallback implements ChannelFutureListener {
                                                         "Could not connect to host: " + host));
             } else {
                 if (logger.isDebugEnabled())
-                    logger.debug("Try to connect to server: " + host + " again for pubSubData: " + pubSubData);
+                    logger.debug("Try to reconnect to the default server with pubSubData: " + pubSubData);
                 // Keep track of this current server that we failed to connect
                 // to but retry the request on the default server host/VIP.
                 // The topic2Host mapping might need to be updated.

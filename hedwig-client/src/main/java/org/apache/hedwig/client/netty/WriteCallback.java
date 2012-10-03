@@ -61,7 +61,7 @@ public class WriteCallback implements ChannelFutureListener {
         // if it was successful or not.
         InetSocketAddress host = HedwigClientImpl.getHostFromChannel(future.getChannel());
         if (!future.isSuccess()) {
-            logger.error("Error writing on channel to host: " + host);
+            logger.error("Error writing on channel to host: " + host + " for pubSubData: " + pubSubData);
             // On a write failure for a PubSubRequest, we also want to remove
             // the saved txnId to PubSubData in the ResponseHandler. These
             // requests will not receive an ack response from the server

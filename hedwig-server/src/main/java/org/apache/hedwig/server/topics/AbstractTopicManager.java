@@ -160,6 +160,7 @@ public abstract class AbstractTopicManager implements TopicManager {
             }
         };
 
+        logger.info("Acquiring a topic: {}", topic);
         Callback<Void> mcb = CallbackUtils.multiCallback(listeners.size(), postCb, null);
         for (TopicOwnershipChangeListener listener : listeners) {
             listener.acquiredTopic(topic, mcb, null);
@@ -171,6 +172,8 @@ public abstract class AbstractTopicManager implements TopicManager {
             ServerStatsProvider.getStatsLoggerInstance()
                     .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_TOPICS).dec();
         }
+
+        logger.info("Releasing a topic: {}", topic);
         for (TopicOwnershipChangeListener listener : listeners)
             listener.lostTopic(topic);
         postReleaseCleanup(topic, callback, ctx);

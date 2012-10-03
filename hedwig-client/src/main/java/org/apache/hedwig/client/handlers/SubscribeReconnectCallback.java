@@ -95,6 +95,9 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
                 retrySubscribeRequest();
             } catch (AlreadyStartDeliveryException asde) {
                 // should not reach here
+                logger.error("Subscribe was successful but delivery was already started before for topic: "
+                             + origSubData.topic.toStringUtf8() + ", subscriberId: "
+                             + origSubData.subscriberId.toStringUtf8(), asde);
             }
         }
     }
@@ -104,7 +107,8 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
         // request. There isn't a way to flag to the application layer that
         // a topic subscription has failed. So instead, we'll just keep
         // retrying in the background until success.
-        logger.error("Subscribe reconnect failed with error: " + exception.getMessage());
+        logger.error("Subscribe reconnect failed for pubSubData: {} with error: {}. Scheduling another retry...",
+                     origSubData, exception.getMessage());
         retrySubscribeRequest();
     }
 

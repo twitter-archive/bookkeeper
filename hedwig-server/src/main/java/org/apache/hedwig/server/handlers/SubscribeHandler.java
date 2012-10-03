@@ -119,8 +119,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
         // Evils of synchronized programming: there is a race between a channel
         // getting disconnected, and us adding it to the maps when a subscribe
         // succeeds
+        final TopicSubscriber topicSub;
         synchronized (channel) {
-            TopicSubscriber topicSub = channel2sub.remove(channel);
+            topicSub = channel2sub.remove(channel);
             if (topicSub != null) {
                 if (null != sub2Channel.remove(topicSub)) {
                     ServerStatsProvider.getStatsLoggerInstance()
@@ -133,6 +134,12 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                     topic2subs.remove(topicSub.getTopic(), Collections.emptySet());
                 }
             }
+        }
+        if (topicSub == null) {
+            logger.info("Channel for a unknown subscription was disconnected from host: {}", channel.getRemoteAddress());
+        } else {
+            logger.info("Channel for the subscription [{}] was disconnected from host: {}",
+                        topicSub, channel.getRemoteAddress());
         }
     }
 

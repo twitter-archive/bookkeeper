@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
+import org.apache.hedwig.protocol.PubSubProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.bootstrap.ClientBootstrap;
@@ -272,8 +273,13 @@ public class HedwigClientImpl implements Client {
      *            Input server host to connect to of type InetSocketAddress
      */
     public void doConnect(PubSubData pubSubData, InetSocketAddress serverHost) {
-        if (logger.isDebugEnabled())
-            logger.debug("Connecting to host: " + serverHost + " with pubSubData: " + pubSubData);
+        String logMsg = "Connecting to host: {} with pubSubData: {}.";
+        if (pubSubData != null && pubSubData.operationType.equals(PubSubProtocol.OperationType.SUBSCRIBE)) {
+            // Log more aggressively for subscription attempts, which are less frequent & more critical.
+            logger.info(logMsg, serverHost, pubSubData);
+        } else {
+            logger.debug(logMsg, serverHost, pubSubData);
+        }
         // Set up the ClientBootStrap so we can create a new Channel connection
         // to the server.
         ClientBootstrap bootstrap = new ClientBootstrap(socketFactory);

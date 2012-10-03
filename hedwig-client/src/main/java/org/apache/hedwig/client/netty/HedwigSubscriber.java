@@ -457,7 +457,8 @@ public class HedwigSubscriber implements Subscriber {
         try {
             HedwigClientImpl.getResponseHandlerFromChannel(channel).txn2PubSubData.put(txnId, pubSubData);
         } catch (Exception e) {
-            logger.error("No response handler found while storing the subscribe callback.");
+            logger.error("No response handler found while storing the subscribe callback for pubSubData: "
+                         + pubSubData);
             // Call operationFailed on the pubsubdata callback to indicate failure
             pubSubData.getCallback().operationFailed(pubSubData.context, new CouldNotConnectException("No response " +
                     "handler found while attempting to subscribe."));
@@ -465,9 +466,8 @@ public class HedwigSubscriber implements Subscriber {
         }
 
         // Finally, write the Subscribe request through the Channel.
-        if (logger.isDebugEnabled())
-            logger.debug("Writing a SubUnsub request to host: " + HedwigClientImpl.getHostFromChannel(channel)
-                         + " for pubSubData: " + pubSubData);
+        logger.info("Writing a SubUnsub request to host: " + HedwigClientImpl.getHostFromChannel(channel)
+                    + " for pubSubData: " + pubSubData);
         ChannelFuture future = channel.write(pubsubRequestBuilder.build());
         future.addListener(new WriteCallback(pubSubData, client));
     }

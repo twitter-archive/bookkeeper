@@ -181,9 +181,14 @@ public class ResponseHandler extends SimpleChannelHandler {
      */
     public void handleRedirectResponse(PubSubResponse response, PubSubData pubSubData, Channel channel)
             throws Exception {
-        if (logger.isDebugEnabled())
-            logger.debug("Handling a redirect from host: " + HedwigClientImpl.getHostFromChannel(channel) + ", response: "
-                         + response + ", pubSubData: " + pubSubData);
+        String logMsg = "Handling a redirect from host: {}, response: {}, pubSubData: {}.";
+        if (pubSubData != null && pubSubData.operationType.equals(OperationType.SUBSCRIBE)) {
+            // Log more aggressively for subscription attempts, which are less frequent & more critical.
+            logger.info(logMsg, new Object[] { HedwigClientImpl.getHostFromChannel(channel), response, pubSubData });
+        } else {
+            logger.debug(logMsg, new Object[] { HedwigClientImpl.getHostFromChannel(channel), response, pubSubData });
+        }
+
         // In this case, the PubSub request was done to a server that is not
         // responsible for the topic. First make sure that we haven't
         // exceeded the maximum number of server redirects.
@@ -271,11 +276,15 @@ public class ResponseHandler extends SimpleChannelHandler {
         if (channelClosedExplicitly || client.hasStopped())
             return;
 
+        InetSocketAddress host = HedwigClientImpl.getHostFromChannel(ctx.getChannel());
+        PubSubData origSubData = subHandler.getOrigSubData();
+
+        logger.warn("Channel was disconnected from host: " + host
+                    + (origSubData == null ? "" : " (it was a subscription channel for " + origSubData + ")"));
+
         // Make sure the host retrieved is not null as there could be some weird
         // channel disconnect events happening during a client shutdown.
         // If it is, just return as there shouldn't be anything we need to do.
-        InetSocketAddress host = HedwigClientImpl.getHostFromChannel(ctx.getChannel());
-        logger.warn("Channel was disconnected to host: " + host);
         if (host == null)
             return;
 
@@ -283,8 +292,6 @@ public class ResponseHandler extends SimpleChannelHandler {
         // remove it from the HewdigPublisher's host2Channel map. We will
         // re-establish a Channel connection to that server when the next
         // publish/unsubscribe request to a topic that the server owns occurs.
-        PubSubData origSubData = subHandler.getOrigSubData();
-
         // Now determine what type of operation this channel was used for.
         if (origSubData == null) {
             // Only remove the Channel from the mapping if this current
@@ -326,7 +333,7 @@ public class ResponseHandler extends SimpleChannelHandler {
                 // and continue with the subscription. We pass a null message handler and as a result
                 // we don't restart delivery.
                 logger.warn("No message handler found for the subscription channel for topic: " + origSubData.topic.toStringUtf8()
-                        + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not attempt a reconnect.");
+                        + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not restart delivery.");
             }
             // Set a new type of VoidCallback for this async call. We need this
             // hook so after the subscribe reconnect has completed, delivery for
