@@ -457,8 +457,8 @@ public class HedwigSubscriber implements Subscriber {
         try {
             HedwigClientImpl.getResponseHandlerFromChannel(channel).txn2PubSubData.put(txnId, pubSubData);
         } catch (Exception e) {
-            logger.error("No response handler found while storing the subscribe callback for pubSubData: "
-                         + pubSubData);
+            logger.error("No response handler found while storing the subscribe callback for pubSubData: " + pubSubData,
+                         e);
             // Call operationFailed on the pubsubdata callback to indicate failure
             pubSubData.getCallback().operationFailed(pubSubData.context, new CouldNotConnectException("No response " +
                     "handler found while attempting to subscribe."));

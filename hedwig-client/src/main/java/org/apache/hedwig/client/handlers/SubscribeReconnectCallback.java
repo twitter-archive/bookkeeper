@@ -107,8 +107,8 @@ public class SubscribeReconnectCallback implements Callback<PubSubProtocol.Respo
         // request. There isn't a way to flag to the application layer that
         // a topic subscription has failed. So instead, we'll just keep
         // retrying in the background until success.
-        logger.error("Subscribe reconnect failed for pubSubData: {} with error: {}. Scheduling another retry...",
-                     origSubData, exception.getMessage());
+        logger.error("Subscribe reconnect failed for pubSubData: " + origSubData + ". Scheduling another retry...",
+                     exception);
         retrySubscribeRequest();
     }
 
