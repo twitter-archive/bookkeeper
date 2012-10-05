@@ -43,6 +43,12 @@ import org.apache.hedwig.util.HedwigSocketAddress;
  *
  */
 public abstract class HedwigRegionTestBase extends TestCase {
+    static {
+        org.apache.log4j.BasicConfigurator.resetConfiguration();
+        org.apache.log4j.BasicConfigurator.configure();
+        org.apache.log4j.LogManager.getLogger("org.apache.zookeeper")
+            .setLevel(org.apache.log4j.Level.OFF);
+    }
 
     protected static Logger logger = LoggerFactory.getLogger(HedwigRegionTestBase.class);
 

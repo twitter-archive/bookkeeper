@@ -173,6 +173,8 @@ public class RegionManager implements SubscriptionEventListener {
      */
     private void doRemoteSubscribe(final HedwigHubClient client, final ByteString topic, final boolean synchronous,
                                    final Callback<Void> mcb, final Object context) {
+        if (LOGGER.isDebugEnabled())
+            LOGGER.debug("[" + myRegion.toStringUtf8() + "] attempting cross-region subscription for topic " + topic.toStringUtf8());
         final HedwigSubscriber sub = client.getSubscriber();
         try {
             if (sub.hasSubscription(topic, mySubId)) {

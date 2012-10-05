@@ -51,13 +51,12 @@ import org.apache.hedwig.util.ConcurrencyUtils;
 
 public abstract class AbstractSubscriptionManager implements SubscriptionManager, TopicOwnershipChangeListener {
 
-    ServerConfiguration cfg;
-    ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>> top2sub2seq = new ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>>();
     static Logger logger = LoggerFactory.getLogger(AbstractSubscriptionManager.class);
 
-    TopicOpQueuer queuer;
+    private final ServerConfiguration cfg;
+    final ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>> top2sub2seq = new ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>>();
+    private final TopicOpQueuer queuer;
     private final ArrayList<SubscriptionEventListener> listeners = new ArrayList<SubscriptionEventListener>();
-    private final ConcurrentHashMap<ByteString, AtomicInteger> topic2LocalCounts = new ConcurrentHashMap<ByteString, AtomicInteger>();
 
     // Handle to the PersistenceManager for the server so we can pass along the
     // message consume pointers for each topic.
@@ -71,7 +70,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     // for all subscribers to the topic.
     private final ConcurrentHashMap<ByteString, Long> topic2MinConsumedMessagesMap = new ConcurrentHashMap<ByteString, Long>();
 
-    Callback<Void> noopCallback = new NoopCallback<Void>();
+    private final Callback<Void> noopCallback = new NoopCallback<Void>();
 
     static class NoopCallback<T> implements Callback<T> {
         @Override
@@ -171,15 +170,6 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     // number for bookkeeping so that future
                     // subscribes/unsubscribes can efficiently notify listeners.
 
-                    // Count the number of local subscribers we just inherited.
-                    // This loop is OK since the number of subscribers per topic
-                    // is expected to be small.
-                    int localCount = 0;
-                    for (ByteString subscriberId : resultOfOperation.keySet())
-                        if (!SubscriptionStateUtils.isHubSubscriber(subscriberId))
-                            localCount++;
-                    topic2LocalCounts.put(topic, new AtomicInteger(localCount));
-
                     // The final "commit" (and "abort") operations.
                     final Callback<Void> cb2 = new Callback<Void>() {
 
@@ -200,7 +190,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     };
 
                     // Notify listeners if necessary.
-                    if (localCount > 0) {
+                    if (hasLocalSubscriptions(resultOfOperation)) {
                         notifySubscribe(topic, false, cb2, ctx);
                     } else {
                         cb2.operationFinished(ctx, null);
@@ -258,7 +248,6 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 }
 
                 private void finish() {
-                    topic2LocalCounts.remove(topic);
                     // Also make sure we don't serve this subscription request later.
                     top2sub2seq.remove(topic);
                     // Since we decrement local count when some of remote subscriptions failed,
@@ -426,9 +415,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
-                    final AtomicInteger localSubscriberCount = topic2LocalCounts.get(topic);
                     Callback<Void> cb2 = new Callback<Void>() {
-
                         @Override
                         public void operationFailed(final Object ctx, final PubSubException exception) {
                             logger.error("subscription for subscriber " + subscriberId.toStringUtf8() + " to topic "
@@ -458,22 +445,31 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                             topicSubscriptions.put(subscriberId, new InMemorySubscriptionState(subData));
 
                             updateMessageBound(topic);
-                            // All remote subscriptions succeeded so update the local count.
-                            localSubscriberCount.incrementAndGet();
                             cb.operationFinished(ctx, subData);
                         }
 
                     };
 
+                    // if this will be the first local subscription, notifySubscribe
                     if (!SubscriptionStateUtils.isHubSubscriber(subRequest.getSubscriberId())
-                        && localSubscriberCount != null
-                        && localSubscriberCount.get() == 0)
+                        && !hasLocalSubscriptions(topicSubscriptions))
                         notifySubscribe(topic, subRequest.getSynchronous(), cb2, ctx);
                     else
                         cb2.operationFinished(ctx, resultOfOperation);
                 }
             }, ctx);
         }
+    }
+
+    /**
+     * @return True if the given subscriberId-to-subscriberState map contains a local subscription:
+     * the vast majority of subscriptions are local, so we will quickly encounter one if it exists.
+     */
+    private static boolean hasLocalSubscriptions(Map<ByteString, InMemorySubscriptionState> topicSubscriptions) {
+      for (ByteString subId : topicSubscriptions.keySet())
+        if (!SubscriptionStateUtils.isHubSubscriber(subId))
+          return true;
+      return false;
     }
 
     public void updateMessageBound(ByteString topic) {
@@ -581,9 +577,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 public void operationFinished(Object ctx, Void resultOfOperation) {
                     topicSubscriptions.remove(subscriberId);
                     // Notify listeners if necessary.
-                    AtomicInteger count = topic2LocalCounts.get(topic);
                     if (!SubscriptionStateUtils.isHubSubscriber(subscriberId)
-                        && count != null && count.decrementAndGet() == 0)
+                        && !hasLocalSubscriptions(topicSubscriptions))
                         notifyUnsubcribe(topic);
 
                     updateMessageBound(topic);
