@@ -126,6 +126,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 if (null != sub2Channel.remove(topicSub)) {
                     ServerStatsProvider.getStatsLoggerInstance()
                             .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).dec();
+                    if (SubscriptionStateUtils.isHubSubscriber(topicSub.getSubscriberId()))
+                        ServerStatsProvider.getStatsLoggerInstance()
+                                .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_REMOTE_SUBSCRIPTIONS).dec();
                 }
                 // Also remove from the topic2subs set
                 Set<ByteString> subscriberSet = topic2subs.get(topicSub.getTopic());
@@ -215,6 +218,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                         if (null == channel2sub.put(channel, topicSub)) {
                             ServerStatsProvider.getStatsLoggerInstance()
                                     .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).inc();
+                            if (SubscriptionStateUtils.isHubSubscriber(subscriberId))
+                                ServerStatsProvider.getStatsLoggerInstance()
+                                        .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_REMOTE_SUBSCRIPTIONS).inc();
                         }
                         // Also add this channel to topic2subs
                         Set<ByteString> subscribers = topic2subs
