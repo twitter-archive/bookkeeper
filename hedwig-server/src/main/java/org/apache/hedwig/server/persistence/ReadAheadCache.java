@@ -32,6 +32,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.hedwig.protocol.PubSubProtocol;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,6 +51,7 @@ import org.apache.hedwig.server.jmx.HedwigJMXService;
 import org.apache.hedwig.server.jmx.HedwigMBeanInfo;
 import org.apache.hedwig.server.jmx.HedwigMBeanRegistry;
 import org.apache.hedwig.server.persistence.ReadAheadCacheBean;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.util.Callback;
 
 public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXService {
@@ -361,6 +364,12 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
             CacheValue cacheValue = new CacheValue();
             cache.put(cacheKey, cacheValue);
 
+            // We've added a stub and hence another entry in the cache. Increment the respective counters.
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                    .NUM_CACHE_STUBS).inc();
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                    .NUM_CACHED_ENTRIES).inc();
+
             if (logger.isDebugEnabled()) {
                 logger.debug("Adding stub for seq-id: " + seqId + " topic: " + topic.toStringUtf8());
             }
@@ -496,10 +505,19 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
         if ((cacheValue = cache.get(cacheKey)) == null) {
             cacheValue = new CacheValue();
             cache.put(cacheKey, cacheValue);
+            // We did not have a stub earlier, so we should increment the number of cached entries
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                    .NUM_CACHED_ENTRIES).inc();
+        } else {
+            // We're assigning a value to one of the stubs.
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                    .NUM_CACHE_STUBS).dec();
         }
 
         // update the cache size
         presentCacheSize += message.getBody().size();
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                .CACHE_ENTRY_SIZE).add(cacheValue.getMessage().getBody().size());
 
         // maintain the time index of addition
         MapMethods.addToMultiMap(timeIndexOfAddition, currTime, cacheKey, HashSetCacheKeyFactory.instance);
@@ -522,8 +540,12 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
         if (cacheValue == null) {
             return;
         }
-
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                .NUM_CACHED_ENTRIES).dec();
         if (cacheValue.isStub()) {
+            // We removed a stub. So decrement the counter.
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                    .NUM_CACHE_STUBS).dec();
             cacheValue.setErrorAndInvokeCallbacks(exception);
             // Stubs are not present in the indexes, so dont need to maintain
             // indexes here
@@ -531,6 +553,8 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
         }
 
         presentCacheSize -= cacheValue.getMessage().getBody().size();
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                .CACHE_ENTRY_SIZE).add(-cacheValue.getMessage().getBody().size());
 
         // maintain the 2 indexes
         // TODO: can we maintain these lazily?
@@ -707,6 +731,11 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
             // can't be null
             CacheValue cacheValue = cache.get(new CacheKey(request.getTopic(), request.getStartSeqId()));
 
+            // If the cache value is not a stub, we have cache hit.
+            if (!cacheValue.isStub()) {
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                        .NUM_CACHE_HITS).inc();
+            }
             // Add our callback to the stub. If the cache value was already a
             // concrete message, the callback will be called right away
             cacheValue.addCallback(request.getCallback(), request.getCtx());

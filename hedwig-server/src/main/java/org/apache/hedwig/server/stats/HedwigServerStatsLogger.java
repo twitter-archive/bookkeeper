@@ -21,7 +21,8 @@ public interface HedwigServerStatsLogger extends StatsLogger {
      */
     public static enum HedwigServerSimpleStatType {
         TOTAL_REQUESTS_RECEIVED, TOTAL_REQUESTS_REDIRECT, TOTAL_MESSAGES_DELIVERED,
-        NUM_TOPICS, PERSIST_QUEUE, NUM_SUBSCRIPTIONS, NUM_REMOTE_SUBSCRIPTIONS
+        NUM_TOPICS, PERSIST_QUEUE, NUM_SUBSCRIPTIONS, NUM_REMOTE_SUBSCRIPTIONS,
+        NUM_CACHED_ENTRIES, NUM_CACHE_STUBS, NUM_CACHE_HITS, CACHE_ENTRY_SIZE
     }
 
     public static enum PerTopicStatType {

@@ -44,4 +44,9 @@ public class SimpleStatImpl implements SimpleStat {
     public void dec() {
         value.decrementAndGet();
     }
+
+    @Override
+    public void add(long delta) {
+        value.addAndGet(delta);
+    }
 }

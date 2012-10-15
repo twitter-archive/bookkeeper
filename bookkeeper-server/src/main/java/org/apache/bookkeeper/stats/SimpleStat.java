@@ -22,6 +22,12 @@ public interface SimpleStat {
     public void dec();
 
     /**
+     * Add delta to the value associated with this stat.
+     * @param delta
+     */
+    public void add(long delta);
+
+    /**
      * Get the value associated with this stat.
      */
     public Long get();
