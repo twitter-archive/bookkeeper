@@ -509,9 +509,11 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
                     .NUM_CACHED_ENTRIES).inc();
         } else {
-            // We're assigning a value to one of the stubs.
-            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
-                    .NUM_CACHE_STUBS).dec();
+            if (cacheValue.isStub()) {
+                // We're assigning a value to one of the stubs.
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                        .NUM_CACHE_STUBS).dec();
+            }
         }
 
         // update the cache size
@@ -735,6 +737,9 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
             if (!cacheValue.isStub()) {
                 ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
                         .NUM_CACHE_HITS).inc();
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
+                        .NUM_CACHE_MISS).inc();
             }
             // Add our callback to the stub. If the cache value was already a
             // concrete message, the callback will be called right away
