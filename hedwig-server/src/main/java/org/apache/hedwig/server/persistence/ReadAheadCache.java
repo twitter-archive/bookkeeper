@@ -517,7 +517,7 @@ public class ReadAheadCache implements PersistenceManager, Runnable, HedwigJMXSe
         // update the cache size
         presentCacheSize += message.getBody().size();
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerSimpleStatType
-                .CACHE_ENTRY_SIZE).add(cacheValue.getMessage().getBody().size());
+                .CACHE_ENTRY_SIZE).add(message.getBody().size());
 
         // maintain the time index of addition
         MapMethods.addToMultiMap(timeIndexOfAddition, currTime, cacheKey, HashSetCacheKeyFactory.instance);
