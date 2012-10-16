@@ -233,7 +233,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
             logger.info("{} : claimed topic {} 's owner to be {}",
                         new Object[] { addr, topic.toStringUtf8(), myHubInfo });
             notifyListenersAndAddToOwnedTopics(topic, cb, ctx);
-            hubManager.uploadSelfLoadData(myHubLoad.setNumTopics(topics.size()));
+            hubManager.uploadSelfLoadData(myHubLoad.incrementNumTopics());
         }
 
         public void choose(final Version prevOwnerVersion) {
@@ -291,7 +291,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
 
         // Reduce load. We've removed the topic from our topic set, so do this as well.
         // When we reclaim the topic, we will increment the load again.
-        hubManager.uploadSelfLoadData(myHubLoad.setNumTopics(topics.size()));
+        hubManager.uploadSelfLoadData(myHubLoad.decrementNumTopics());
 
         mm.readOwnerInfo(topic, new Callback<Versioned<HubInfo>>() {
             @Override

@@ -174,8 +174,9 @@ public abstract class AbstractTopicManager implements TopicManager {
         }
 
         logger.info("Releasing a topic: {}", topic);
-        for (TopicOwnershipChangeListener listener : listeners)
+        for (TopicOwnershipChangeListener listener : listeners) {
             listener.lostTopic(topic);
+        }
         postReleaseCleanup(topic, callback, ctx);
     }
 
@@ -235,6 +236,14 @@ public abstract class AbstractTopicManager implements TopicManager {
         }
         return topicList;
     }
+
+    // TODO: Re-factor HubLoad to be hosted by HubServerManager so that this
+    // TODO: interface method is unnecessary
+    @Override
+    public long getNumTopics() {
+        return this.topics.size();
+    }
+
 
     /**
      * This method should "return" the owner of the topic if one has been chosen

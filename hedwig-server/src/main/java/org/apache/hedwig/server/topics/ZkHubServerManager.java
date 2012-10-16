@@ -443,7 +443,8 @@ class ZkHubServerManager implements HubServerManager {
     @Override
     public void rebalanceCluster(final double tolerancePercentage, final PubSubProtocol.HubLoadData maxLoadToShed,
                                  final Callback<Boolean> callback, final Object ctx) {
-        // Get the load on all active hubs and then shed load if required.
+
+            // Get the load on all active hubs and then shed load if required.
         getActiveHubsInfoWithLoad(new Callback<Map<HubInfo, HubLoad>>() {
             @Override
             public void operationFinished(Object ctx, Map<HubInfo, HubLoad> loadMap) {
@@ -464,6 +465,11 @@ class ZkHubServerManager implements HubServerManager {
                 callback.operationFailed(ctx, e);
             }
         }, ctx);
+
+        if (null != tm) {
+            // Update the node information for the next rebalance cycle
+            uploadSelfLoadData(new HubLoad(tm.getNumTopics()));
+        }
     }
 
 

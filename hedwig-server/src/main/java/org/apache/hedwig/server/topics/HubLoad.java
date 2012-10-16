@@ -23,6 +23,7 @@ package org.apache.hedwig.server.topics;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hedwig.protocol.PubSubProtocol.HubLoadData;
 
@@ -48,24 +49,28 @@ public class HubLoad implements Comparable<HubLoad> {
     }
 
     // how many topics that a hub server serves
-    long numTopics;
+    AtomicLong numTopics;
 
     public HubLoad(long num) {
-        this.numTopics = num;
+        this.numTopics = new AtomicLong(num);
     }
 
     public HubLoad(HubLoadData data) {
-        this.numTopics = data.getNumTopics();
+        this.numTopics = new AtomicLong(data.getNumTopics());
     }
 
-    // TODO: Make this threadsafe (BOOKKEEPER-379)
-    public HubLoad setNumTopics(long numTopics) {
-        this.numTopics = numTopics;
+    public HubLoad incrementNumTopics() {
+        this.numTopics.incrementAndGet();
+        return this;
+    }
+
+    public HubLoad decrementNumTopics() {
+        this.numTopics.decrementAndGet();
         return this;
     }
 
     public HubLoadData toHubLoadData() {
-        return HubLoadData.newBuilder().setNumTopics(numTopics).build();
+        return HubLoadData.newBuilder().setNumTopics(numTopics.get()).build();
     }
 
     @Override
@@ -84,13 +89,14 @@ public class HubLoad implements Comparable<HubLoad> {
 
     @Override
     public int compareTo(HubLoad other) {
-        return numTopics > other.numTopics ?
-               1 : (numTopics < other.numTopics ? -1 : 0);
+        // Retrieve value only once to avoid different values on each get
+        long diff = numTopics.get() - other.numTopics.get();
+        return  diff > 0 ? 1 : (diff < 0 ? -1 : 0);
     }
 
     @Override
     public int hashCode() {
-        return (int)numTopics;
+        return (int)numTopics.get();
     }
 
     /**

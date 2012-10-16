@@ -254,7 +254,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                             logger.debug("claimed topic: " + topic.toStringUtf8());
                         }
                         notifyListenersAndAddToOwnedTopics(topic, cb, ctx);
-                        hubManager.uploadSelfLoadData(myHubLoad.setNumTopics(topics.size()));
+                        hubManager.uploadSelfLoadData(myHubLoad.incrementNumTopics());
                     } else if (rc == Code.NODEEXISTS.intValue()) {
                         read();
                     } else {
@@ -274,7 +274,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
 
         // Reduce load. We've removed the topic from our topic set, so do this as well.
         // When we reclaim the topic, we will increment the load again.
-        hubManager.uploadSelfLoadData(myHubLoad.setNumTopics(topics.size()));
+        hubManager.uploadSelfLoadData(myHubLoad.decrementNumTopics());
 
         zk.getData(hubPath(topic), false, new SafeAsyncZKCallback.DataCallback() {
             @Override

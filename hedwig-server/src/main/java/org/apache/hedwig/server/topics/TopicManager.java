@@ -91,7 +91,15 @@ public interface TopicManager {
      */
     public List<ByteString> getTopicList();
 
+    // TODO: Re-factor HubLoad to be hosted by HubServerManager so that this
+    // TODO: interface method is unnecessary
     /**
+     * Get the current number of topics the hub believes it owns
+     * @return
+     */
+    public long getNumTopics();
+
+  /**
      * Stop topic manager
      */
     public void stop();
