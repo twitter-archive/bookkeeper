@@ -646,6 +646,7 @@ public class LedgerHandle {
     void errorOutPendingAdds(int rc) {
         PendingAddOp pendingAddOp;
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).dec();
             pendingAddOp.submitCallback(rc);
         }
     }
