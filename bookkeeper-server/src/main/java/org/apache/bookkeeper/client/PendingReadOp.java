@@ -164,17 +164,16 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
          */
         entry.length = buffer.getLong(DigestManager.METADATA_LENGTH - 8);
 
+        if(LOG.isDebugEnabled()) {
+            LOG.debug("Releasing lock: " + entryId);
+        }
+        lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
+        lh.bkSharedSem.release(BKSharedOp.READ_OP);
+
         numPendingReads--;
         if (numPendingReads == 0) {
             submitCallback(BKException.Code.OK);
         }
-
-        if(LOG.isDebugEnabled()) {
-            LOG.debug("Releasing lock: " + entryId);
-        }
-
-        lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-        lh.bkSharedSem.release(BKSharedOp.READ_OP);
 
         if(numPendingReads < 0)
             LOG.error("Read too many values");

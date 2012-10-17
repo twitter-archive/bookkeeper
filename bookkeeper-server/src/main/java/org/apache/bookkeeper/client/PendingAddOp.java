@@ -162,9 +162,9 @@ class PendingAddOp implements WriteCallback {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
                     .registerSuccessfulEvent(latencyMillis);
         }
-        cb.addComplete(rc, lh, entryId, ctx);
         lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
         lh.bkSharedSem.release(BKSharedOp.ADD_OP);
+        cb.addComplete(rc, lh, entryId, ctx);
     }
 
 }
