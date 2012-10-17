@@ -493,31 +493,27 @@ public class LedgerHandle {
         } catch (InterruptedException e) {
             cb.addComplete(BKException.Code.InterruptedException,
                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-        }
-
-        final long entryId;
-        final long currentLength;
-        synchronized(this) {
-            // synchronized on this to ensure that
-            // the ledger isn't closed between checking and
-            // updating lastAddPushed
-            if (metadata.isClosed()) {
-                LOG.warn("Attempt to add to closed ledger: " + ledgerId);
-                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-                LedgerHandle.this.bkSharedSem.release(BKSharedOp.ADD_OP);
-                cb.addComplete(BKException.Code.LedgerClosedException,
-                               LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-                return;
-            }
-
-            entryId = ++lastAddPushed;
-            currentLength = addToLength(length);
-            op.setEntryId(entryId);
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
-            pendingAddOps.add(op);
+            return;
         }
 
         try {
+            final long entryId;
+            final long currentLength;
+            synchronized(this) {
+                // synchronized on this to ensure that
+                // the ledger isn't closed between checking and
+                // updating lastAddPushed
+                if (metadata.isClosed()) {
+                    throw new BKException.BKLedgerClosedException();
+                }
+
+                entryId = ++lastAddPushed;
+                currentLength = addToLength(length);
+                op.setEntryId(entryId);
+                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
+                pendingAddOps.add(op);
+            }
+
             bk.mainWorkerPool.submit(new SafeRunnable() {
                 @Override
                 public void safeRun() {
@@ -526,10 +522,18 @@ public class LedgerHandle {
                     op.initiate(toSend);
                 }
             });
-        } catch (RuntimeException e) {
+        } catch (Exception e) {
             bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
             bkSharedSem.release(BKSharedOp.ADD_OP);
-            throw e;
+            if (e instanceof BKException.BKLedgerClosedException) {
+                LOG.warn("Attempt to add to closed ledger: " + ledgerId);
+                cb.addComplete(BKException.Code.LedgerClosedException,
+                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            } else {
+                // TODO: BookieHandleNotAvailableException is probably incorrect
+                cb.addComplete(BKException.Code.BookieHandleNotAvailableException,
+                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            }
         }
     }
 
