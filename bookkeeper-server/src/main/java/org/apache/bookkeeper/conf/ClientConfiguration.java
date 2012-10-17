@@ -32,8 +32,15 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String ZK_TIMEOUT = "zkTimeout";
     protected final static String ZK_SERVERS = "zkServers";
 
+    // A total of "throttle" permits are available for read and write operations to bookies
+    // However, reads can only take up to "readThrottle" permits. Write operations always have
+    // at least "throttle - readThrottle" permits available.
+
     // Throttle value
     protected final static String THROTTLE = "throttle";
+
+    // Read Throttle value. This should be less than or equal to the total throttle value.
+    protected final static String READ_THROTTLE = "readThrottle";
 
     // Digest Type
     protected final static String DIGEST_TYPE = "digestType";
@@ -76,9 +83,23 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Get the maximum available read permits from the total number of permits
+     * returned by getThrottleValue. You can have only as many read operations
+     * outstanding as the number of permits provided by this function. Add operations
+     * can take up all permits though.
+     *
+     * The default behavior is to have no special add permits. So, we just return
+     * the total throttle value.
+     * @return
+     */
+    public int getReadThrottleValue() {
+        return this.getInt(READ_THROTTLE, getThrottleValue());
+    }
+
+    /**
      * Set throttle value.
      *
-     * Since BookKeeper process requests in asynchrous way, it will holds 
+     * Since BookKeeper process requests in asynchrous way, it will holds
      * those pending request in queue. You may easily run it out of memory
      * if producing too many requests than the capability of bookie servers can handle.
      * To prevent that from happeding, you can set a throttle value here.
@@ -89,6 +110,17 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setThrottleValue(int throttle) {
         this.setProperty(THROTTLE, Integer.toString(throttle));
+        return this;
+    }
+
+    /**
+     * We don't want potentially slow read operations to take up all permits, thereby blocking
+     * the add operations.
+     * @param readThrottleValue
+     * @return
+     */
+    public ClientConfiguration setReadThrottleValue(int readThrottleValue) {
+        this.setProperty(READ_THROTTLE, Integer.toString(readThrottleValue));
         return this;
     }
 
@@ -165,7 +197,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      *
      * This settings is used to enabled/disabled Nagle's algorithm, which is a means of
      * improving the efficiency of TCP/IP networks by reducing the number of packets
-     * that need to be sent over the network. If you are sending many small messages, 
+     * that need to be sent over the network. If you are sending many small messages,
      * such that more than one can fit in a single IP packet, setting client.tcpnodelay
      * to false to enable Nagle algorithm can provide better performance.
      * <br>

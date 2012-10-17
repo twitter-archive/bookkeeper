@@ -48,11 +48,15 @@ public class BookieThrottleTest extends BookKeeperClusterTestCase{
         this.digestType = DigestType.CRC32;
     }
 
+    @Override
+    public void setUp() throws Exception {
+        baseClientConf.setThrottleValue(throttle);
+        super.setUp();
+    }
+
     @Test
     public void testVerifyPermitRelaseInReadFailure() throws Exception {
-        baseClientConf.setThrottleValue(numBookies);
         int numEntries = throttle * 2;
-        System.setProperty("throttle", String.valueOf(throttle));
 
         lh = bkc.createLedger(numBookies, 1, digestType, "".getBytes());
         // Add ledger entries.
@@ -82,8 +86,6 @@ public class BookieThrottleTest extends BookKeeperClusterTestCase{
 
     @Test
     public void testVerifyPermitRelaseInAsyncReadFailure() throws Exception {
-        baseClientConf.setThrottleValue(numBookies);
-        System.setProperty("throttle", String.valueOf(throttle));
 
         lh = bkc.createLedger(numBookies, 1, digestType, ""
                 .getBytes());
@@ -122,6 +124,6 @@ public class BookieThrottleTest extends BookKeeperClusterTestCase{
                 Enumeration<LedgerEntry> seq, Object ctx) {
             assertTrue("Expected Not OK, since all bookies are stopped", rc != BKException.Code.OK);
             countDownLatch.countDown();
-        }        
+        }
     }
 }

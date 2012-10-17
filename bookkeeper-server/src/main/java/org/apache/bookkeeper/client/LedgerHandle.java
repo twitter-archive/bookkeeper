@@ -28,22 +28,21 @@ import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Queue;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
-import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore.BKSharedOp;
 import org.apache.bookkeeper.util.SafeRunnable;
 
 import org.slf4j.Logger;
@@ -68,8 +67,7 @@ public class LedgerHandle {
     final DigestManager macManager;
     final DistributionSchedule distributionSchedule;
 
-    final Semaphore opCounterSem;
-    private final Integer throttling;
+    final BookKeeperSharedSemaphore bkSharedSem;
 
     /**
      * Invalid entry id. This value is returned from methods which
@@ -96,8 +94,7 @@ public class LedgerHandle {
 
         this.ledgerId = ledgerId;
 
-        this.throttling = bk.getConf().getThrottleValue();
-        this.opCounterSem = new Semaphore(throttling);
+        this.bkSharedSem = bk.getSharedSemaphore();
 
         macManager = DigestManager.instantiate(ledgerId, password, digestType);
         this.ledgerKey = MacDigestManager.genDigest("ledger", password);
@@ -172,8 +169,8 @@ public class LedgerHandle {
      *
      * @return int    available slots
      */
-    Semaphore getAvailablePermits() {
-        return this.opCounterSem;
+    BookKeeperSharedSemaphore getAvailablePermits() {
+        return this.bkSharedSem;
     }
 
     /**
@@ -492,7 +489,7 @@ public class LedgerHandle {
         }
         try {
             bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).inc();
-            opCounterSem.acquire();
+            bkSharedSem.acquire(BKSharedOp.ADD_OP);
         } catch (InterruptedException e) {
             cb.addComplete(BKException.Code.InterruptedException,
                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
@@ -507,7 +504,7 @@ public class LedgerHandle {
             if (metadata.isClosed()) {
                 LOG.warn("Attempt to add to closed ledger: " + ledgerId);
                 bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-                LedgerHandle.this.opCounterSem.release();
+                LedgerHandle.this.bkSharedSem.release(BKSharedOp.ADD_OP);
                 cb.addComplete(BKException.Code.LedgerClosedException,
                                LedgerHandle.this, INVALID_ENTRY_ID, ctx);
                 return;
@@ -531,7 +528,7 @@ public class LedgerHandle {
             });
         } catch (RuntimeException e) {
             bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-            opCounterSem.release();
+            bkSharedSem.release(BKSharedOp.ADD_OP);
             throw e;
         }
     }

@@ -33,8 +33,6 @@ import java.util.Enumeration;
 import java.util.Random;
 import java.util.Set;
 import java.util.Arrays;
-import java.util.concurrent.Semaphore;
-
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
@@ -46,6 +44,7 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.streaming.LedgerInputStream;
 import org.apache.bookkeeper.streaming.LedgerOutputStream;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.WatchedEvent;
@@ -407,9 +406,9 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
     int getAvailablePermits(LedgerHandle lh) throws
         NoSuchFieldException, IllegalAccessException
     {
-        Field field = LedgerHandle.class.getDeclaredField("opCounterSem");
+        Field field = LedgerHandle.class.getDeclaredField("bkSharedSem");
         field.setAccessible(true);
-        return ((Semaphore)field.get(lh)).availablePermits();
+        return ((BookKeeperSharedSemaphore)field.get(lh)).availablePermits();
     }
 
     @Test

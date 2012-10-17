@@ -22,7 +22,6 @@ package org.apache.bookkeeper.client;
  */
 
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -30,17 +29,15 @@ import java.util.NoSuchElementException;
 import java.util.Queue;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
-import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore.BKSharedOp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
-
-import java.io.IOException;
 
 /**
  * Sequence of entries of a ledger that represents a pending read operation.
@@ -84,7 +81,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             }
 
             lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).inc();
-            lh.opCounterSem.acquire();
+            lh.bkSharedSem.acquire(BKSharedOp.READ_OP);
 
             if (i == nextEnsembleChange) {
                 ensemble = lh.metadata.getEnsemble(i);
@@ -103,7 +100,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             // we are done, the read has failed from all replicas, just fail the
             // read
             lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-            lh.opCounterSem.release();
+            lh.bkSharedSem.release(BKSharedOp.READ_OP);
             submitCallback(lastErrorCode);
             return;
         }
@@ -140,7 +137,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             if (BKException.Code.NoSuchLedgerExistsException == rc ||
                 BKException.Code.NoSuchEntryException == rc) {
                 lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-                lh.opCounterSem.release();
+                lh.bkSharedSem.release(BKSharedOp.READ_OP);
                 submitCallback(rc);
                 return;
             }
@@ -177,7 +174,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-        lh.opCounterSem.release();
+        lh.bkSharedSem.release(BKSharedOp.READ_OP);
 
         if(numPendingReads < 0)
             LOG.error("Read too many values");

@@ -25,6 +25,7 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore.BKSharedOp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -163,7 +164,7 @@ class PendingAddOp implements WriteCallback {
         }
         cb.addComplete(rc, lh, entryId, ctx);
         lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-        lh.opCounterSem.release();
+        lh.bkSharedSem.release(BKSharedOp.ADD_OP);
     }
 
 }

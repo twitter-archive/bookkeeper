@@ -35,6 +35,7 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
+import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -156,7 +157,7 @@ public class BookKeeper {
 
         ownChannelFactory = true;
         ownZKHandle = true;
-     }
+    }
 
     /**
      * Create a bookkeeper client but use the passed in zookeeper client instead
@@ -248,6 +249,18 @@ public class BookKeeper {
      */
     BookieClient getBookieClient() {
         return bookieClient;
+    }
+
+    /**
+     * Get the shared semaphore created by this bookkeeper client.
+     * A new semaphore will be returned on each invocation.
+     * This semaphore will have the throttle values
+     * as specified by the configuration.
+     * @return
+     */
+    BookKeeperSharedSemaphore getSharedSemaphore() {
+        return new BookKeeperSharedSemaphore(conf.getThrottleValue(),
+                conf.getReadThrottleValue());
     }
 
     /**
