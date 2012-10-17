@@ -158,7 +158,10 @@ public class PubSubServer {
             try {
                 ClientConfiguration bkConf = new ClientConfiguration();
                 bkConf.addConfiguration(conf.getConf());
-                bk = new BookKeeper(bkConf, zk, clientChannelFactory);
+                // We don't share the client factory with hedwig because the hedwig netty threads
+                // could potentially block (Region manager uses these).
+                // TODO:  http://jira.local.twitter.com/browse/DATASERV-1266
+                bk = new BookKeeper(bkConf, zk);
             } catch (KeeperException e) {
                 logger.error("Could not instantiate bookkeeper client", e);
                 throw new IOException(e);
