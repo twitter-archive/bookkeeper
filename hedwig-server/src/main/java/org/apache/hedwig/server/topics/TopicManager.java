@@ -18,7 +18,7 @@
 package org.apache.hedwig.server.topics;
 
 import com.google.protobuf.ByteString;
-import org.apache.hedwig.exceptions.PubSubException.ServiceDownException;
+import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.HedwigSocketAddress;
@@ -86,9 +86,57 @@ public interface TopicManager {
     public void releaseTopics(int numTopics, Callback<Long> callback, Object ctx);
 
     /**
-     * Get the list of topics this hub believes it is responsible for.
-     * @return
+     * Check if the topic has been subscribed from the region, callback finished if so,
+     * failed otherwise.
+     * @param topic
+     *          The topic.
+     * @param regionAddress
+     *          The region VIP address representation
+     * @param cb
+     *          Callback notification
+     * @param ctx
+     *          Callback context
+     * @param exception
+     *          The exception to be passed along if failure
      */
+    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx,
+                                               final PubSubException exception);
+
+    /**
+     * Remember the fact that the topic is unsubscribed from the region, callback finished
+     * if successful, failed otherwise.
+     * @param topic
+     *          The topic.
+     * @param regionAddress
+     *          The region VIP address representation
+     * @param cb
+     *          Callback notification
+     * @param ctx
+     *          Callback context
+     */
+    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx);
+
+    /**
+     * Remember the fact that the topic has been subscribed from the region, callback finished
+     * if successful, failed otherwise.
+     * @param topic
+     *          The topic.
+     * @param regionAddress
+     *          The region VIP address representation
+     * @param cb
+     *          Callback notification
+     * @param ctx
+     *          Callback context
+     */
+    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                final Callback<Void> cb, final Object ctx);
+
+    /**
+        * Get the list of topics this hub believes it is responsible for.
+        * @return
+        */
     public List<ByteString> getTopicList();
 
     // TODO: Re-factor HubLoad to be hosted by HubServerManager so that this

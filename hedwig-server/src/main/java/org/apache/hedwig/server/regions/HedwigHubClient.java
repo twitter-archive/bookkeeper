@@ -32,10 +32,10 @@ public class HedwigHubClient extends HedwigClientImpl {
 
     private final HedwigHubSubscriber hubSubscriber;
     // Constructor when we already have a ChannelFactory instantiated.
-    public HedwigHubClient(ClientConfiguration cfg, ClientSocketChannelFactory channelFactory) {
+    public HedwigHubClient(ClientConfiguration cfg, String hubHostName, ClientSocketChannelFactory channelFactory) {
         super(cfg, channelFactory);
         // Override the type of HedwigSubscriber with the hub specific one.
-        this.hubSubscriber = new HedwigHubSubscriber(this);
+        this.hubSubscriber = new HedwigHubSubscriber(this, hubHostName);
         setSubscriber(this.hubSubscriber);
     }
 
@@ -44,7 +44,7 @@ public class HedwigHubClient extends HedwigClientImpl {
     public HedwigHubClient(ClientConfiguration cfg) {
         super(cfg);
         // Override the type of HedwigSubscriber with the hub specific one.
-        this.hubSubscriber = new HedwigHubSubscriber(this);
+        this.hubSubscriber = new HedwigHubSubscriber(this, cfg.getDefaultServerHost().getHostName());
         setSubscriber(this.hubSubscriber);
     }
 

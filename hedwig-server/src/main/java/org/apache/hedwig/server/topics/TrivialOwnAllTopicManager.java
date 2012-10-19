@@ -17,19 +17,38 @@
  */
 package org.apache.hedwig.server.topics;
 
-import java.net.UnknownHostException;
-import java.util.concurrent.ScheduledExecutorService;
-
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.HedwigSocketAddress;
+import org.apache.hedwig.exceptions.PubSubException;
+
+import java.net.UnknownHostException;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class TrivialOwnAllTopicManager extends AbstractTopicManager {
 
     public TrivialOwnAllTopicManager(ServerConfiguration cfg, ScheduledExecutorService scheduler)
             throws UnknownHostException {
         super(cfg, scheduler);
+    }
+
+    @Override
+    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx,
+                                               final PubSubException exception) {
+        cb.operationFailed(ctx, exception); // Not-exists
+    }
+
+    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx) {
+        cb.operationFinished(ctx, null); // Always success
+    }
+
+    @Override
+    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                             final Callback<Void> cb, final Object ctx) {
+        cb.operationFinished(ctx, null); // Always success
     }
 
     @Override

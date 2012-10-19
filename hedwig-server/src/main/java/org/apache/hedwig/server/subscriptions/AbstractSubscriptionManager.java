@@ -234,44 +234,41 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
         @Override
         public void run() {
-            Callback<Void> finalCb = new Callback<Void>() {
+            // Make sure we don't serve this subscription request later.
+            final Map<ByteString, InMemorySubscriptionState> states = top2sub2seq.remove(topic);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Try to update subscription states when losing topic " + topic.toStringUtf8());
+            }
+            updateSubscriptionStates(states, topic, new Callback<Void>() {
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
                     finish();
                 }
 
                 @Override
-                public void operationFailed(Object ctx,
-                        PubSubException exception) {
+                public void operationFailed(Object ctx, PubSubException exception) {
                     logger.warn("Error when releasing topic : " + topic.toStringUtf8(), exception);
                     finish();
                 }
 
                 private void finish() {
-                    // Also make sure we don't serve this subscription request later.
-                    top2sub2seq.remove(topic);
-                    // Since we decrement local count when some of remote subscriptions failed,
-                    // while we don't unsubscribe those succeed subscriptions. so we can't depends
-                    // on local count, just try to notify unsubscribe.
-                    notifyUnsubcribe(topic);
+                    if (states != null) {
+                        notifyUnsubcribe(topic, !hasLocalSubscriptions(states));
+                    }
                     cb.operationFinished(ctx, null);
                 }
-            };
-            if (logger.isDebugEnabled()) {
-                logger.debug("Try to update subscription states when losing topic " + topic.toStringUtf8());
-            }
-            updateSubscriptionStates(topic, finalCb, ctx, true);
+            }, ctx);
         }
     }
 
-    void updateSubscriptionStates(ByteString topic, Callback<Void> finalCb, Object ctx, boolean removeTopic) {
+    void updateSubscriptionStates(ByteString topic, Callback<Void> finalCb, Object ctx) {
+        final Map<ByteString, InMemorySubscriptionState> states = top2sub2seq.get(topic);
+        updateSubscriptionStates(states, topic, finalCb, ctx);
+    }
+
+    void updateSubscriptionStates(final Map<ByteString, InMemorySubscriptionState> states,
+                                  ByteString topic, Callback<Void> finalCb, Object ctx) {
         // Try to update subscription states of a specified topic
-        Map<ByteString, InMemorySubscriptionState> states;
-        if (removeTopic) {
-            states = top2sub2seq.remove(topic);
-        } else {
-            states = top2sub2seq.get(topic);
-        }
         if (null == states) {
             finalCb.operationFinished(ctx, null);
         } else {
@@ -295,9 +292,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         queuer.pushAndMaybeRun(topic, new ReleaseOp(topic, noopCallback, null));
     }
 
-    private void notifyUnsubcribe(ByteString topic) {
+    private void notifyUnsubcribe(ByteString topic, boolean lastSubscriber) {
         for (SubscriptionEventListener listener : listeners)
-            listener.onLastLocalUnsubscribe(topic);
+            listener.onLastLocalUnsubscribe(topic, lastSubscriber);
     }
 
     protected abstract void readSubscriptions(final ByteString topic,
@@ -579,7 +576,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     // Notify listeners if necessary.
                     if (!SubscriptionStateUtils.isHubSubscriber(subscriberId)
                         && !hasLocalSubscriptions(topicSubscriptions))
-                        notifyUnsubcribe(topic);
+                        notifyUnsubcribe(topic, true);
 
                     updateMessageBound(topic);
                     cb.operationFinished(ctx, null);
@@ -624,7 +621,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                         ConcurrencyUtils.put(queue, false);
                     }
                 };
-                updateSubscriptionStates(topic, finalCb, null, false);
+                updateSubscriptionStates(topic, finalCb, null);
                 queue.take();
             }
         } catch (InterruptedException ie) {

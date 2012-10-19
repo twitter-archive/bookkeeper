@@ -195,6 +195,43 @@ public class TestMMTopicManager extends MetadataManagerFactoryTestCase {
         tm1.stop();
     }
 
+    @Test
+    public void testBookkeepingRegionSubcription() throws Exception {
+        ByteString topic1 = mkTopic(1);
+        final String regionAddress = "129.3.1.2";   // remote region VIP
+        final Callback<Void> cbFinished = new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void result) {
+                // No-op
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                Assert.fail("operationFailed called unexpectedly");
+            }
+        };
+        final Callback<Void> cbFailed = new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void result) {
+                Assert.fail("operationFinished called unexpectedly");
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                // No-op
+            }
+        };
+
+        ServerConfiguration conf1 = new CustomServerConfiguration(conf.getServerPort() + 1);
+        TopicManager tm1 = new MMTopicManager(conf1, zk, metadataManagerFactory, scheduler);
+
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFailed, null, null);
+        tm1.setTopicSubscribedFromRegion(topic1, regionAddress, cbFinished, null);
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFailed, null, null);
+        tm1.setTopicUnsubscribedFromRegion(topic1, regionAddress, cbFinished, null);
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFailed, null, null);
+
+        tm1.stop();
+    }
+
     class StubOwnershipChangeListener implements TopicOwnershipChangeListener {
         boolean failure;
         SynchronousQueue<Pair<ByteString, Boolean>> bsQueue;

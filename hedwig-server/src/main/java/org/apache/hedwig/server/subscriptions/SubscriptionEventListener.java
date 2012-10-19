@@ -51,7 +51,9 @@ public interface SubscriptionEventListener {
      *
      * @param topic
      *            The topic of interest.
+     * @param lastSubscriber
+     *            Called on behalf of last subscriber or not.
      */
-    public void onLastLocalUnsubscribe(ByteString topic);
+    public void onLastLocalUnsubscribe(ByteString topic, boolean lastSubscriber);
 
 }

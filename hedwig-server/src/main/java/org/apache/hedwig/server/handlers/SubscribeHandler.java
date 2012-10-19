@@ -92,7 +92,7 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             }
 
             @Override
-            public void onLastLocalUnsubscribe(ByteString topic) {
+            public void onLastLocalUnsubscribe(ByteString topic, boolean lastSubscriber) {
                 // The SubscriptionManager calls this to notify loss of a topic.
                 // We notify the delivery manager which in turn closes the channel
                 // and stops delivery.

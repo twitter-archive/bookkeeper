@@ -40,9 +40,17 @@ import org.apache.hedwig.util.Callback;
  * subscriber.
  */
 public class HedwigHubSubscriber extends HedwigSubscriber {
+    private final String hubHostName;
 
-    public HedwigHubSubscriber(HedwigClientImpl client) {
+    public HedwigHubSubscriber(HedwigClientImpl client, String hubHostName) {
         super(client);
+        this.hubHostName = hubHostName;
+    }
+
+    /** Remote region hub "host" name (DNS-LB) or virtual IP (HLB)
+    */
+    public String getHubHostName() {
+        return this.hubHostName;
     }
 
     @Override

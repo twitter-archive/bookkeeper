@@ -110,6 +110,28 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
     }
 
     @Override
+    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx,
+                                               final PubSubException exception) {
+        // Todo: Use same logic with ZKTopicManager once this is used in production
+        cb.operationFailed(ctx, exception); // Not-exists
+    }
+
+    @Override
+    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx) {
+        // Todo: Use same logic with ZKTopicManager once this is used in production
+        cb.operationFinished(ctx, null); // Always success
+    }
+
+    @Override
+    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                             final Callback<Void> cb, final Object ctx) {
+        // Todo: Use same logic with ZKTopicManager once this is used in production
+        cb.operationFinished(ctx, null); // Always success
+    }
+
+    @Override
     protected void realGetOwner(final ByteString topic, final boolean shouldClaim,
                                 final Callback<HedwigSocketAddress> cb, final Object ctx) {
         // If operations are suspended due to a ZK client disconnect, just error

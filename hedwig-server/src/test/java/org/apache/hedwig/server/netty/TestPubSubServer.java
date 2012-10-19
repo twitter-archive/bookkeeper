@@ -32,9 +32,9 @@ import org.apache.zookeeper.ZooKeeper;
 import org.junit.Test;
 
 import com.google.protobuf.ByteString;
-import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.apache.hedwig.client.HedwigClient;
 import org.apache.hedwig.client.api.Publisher;
+import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.server.PubSubServerStandAloneTestBase;
@@ -133,6 +133,25 @@ public class TestPubSubServer extends PubSubServerStandAloneTestBase {
             public TopicManager instantiateTopicManager() throws IOException {
                 return new AbstractTopicManager(new ServerConfiguration(), Executors.newSingleThreadScheduledExecutor()) {
                     @Override
+                    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                               final Callback<Void> cb, final Object ctx,
+                                                               final PubSubException exception) {
+                        cb.operationFailed(ctx, exception); // Not-exists
+                    }
+
+                    @Override
+                    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                               final Callback<Void> cb, final Object ctx) {
+                        cb.operationFinished(ctx, null); // Always success
+                    }
+
+                    @Override
+                    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                             final Callback<Void> cb, final Object ctx) {
+                        cb.operationFinished(ctx, null); // Always success
+                    }
+
+                    @Override
                     protected void realGetOwner(ByteString topic, boolean shouldClaim,
                     Callback<HedwigSocketAddress> cb, Object ctx) {
                         throw new RuntimeException("this exception should be uncaught");
@@ -163,6 +182,24 @@ public class TestPubSubServer extends PubSubServerStandAloneTestBase {
             @Override
             public TopicManager instantiateTopicManager() throws IOException {
                 return new AbstractTopicManager(new ServerConfiguration(), Executors.newSingleThreadScheduledExecutor()) {
+                    @Override
+                    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                               final Callback<Void> cb, final Object ctx,
+                                                               final PubSubException exception) {
+                        cb.operationFailed(ctx, exception); // Not-exists
+                    }
+
+                    @Override
+                    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                               final Callback<Void> cb, final Object ctx) {
+                        cb.operationFinished(ctx, null); // Always success
+                    }
+
+                    @Override
+                    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                                             final Callback<Void> cb, final Object ctx) {
+                        cb.operationFinished(ctx, null); // Always success
+                    }
 
                     @Override
                     protected void realGetOwner(ByteString topic, boolean shouldClaim,

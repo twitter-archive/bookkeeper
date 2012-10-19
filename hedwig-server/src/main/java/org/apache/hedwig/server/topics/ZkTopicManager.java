@@ -19,6 +19,7 @@ package org.apache.hedwig.server.topics;
 
 import java.net.UnknownHostException;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 
@@ -30,6 +31,8 @@ import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.Stat;
+import org.apache.bookkeeper.meta.ZkVersion;
+import org.apache.bookkeeper.versioning.Version.Occurred;
 
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -40,8 +43,6 @@ import org.apache.hedwig.util.Either;
 import org.apache.hedwig.util.HedwigSocketAddress;
 import org.apache.hedwig.zookeeper.SafeAsyncZKCallback;
 import org.apache.hedwig.zookeeper.ZkUtils;
-import org.apache.hedwig.zookeeper.SafeAsyncZKCallback.DataCallback;
-import org.apache.hedwig.zookeeper.SafeAsyncZKCallback.StatCallback;
 
 /**
  * Topics are operated on in parallel as they are independent.
@@ -55,6 +56,36 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
      * Persistent storage for topic metadata.
      */
     private ZooKeeper zk;
+
+    /**
+     * Remote region and topic pair as hashmap key
+     */
+    private static class RegionTopicPair {
+        private final String region;
+        private final ByteString topic;
+        public RegionTopicPair(final String region, ByteString topic) {
+            this.region = region;
+            this.topic = topic;
+        }
+        @Override
+        public boolean equals(Object other) {
+            if (other instanceof RegionTopicPair) {
+                RegionTopicPair that = (RegionTopicPair)other;
+                return this.region.equals(that.region) &&
+                    this.topic.equals(that.topic);
+            }
+            return false;
+        }
+        @Override
+        public int hashCode() {
+            return (region.hashCode() * 997) ^ (topic.hashCode() * 1013);
+        }
+    }
+
+    /**
+     * Hash map for hub-hostname and topic to Zk-node version
+     */
+    private final ConcurrentHashMap<RegionTopicPair, ZkVersion> regiontopic2version = new ConcurrentHashMap<RegionTopicPair, ZkVersion>();
 
     // hub server manager
     private final HubServerManager hubManager;
@@ -120,6 +151,140 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
 
     String hubPath(ByteString topic) {
         return cfg.getZkTopicPath(new StringBuilder(), topic).append("/hub").toString();
+    }
+
+    /**
+     *  Get zookkeeper remote region node (under topic) version, public for Unit test
+     * @param regionAddress
+     * @param topic
+     * @return
+     */
+    public int getZkNodeVersion(final String regionAddress, final ByteString topic) {
+        ZkVersion versionCur = regiontopic2version.get(new RegionTopicPair(regionAddress, topic));
+        if (versionCur != null)
+            return versionCur.getZnodeVersion();
+        return -1;
+    }
+
+    void updateZkNodeVersion(final String regionAddress, final ByteString topic, int version) {
+        RegionTopicPair key = new RegionTopicPair(regionAddress, topic);
+
+        ZkVersion versionCur = new ZkVersion(version);
+        ZkVersion versionOld = regiontopic2version.putIfAbsent(key, versionCur);
+        if (versionOld != null) {
+            while (Occurred.BEFORE == versionOld.compare(versionCur)) {
+                if (regiontopic2version.replace(key, versionOld, versionCur))
+                    break;
+                versionOld = regiontopic2version.get(key);
+            }
+        }
+    }
+
+    /**
+     * Return znode path to store subscribed region under topic.
+     *
+     * @param topic
+     *          Topic Name
+     * @return znode path to store subscribed region under topic.
+     */
+    private String getTopicRegionNodePath(ByteString topic, String address) {
+        return cfg.getZkTopicPath(new StringBuilder(), topic).append("/region/").append(address).toString();
+    }
+
+    @Override
+    public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx,
+                                               final PubSubException exception) {
+        final String zkNode = getTopicRegionNodePath(topic, regionAddress);
+        zk.exists(zkNode, false, new SafeAsyncZKCallback.StatCallback() {
+            @Override
+            public void safeProcessResult(int rc, String path, Object ctx, Stat stat) {
+                if (rc == Code.OK.intValue()) {
+                    if (logger.isDebugEnabled())
+                        logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
+                    cb.operationFinished(ctx, null);
+                }
+                else {
+                    logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " read failure: " + rc);
+                    cb.operationFailed(ctx, exception);
+                }
+            }
+        }, ctx);
+    }
+
+    @Override
+    public void setTopicUnsubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                               final Callback<Void> cb, final Object ctx) {
+        final String zkNode = getTopicRegionNodePath(topic, regionAddress);
+        final int version = getZkNodeVersion(regionAddress, topic);
+
+        // Skip if the region node was not updated/created by us
+        if (version == -1) {
+            logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " removal failure: " + Code.BADVERSION.intValue());
+            cb.operationFailed(ctx, new PubSubException.ZooKeeperServiceDownException(regionAddress));
+            return;
+        }
+
+        // Delete the region node
+        zk.delete(zkNode, version, new SafeAsyncZKCallback.VoidCallback() {
+            @Override
+            public void safeProcessResult(int rc, String path, Object ctx) {
+                // Remove bookkeeping of hub-subscription metadata version
+                regiontopic2version.remove(new RegionTopicPair(regionAddress, topic));
+                if (rc == Code.NONODE.intValue() || rc == Code.OK.intValue()) {
+                    if (logger.isDebugEnabled())
+                        logger.debug("region node: " + regionAddress + " has been removed from topic: " + topic.toStringUtf8());
+                    cb.operationFinished(ctx, null);
+                }
+                else {
+                    logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " removal failure: " + rc);
+                    cb.operationFailed(ctx, new PubSubException.ZooKeeperServiceDownException(regionAddress));
+                }
+            }
+        }, null);
+    }
+
+    @Override
+    public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
+                                             final Callback<Void> cb, final Object ctx) {
+        final String zkNode = getTopicRegionNodePath(topic, regionAddress);
+        ZkUtils.createFullPathOptimistic(zk, zkNode, myHubInfo.getAddress().getHostname().getBytes(), Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT, new SafeAsyncZKCallback.StringCallback() {
+            @Override
+            public void safeProcessResult(int rc, String path, Object ctx, String name) {
+                if (rc == Code.OK.intValue()) {
+                    if (logger.isDebugEnabled())
+                        logger.debug("region node: " + regionAddress + " has been created under topic: " + topic.toStringUtf8());
+                    updateZkNodeVersion(regionAddress, topic, 0);
+                    assert getZkNodeVersion(regionAddress, topic) == 0;
+                    cb.operationFinished(ctx, null);
+                }
+                else if (rc == Code.NODEEXISTS.intValue()) {
+                    logger.warn("region node: " + regionAddress + " has already been created under topic: " + topic.toStringUtf8());
+
+                    // Topic manager synchronized on topic using zookkeeper ephemeral node
+                    zk.setData(zkNode, myHubInfo.getAddress().getHostname().getBytes(), -1, new SafeAsyncZKCallback.StatCallback() {
+                        @Override
+                        public void safeProcessResult(int rc, String path, Object ctx, Stat stat) {
+                            if (rc == Code.OK.intValue()) {
+                              if (logger.isDebugEnabled())
+                                logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
+                              updateZkNodeVersion(regionAddress, topic, stat.getVersion());
+                              cb.operationFinished(ctx, null);
+                            }
+                            else {
+                                logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " update failure: " + rc);
+                                cb.operationFailed(ctx, new PubSubException.ZooKeeperServiceDownException(regionAddress));
+                            }
+                        }
+                    }, ctx);
+                }
+                else {
+                    logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " creation failure: " + rc);
+                    cb.operationFailed(ctx, new PubSubException.ZooKeeperServiceDownException(regionAddress));
+                }
+            }
+        }, ctx);
     }
 
     @Override

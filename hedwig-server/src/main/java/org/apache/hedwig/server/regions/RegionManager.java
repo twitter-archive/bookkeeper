@@ -30,16 +30,15 @@ import java.util.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.ZooKeeper;
+import org.apache.hedwig.server.topics.TopicManager;
 
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.client.exceptions.AlreadyStartDeliveryException;
-import org.apache.hedwig.client.netty.HedwigSubscriber;
 import org.apache.hedwig.exceptions.PubSubException;
+import org.apache.hedwig.protocol.PubSubProtocol.StatusCode;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
-import org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
@@ -57,11 +56,12 @@ public class RegionManager implements SubscriptionEventListener {
 
     private final ByteString mySubId;
     private final PersistenceManager pm;
+    private final TopicManager tm;
     private final ArrayList<HedwigHubClient> clients = new ArrayList<HedwigHubClient>();
     private final TopicOpQueuer queue;
     private final ByteString myRegion;
     // Timer for running a retry thread task to retry remote-subscription in asynchronous mode.
-    private final Timer timer = new Timer(true);
+    private final Timer timer = new Timer(true);  // TODO: use ScheduledExecutorService
     private final HashMap<HedwigHubClient, Set<ByteString>> retryMap =
             new HashMap<HedwigHubClient, Set<ByteString>>();
     // map used to track whether a topic is remote subscribed or not
@@ -129,9 +129,10 @@ public class RegionManager implements SubscriptionEventListener {
 
     }
 
-    public RegionManager(final PersistenceManager pm, final ServerConfiguration cfg, final ZooKeeper zk,
+    public RegionManager(final PersistenceManager pm, final ServerConfiguration cfg, final TopicManager tm,
                          ScheduledExecutorService scheduler, HedwigHubClientFactory hubClientFactory) {
         this.pm = pm;
+        this.tm = tm;
         mySubId = ByteString.copyFromUtf8(SubscriptionStateUtils.HUB_SUBSCRIBER_PREFIX + cfg.getMyRegion());
         queue = new TopicOpQueuer(scheduler);
         for (final String hub : cfg.getRegions()) {
@@ -158,24 +159,22 @@ public class RegionManager implements SubscriptionEventListener {
     }
 
     /**
-     * Do remote subscribe for a specified topic.
+     * Do remote subscribe for a specified topic. protected for Unit-Test
      *
      * @param client
      *          Hedwig Hub Client to subscribe remote topic.
      * @param topic
      *          Topic to subscribe.
-     * @param synchronous
-     *          Whether to wait for the callback of subscription.
      * @param mcb
      *          Callback to trigger after subscription is done.
      * @param contex
      *          Callback context
      */
-    private void doRemoteSubscribe(final HedwigHubClient client, final ByteString topic, final boolean synchronous,
+    protected void doRemoteSubscribe(final HedwigHubClient client, final ByteString topic,
                                    final Callback<Void> mcb, final Object context) {
         if (LOGGER.isDebugEnabled())
             LOGGER.debug("[" + myRegion.toStringUtf8() + "] attempting cross-region subscription for topic " + topic.toStringUtf8());
-        final HedwigSubscriber sub = client.getSubscriber();
+        final HedwigHubSubscriber sub = client.getHubSubscriber();
         try {
             if (sub.hasSubscription(topic, mySubId)) {
                 if (LOGGER.isDebugEnabled()) {
@@ -231,7 +230,18 @@ public class RegionManager implements SubscriptionEventListener {
                         LOGGER.warn("We already have an existing message handler, so we will let the client subscriber" +
                                 " retry and restart delivery for topic: " + topic.toStringUtf8() + ", sub: " + mySubId.toStringUtf8());
                     }
-                    mcb.operationFinished(ctx, null);
+                    tm.setTopicSubscribedFromRegion(topic, sub.getHubHostName(), new Callback<Void>() {
+                        @Override
+                        public void operationFinished(Object ctx, Void result) {
+                            mcb.operationFinished(ctx, null);
+                        }
+                        @Override
+                        public void operationFailed(Object ctx, PubSubException exception) {
+                            if (LOGGER.isDebugEnabled())
+                                LOGGER.error("region: " + sub.getHubHostName() + "could not be registered under topic: " + topic.toStringUtf8(), exception);
+                            mcb.operationFinished(ctx, null);  // Ignore failure
+                        }
+                    }, ctx);
                 } catch (PubSubException ex) {
                     if (LOGGER.isDebugEnabled())
                         LOGGER.error(
@@ -248,11 +258,11 @@ public class RegionManager implements SubscriptionEventListener {
             public void operationFailed(Object ctx, PubSubException exception) {
                 if (LOGGER.isDebugEnabled())
                     LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region subscribe failed for topic " + topic.toStringUtf8(),
-                                 exception);
-                if (!synchronous) {
-                    putTopicInRetryMap(client, topic);
-                }
-                mcb.operationFailed(ctx, exception);
+                            exception);
+                putTopicInRetryMap(client, topic);
+                // Check if topic has been subscribed from remote region, return success if so to
+                // handle transient failure.
+                tm.checkTopicSubscribedFromRegion(topic, sub.getHubHostName(), mcb, ctx, exception);
             }
         }, null);
     }
@@ -270,7 +280,7 @@ public class RegionManager implements SubscriptionEventListener {
                     cb.operationFinished(ctx, null);
                     return;
                 }
-                doRemoteSubscribe(client, topic, false, cb, ctx);
+                doRemoteSubscribe(client, topic, cb, ctx);
             }
         });
     }
@@ -289,7 +299,7 @@ public class RegionManager implements SubscriptionEventListener {
                         "[" + myRegion.toStringUtf8() + "] at least one cross-region subscription failed");
                 final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), postCb, ctx);
                 for (final HedwigHubClient client : clients) {
-                    doRemoteSubscribe(client, topic, synchronous, mcb, ctx);
+                    doRemoteSubscribe(client, topic, mcb, ctx);
                 }
                 if (!synchronous)
                     cb.operationFinished(null, null);
@@ -298,13 +308,9 @@ public class RegionManager implements SubscriptionEventListener {
 
     }
 
-    @Override
-    public void onLastLocalUnsubscribe(final ByteString topic) {
+    private void unSubscribeRemoteRegions(final ByteString topic) {
         topicStatuses.remove(topic);
-        // TODO may want to ease up on the eager unsubscribe; this is dropping
-        // cross-region subscriptions ASAP
         queue.pushAndMaybeRun(topic, queue.new AsynchronousOp<Void>(topic, new Callback<Void>() {
-
             @Override
             public void operationFinished(Object ctx, Void result) {
                 if (LOGGER.isDebugEnabled())
@@ -316,32 +322,119 @@ public class RegionManager implements SubscriptionEventListener {
                 if (LOGGER.isDebugEnabled())
                     LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region unsubscribes failed for topic " + topic.toStringUtf8(), exception);
             }
-
         }, null) {
             @Override
             public void run() {
-                Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), cb, ctx);
+                final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), cb, ctx);
                 for (final HedwigHubClient client : clients) {
-                    final HedwigSubscriber sub = client.getSubscriber();
+                    final HedwigHubSubscriber sub = client.getHubSubscriber();
                     try {
                         if (!sub.hasSubscription(topic, mySubId)) {
                             if (LOGGER.isDebugEnabled()) {
                                 LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region subscription for topic "
-                                             + topic.toStringUtf8() + " has existed before.");
+                                             + topic.toStringUtf8() + " did not exist.");
                             }
-                            mcb.operationFinished(null, null);
+                            tm.setTopicUnsubscribedFromRegion(topic, sub.getHubHostName(), mcb, ctx);
                             continue;
                         }
+                        tm.setTopicUnsubscribedFromRegion(topic, sub.getHubHostName(), new Callback<Void>() {
+                            @Override
+                            public void operationFinished(Object ctx, Void result) {
+                                sub.asyncUnsubscribe(topic, mySubId, mcb, null);
+                            }
+                            @Override
+                            public void operationFailed(Object ctx, PubSubException exception) {
+                                LOGGER.error("region: " + sub.getHubHostName() + "could not be unregistered from topic: "
+                                    + topic.toStringUtf8(), exception);
+                                // Try to close cross-region subscription
+                                final PubSubException e = exception;
+                                sub.asyncCloseSubscription(topic, mySubId, new Callback<Void>() {
+                                    @Override
+                                    public void operationFinished(Object ctx, Void resultOfOperation) {
+                                      LOGGER.warn("Closed subscription for topic " + topic.toStringUtf8() +
+                                          " from region " + sub.getHubHostName());
+                                      mcb.operationFailed(ctx, e);
+                                    }
+
+                                    @Override
+                                    public void operationFailed(Object ctx, PubSubException exception) {
+                                      LOGGER.error("Error while closing subscription for topic " + topic.toStringUtf8() +
+                                          " from region " + sub.getHubHostName(), exception);
+                                      mcb.operationFailed(ctx, e);
+                                    }
+                                  }, null);
+                            }
+                        }, ctx);
                     } catch (PubSubException e) {
                         LOGGER.error("[" + myRegion.toStringUtf8() + "] checking cross-region subscription for topic "
                                      + topic.toStringUtf8() + " failed (this is should not happen): ", e);
                         mcb.operationFailed(ctx, e);
                         continue;
                     }
-                    sub.asyncUnsubscribe(topic, mySubId, mcb, null);
                 }
             }
         });
+    }
+
+    /**
+     * Close channels for remote regions.
+     * @param topic
+     */
+    private void closeChannelRemoteRegions(final ByteString topic) {
+        queue.pushAndMaybeRun(topic, queue.new AsynchronousOp<Void>(topic, new Callback<Void>() {
+          @Override
+          public void operationFinished(Object ctx, Void result) {
+          }
+
+          @Override
+          public void operationFailed(Object ctx, PubSubException exception) {
+          }
+        }, null) {
+          @Override
+          public void run() {
+            for (final HedwigHubClient client : clients) {
+              final HedwigHubSubscriber sub = client.getHubSubscriber();
+              try {
+                if (!sub.hasSubscription(topic, mySubId)) {
+                  if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region subscription for topic "
+                        + topic.toStringUtf8() + " did not exist.");
+                  }
+                  cb.operationFinished(ctx, null);
+                  continue;
+                }
+                sub.asyncCloseSubscription(topic, mySubId, new Callback<Void>() {
+                  @Override
+                  public void operationFinished(Object ctx, Void resultOfOperation) {
+                    LOGGER.warn("Closed subscription for topic " + topic.toStringUtf8() +
+                        " from region " + sub.getHubHostName());
+                    cb.operationFinished(ctx, null);
+                  }
+
+                  @Override
+                  public void operationFailed(Object ctx, PubSubException exception) {
+                    LOGGER.error("Error while closing subscription for topic " + topic.toStringUtf8() +
+                        " from region " + sub.getHubHostName(), exception);
+                    cb.operationFailed(ctx, exception);
+                  }
+                }, null);
+              } catch (PubSubException e) {
+                LOGGER.error("[" + myRegion.toStringUtf8() + "] closing cross-region subscription for topic "
+                        + topic.toStringUtf8() + " failed (this is should not happen): ", e);
+                cb.operationFailed(ctx, e);
+                continue;
+              }
+            }
+          }
+        });
+    }
+
+    @Override
+    public void onLastLocalUnsubscribe(final ByteString topic, final boolean lastSubscriber) {
+        if (lastSubscriber)
+            unSubscribeRemoteRegions(topic);
+        else
+            closeChannelRemoteRegions(topic);
     }
 
     // Method to shutdown and stop all of the cross-region Hedwig clients.

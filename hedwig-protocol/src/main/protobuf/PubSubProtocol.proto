@@ -219,6 +219,7 @@ enum StatusCode{
     SERVICE_DOWN = 502;
     UNCERTAIN_STATE = 503;
     INVALID_MESSAGE_FILTER = 504;
+    ZOOKEEPER_SERVICE_DOWN = 505;
 
     //server-side meta manager errors (52x)
     BAD_VERSION = 520;

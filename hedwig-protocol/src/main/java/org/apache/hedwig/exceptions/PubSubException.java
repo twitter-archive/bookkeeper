@@ -74,6 +74,8 @@ public abstract class PubSubException extends Exception {
             return new TopicOwnerInfoExistsException(msg);
         } else if (code == StatusCode.INVALID_MESSAGE_FILTER) {
             return new InvalidMessageFilterException(msg);
+        } else if (code == StatusCode.ZOOKEEPER_SERVICE_DOWN) {
+            return new ZooKeeperServiceDownException(msg);
         }
         /*
          * Insert new ones here
@@ -193,6 +195,12 @@ public abstract class PubSubException extends Exception {
 
         public InvalidMessageFilterException(String msg, Throwable t) {
             super(StatusCode.INVALID_MESSAGE_FILTER, msg, t);
+        }
+    }
+
+    public static class ZooKeeperServiceDownException extends PubSubException {
+        public ZooKeeperServiceDownException(String msg) {
+            super(StatusCode.ZOOKEEPER_SERVICE_DOWN, msg);
         }
     }
 

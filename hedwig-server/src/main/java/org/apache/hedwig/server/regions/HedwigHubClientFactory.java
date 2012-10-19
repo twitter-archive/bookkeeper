@@ -69,6 +69,6 @@ public class HedwigHubClientFactory {
             logger.error(msg);
             throw new RuntimeException(msg);
         }
-        return new HedwigHubClient(hubClientConfiguration, channelFactory);
+        return new HedwigHubClient(hubClientConfiguration, hub.toString(), channelFactory);
     }
 }

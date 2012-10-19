@@ -111,7 +111,9 @@ public class HedwigSocketAddress {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(hostname).append(COLON).append(port).append(COLON).append(sslPort);
+        sb.append(hostname).append(COLON).append(port);
+        if (isSSLEnabled())
+            sb.append(COLON).append(sslPort);
         return sb.toString();
     }
 

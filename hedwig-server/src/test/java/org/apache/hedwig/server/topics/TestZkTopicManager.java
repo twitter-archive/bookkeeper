@@ -20,6 +20,7 @@ package org.apache.hedwig.server.topics;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.Semaphore;
 
 import org.apache.zookeeper.KeeperException;
 import org.junit.After;
@@ -198,6 +199,60 @@ public class TestZkTopicManager extends ZooKeeperTestBase {
         ByteString topic1 = mkTopic(1);
         tm.getOwner(topic1, false, addrCbq, null);
         Assert.assertEquals(cfg1.getServerAddr(), check(addrCbq.take()));
+
+        tm1.stop();
+    }
+
+    @Test
+    public void testBookkeepingRegionSubscription() throws Exception {
+        ByteString topic1 = mkTopic(1);
+        final String regionAddress = "129.3.1.2";   // remote region VIP
+        final Semaphore mutex = new Semaphore(1);
+        final Callback<Void> cbFinished = new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void result) {
+                mutex.release();
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                mutex.release();
+                Assert.fail("operationFailed called unexpectedly");
+            }
+        };
+        final Callback<Void> cbFailed = new Callback<Void>() {
+            @Override
+            public void operationFinished(Object ctx, Void result) {
+                mutex.release();
+                Assert.fail("operationFinished called unexpectedly");
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                mutex.release();
+            }
+        };
+
+        ServerConfiguration cfg1 = new CustomServerConfiguration(cfg.getServerPort() + 1);
+        ZkTopicManager tm1 = new ZkTopicManager(zk, cfg1, scheduler);
+
+        mutex.drainPermits();
+        Assert.assertEquals(tm1.getZkNodeVersion(regionAddress, topic1), -1);
+
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFailed, null, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        tm1.setTopicSubscribedFromRegion(topic1, regionAddress, cbFinished, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        Assert.assertEquals(tm1.getZkNodeVersion(regionAddress, topic1), 0);
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFinished, null, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        tm1.setTopicSubscribedFromRegion(topic1, regionAddress, cbFinished, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        Assert.assertEquals(tm1.getZkNodeVersion(regionAddress, topic1), 1);
+        tm1.setTopicUnsubscribedFromRegion(topic1, regionAddress, cbFinished, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        Assert.assertEquals(tm1.getZkNodeVersion(regionAddress, topic1), -1);
+        tm1.setTopicUnsubscribedFromRegion(topic1, regionAddress, cbFailed, null);
+        mutex.acquire(); // Acquire mutex to wait for callback
+        tm1.checkTopicSubscribedFromRegion(topic1, regionAddress, cbFailed, null, null);
 
         tm1.stop();
     }

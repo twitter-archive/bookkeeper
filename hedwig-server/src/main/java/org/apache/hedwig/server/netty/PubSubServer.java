@@ -189,8 +189,32 @@ public class PubSubServer {
     }
 
     protected RegionManager instantiateRegionManager(PersistenceManager pm, ScheduledExecutorService scheduler) {
-        return new RegionManager(pm, conf, zk, scheduler, new HedwigHubClientFactory(conf, clientConfiguration,
+        return new RegionManager(pm, conf, tm, scheduler, new HedwigHubClientFactory(conf, clientConfiguration,
                 clientChannelFactory));
+    }
+
+    /**
+     * Get region manager for unit test
+     * @param
+     */
+    protected RegionManager getRegionManager() {
+        return this.rm;
+    }
+
+    /**
+     * Get topic manager for unit test
+     * @param
+     */
+    protected TopicManager getTopicManager() {
+        return this.tm;
+    }
+
+    /**
+     * Set instantiated zookeeper for unit test
+     * @param zk
+     */
+    protected void setZookeeperClient(ZooKeeper zk) {
+        this.zk = zk;
     }
 
     protected void instantiateZookeeperClient() throws Exception {
