@@ -47,6 +47,7 @@ public class NIOServerFactory extends Thread {
 
     public interface PacketProcessor {
         public void processPacket(ByteBuffer packet, Cnxn src);
+        public void shutdown();
     }
 
     ServerStats stats = new ServerStats();
@@ -156,6 +157,8 @@ public class NIOServerFactory extends Thread {
     public void shutdown() {
         try {
             ss.close();
+            // Close the packet processor
+            this.processor.shutdown();
             clear();
             this.interrupt();
             this.join();

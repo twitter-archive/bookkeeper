@@ -34,6 +34,8 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -102,7 +104,7 @@ public class Bookie extends Thread {
     BookieBean jmxBookieBean;
     BKMBeanInfo jmxLedgerStorageBean;
 
-    Map<Long, byte[]> masterKeyCache = Collections.synchronizedMap(new HashMap<Long, byte[]>());
+    ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -230,7 +232,7 @@ public class Bookie extends Thread {
             running = false;
             if (flushing.compareAndSet(false, true)) {
                 // if setting flushing flag succeed, means syncThread is not flushing now
-                // it is safe to interrupt itself now 
+                // it is safe to interrupt itself now
                 this.interrupt();
             }
             this.join();
@@ -689,14 +691,14 @@ public class Bookie extends Thread {
         return this.exitCode;
     }
 
-    /** 
+    /**
      * Retrieve the ledger descriptor for the ledger which entry should be added to.
-     * The LedgerDescriptor returned from this method should be eventually freed with 
+     * The LedgerDescriptor returned from this method should be eventually freed with
      * #putHandle().
      *
      * @throws BookieException if masterKey does not match the master key of the ledger
      */
-    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey) 
+    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey)
             throws IOException, BookieException {
         long ledgerId = entry.getLong();
         LedgerDescriptor l = handles.getHandle(ledgerId, masterKey);
@@ -709,8 +711,9 @@ public class Bookie extends Thread {
             bb.put(masterKey);
             bb.flip();
 
-            journal.logAddEntry(bb, new NopWriteCallback(), null);
-            masterKeyCache.put(ledgerId, masterKey);
+            if (null == masterKeyCache.putIfAbsent(ledgerId, masterKey)) {
+                journal.logAddEntry(bb, new NopWriteCallback(), null);
+            }
         }
         return l;
     }
@@ -723,7 +726,7 @@ public class Bookie extends Thread {
     }
 
     /**
-     * Add an entry to a ledger as specified by handle. 
+     * Add an entry to a ledger as specified by handle.
      */
     private void addEntryInternal(LedgerDescriptor handle, ByteBuffer entry, WriteCallback cb, Object ctx)
             throws IOException, BookieException {
@@ -740,19 +743,19 @@ public class Bookie extends Thread {
 
     /**
      * Add entry to a ledger, even if the ledger has previous been fenced. This should only
-     * happen in bookie recovery or ledger recovery cases, where entries are being replicates 
+     * happen in bookie recovery or ledger recovery cases, where entries are being replicates
      * so that they exist on a quorum of bookies. The corresponding client side call for this
      * is not exposed to users.
      */
-    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey) 
+    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException {
         LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
         synchronized (handle) {
             addEntryInternal(handle, entry, cb, ctx);
         }
     }
-    
-    /** 
+
+    /**
      * Add entry to a ledger.
      * @throws BookieException.LedgerFencedException if the ledger is fenced
      */
@@ -815,7 +818,7 @@ public class Bookie extends Thread {
 
     /**
      * Format the bookie server data
-     * 
+     *
      * @param conf
      *            ServerConfiguration
      * @param isInteractive
@@ -892,7 +895,7 @@ public class Bookie extends Thread {
      * @throws IOException
      * @throws InterruptedException
      */
-    public static void main(String[] args) 
+    public static void main(String[] args)
             throws IOException, InterruptedException, BookieException, KeeperException {
         Bookie b = new Bookie(new ServerConfiguration());
         b.start();

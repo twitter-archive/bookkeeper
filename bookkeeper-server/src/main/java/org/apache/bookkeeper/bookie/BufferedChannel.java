@@ -28,15 +28,19 @@ import java.nio.channels.FileChannel;
 /**
  * Provides a buffering layer in front of a FileChannel.
  */
+
+/**
+ * TODO: Create a BufferedReadOnlyChannel if we plan on using buffered channels.
+ */
 public class BufferedChannel
 {
     ByteBuffer writeBuffer;
     ByteBuffer readBuffer;
     private FileChannel bc;
-    long position;
-    int capacity;
-    long readBufferStartPosition;
-    long writeBufferStartPosition;
+    volatile long position;
+    volatile int capacity;
+    volatile long readBufferStartPosition;
+    volatile long writeBufferStartPosition;
     // make constructor to be public for unit test
     public BufferedChannel(FileChannel bc, int capacity) throws IOException {
         this.bc = bc;

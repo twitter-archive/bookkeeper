@@ -45,6 +45,93 @@ public class EntryLogTest extends TestCase {
     public void setUp() throws Exception {
     }
 
+    private boolean verifyData(byte[] src, byte[] dst, int pos, int cap) {
+        for (int i = pos; i < pos + cap; i++) {
+            if (src[i] != dst[i - pos]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Test
+    public void testBufferedReadChannel() throws Exception {
+        File tmpFile = File.createTempFile("bufferedReadTest", ".tmp");
+        RandomAccessFile raf = null;
+        BufferedChannel bc = new BufferedChannel((raf = new RandomAccessFile(tmpFile, "rw")).getChannel(), 64);
+        final int cap = 2048;
+        byte[] src = new byte[cap];
+        byte [] dst = new byte[cap];
+        ByteBuffer dstBuff = null;
+        // Populate the file
+        for (int i = 0; i < cap; i++) {
+            src[i] = (byte)(i % Byte.MAX_VALUE);
+        }
+        bc.write(ByteBuffer.wrap(src));
+        bc.flush(true);
+
+        // Now read and verify everything works.
+        BufferedReadChannel brc = new BufferedReadChannel(new RandomAccessFile(tmpFile, "r").getChannel(), 64);
+        // Verify that we wrote properly.
+        assertTrue(brc.size() == cap);
+
+        // This should read all the data
+        dst = new byte[cap];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        brc.read(dstBuff, 0);
+        assertTrue(verifyData(src, dst, 0, dst.length));
+
+        // Read only the last byte cap-1
+        dst = new byte[1];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        brc.read(dstBuff, cap-1);
+        assertTrue(verifyData(src, dst, cap-1, dst.length));
+
+        // Read some data, then read again with an overlap. Both reads should be smaller than read channel
+        // capacity/2 so that the second read is served from the buffer.
+        dst = new byte[16];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        brc.read(dstBuff, 50);
+        assertTrue(verifyData(src, dst, 50, dst.length));
+        dst = new byte[16];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.read(dstBuff, 64);
+        assertTrue(verifyData(src, dst, 64, dst.length));
+
+        // Read data that partially overlaps
+        dst = new byte[100];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        brc.read(dstBuff, 500);
+        assertTrue(verifyData(src, dst, 500, dst.length));
+        dst = new byte[200];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.read(dstBuff, 580);
+        assertTrue(verifyData(src, dst, 580, dst.length));
+
+        // Read from the end of the file such that the readBuffer hits EOF
+        dst = new byte[16];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        brc.read(dstBuff, cap - 16);
+        assertTrue(verifyData(src, dst, cap-16, dst.length));
+
+        // Read from a position beyond the end of the file.
+        try {
+            dst = new byte[100];
+            dstBuff = ByteBuffer.wrap(dst);
+            brc.clear();
+            brc.read(dstBuff, cap - 50);
+            // Should not reach here.
+            fail("Read from the end of the file.");
+        } catch (IOException e) {
+            // This is what we expect.
+        }
+    }
+
     @Test
     public void testCorruptEntryLog() throws Exception {
         File tmpDir = File.createTempFile("bkTest", ".dir");
@@ -79,7 +166,6 @@ public class EntryLogTest extends TestCase {
             fail("Should not reach here!");
         } catch (IOException ie) {
         }
-
         LOG.info("Extracted Meta From Entry Log {}", meta);
         assertNotNull(meta.ledgersMap.get(1L));
         assertNull(meta.ledgersMap.get(2L));

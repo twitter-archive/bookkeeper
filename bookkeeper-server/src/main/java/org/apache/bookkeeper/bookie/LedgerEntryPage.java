@@ -33,13 +33,13 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 public class LedgerEntryPage {
     private final int pageSize;
     private final int entriesPerPage;
-    private long ledger = -1;
-    private long firstEntry = BookieProtocol.INVALID_ENTRY_ID;
+    volatile private long ledger = -1;
+    volatile private long firstEntry = BookieProtocol.INVALID_ENTRY_ID;
     private final ByteBuffer page;
-    private boolean clean = true;
-    private boolean pinned = false;
-    private int useCount;
-    private int version;
+    volatile private boolean clean = true;
+    volatile private boolean pinned = false;
+    volatile private int useCount;
+    volatile private int version;
 
     public LedgerEntryPage(int pageSize, int entriesPerPage) {
         this.pageSize = pageSize;

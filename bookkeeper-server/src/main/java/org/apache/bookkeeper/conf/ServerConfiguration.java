@@ -59,6 +59,12 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String ENABLE_STATISTICS = "enableStatistics";
     protected final static String OPEN_LEDGER_REREPLICATION_GRACE_PERIOD = "openLedgerRereplicationGracePeriod";
 
+    // Worker Thread parameters.
+    protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
+    protected final static String NUM_READ_WORKER_THREADS = "numReadWorkerThreads";
+
+    protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
+
     /**
      * Construct a default configuration object
      */
@@ -547,18 +553,18 @@ public class ServerConfiguration extends AbstractConfiguration {
         setProperty(MAJOR_COMPACTION_INTERVAL, interval);
         return this;
     }
-    
+
     /**
      * Set the grace period which the rereplication worker will wait before
      * fencing and rereplicating a ledger fragment which is still being written
      * to, on bookie failure.
-     * 
+     *
      * The grace period allows the writer to detect the bookie failure, and and
      * start writing to another ledger fragment. If the writer writes nothing
      * during the grace period, the rereplication worker assumes that it has
      * crashed and therefore fences the ledger, preventing any further writes to
      * that ledger.
-     * 
+     *
      * @see LedgerHandle#openLedger
      */
     public void setOpenLedgerRereplicationGracePeriod(String waitTime) {
@@ -573,4 +579,30 @@ public class ServerConfiguration extends AbstractConfiguration {
     public long getOpenLedgerRereplicationGracePeriod() {
         return getLong(OPEN_LEDGER_REREPLICATION_GRACE_PERIOD, 30000);
     }
+
+    /**
+     * Get the number of threads that should handle write requests.
+     * @return
+     */
+    public int getNumAddWorkerThreads() {
+        return getInt(NUM_ADD_WORKER_THREADS, 1);
+    }
+
+    /**
+     * Get the number of threads that should handle read requests.
+     */
+    public int getNumReadWorkerThreads() {
+        return getInt(NUM_READ_WORKER_THREADS, 80);
+    }
+
+    /**
+     * Get the number of bytes we should use as capacity for the {@link
+     * org.apache.bookkeeper.bookie.BufferedReadChannel}
+     * Default is 512 bytes
+     * @return
+     */
+    public int getReadBufferBytes() {
+        return getInt(READ_BUFFER_SIZE, 512);
+    }
+
 }

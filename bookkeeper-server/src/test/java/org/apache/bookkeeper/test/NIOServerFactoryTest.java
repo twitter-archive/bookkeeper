@@ -42,6 +42,10 @@ public class NIOServerFactoryTest extends TestCase {
             src.sendResponse(new ByteBuffer[] { ByteBuffer.allocate(4) });
         }
 
+        public void shutdown() {
+            // No-op
+        }
+
     };
 
     @Test

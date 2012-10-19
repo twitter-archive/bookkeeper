@@ -27,13 +27,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -46,7 +47,8 @@ import org.slf4j.LoggerFactory;
  */
 public class LedgerCacheImpl implements LedgerCache {
     private final static Logger LOG = LoggerFactory.getLogger(LedgerDescriptor.class);
-
+    private final static ConcurrentHashMap<Long, LedgerEntryPage> EMPTY_PAGE_MAP
+            = new ConcurrentHashMap<Long, LedgerEntryPage>();
     final File ledgerDirectories[];
 
     public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm) {
@@ -68,16 +70,16 @@ public class LedgerCacheImpl implements LedgerCache {
         getActiveLedgers();
     }
     /**
-     * the list of potentially clean ledgers
+     * the set of potentially clean ledgers
      */
-    LinkedList<Long> cleanLedgers = new LinkedList<Long>();
+    ConcurrentLinkedQueue<Long> cleanLedgers = new ConcurrentLinkedQueue<Long>();
 
     /**
      * the list of potentially dirty ledgers
      */
-    LinkedList<Long> dirtyLedgers = new LinkedList<Long>();
+    ConcurrentLinkedQueue<Long> dirtyLedgers = new ConcurrentLinkedQueue<Long>();
 
-    HashMap<Long, FileInfo> fileInfoCache = new HashMap<Long, FileInfo>();
+    ConcurrentMap<Long, FileInfo> fileInfoCache = new ConcurrentHashMap<Long, FileInfo>();
 
     LinkedList<Long> openLedgers = new LinkedList<Long>();
 
@@ -112,49 +114,55 @@ public class LedgerCacheImpl implements LedgerCache {
     }
 
     // The number of pages that have actually been used
-    private int pageCount = 0;
-    HashMap<Long, HashMap<Long,LedgerEntryPage>> pages = new HashMap<Long, HashMap<Long,LedgerEntryPage>>();
+    private AtomicInteger pageCount = new AtomicInteger(0);
+    ConcurrentMap<Long, ConcurrentMap<Long,LedgerEntryPage>> pages
+            = new ConcurrentHashMap<Long, ConcurrentMap<Long,LedgerEntryPage>>();
 
     /**
      * @return number of page used in ledger cache
      */
     public int getNumUsedPages() {
-        return pageCount;
+        return pageCount.get();
     }
 
-    private void putIntoTable(HashMap<Long, HashMap<Long,LedgerEntryPage>> table, LedgerEntryPage lep) {
-        HashMap<Long, LedgerEntryPage> map = table.get(lep.getLedger());
-        if (map == null) {
-            map = new HashMap<Long, LedgerEntryPage>();
-            table.put(lep.getLedger(), map);
+    private LedgerEntryPage putIntoTable(ConcurrentMap<Long, ConcurrentMap<Long,LedgerEntryPage>> table, LedgerEntryPage lep) {
+        // Do a get here to avoid too many new ConcurrentHashMaps() as putIntoTable is called fequently.
+        ConcurrentMap<Long, LedgerEntryPage> map = table.get(lep.getLedger());
+        if (null == map) {
+            ConcurrentMap<Long, LedgerEntryPage> mapToPut = new ConcurrentHashMap<Long, LedgerEntryPage>();
+            map = table.putIfAbsent(lep.getLedger(), mapToPut);
+            if (null == map) {
+                map = mapToPut;
+            }
         }
-        map.put(lep.getFirstEntry(), lep);
+        LedgerEntryPage oldPage = map.putIfAbsent(lep.getFirstEntry(), lep);
+        if (null == oldPage) {
+            oldPage = lep;
+        }
+        return oldPage;
     }
 
-    private static LedgerEntryPage getFromTable(HashMap<Long, HashMap<Long,LedgerEntryPage>> table,
+    private static LedgerEntryPage getFromTable(ConcurrentMap<Long, ConcurrentMap<Long,LedgerEntryPage>> table,
                                                 Long ledger, Long firstEntry) {
-        HashMap<Long, LedgerEntryPage> map = table.get(ledger);
-        if (map != null) {
+        ConcurrentMap<Long, LedgerEntryPage> map = table.get(ledger);
+        if (null != map) {
             return map.get(firstEntry);
         }
         return null;
     }
 
-    synchronized private LedgerEntryPage getLedgerEntryPage(Long ledger, Long firstEntry, boolean onlyDirty) {
+    private LedgerEntryPage getLedgerEntryPage(Long ledger, Long firstEntry, boolean onlyDirty) {
         LedgerEntryPage lep = getFromTable(pages, ledger, firstEntry);
-        try {
-            if (onlyDirty && lep.isClean()) {
-                return null;
-            }
-            return lep;
-        } finally {
-            if (lep != null) {
-                lep.usePage();
-            }
+        if (onlyDirty && null != lep && lep.isClean()) {
+            return null;
         }
+        if (null != lep) {
+            lep.usePage();
+        }
+        return lep;
     }
 
-    /** 
+    /**
      * Grab ledger entry page whose first entry is <code>pageEntry</code>.
      *
      * If the page doesn't existed before, we allocate a memory page.
@@ -171,20 +179,24 @@ public class LedgerCacheImpl implements LedgerCache {
             // should update page before we put it into table
             // otherwise we would put an empty page in it
             updatePage(lep);
-            synchronized(this) {
-                putIntoTable(pages, lep);
-            }   
+            LedgerEntryPage oldLep;
+            if (lep != (oldLep = putIntoTable(pages, lep))) {
+                lep.releasePage();
+                // Decrement the page count because we couldn't put this lep in the page cache.
+                pageCount.decrementAndGet();
+                // Increment the use count of the old lep because this is unexpected
+                oldLep.usePage();
+                lep = oldLep;
+            }
         } catch (IOException ie) {
             // if we grab a clean page, but failed to update the page
             // we are exhausting the count of ledger entry pages.
             // since this page will be never used, so we need to decrement
             // page count of ledger cache.
             lep.releasePage();
-            synchronized (this) {
-                --pageCount;
-            }
-            throw ie; 
-        }   
+            pageCount.decrementAndGet();
+            throw ie;
+        }
         return lep;
     }
 
@@ -196,7 +208,7 @@ public class LedgerCacheImpl implements LedgerCache {
         long pageEntry = entry-offsetInPage;
         LedgerEntryPage lep = getLedgerEntryPage(ledger, pageEntry, false);
         if (lep == null) {
-            lep = grabLedgerEntryPage(ledger, pageEntry); 
+            lep = grabLedgerEntryPage(ledger, pageEntry);
         }
         if (lep != null) {
             lep.setOffset(offset, offsetInPage*8);
@@ -244,35 +256,51 @@ public class LedgerCacheImpl implements LedgerCache {
     }
 
     FileInfo getFileInfo(Long ledger, byte masterKey[]) throws IOException {
-        synchronized(fileInfoCache) {
-            FileInfo fi = fileInfoCache.get(ledger);
-            if (fi == null) {
-                File lf = findIndexFile(ledger);
-                if (lf == null) {
-                    if (masterKey == null) {
+        FileInfo fi = fileInfoCache.get(ledger);
+        if (null == fi) {
+            boolean createdNewFile = false;
+            File lf = null;
+            synchronized (this) {
+                // Check if the index file exists on disk.
+                lf = findIndexFile(ledger);
+                if (null == lf) {
+                    if (null == masterKey) {
                         throw new Bookie.NoLedgerException(ledger);
                     }
+                    // We don't have a ledger index file on disk, so create it.
                     File dir = pickDirs(ledgerDirectories);
                     String ledgerName = getLedgerName(ledger);
                     lf = new File(dir, ledgerName);
-                    // A new ledger index file has been created for this Bookie.
-                    // Add this new ledger to the set of active ledgers.
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("New ledger index file created for ledgerId: " + ledger);
-                    }
+                    createdNewFile = true;
+                }
+            }
+            fi = new FileInfo(lf, masterKey);
+            FileInfo oldFi = fileInfoCache.putIfAbsent(ledger, fi);
+            if (null != oldFi) {
+                // Some other thread won the race. We should delete our file if we created
+                // a new one and the paths are different.
+                if (createdNewFile && !oldFi.isSameFile(lf)) {
+                    fi.delete();
+                }
+                fi = oldFi;
+            } else {
+                if (createdNewFile) {
+                    // Else, we won and the active ledger manager should know about this.
                     activeLedgerManager.addActiveLedger(ledger, true);
                 }
+                // Evict cached items from the file info cache if necessary
                 evictFileInfoIfNecessary();
-                fi = new FileInfo(lf, masterKey);
-                fileInfoCache.put(ledger, fi);
-                openLedgers.add(ledger);
+                synchronized (openLedgers) {
+                    openLedgers.offer(ledger);
+                }
             }
-            if (fi != null) {
-                fi.use();
-            }
-            return fi;
         }
+        if (null != fi) {
+            fi.use();
+        }
+        return fi;
     }
+
     private void updatePage(LedgerEntryPage lep) throws IOException {
         if (!lep.isClean()) {
             throw new IOException("Trying to update a dirty page");
@@ -295,36 +323,16 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public void flushLedger(boolean doAll) throws IOException {
-        synchronized(dirtyLedgers) {
+        synchronized (dirtyLedgers) {
             if (dirtyLedgers.isEmpty()) {
-                synchronized(this) {
-                    for(Long l: pages.keySet()) {
-                        if (LOG.isTraceEnabled()) {
-                            LOG.trace("Adding " + Long.toHexString(l) + " to dirty pages");
-                        }
-                        dirtyLedgers.add(l);
-                    }
-                }
+                dirtyLedgers.addAll(pages.keySet());
             }
-            if (dirtyLedgers.isEmpty()) {
-                return;
-            }
-            while(!dirtyLedgers.isEmpty()) {
-                Long l = dirtyLedgers.removeFirst();
-
-                flushLedger(l);
-
-                if (!doAll) {
-                    break;
-                }
-                // Yield. if we are doing all the ledgers we don't want to block other flushes that
-                // need to happen
-                try {
-                    dirtyLedgers.wait(1);
-                } catch (InterruptedException e) {
-                    // just pass it on
-                    Thread.currentThread().interrupt();
-                }
+        }
+        Long potentiallyDirtyLedger = null;
+        while (null != (potentiallyDirtyLedger = dirtyLedgers.poll())) {
+            flushLedger(potentiallyDirtyLedger);
+            if (!doAll) {
+                break;
             }
         }
     }
@@ -332,32 +340,30 @@ public class LedgerCacheImpl implements LedgerCache {
     /**
      * Flush a specified ledger
      *
-     * @param l
+     * @param ledger
      *          Ledger Id
      * @throws IOException
      */
-    private void flushLedger(long l) throws IOException {
+    private void flushLedger(long ledger) throws IOException {
         LinkedList<Long> firstEntryList;
-        synchronized(this) {
-            HashMap<Long, LedgerEntryPage> pageMap = pages.get(l);
-            if (pageMap == null || pageMap.isEmpty()) {
-                return;
-            }
-            firstEntryList = new LinkedList<Long>();
-            for(Map.Entry<Long, LedgerEntryPage> entry: pageMap.entrySet()) {
-                LedgerEntryPage lep = entry.getValue();
-                if (lep.isClean()) {
-                    if (LOG.isTraceEnabled()) {
-                        LOG.trace("Page is clean " + lep);
-                    }
-                    continue;
+        ConcurrentMap<Long, LedgerEntryPage> pageMap = pages.get(ledger);
+        if (pageMap == null || pageMap.isEmpty()) {
+            return;
+        }
+        firstEntryList = new LinkedList<Long>();
+        for(ConcurrentMap.Entry<Long, LedgerEntryPage> entry: pageMap.entrySet()) {
+            LedgerEntryPage lep = entry.getValue();
+            if (lep.isClean()) {
+                if (LOG.isTraceEnabled()) {
+                    LOG.trace("Page is clean " + lep);
                 }
-                firstEntryList.add(lep.getFirstEntry());
+                continue;
             }
+            firstEntryList.add(lep.getFirstEntry());
         }
 
         if (firstEntryList.size() == 0) {
-            LOG.debug("Nothing to flush for ledger {}.", l);
+            LOG.debug("Nothing to flush for ledger {}.", ledger);
             // nothing to do
             return;
         }
@@ -367,30 +373,32 @@ public class LedgerCacheImpl implements LedgerCache {
         FileInfo fi = null;
         try {
             for(Long firstEntry: firstEntryList) {
-                LedgerEntryPage lep = getLedgerEntryPage(l, firstEntry, true);
+                LedgerEntryPage lep = getLedgerEntryPage(ledger, firstEntry, true);
                 if (lep != null) {
                     entries.add(lep);
                 }
             }
+            //TODO(Aniruddha): Move this comparator to a better place.
             Collections.sort(entries, new Comparator<LedgerEntryPage>() {
                     @Override
                     public int compare(LedgerEntryPage o1, LedgerEntryPage o2) {
                     return (int)(o1.getFirstEntry()-o2.getFirstEntry());
                     }
                     });
-            ArrayList<Integer> versions = new ArrayList<Integer>(entries.size());
-            fi = getFileInfo(l, null);
+            //ArrayList<Integer> versions = new ArrayList<Integer>(entries.size());
+            int[] versions = new int[entries.size()];
+            fi = getFileInfo(ledger, null);
             int start = 0;
             long lastOffset = -1;
             for(int i = 0; i < entries.size(); i++) {
-                versions.add(i, entries.get(i).getVersion());
+                versions[i] = entries.get(i).getVersion();
                 if (lastOffset != -1 && (entries.get(i).getFirstEntry() - lastOffset) != entriesPerPage) {
                     // send up a sequential list
                     int count = i - start;
                     if (count == 0) {
                         LOG.warn("Count cannot possibly be zero!");
                     }
-                    writeBuffers(l, entries, fi, start, count);
+                    writeBuffers(ledger, entries, fi, start, count);
                     start = i;
                 }
                 lastOffset = entries.get(i).getFirstEntry();
@@ -398,12 +406,10 @@ public class LedgerCacheImpl implements LedgerCache {
             if (entries.size()-start == 0 && entries.size() != 0) {
                 LOG.warn("Nothing to write, but there were entries!");
             }
-            writeBuffers(l, entries, fi, start, entries.size()-start);
-            synchronized(this) {
-                for(int i = 0; i < entries.size(); i++) {
-                    LedgerEntryPage lep = entries.get(i);
-                    lep.setClean(versions.get(i));
-                }
+            writeBuffers(ledger, entries, fi, start, entries.size()-start);
+            for(int i = 0; i < entries.size(); i++) {
+                LedgerEntryPage lep = entries.get(i);
+                lep.setClean(versions[i]);
             }
         } finally {
             for(LedgerEntryPage lep: entries) {
@@ -445,73 +451,81 @@ public class LedgerCacheImpl implements LedgerCache {
                                   + " expected " + count * pageSize);
         }
     }
+
     private LedgerEntryPage grabCleanPage(long ledger, long entry) throws IOException {
         if (entry % entriesPerPage != 0) {
             throw new IllegalArgumentException(entry + " is not a multiple of " + entriesPerPage);
         }
-        outerLoop:
-        while(true) {
-            synchronized(this) {
-                if (pageCount  < pageLimit) {
-                    // let's see if we can allocate something
-                    LedgerEntryPage lep = new LedgerEntryPage(pageSize, entriesPerPage);
-                    lep.setLedger(ledger);
-                    lep.setFirstEntry(entry);
 
-                    // note, this will not block since it is a new page
-                    lep.usePage();
-                    pageCount++;
-                    return lep;
+        while(true) {
+            boolean canAllocate = false;
+            if (pageCount.incrementAndGet() < pageLimit) {
+                canAllocate = true;
+            } else {
+                pageCount.decrementAndGet();
+            }
+            if (canAllocate) {
+                LedgerEntryPage lep = new LedgerEntryPage(pageSize, entriesPerPage);
+                lep.setLedger(ledger);
+                lep.setFirstEntry(entry);
+                lep.usePage();
+                return lep;
+            }
+
+            // If the clean ledgers list is empty, attempt to flush a ledger
+            // and populate it.
+            synchronized (cleanLedgers) {
+                if (cleanLedgers.isEmpty()) {
+                    flushLedger(false);
+                    cleanLedgers.addAll(pages.keySet());
                 }
             }
 
-            synchronized(cleanLedgers) {
-                if (cleanLedgers.isEmpty()) {
-                    flushLedger(false);
-                    synchronized(this) {
-                        for(Long l: pages.keySet()) {
-                            cleanLedgers.add(l);
-                        }
+            Long potentiallyCleanLedger = null;
+
+            while (null != (potentiallyCleanLedger = cleanLedgers.peek())) {
+                ConcurrentMap<Long, LedgerEntryPage> pageMap = pages.get(potentiallyCleanLedger);
+                if (null == pageMap) {
+                    // This ledger doesn't have any LEPs mapped, so remove it from the list
+                    if (!cleanLedgers.remove(potentiallyCleanLedger)) {
+                        // Something changed and the head of the queue was already removed. We
+                        // should retry.
+                        break;
+                    } else {
+                        continue;
                     }
                 }
-                synchronized(this) {
-                    // if ledgers deleted between checking pageCount and putting
-                    // ledgers into cleanLedgers list, the cleanLedgers list would be empty.
-                    // so give it a chance to go back to check pageCount again because
-                    // deleteLedger would decrement pageCount to return the number of pages
-                    // occupied by deleted ledgers.
-                    if (cleanLedgers.isEmpty()) {
-                        continue outerLoop;
+                // Try to find a clean page from this pageMap and return it.
+                for (ConcurrentMap.Entry<Long, LedgerEntryPage> pageEntry : pageMap.entrySet()) {
+                    LedgerEntryPage lep = pageEntry.getValue();
+                    Long startEntry = pageEntry.getKey();
+                    if (lep.inUse() || !lep.isClean()) {
+                        // We don't want to reclaim any leps that are in use or that need to be
+                        // flushed.
+                        continue;
                     }
-                    Long cleanLedger = cleanLedgers.getFirst();
-                    Map<Long, LedgerEntryPage> map = pages.get(cleanLedger);
-                    while (map == null || map.isEmpty()) {
-                        cleanLedgers.removeFirst();
-                        if (cleanLedgers.isEmpty()) {
-                            continue outerLoop; 
+                    // Remove from map only if nothing has changed since we checked this lep.
+                    if (pageMap.remove(startEntry, lep)) {
+                        if (!lep.isClean()) {
+                            // Someone wrote to this page while we were reclaiming it.
+                            pageMap.put(startEntry, lep);
+                            continue;
                         }
-                        cleanLedger = cleanLedgers.getFirst();
-                        map = pages.get(cleanLedger);
+                        // Do some bookkeeping on the page table
+                        pages.remove(potentiallyCleanLedger, EMPTY_PAGE_MAP);
+                        // We can now safely reset this lep and return it.
+                        lep.usePage();
+                        lep.zeroPage();
+                        lep.setLedger(ledger);
+                        lep.setFirstEntry(entry);
+                        return lep;
                     }
-                    Iterator<Map.Entry<Long, LedgerEntryPage>> it = map.entrySet().iterator();
-                    LedgerEntryPage lep = it.next().getValue();
-                    while((lep.inUse() || !lep.isClean())) {
-                        if (!it.hasNext()) {
-                            // no clean page found in this ledger
-                            cleanLedgers.removeFirst();
-                            continue outerLoop;
-                        }
-                        lep = it.next().getValue();
-                    }
-                    it.remove();
-                    if (map.isEmpty()) {
-                        pages.remove(lep.getLedger());
-                    }
-                    lep.usePage();
-                    lep.zeroPage();
-                    lep.setLedger(ledger);
-                    lep.setFirstEntry(entry);
-                    return lep;
+                }
+
+                // If we reached here, we weren't able to find a clean lep in this ledger. So, remove it.
+                if (!cleanLedgers.remove(potentiallyCleanLedger)) {
+                    // Something changed, so we will retry everything.
+                    break;
                 }
             }
         }
@@ -521,20 +535,18 @@ public class LedgerCacheImpl implements LedgerCache {
     public long getLastEntry(long ledgerId) throws IOException {
         long lastEntry = 0;
         // Find the last entry in the cache
-        synchronized(this) {
-            Map<Long, LedgerEntryPage> map = pages.get(ledgerId);
-            if (map != null) {
-                for(LedgerEntryPage lep: map.values()) {
-                    if (lep.getFirstEntry() + entriesPerPage < lastEntry) {
-                        continue;
-                    }
-                    lep.usePage();
-                    long highest = lep.getLastEntry();
-                    if (highest > lastEntry) {
-                        lastEntry = highest;
-                    }
-                    lep.releasePage();
+        ConcurrentMap<Long, LedgerEntryPage> map = pages.get(ledgerId);
+        if (map != null) {
+            for(LedgerEntryPage lep: map.values()) {
+                if (lep.getFirstEntry() + entriesPerPage < lastEntry) {
+                    continue;
                 }
+                lep.usePage();
+                long highest = lep.getLastEntry();
+                if (highest > lastEntry) {
+                    lastEntry = highest;
+                }
+                lep.releasePage();
             }
         }
 
@@ -617,13 +629,10 @@ public class LedgerCacheImpl implements LedgerCache {
             LOG.debug("Deleting ledgerId: " + ledgerId);
 
         // remove pages first to avoid page flushed when deleting file info
-        synchronized(this) {
-            Map<Long, LedgerEntryPage> lpages = pages.remove(ledgerId);
-            if (null != lpages) {
-                pageCount -= lpages.size();
-                if (pageCount < 0) {
-                    LOG.error("Page count of ledger cache has been decremented to be less than zero.");
-                }
+        ConcurrentMap<Long, LedgerEntryPage> lpages = pages.remove(ledgerId);
+        if (null != lpages) {
+            if (pageCount.addAndGet(-lpages.size()) < 0) {
+                throw new RuntimeException("Page count of ledger cache has been decremented to be less than zero.");
             }
         }
         // Delete the ledger's index file and close the FileInfo
@@ -642,19 +651,11 @@ public class LedgerCacheImpl implements LedgerCache {
 
         // Remove it from the active ledger manager
         activeLedgerManager.removeActiveLedger(ledgerId);
-
         // Now remove it from all the other lists and maps.
-        // These data structures need to be synchronized first before removing entries.
-        synchronized(fileInfoCache) {
-            fileInfoCache.remove(ledgerId);
-        }
-        synchronized(cleanLedgers) {
-            cleanLedgers.remove(ledgerId);
-        }
-        synchronized(dirtyLedgers) {
-            dirtyLedgers.remove(ledgerId);
-        }
-        synchronized(openLedgers) {
+        fileInfoCache.remove(ledgerId);
+        cleanLedgers.remove(ledgerId);
+        dirtyLedgers.remove(ledgerId);
+        synchronized (openLedgers) {
             openLedgers.remove(ledgerId);
         }
     }
@@ -672,33 +673,33 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public byte[] readMasterKey(long ledgerId) throws IOException, BookieException {
-        synchronized(fileInfoCache) {
-            FileInfo fi = fileInfoCache.get(ledgerId);
-            if (fi == null) {
-                File lf = findIndexFile(ledgerId);
-                if (lf == null) {
-                    throw new Bookie.NoLedgerException(ledgerId);
-                }
-                evictFileInfoIfNecessary();        
-                fi = new FileInfo(lf, null);
-                byte[] key = fi.getMasterKey();
-                fileInfoCache.put(ledgerId, fi);
-                openLedgers.add(ledgerId);
-                return key;
-            }
-            return fi.getMasterKey();
+        FileInfo fi = getFileInfo(ledgerId, null);
+        if (null == fi) {
+            throw new IOException("Exception while reading master key for ledger:" + ledgerId);
         }
+        return fi.getMasterKey();
     }
 
     // evict file info if necessary
     private void evictFileInfoIfNecessary() throws IOException {
-        synchronized (fileInfoCache) {
-            if (openLedgers.size() > openFileLimit) {
-                long ledgerToRemove = openLedgers.removeFirst();
-                LOG.info("Ledger {} is evicted from file info cache.",
-                         ledgerToRemove);
-                fileInfoCache.remove(ledgerToRemove).close(true);
+        if (openLedgers.size() > openFileLimit) {
+            Long ledgerToRemove;
+            synchronized (openLedgers) {
+                ledgerToRemove = openLedgers.poll();
             }
+            if (null == ledgerToRemove) {
+                // Should not reach here. We probably cleared this while the thread
+                // was executing.
+                return;
+            }
+            LOG.info("Ledger {} is evicted from file info cache.",
+                     ledgerToRemove);
+            FileInfo fi = fileInfoCache.remove(ledgerToRemove);
+            if (null == fi) {
+                // Seems like someone else already closed the file.
+                return;
+            }
+            fi.close(true);
         }
     }
 
@@ -716,13 +717,11 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public boolean ledgerExists(long ledgerId) throws IOException {
-        synchronized(fileInfoCache) {
-            FileInfo fi = fileInfoCache.get(ledgerId);
-            if (fi == null) {
-                File lf = findIndexFile(ledgerId);
-                if (lf == null) {
-                    return false;
-                }
+        FileInfo fi = fileInfoCache.get(ledgerId);
+        if (fi == null) {
+            File lf = findIndexFile(ledgerId);
+            if (lf == null) {
+                return false;
             }
         }
         return true;
@@ -780,14 +779,12 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public void close() throws IOException {
-        synchronized (fileInfoCache) {
-            for (Entry<Long, FileInfo> fileInfo : fileInfoCache.entrySet()) {
-                FileInfo value = fileInfo.getValue();
-                if (value != null) {
-                    value.close(true);
-                }
+        for (Entry<Long, FileInfo> fileInfo : fileInfoCache.entrySet()) {
+            FileInfo value = fileInfo.getValue();
+            if (value != null) {
+                value.close(true);
             }
-            fileInfoCache.clear();
         }
+        fileInfoCache.clear();
     }
 }

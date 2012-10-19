@@ -29,11 +29,10 @@ import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Random;
 import java.util.Set;
-import java.util.Arrays;
-
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
@@ -97,7 +96,6 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
         long lastConfirmed;
         volatile int counter;
         boolean value;
-
         public SyncObj() {
             counter = 0;
             lastConfirmed = LedgerHandle.INVALID_ENTRY_ID;
@@ -168,15 +166,14 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
         lh.close();
     }
 
-    @Test
-    public void testReadWriteAsyncSingleClient() throws IOException {
+    private void testReadWriteAsyncSingleClient(int numEntries) throws IOException {
         try {
             // Create a ledger
             lh = bkc.createLedger(digestType, ledgerPassword);
             // bkc.initMessageDigest("SHA1");
             ledgerId = lh.getId();
             LOG.info("Ledger ID: " + lh.getId());
-            for (int i = 0; i < numEntriesToWrite; i++) {
+            for (int i = 0; i < numEntries; i++) {
                 ByteBuffer entry = ByteBuffer.allocate(4);
                 entry.putInt(rng.nextInt(maxInt));
                 entry.position(0);
@@ -188,7 +185,7 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
 
             // wait for all entries to be acknowledged
             synchronized (sync) {
-                while (sync.counter < numEntriesToWrite) {
+                while (sync.counter < numEntries) {
                     LOG.debug("Entries counter = " + sync.counter);
                     sync.wait();
                 }
@@ -203,10 +200,10 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
             // open ledger
             lh = bkc.openLedger(ledgerId, digestType, ledgerPassword);
             LOG.debug("Number of entries written: " + (lh.getLastAddConfirmed() + 1));
-            assertTrue("Verifying number of entries written", lh.getLastAddConfirmed() == (numEntriesToWrite - 1));
+            assertTrue("Verifying number of entries written", lh.getLastAddConfirmed() == (numEntries - 1));
 
             // read entries
-            lh.asyncReadEntries(0, numEntriesToWrite - 1, this, sync);
+            lh.asyncReadEntries(0, numEntries - 1, this, sync);
 
             synchronized (sync) {
                 while (sync.value == false) {
@@ -233,7 +230,7 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
                 assertTrue("Checking entry " + i + " for size", entry.length == entriesSize.get(i).intValue());
                 i++;
             }
-            assertTrue("Checking number of read entries", i == numEntriesToWrite);
+            assertTrue("Checking number of read entries", i == numEntries);
 
             lh.close();
         } catch (BKException e) {
@@ -243,6 +240,16 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
             LOG.error("Test failed", e);
             fail("Test failed due to interruption");
         }
+    }
+
+    @Test
+    public void testReadWriteAsyncSingleClient200() throws IOException {
+        testReadWriteAsyncSingleClient(200);
+    }
+
+    @Test
+    public void testReadWriteAsyncSingleClient200000() throws IOException {
+        testReadWriteAsyncSingleClient(200000);
     }
 
     /**

@@ -34,16 +34,14 @@ import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map.Entry;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.bookkeeper.bookie.BufferedReadChannel;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
 
@@ -58,7 +56,7 @@ public class EntryLogger {
     private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
     private File dirs[];
 
-    private long logId;
+    private volatile long logId;
     /**
      * The maximum size of a entry logger file.
      */
@@ -72,6 +70,9 @@ public class EntryLogger {
     final ByteBuffer LOGFILE_HEADER = ByteBuffer.allocate(LOGFILE_HEADER_SIZE);
 
     final static long MB = 1024 * 1024;
+
+    // The capacity of the read buffer in bytes.
+    final int readBufferCap;
 
     /**
      * Scan entries in a entry log file.
@@ -128,14 +129,88 @@ public class EntryLogger {
                 logId = lastLogId;
             }
         }
-
+        this.readBufferCap = conf.getReadBufferBytes();
         initialize();
     }
 
     /**
-     * Maps entry log files to open channels.
+     * If the currently written to logId is the same as entryLogId and if the position
+     * we want to read might end up reading from a position in the write buffer of the
+     * buffered channel, route this read to the current logChannel. Else,
+     * read from the BufferedReadChannel that is provided.
+     * @param entryLogId
+     * @param channel
+     * @param buff remaining() on this bytebuffer tells us the last position that we
+     *             expect to read.
+     * @param pos The starting position from where we want to read.
+     * @return
      */
-    private ConcurrentHashMap<Long, BufferedChannel> channels = new ConcurrentHashMap<Long, BufferedChannel>();
+    private int readFromLogChannel(long entryLogId, BufferedReadChannel channel, ByteBuffer buff, long pos)
+            throws IOException {
+        if (entryLogId == logId) {
+            if (null != logChannel) {
+                synchronized (logChannel) {
+                    if (pos + buff.remaining() >= logChannel.position() - 2*logChannel.capacity) {
+                        return logChannel.read(buff, pos);
+                    }
+                }
+            }
+        }
+        return channel.read(buff, pos);
+    }
+
+    /**
+     * A thread-local variable that wraps a mapping of log ids to bufferedchannels
+     * These channels should be used only for reading. logChannel is the one
+     * that is used for writes.
+     * TODO(Aniruddha): Investigate why using initialValue() here causes certain tests to fail.
+     */
+    private ThreadLocal<Map<Long, BufferedReadChannel>> logid2channel
+            = new ThreadLocal<Map<Long, BufferedReadChannel>>() {
+        @Override
+        public Map<Long, BufferedReadChannel> initialValue() {
+            return new HashMap<Long, BufferedReadChannel>();
+        }
+    };
+
+    /**
+     * Each thread local buffered read channel can share the same file handle because reads are not relative
+     * and don't cause a change in the channel's position. We use this map to store the file channels. Each
+     * file channel is mapped to a log id which represents an open log file.
+     */
+    private ConcurrentMap<Long, FileChannel> logid2filechannel
+            = new ConcurrentHashMap<Long, FileChannel>();
+
+    /**
+     * Put the logId, bc pair in the map responsible for the current thread.
+     * @param logId
+     * @param bc
+     */
+    public BufferedReadChannel  putInChannels(long logId, BufferedReadChannel bc) {
+        Map<Long, BufferedReadChannel> threadMap = logid2channel.get();
+        return threadMap.put(logId, bc);
+    }
+
+    /**
+     * Remove all entries for this log file in each thread's cache.
+     * @param logId
+     */
+    public void removeFromChannelsAndClose(long logId) {
+        // This is a no-op. We don't close the underlying channel as many buffers could be using it.
+        //TODO(Aniruddha): Remove this code if not required.
+        /*BufferedReadChannel ch = logid2channel.get().remove(logId);
+        if (null != ch) {
+            try {
+                ch.getFileChannel().close();
+            } catch (IOException e) {
+                LOG.warn("Exception while closing channel for log file:" + logId);
+            }
+        }*/
+    }
+
+    public BufferedReadChannel getFromChannels(long logId) {
+        return logid2channel.get().get(logId);
+    }
 
     synchronized long getCurrentLogId() {
         return logId;
@@ -149,7 +224,7 @@ public class EntryLogger {
     /**
      * Creates a new log file
      */
-    void createNewLog() throws IOException {
+    synchronized void createNewLog() throws IOException {
         List<File> list = Arrays.asList(dirs);
         Collections.shuffle(list);
         if (logChannel != null) {
@@ -173,7 +248,6 @@ public class EntryLogger {
 
         logChannel = new BufferedChannel(new RandomAccessFile(newLogFile, "rw").getChannel(), 64*1024);
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
-        channels.put(logId, logChannel);
         for(File f: dirs) {
             setLastLogId(f, logId);
         }
@@ -186,15 +260,7 @@ public class EntryLogger {
      *          Entry Log File Id
      */
     protected boolean removeEntryLog(long entryLogId) {
-        BufferedChannel bc = channels.remove(entryLogId);
-        if (null != bc) {
-            // close its underlying file channel, so it could be deleted really
-            try {
-                bc.getFileChannel().close();
-            } catch (IOException ie) {
-                LOG.warn("Exception while closing garbage collected entryLog file : ", ie);
-            }
-        }
+        removeFromChannelsAndClose(entryLogId);
         File entryLogFile;
         try {
             entryLogFile = findFile(entryLogId);
@@ -300,7 +366,6 @@ public class EntryLogger {
         long pos = logChannel.position();
         logChannel.write(entry);
         //logChannel.flush(false);
-
         return (logId << 32L) | pos;
     }
 
@@ -309,7 +374,7 @@ public class EntryLogger {
         long pos = location & 0xffffffffL;
         ByteBuffer sizeBuff = ByteBuffer.allocate(4);
         pos -= 4; // we want to get the ledgerId and length to check
-        BufferedChannel fc;
+        BufferedReadChannel fc;
         try {
             fc = getChannelForLogId(entryLogId);
         } catch (FileNotFoundException e) {
@@ -317,7 +382,7 @@ public class EntryLogger {
             newe.setStackTrace(e.getStackTrace());
             throw newe;
         }
-        if (fc.read(sizeBuff, pos) != sizeBuff.capacity()) {
+        if (readFromLogChannel(entryLogId, fc, sizeBuff, pos) != sizeBuff.capacity()) {
             throw new IOException("Short read from entrylog " + entryLogId);
         }
         pos += 4;
@@ -326,11 +391,10 @@ public class EntryLogger {
         // entrySize does not include the ledgerId
         if (entrySize > MB) {
             LOG.error("Sanity check failed for entry size of " + entrySize + " at location " + pos + " in " + entryLogId);
-
         }
         byte data[] = new byte[entrySize];
         ByteBuffer buff = ByteBuffer.wrap(data);
-        int rc = fc.read(buff, pos);
+        int rc = readFromLogChannel(entryLogId, fc, buff, pos);
         if ( rc != data.length) {
             throw new IOException("Short read for " + ledgerId + "@" + entryId + " in " + entryLogId + "@" + pos + "("+rc+"!="+data.length+")");
         }
@@ -347,8 +411,8 @@ public class EntryLogger {
         return data;
     }
 
-    private BufferedChannel getChannelForLogId(long entryLogId) throws IOException {
-        BufferedChannel fc = channels.get(entryLogId);
+    private BufferedReadChannel getChannelForLogId(long entryLogId) throws IOException {
+        BufferedReadChannel fc = getFromChannels(entryLogId);
         if (fc != null) {
             return fc;
         }
@@ -356,18 +420,16 @@ public class EntryLogger {
         // get channel is used to open an existing entry log file
         // it would be better to open using read mode
         FileChannel newFc = new RandomAccessFile(file, "r").getChannel();
-        // If the file already exists before creating a BufferedChannel layer above it,
-        // set the FileChannel's position to the end so the write buffer knows where to start.
-        newFc.position(newFc.size());
-        fc = new BufferedChannel(newFc, 8192);
-
-        BufferedChannel oldfc = channels.putIfAbsent(entryLogId, fc);
-        if (oldfc != null) {
+        FileChannel oldFc = logid2filechannel.putIfAbsent(entryLogId, newFc);
+        if (null != oldFc) {
             newFc.close();
-            return oldfc;
-        } else {
-            return fc;
+            newFc = oldFc;
         }
+        // We set the position of the write buffer of this buffered channel to Long.MAX_VALUE
+        // so that there are no overlaps with the write buffer while reading
+        fc = new BufferedReadChannel(newFc, readBufferCap);
+        putInChannels(entryLogId, fc);
+        return fc;
     }
 
     /**
@@ -405,7 +467,7 @@ public class EntryLogger {
     protected void scanEntryLog(long entryLogId, EntryLogScanner scanner) throws IOException {
         ByteBuffer sizeBuff = ByteBuffer.allocate(4);
         ByteBuffer lidBuff = ByteBuffer.allocate(8);
-        BufferedChannel bc;
+        BufferedReadChannel bc;
         // Get the BufferedChannel for the current entry log file
         try {
             bc = getChannelForLogId(entryLogId);
@@ -422,7 +484,7 @@ public class EntryLogger {
             if (pos >= bc.size()) {
                 break;
             }
-            if (bc.read(sizeBuff, pos) != sizeBuff.capacity()) {
+            if (readFromLogChannel(entryLogId, bc, sizeBuff, pos) != sizeBuff.capacity()) {
                 throw new IOException("Short read for entry size from entrylog " + entryLogId);
             }
             long offset = pos;
@@ -435,7 +497,7 @@ public class EntryLogger {
             }
             sizeBuff.clear();
             // try to read ledger id first
-            if (bc.read(lidBuff, pos) != lidBuff.capacity()) {
+            if (readFromLogChannel(entryLogId, bc, lidBuff, pos) != lidBuff.capacity()) {
                 throw new IOException("Short read for ledger id from entrylog " + entryLogId);
             }
             lidBuff.flip();
@@ -449,7 +511,7 @@ public class EntryLogger {
             // read the entry
             byte data[] = new byte[entrySize];
             ByteBuffer buff = ByteBuffer.wrap(data);
-            int rc = bc.read(buff, pos);
+            int rc = readFromLogChannel(entryLogId, bc, buff, pos);
             if (rc != data.length) {
                 throw new IOException("Short read for ledger entry from entryLog " + entryLogId
                                     + "@" + pos + "(" + rc + "!=" + data.length + ")");
@@ -469,19 +531,19 @@ public class EntryLogger {
         // since logChannel is buffered channel, do flush when shutting down
         try {
             flush();
-            for (Entry<Long, BufferedChannel> channelEntry : channels
-                    .entrySet()) {
-                channelEntry.getValue().getFileChannel().close();
+            for (BufferedReadChannel bufferedChannel : logid2channel.get().values()) {
+                FileChannel fc = bufferedChannel.getFileChannel();
+                if (null != fc) {
+                    fc.close();
+                }
             }
         } catch (IOException ie) {
             // we have no idea how to avoid io exception during shutting down, so just ignore it
             LOG.error("Error flush entry log during shutting down, which may cause entry log corrupted.", ie);
         } finally {
-            for (Entry<Long, BufferedChannel> channelEntry : channels
-                    .entrySet()) {
-                FileChannel fileChannel = channelEntry.getValue()
-                        .getFileChannel();
-                if (fileChannel.isOpen()) {
+            for (BufferedReadChannel bufferedChannel : logid2channel.get().values()) {
+                FileChannel fileChannel = bufferedChannel.getFileChannel();
+                if (null != fileChannel && fileChannel.isOpen()) {
                     IOUtils.close(LOG, fileChannel);
                 }
             }

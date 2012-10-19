@@ -122,7 +122,7 @@ class FileInfo {
             throw new IOException(lf + " not found");
         }
 
-        if (!exists) { 
+        if (!exists) {
             if (create) {
                 // delayed the creation of parents directories
                 checkParents(lf);
@@ -167,7 +167,7 @@ class FileInfo {
         return rc;
     }
 
-    synchronized public int read(ByteBuffer bb, long position) throws IOException {
+    public int read(ByteBuffer bb, long position) throws IOException {
         return readAbsolute(bb, position + START_OF_DATA);
     }
 
@@ -255,5 +255,9 @@ class FileInfo {
         if (parent.mkdirs() == false) {
             throw new IOException("Counldn't mkdirs for " + parent);
         }
+    }
+
+    public boolean isSameFile(File f) {
+        return this.lf.equals(f);
     }
 }
