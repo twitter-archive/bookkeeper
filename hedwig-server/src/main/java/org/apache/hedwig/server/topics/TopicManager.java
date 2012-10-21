@@ -133,15 +133,7 @@ public interface TopicManager {
     public void setTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
                                                 final Callback<Void> cb, final Object ctx);
 
-    /**
-        * Get the list of topics this hub believes it is responsible for.
-        * @return
-        */
-    public List<ByteString> getTopicList();
-
-    // TODO: Re-factor HubLoad to be hosted by HubServerManager so that this
-    // TODO: interface method is unnecessary
-    /**
+    /*
      * Get the current number of topics the hub believes it owns
      * @return
      */

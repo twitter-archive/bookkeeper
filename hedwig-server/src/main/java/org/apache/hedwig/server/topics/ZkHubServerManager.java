@@ -62,6 +62,8 @@ class ZkHubServerManager implements HubServerManager {
     private final TopicManager tm;
     private final String ephemeralNodePath;
     private final String hubNodesPath;
+    private final HubLoad myHubLoad;
+
 
     // hub info structure represent itself
     protected HubInfo myHubInfo;
@@ -184,6 +186,7 @@ class ZkHubServerManager implements HubServerManager {
         // the node's ephemeral node path
         this.ephemeralNodePath = getHubZkNodePath(addr);
         this.executor = Executors.newSingleThreadScheduledExecutor();
+        this.myHubLoad = new HubLoad(tm.getNumTopics());
         // register available hub servers list watcher
         zk.register(new ZkHubsWatcher());
 
@@ -210,8 +213,8 @@ class ZkHubServerManager implements HubServerManager {
     }
 
     @Override
-    public void registerSelf(final HubLoad selfData, final Callback<HubInfo> callback, Object ctx) {
-        byte[] loadDataBytes = selfData.toString().getBytes();
+    public void registerSelf(final Callback<HubInfo> callback, Object ctx) {
+        byte[] loadDataBytes = myHubLoad.toString().getBytes();
         ZkUtils.createFullPathOptimistic(zk, ephemeralNodePath, loadDataBytes, Ids.OPEN_ACL_UNSAFE,
                                          CreateMode.EPHEMERAL, new SafeAsyncZKCallback.StringCallback() {
             @Override
@@ -250,7 +253,7 @@ class ZkHubServerManager implements HubServerManager {
                     @Override
                     public void safeProcessResult(int rc, String path, Object ctx) {
                         if (rc == Code.OK.intValue() || rc == Code.NONODE.intValue()) {
-                            registerSelf(selfData, callback, ctx);
+                            registerSelf(callback, ctx);
                             return;
                         }
                         KeeperException ke = ZkUtils.logErrorAndCreateZKException(
@@ -274,15 +277,25 @@ class ZkHubServerManager implements HubServerManager {
         }
     }
 
-
-    @Override
-    public void uploadSelfLoadData(HubLoad selfLoad) {
+    public void uploadSelfLoadData() {
         if (logger.isDebugEnabled()) {
-            logger.debug("Reporting hub load of {} : {}", myHubInfo, selfLoad);
+            logger.debug("Reporting hub load of {} : {}", myHubInfo, myHubLoad);
         }
-        byte[] loadDataBytes = selfLoad.toString().getBytes();
+        byte[] loadDataBytes = myHubLoad.toString().getBytes();
         zk.setData(ephemeralNodePath, loadDataBytes, -1,
                    loadReportingStatCallback, null);
+    }
+
+    @Override
+    public void notifyClaimedTopic() {
+        myHubLoad.incrementNumTopics();
+        uploadSelfLoadData();
+    }
+
+    @Override
+    public void notifyReleasedTopic() {
+        myHubLoad.decrementNumTopics();
+        uploadSelfLoadData();
     }
 
     @Override
@@ -444,7 +457,12 @@ class ZkHubServerManager implements HubServerManager {
     public void rebalanceCluster(final double tolerancePercentage, final PubSubProtocol.HubLoadData maxLoadToShed,
                                  final Callback<Boolean> callback, final Object ctx) {
 
-            // Get the load on all active hubs and then shed load if required.
+        // Update the node information before starting the rebalance cycle
+        if (null != tm) {
+            uploadSelfLoadData();
+        }
+
+        // Get the load on all active hubs and then shed load if required.
         getActiveHubsInfoWithLoad(new Callback<Map<HubInfo, HubLoad>>() {
             @Override
             public void operationFinished(Object ctx, Map<HubInfo, HubLoad> loadMap) {
@@ -465,11 +483,6 @@ class ZkHubServerManager implements HubServerManager {
                 callback.operationFailed(ctx, e);
             }
         }, ctx);
-
-        if (null != tm) {
-            // Update the node information for the next rebalance cycle
-            uploadSelfLoadData(new HubLoad(tm.getNumTopics()));
-        }
     }
 
 

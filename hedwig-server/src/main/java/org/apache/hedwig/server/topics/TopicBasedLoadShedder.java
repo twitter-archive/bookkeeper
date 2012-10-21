@@ -37,7 +37,7 @@ public class TopicBasedLoadShedder {
     private final double tolerancePercentage;
     private final long maxLoadToShed;
     private final TopicManager tm;
-    private final List<ByteString> topicList;
+    private final long numTopics;
 
     /**
      * @param tm The topic manager used to handle load shedding
@@ -48,23 +48,23 @@ public class TopicBasedLoadShedder {
                                  PubSubProtocol.HubLoadData maxLoadToShed) {
         // Make sure that all functions in this class have a consistent view
         // of the load. So, we use the same topic list throughout.
-        this(tm, tm.getTopicList(), tolerancePercentage, maxLoadToShed);
+        this(tm, tm.getNumTopics(), tolerancePercentage, maxLoadToShed);
     }
 
     /**
      * This is public because it makes testing easier.
      * @param tm The topic manager used to handle load shedding
-     * @param topicList The topic list representing topics owned by this hub.
+     * @param numTopics The topic list representing topics owned by this hub.
      * @param tolerancePercentage The tolerance percentage for shedding load
      * @param maxLoadToShed The maximum amoung of load to shed in one call.
      */
-    TopicBasedLoadShedder(TopicManager tm, List<ByteString> topicList,
+    TopicBasedLoadShedder(TopicManager tm, long numTopics,
                                  double tolerancePercentage,
                                  PubSubProtocol.HubLoadData maxLoadToShed) {
         this.tolerancePercentage = tolerancePercentage;
         this.maxLoadToShed = maxLoadToShed.getNumTopics();
         this.tm = tm;
-        this.topicList = topicList;
+        this.numTopics = numTopics;
     }
 
     /**
@@ -80,7 +80,7 @@ public class TopicBasedLoadShedder {
      */
     public void reduceLoadTo(HubLoad targetLoad, final Callback<Long> callback, final Object ctx) {
         int targetTopics = (int)targetLoad.toHubLoadData().getNumTopics();
-        int numTopicsToRelease = topicList.size() - targetTopics;
+        int numTopicsToRelease = (int)numTopics - targetTopics;
 
         // The number of topics we own is less than the target topic size. We don't release
         // any topics in this case.
@@ -109,7 +109,6 @@ public class TopicBasedLoadShedder {
                          final Object ctx) {
 
         long totalTopics = 0L;
-        long myTopics = (long)topicList.size();
         for (Map.Entry<HubInfo, HubLoad> entry : loadMap.entrySet()) {
             if (null == entry.getKey() || null == entry.getValue()) {
                 continue;
@@ -122,8 +121,8 @@ public class TopicBasedLoadShedder {
 
         // Handle the case when averageTopics == 0. We hold on to at least 1 topic.
         long permissibleTopics = Math.max(1L, (long) Math.ceil(averageTopics + averageTopics * tolerancePercentage / 100.0));
-        logger.info("Permissible topics : {}. Number of topics this hub holds : {}.", permissibleTopics, myTopics);
-        if (myTopics <= permissibleTopics) {
+        logger.info("Permissible topics : {}. Number of topics this hub holds : {}.", permissibleTopics, numTopics);
+        if (numTopics <= permissibleTopics) {
             // My owned topics are less than those permitted by the current tolerance level. No need to release
             // any topics.
             callback.operationFinished(ctx, false);
@@ -132,7 +131,7 @@ public class TopicBasedLoadShedder {
 
         // The number of topics I own is more than what I should be holding. We shall now attempt to shed some load.
         // We shed at most maxLoadToShed number of topics. We also hold on to at least 1 topic.
-        long targetNumTopics = Math.max(1L, Math.max((long)Math.ceil(averageTopics), myTopics - maxLoadToShed));
+        long targetNumTopics = Math.max(1L, Math.max((long)Math.ceil(averageTopics), numTopics - maxLoadToShed));
 
         // Reduce the load on the current hub to the target load we calculated above.
         logger.info("Reducing load on this hub to {} topics.", targetNumTopics);

@@ -91,7 +91,6 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
     private final HubServerManager hubManager;
 
     private final HubInfo myHubInfo;
-    private final HubLoad myHubLoad;
 
     // Boolean flag indicating if we should suspend activity. If this is true,
     // all of the Ops put into the queuer will fail automatically.
@@ -109,7 +108,6 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
         this.zk = zk;
         this.hubManager = new ZkHubServerManager(cfg, zk, addr, this);
 
-        myHubLoad = new HubLoad(topics.size());
         this.hubManager.registerListener(new HubServerManager.ManagerListener() {
             @Override
             public void onSuspend() {
@@ -128,7 +126,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
 
         final SynchronousQueue<Either<HubInfo, PubSubException>> queue =
             new SynchronousQueue<Either<HubInfo, PubSubException>>();
-        this.hubManager.registerSelf(myHubLoad, new Callback<HubInfo>() {
+        this.hubManager.registerSelf(new Callback<HubInfo>() {
             @Override
             public void operationFinished(final Object ctx, final HubInfo resultOfOperation) {
                 logger.info("Successfully registered hub {} with zookeeper", resultOfOperation);
@@ -419,7 +417,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                             logger.debug("claimed topic: " + topic.toStringUtf8());
                         }
                         notifyListenersAndAddToOwnedTopics(topic, cb, ctx);
-                        hubManager.uploadSelfLoadData(myHubLoad.incrementNumTopics());
+                        hubManager.notifyClaimedTopic();
                     } else if (rc == Code.NODEEXISTS.intValue()) {
                         read();
                     } else {
@@ -439,7 +437,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
 
         // Reduce load. We've removed the topic from our topic set, so do this as well.
         // When we reclaim the topic, we will increment the load again.
-        hubManager.uploadSelfLoadData(myHubLoad.decrementNumTopics());
+        hubManager.notifyReleasedTopic();
 
         zk.getData(hubPath(topic), false, new SafeAsyncZKCallback.DataCallback() {
             @Override

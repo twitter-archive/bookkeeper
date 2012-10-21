@@ -54,7 +54,6 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
     private final HubServerManager hubManager;
 
     private final HubInfo myHubInfo;
-    private final HubLoad myHubLoad;
 
     // Boolean flag indicating if we should suspend activity. If this is true,
     // all of the Ops put into the queuer will fail automatically.
@@ -72,7 +71,6 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
         final SynchronousQueue<Either<HubInfo, PubSubException>> queue =
             new SynchronousQueue<Either<HubInfo, PubSubException>>();
 
-        myHubLoad = new HubLoad(topics.size());
         this.hubManager.registerListener(new HubServerManager.ManagerListener() {
             @Override
             public void onSuspend() {
@@ -88,7 +86,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
                 Runtime.getRuntime().exit(1);
             }
         });
-        this.hubManager.registerSelf(myHubLoad, new Callback<HubInfo>() {
+        this.hubManager.registerSelf(new Callback<HubInfo>() {
             @Override
             public void operationFinished(final Object ctx, final HubInfo resultOfOperation) {
                 logger.info("Successfully registered hub {} with zookeeper", resultOfOperation);
@@ -255,7 +253,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
             logger.info("{} : claimed topic {} 's owner to be {}",
                         new Object[] { addr, topic.toStringUtf8(), myHubInfo });
             notifyListenersAndAddToOwnedTopics(topic, cb, ctx);
-            hubManager.uploadSelfLoadData(myHubLoad.incrementNumTopics());
+            hubManager.notifyClaimedTopic();
         }
 
         public void choose(final Version prevOwnerVersion) {
@@ -313,7 +311,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
 
         // Reduce load. We've removed the topic from our topic set, so do this as well.
         // When we reclaim the topic, we will increment the load again.
-        hubManager.uploadSelfLoadData(myHubLoad.decrementNumTopics());
+        hubManager.notifyReleasedTopic();
 
         mm.readOwnerInfo(topic, new Callback<Versioned<HubInfo>>() {
             @Override

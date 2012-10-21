@@ -65,7 +65,7 @@ interface HubServerManager {
      * @param ctx
      *          Callback context.
      */
-    public void registerSelf(HubLoad selfLoad, Callback<HubInfo> callback, Object ctx);
+    public void registerSelf(Callback<HubInfo> callback, Object ctx);
 
     /**
      * Unregister itself from the cluster.
@@ -73,15 +73,22 @@ interface HubServerManager {
     public void unregisterSelf() throws IOException;
 
     /**
-     * Uploading self server load data.
+     * Notify the hub server manager that a topic was claimed
      *
      * It is an asynchrounous call which should not block other operations.
      * Currently we don't need to care about whether it succeed or not.
      *
-     * @param selfLoad
-     *          Hub server load data.
      */
-    public void uploadSelfLoadData(HubLoad selfLoad);
+    public void notifyClaimedTopic();
+
+    /**
+     * Notify the hub server manager that a topic was relinquished
+     *
+     * It is an asynchrounous call which should not block other operations.
+     * Currently we don't need to care about whether it succeed or not.
+     *
+     */
+    public void notifyReleasedTopic();
 
     /**
      * Check whether a hub server is alive as the id

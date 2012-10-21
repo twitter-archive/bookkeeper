@@ -228,7 +228,7 @@ public abstract class AbstractTopicManager implements TopicManager {
         }
     }
 
-    @Override
+    // TODO: May need this in the interface for admin console
     public List<ByteString> getTopicList() {
         List<ByteString> topicList;
         synchronized (this.topics) {
@@ -237,8 +237,6 @@ public abstract class AbstractTopicManager implements TopicManager {
         return topicList;
     }
 
-    // TODO: Re-factor HubLoad to be hosted by HubServerManager so that this
-    // TODO: interface method is unnecessary
     @Override
     public long getNumTopics() {
         return this.topics.size();

@@ -39,16 +39,15 @@ public class TestTopicBasedLoadShedder {
     final protected SynchronousQueue<Boolean> statusQueue = new SynchronousQueue<Boolean>();
     private int myTopics = 10;
     private int numHubs = 10;
-    private List<ByteString> mockTopicList;
     private final PubSubProtocol.HubLoadData infiniteMaxLoad = PubSubProtocol.HubLoadData.newBuilder().setNumTopics(10000000).build();
     Map<HubInfo, HubLoad> mockLoadMap = new HashMap<HubInfo, HubLoad>();
 
     class MockTopicBasedLoadShedder extends TopicBasedLoadShedder {
         // This is set by the reduceLoadTo function.
         public HubLoad targetLoad;
-        public MockTopicBasedLoadShedder(TopicManager tm, List<ByteString> topicList,
+        public MockTopicBasedLoadShedder(TopicManager tm, long numTopics,
                                          Double tolerancePercentage, PubSubProtocol.HubLoadData maxLoadToShed) {
-            super(tm, topicList, tolerancePercentage, maxLoadToShed);
+            super(tm, numTopics, tolerancePercentage, maxLoadToShed);
         }
         @Override
         public void reduceLoadTo(HubLoad targetLoad, final Callback<Long> callback, final Object ctx) {
@@ -91,14 +90,6 @@ public class TestTopicBasedLoadShedder {
         };
     }
 
-    private List<ByteString> getMockTopicList(int numTopics) {
-        List<ByteString> topics = new ArrayList<ByteString>();
-        for (int i = 0; i < numTopics; i++) {
-            topics.add(ByteString.copyFromUtf8("MyTopic_" + i));
-        }
-        return topics;
-    }
-
     private HubInfo getHubInfo(int hubNum) {
         return new HubInfo(new HedwigSocketAddress("myhub.testdomain.foo"+hubNum+":4080:4080"), 0);
     }
@@ -108,7 +99,6 @@ public class TestTopicBasedLoadShedder {
             Assert.assertTrue(otherHubsLoad.length == numHubs - 1);
         }
         this.myTopics = myTopics;
-        mockTopicList = getMockTopicList(this.myTopics);
         this.numHubs = numHubs;
         this.mockLoadMap.clear();
         this.mockLoadMap.put(getHubInfo(0), new HubLoad(this.myTopics));
@@ -131,7 +121,7 @@ public class TestTopicBasedLoadShedder {
         // All hubs have the same number of topics. We should not release any topics even with a
         // tolerance of 0.0.
         initialize(10, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, infiniteMaxLoad);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
@@ -140,7 +130,7 @@ public class TestTopicBasedLoadShedder {
     public synchronized void testOneHubUnequalTopics() throws Exception {
         // The hub has 20 topics while the average is 11. Should reduce the load to 11.
         initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, infiniteMaxLoad);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
     }
@@ -150,12 +140,12 @@ public class TestTopicBasedLoadShedder {
         // The hub has 20 topics and average is 11. Should still release as tolerance level of 50.0 is
         // breached. Should get down to average.
         initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 50.0, infiniteMaxLoad);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 50.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
 
         // A tolerance level of 100.0 should result in the hub not releasing topics.
-        tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 100.0, infiniteMaxLoad);
+        tbls = new MockTopicBasedLoadShedder(null, 10, 100.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
@@ -164,7 +154,7 @@ public class TestTopicBasedLoadShedder {
     public synchronized void testMaxLoadShed() throws Exception {
         // The hub should not shed more than maxLoadShed topics.
         initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, PubSubProtocol
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, PubSubProtocol
                 .HubLoadData.newBuilder().setNumTopics(5).build());
         // Our load should reduce to 15.
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(15), true, false), null);
@@ -172,7 +162,7 @@ public class TestTopicBasedLoadShedder {
 
         // We should reduce to 11 even when maxLoadShed and average result in the same
         // values
-        tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, PubSubProtocol
+        tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, PubSubProtocol
                 .HubLoadData.newBuilder().setNumTopics(9).build());
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
@@ -182,7 +172,7 @@ public class TestTopicBasedLoadShedder {
     public synchronized void testSingleHubLoadShed() throws Exception {
         // If this is the only hub in the cluster, it should not release any topics.
         initialize(20, 1, null);
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, infiniteMaxLoad);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
@@ -191,7 +181,7 @@ public class TestTopicBasedLoadShedder {
     public synchronized void testUnderloadedClusterLoadShed() throws Exception {
         // Hold on to at least one topic while shedding load (if cluster is underloaded)
         initialize(5, 10, getEqualLoadDistributionArray(9, 0));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, mockTopicList, 0.0, infiniteMaxLoad);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(1), true, false), null);
         Assert.assertTrue(statusQueue.take());
     }
