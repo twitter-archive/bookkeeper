@@ -30,25 +30,36 @@ import java.nio.channels.FileChannel;
  * A Buffered channel without a write buffer. Only reads are buffered.
  */
 public class BufferedReadChannel {
-    final FileChannel bc;
+    final FileChannel fileChannel;
     final int capacity;
     ByteBuffer readBuffer;
     // The start position of the data currently in the read buffer.
     long readBufferStartPosition = Long.MIN_VALUE;
 
-    public BufferedReadChannel(FileChannel bc, int capacity) throws IOException {
-        this.bc = bc;
+    public BufferedReadChannel(FileChannel fileChannel, int capacity) throws IOException {
+        this.fileChannel = fileChannel;
         this.capacity = capacity;
         this.readBuffer = ByteBuffer.allocateDirect(capacity);
         this.readBuffer.limit(0);
     }
 
     public FileChannel getFileChannel() {
-        return this.bc;
+        return this.fileChannel;
+    }
+
+    private FileChannel validateAndGetFileChannel() throws IOException {
+        // Even if we have BufferedReadChannel objects in the cache, higher layers should
+        // guarantee that once a log file has been closed and possibly deleted during garbage
+        // collection, attempts will not be made to read from it
+        if (!fileChannel.isOpen()) {
+            throw new IOException("Attempting to access a file channel that has already been closed");
+        }
+
+        return this.fileChannel;
     }
 
     public long size() throws IOException {
-        return bc.size();
+        return validateAndGetFileChannel().size();
     }
 
     synchronized public int read(ByteBuffer buff, long pos) throws IOException {
@@ -68,7 +79,7 @@ public class BufferedReadChannel {
                 readBuffer.clear();
                 readBufferStartPosition = currentPosition;
                 int readBytes = 0;
-                if ((readBytes = bc.read(readBuffer, currentPosition)) <= 0) {
+                if ((readBytes = validateAndGetFileChannel().read(readBuffer, currentPosition)) <= 0) {
                     throw new IOException("Reading from filechannel returned a non-positive value. Short read.");
                 }
                 readBuffer.limit(readBytes);

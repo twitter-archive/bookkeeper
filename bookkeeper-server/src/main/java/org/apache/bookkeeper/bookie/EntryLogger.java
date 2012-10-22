@@ -44,6 +44,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.bookkeeper.bookie.BufferedReadChannel;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
+import com.google.common.collect.MapMaker;
 
 /**
  * This class manages the writing of the bookkeeper entries. All the new
@@ -169,7 +170,13 @@ public class EntryLogger {
             = new ThreadLocal<Map<Long, BufferedReadChannel>>() {
         @Override
         public Map<Long, BufferedReadChannel> initialValue() {
-            return new HashMap<Long, BufferedReadChannel>();
+            // Since this is thread local there only one modifier
+            // We dont really need the concurrency, but we need to use
+            // the weak keys/values. Therefore using the concurrency level of 1
+            return new MapMaker().concurrencyLevel(1)
+                .weakKeys()
+                .weakValues()
+                .makeMap();
         }
     };
 
@@ -196,16 +203,14 @@ public class EntryLogger {
      * @param logId
      */
     public void removeFromChannelsAndClose(long logId) {
-        // This is a no-op. We don't close the underlying channel as many buffers could be using it.
-        //TODO(Aniruddha): Remove this code if not required.
-        /*BufferedReadChannel ch = logid2channel.get().remove(logId);
-        if (null != ch) {
+        FileChannel fileChannel = logid2filechannel.remove(logId);
+        if (null != fileChannel) {
             try {
-                ch.getFileChannel().close();
+                fileChannel.close();
             } catch (IOException e) {
                 LOG.warn("Exception while closing channel for log file:" + logId);
             }
-        }*/
+        }
     }
 
     public BufferedReadChannel getFromChannels(long logId) {
@@ -533,7 +538,7 @@ public class EntryLogger {
             flush();
             for (BufferedReadChannel bufferedChannel : logid2channel.get().values()) {
                 FileChannel fc = bufferedChannel.getFileChannel();
-                if (null != fc) {
+                if (null != fc && fc.isOpen ()) {
                     fc.close();
                 }
             }
