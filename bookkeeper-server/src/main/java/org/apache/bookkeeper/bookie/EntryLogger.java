@@ -172,9 +172,8 @@ public class EntryLogger {
         public Map<Long, BufferedReadChannel> initialValue() {
             // Since this is thread local there only one modifier
             // We dont really need the concurrency, but we need to use
-            // the weak keys/values. Therefore using the concurrency level of 1
+            // the weak values. Therefore using the concurrency level of 1
             return new MapMaker().concurrencyLevel(1)
-                .weakKeys()
                 .weakValues()
                 .makeMap();
         }

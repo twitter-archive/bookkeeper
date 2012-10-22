@@ -55,7 +55,7 @@ public class BufferedReadChannel {
             throw new IOException("Attempting to access a file channel that has already been closed");
         }
 
-        return this.fileChannel;
+        return fileChannel;
     }
 
     public long size() throws IOException {
