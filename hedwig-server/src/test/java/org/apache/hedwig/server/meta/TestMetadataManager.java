@@ -156,7 +156,7 @@ public class TestMetadataManager extends MetadataManagerFactoryTestCase {
         Assert.assertEquals(Version.Occurred.CONCURRENTLY, v1.compare(ranges.getVersion()));
         Assert.assertEquals(LedgerRanges.getDefaultInstance(), ranges.getValue());
 
-        LedgerRange lastRange = LedgerRange.newBuilder().setLedgerId(1).build();
+        LedgerRange lastRange = LedgerRange.newBuilder().setLedgerId(1).setStartSeqIdIncluded(1).build();
         LedgerRanges.Builder builder = LedgerRanges.newBuilder();
         builder.addRanges(lastRange);
         LedgerRanges newRanges = builder.build();
@@ -182,7 +182,7 @@ public class TestMetadataManager extends MetadataManagerFactoryTestCase {
         Assert.assertEquals(Version.Occurred.CONCURRENTLY, v2.compare(ranges.getVersion()));
         Assert.assertEquals(newRanges, ranges.getValue());
 
-        lastRange = LedgerRange.newBuilder().setLedgerId(2).build();
+        lastRange = LedgerRange.newBuilder().setLedgerId(2).setStartSeqIdIncluded(2).build();
         builder = LedgerRanges.newBuilder();
         builder.addRanges(lastRange);
         LedgerRanges newRanges2 = builder.build();

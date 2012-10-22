@@ -75,11 +75,14 @@ public class ReadTopic {
     
     static class InMemoryLedgerRange {
         LedgerRange range;
-        long startSeqIdIncluded;
-        
-        public InMemoryLedgerRange(LedgerRange range, long startSeqId) {
+
+        public InMemoryLedgerRange(LedgerRange range) {
             this.range = range;
-            this.startSeqIdIncluded = startSeqId;
+        }
+
+        public long getStartSeqIdIncluded() {
+            assert range.getStartSeqIdIncluded() > 0;
+            return range.getStartSeqIdIncluded();
         }
     }
     
@@ -117,18 +120,16 @@ public class ReadTopic {
      * @throws Exception
      */
     protected int getTopicLedgers() throws Exception {
-        List<LedgerRange> ranges = admin.getTopicLedgers(topic); 
+        List<LedgerRange> ranges = admin.getTopicLedgers(topic);
         if (null == ranges || ranges.isEmpty()) {
             return RC_NOLEDGERS;
         }
         Iterator<LedgerRange> lrIterator = ranges.iterator();
-        long startOfLedger = 1;
         while (lrIterator.hasNext()) {
             LedgerRange range = lrIterator.next();
             if (range.hasEndSeqIdIncluded()) {
                 long endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
-                ledgers.put(endOfLedger, new InMemoryLedgerRange(range, startOfLedger));
-                startOfLedger = endOfLedger + 1;
+                ledgers.put(endOfLedger, new InMemoryLedgerRange(range));
                 continue;
             }
             if (lrIterator.hasNext()) {
@@ -235,7 +236,7 @@ public class ReadTopic {
         }
         // Open Ledger Handle
         long ledgerId = ledger.range.getLedgerId();
-        System.out.println("\n>>>>> Ledger " + ledgerId + " [ " + ledger.startSeqIdIncluded + " ~ " + (endSeqId == Long.MAX_VALUE ? "" : endSeqId) + "] <<<<<\n");
+        System.out.println("\n>>>>> Ledger " + ledgerId + " [ " + ledger.getStartSeqIdIncluded() + " ~ " + (endSeqId == Long.MAX_VALUE ? "" : endSeqId) + "] <<<<<\n");
         LedgerHandle lh = null;
         try {
             lh = admin.getBkHandle().openLedgerNoRecovery(ledgerId, admin.getBkDigestType(), admin.getBkPasswd());
@@ -245,7 +246,7 @@ public class ReadTopic {
         if (null == lh) {
             return true;
         }
-        long expectedEntryId = startSeqId - ledger.startSeqIdIncluded;
+        long expectedEntryId = startSeqId - ledger.getStartSeqIdIncluded();
         
         long correctedEndSeqId = tEndSeqId;
         try {
@@ -253,7 +254,7 @@ public class ReadTopic {
                 correctedEndSeqId = Math.min(startSeqId + NUM_MESSAGES_TO_PRINT - 1, tEndSeqId);
                 
                 try {
-                    Enumeration<LedgerEntry> seq = lh.readEntries(startSeqId - ledger.startSeqIdIncluded, correctedEndSeqId - ledger.startSeqIdIncluded);
+                    Enumeration<LedgerEntry> seq = lh.readEntries(startSeqId - ledger.getStartSeqIdIncluded(), correctedEndSeqId - ledger.getStartSeqIdIncluded());
                     LedgerEntry entry = null;
                     while (seq.hasMoreElements()) {
                         entry = seq.nextElement();
@@ -266,7 +267,7 @@ public class ReadTopic {
                             continue;
                         }
                         if (expectedEntryId != entry.getEntryId()
-                            || (message.getMsgId().getLocalComponent() - ledger.startSeqIdIncluded) != expectedEntryId) {
+                            || (message.getMsgId().getLocalComponent() - ledger.getStartSeqIdIncluded()) != expectedEntryId) {
                             throw new IOException("ERROR: Message ids are out of order : expected entry id " + expectedEntryId
                                                 + ", current entry id " + entry.getEntryId() + ", msg seq id " + message.getMsgId().getLocalComponent());
                         }

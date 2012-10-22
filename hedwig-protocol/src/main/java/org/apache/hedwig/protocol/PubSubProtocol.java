@@ -12682,7 +12682,11 @@ public final class PubSubProtocol {
     boolean hasLedgerId();
     long getLedgerId();
     
-    // optional .Hedwig.MessageSeqId endSeqIdIncluded = 2;
+    // required uint64 startSeqIdIncluded = 2;
+    boolean hasStartSeqIdIncluded();
+    long getStartSeqIdIncluded();
+    
+    // optional .Hedwig.MessageSeqId endSeqIdIncluded = 3;
     boolean hasEndSeqIdIncluded();
     org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId getEndSeqIdIncluded();
     org.apache.hedwig.protocol.PubSubProtocol.MessageSeqIdOrBuilder getEndSeqIdIncludedOrBuilder();
@@ -12726,11 +12730,21 @@ public final class PubSubProtocol {
       return ledgerId_;
     }
     
-    // optional .Hedwig.MessageSeqId endSeqIdIncluded = 2;
-    public static final int ENDSEQIDINCLUDED_FIELD_NUMBER = 2;
+    // required uint64 startSeqIdIncluded = 2;
+    public static final int STARTSEQIDINCLUDED_FIELD_NUMBER = 2;
+    private long startSeqIdIncluded_;
+    public boolean hasStartSeqIdIncluded() {
+      return ((bitField0_ & 0x00000002) == 0x00000002);
+    }
+    public long getStartSeqIdIncluded() {
+      return startSeqIdIncluded_;
+    }
+    
+    // optional .Hedwig.MessageSeqId endSeqIdIncluded = 3;
+    public static final int ENDSEQIDINCLUDED_FIELD_NUMBER = 3;
     private org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId endSeqIdIncluded_;
     public boolean hasEndSeqIdIncluded() {
-      return ((bitField0_ & 0x00000002) == 0x00000002);
+      return ((bitField0_ & 0x00000004) == 0x00000004);
     }
     public org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId getEndSeqIdIncluded() {
       return endSeqIdIncluded_;
@@ -12741,6 +12755,7 @@ public final class PubSubProtocol {
     
     private void initFields() {
       ledgerId_ = 0L;
+      startSeqIdIncluded_ = 0L;
       endSeqIdIncluded_ = org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.getDefaultInstance();
     }
     private byte memoizedIsInitialized = -1;
@@ -12749,6 +12764,10 @@ public final class PubSubProtocol {
       if (isInitialized != -1) return isInitialized == 1;
       
       if (!hasLedgerId()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      if (!hasStartSeqIdIncluded()) {
         memoizedIsInitialized = 0;
         return false;
       }
@@ -12769,7 +12788,10 @@ public final class PubSubProtocol {
         output.writeUInt64(1, ledgerId_);
       }
       if (((bitField0_ & 0x00000002) == 0x00000002)) {
-        output.writeMessage(2, endSeqIdIncluded_);
+        output.writeUInt64(2, startSeqIdIncluded_);
+      }
+      if (((bitField0_ & 0x00000004) == 0x00000004)) {
+        output.writeMessage(3, endSeqIdIncluded_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -12786,7 +12808,11 @@ public final class PubSubProtocol {
       }
       if (((bitField0_ & 0x00000002) == 0x00000002)) {
         size += com.google.protobuf.CodedOutputStream
-          .computeMessageSize(2, endSeqIdIncluded_);
+          .computeUInt64Size(2, startSeqIdIncluded_);
+      }
+      if (((bitField0_ & 0x00000004) == 0x00000004)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, endSeqIdIncluded_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -12915,12 +12941,14 @@ public final class PubSubProtocol {
         super.clear();
         ledgerId_ = 0L;
         bitField0_ = (bitField0_ & ~0x00000001);
+        startSeqIdIncluded_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000002);
         if (endSeqIdIncludedBuilder_ == null) {
           endSeqIdIncluded_ = org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.getDefaultInstance();
         } else {
           endSeqIdIncludedBuilder_.clear();
         }
-        bitField0_ = (bitField0_ & ~0x00000002);
+        bitField0_ = (bitField0_ & ~0x00000004);
         return this;
       }
       
@@ -12966,6 +12994,10 @@ public final class PubSubProtocol {
         if (((from_bitField0_ & 0x00000002) == 0x00000002)) {
           to_bitField0_ |= 0x00000002;
         }
+        result.startSeqIdIncluded_ = startSeqIdIncluded_;
+        if (((from_bitField0_ & 0x00000004) == 0x00000004)) {
+          to_bitField0_ |= 0x00000004;
+        }
         if (endSeqIdIncludedBuilder_ == null) {
           result.endSeqIdIncluded_ = endSeqIdIncluded_;
         } else {
@@ -12990,6 +13022,9 @@ public final class PubSubProtocol {
         if (other.hasLedgerId()) {
           setLedgerId(other.getLedgerId());
         }
+        if (other.hasStartSeqIdIncluded()) {
+          setStartSeqIdIncluded(other.getStartSeqIdIncluded());
+        }
         if (other.hasEndSeqIdIncluded()) {
           mergeEndSeqIdIncluded(other.getEndSeqIdIncluded());
         }
@@ -12999,6 +13034,10 @@ public final class PubSubProtocol {
       
       public final boolean isInitialized() {
         if (!hasLedgerId()) {
+          
+          return false;
+        }
+        if (!hasStartSeqIdIncluded()) {
           
           return false;
         }
@@ -13039,7 +13078,12 @@ public final class PubSubProtocol {
               ledgerId_ = input.readUInt64();
               break;
             }
-            case 18: {
+            case 16: {
+              bitField0_ |= 0x00000002;
+              startSeqIdIncluded_ = input.readUInt64();
+              break;
+            }
+            case 26: {
               org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.Builder subBuilder = org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.newBuilder();
               if (hasEndSeqIdIncluded()) {
                 subBuilder.mergeFrom(getEndSeqIdIncluded());
@@ -13075,12 +13119,33 @@ public final class PubSubProtocol {
         return this;
       }
       
-      // optional .Hedwig.MessageSeqId endSeqIdIncluded = 2;
+      // required uint64 startSeqIdIncluded = 2;
+      private long startSeqIdIncluded_ ;
+      public boolean hasStartSeqIdIncluded() {
+        return ((bitField0_ & 0x00000002) == 0x00000002);
+      }
+      public long getStartSeqIdIncluded() {
+        return startSeqIdIncluded_;
+      }
+      public Builder setStartSeqIdIncluded(long value) {
+        bitField0_ |= 0x00000002;
+        startSeqIdIncluded_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearStartSeqIdIncluded() {
+        bitField0_ = (bitField0_ & ~0x00000002);
+        startSeqIdIncluded_ = 0L;
+        onChanged();
+        return this;
+      }
+      
+      // optional .Hedwig.MessageSeqId endSeqIdIncluded = 3;
       private org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId endSeqIdIncluded_ = org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.getDefaultInstance();
       private com.google.protobuf.SingleFieldBuilder<
           org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId, org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.Builder, org.apache.hedwig.protocol.PubSubProtocol.MessageSeqIdOrBuilder> endSeqIdIncludedBuilder_;
       public boolean hasEndSeqIdIncluded() {
-        return ((bitField0_ & 0x00000002) == 0x00000002);
+        return ((bitField0_ & 0x00000004) == 0x00000004);
       }
       public org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId getEndSeqIdIncluded() {
         if (endSeqIdIncludedBuilder_ == null) {
@@ -13099,7 +13164,7 @@ public final class PubSubProtocol {
         } else {
           endSeqIdIncludedBuilder_.setMessage(value);
         }
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         return this;
       }
       public Builder setEndSeqIdIncluded(
@@ -13110,12 +13175,12 @@ public final class PubSubProtocol {
         } else {
           endSeqIdIncludedBuilder_.setMessage(builderForValue.build());
         }
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         return this;
       }
       public Builder mergeEndSeqIdIncluded(org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId value) {
         if (endSeqIdIncludedBuilder_ == null) {
-          if (((bitField0_ & 0x00000002) == 0x00000002) &&
+          if (((bitField0_ & 0x00000004) == 0x00000004) &&
               endSeqIdIncluded_ != org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.getDefaultInstance()) {
             endSeqIdIncluded_ =
               org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.newBuilder(endSeqIdIncluded_).mergeFrom(value).buildPartial();
@@ -13126,7 +13191,7 @@ public final class PubSubProtocol {
         } else {
           endSeqIdIncludedBuilder_.mergeFrom(value);
         }
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         return this;
       }
       public Builder clearEndSeqIdIncluded() {
@@ -13136,11 +13201,11 @@ public final class PubSubProtocol {
         } else {
           endSeqIdIncludedBuilder_.clear();
         }
-        bitField0_ = (bitField0_ & ~0x00000002);
+        bitField0_ = (bitField0_ & ~0x00000004);
         return this;
       }
       public org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.Builder getEndSeqIdIncludedBuilder() {
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         onChanged();
         return getEndSeqIdIncludedFieldBuilder().getBuilder();
       }
@@ -15183,32 +15248,32 @@ public final class PubSubProtocol {
       "d\030\002 \001(\r\"r\n\020SubscriptionData\022(\n\005state\030\001 \001" +
       "(\0132\031.Hedwig.SubscriptionState\0224\n\013prefere" +
       "nces\030\002 \001(\0132\037.Hedwig.SubscriptionPreferen" +
-      "ces\"O\n\013LedgerRange\022\020\n\010ledgerId\030\001 \002(\004\022.\n\020" +
-      "endSeqIdIncluded\030\002 \001(\0132\024.Hedwig.MessageS" +
-      "eqId\"3\n\014LedgerRanges\022#\n\006ranges\030\001 \003(\0132\023.H" +
-      "edwig.LedgerRange\":\n\013ManagerMeta\022\023\n\013mana" +
-      "gerImpl\030\002 \002(\t\022\026\n\016managerVersion\030\003 \002(\r\".\n" +
-      "\013HubInfoData\022\020\n\010hostname\030\002 \002(\t\022\r\n\005czxid\030" +
-      "\003 \002(\004\" \n\013HubLoadData\022\021\n\tnumTopics\030\002 \002(\004*",
-      "\"\n\017ProtocolVersion\022\017\n\013VERSION_ONE\020\001*p\n\rO" +
-      "perationType\022\013\n\007PUBLISH\020\000\022\r\n\tSUBSCRIBE\020\001" +
-      "\022\013\n\007CONSUME\020\002\022\017\n\013UNSUBSCRIBE\020\003\022\022\n\016START_" +
-      "DELIVERY\020\004\022\021\n\rSTOP_DELIVERY\020\005*\242\004\n\nStatus" +
-      "Code\022\013\n\007SUCCESS\020\000\022\026\n\021MALFORMED_REQUEST\020\221" +
-      "\003\022\022\n\rNO_SUCH_TOPIC\020\222\003\022\036\n\031CLIENT_ALREADY_" +
-      "SUBSCRIBED\020\223\003\022\032\n\025CLIENT_NOT_SUBSCRIBED\020\224" +
-      "\003\022\026\n\021COULD_NOT_CONNECT\020\225\003\022\017\n\nTOPIC_BUSY\020" +
-      "\226\003\022\036\n\031NOT_RESPONSIBLE_FOR_TOPIC\020\365\003\022\021\n\014SE" +
-      "RVICE_DOWN\020\366\003\022\024\n\017UNCERTAIN_STATE\020\367\003\022\033\n\026I",
-      "NVALID_MESSAGE_FILTER\020\370\003\022\033\n\026ZOOKEEPER_SE" +
-      "RVICE_DOWN\020\371\003\022\020\n\013BAD_VERSION\020\210\004\022\036\n\031NO_TO" +
-      "PIC_PERSISTENCE_INFO\020\211\004\022\"\n\035TOPIC_PERSIST" +
-      "ENCE_INFO_EXISTS\020\212\004\022\032\n\025NO_SUBSCRIPTION_S" +
-      "TATE\020\213\004\022\036\n\031SUBSCRIPTION_STATE_EXISTS\020\214\004\022" +
-      "\030\n\023NO_TOPIC_OWNER_INFO\020\215\004\022\034\n\027TOPIC_OWNER" +
-      "_INFO_EXISTS\020\216\004\022\031\n\024UNEXPECTED_CONDITION\020" +
-      "\330\004\022\016\n\tCOMPOSITE\020\274\005B\036\n\032org.apache.hedwig." +
-      "protocolH\001"
+      "ces\"k\n\013LedgerRange\022\020\n\010ledgerId\030\001 \002(\004\022\032\n\022" +
+      "startSeqIdIncluded\030\002 \002(\004\022.\n\020endSeqIdIncl" +
+      "uded\030\003 \001(\0132\024.Hedwig.MessageSeqId\"3\n\014Ledg" +
+      "erRanges\022#\n\006ranges\030\001 \003(\0132\023.Hedwig.Ledger" +
+      "Range\":\n\013ManagerMeta\022\023\n\013managerImpl\030\002 \002(" +
+      "\t\022\026\n\016managerVersion\030\003 \002(\r\".\n\013HubInfoData" +
+      "\022\020\n\010hostname\030\002 \002(\t\022\r\n\005czxid\030\003 \002(\004\" \n\013Hub",
+      "LoadData\022\021\n\tnumTopics\030\002 \002(\004*\"\n\017ProtocolV" +
+      "ersion\022\017\n\013VERSION_ONE\020\001*p\n\rOperationType" +
+      "\022\013\n\007PUBLISH\020\000\022\r\n\tSUBSCRIBE\020\001\022\013\n\007CONSUME\020" +
+      "\002\022\017\n\013UNSUBSCRIBE\020\003\022\022\n\016START_DELIVERY\020\004\022\021" +
+      "\n\rSTOP_DELIVERY\020\005*\242\004\n\nStatusCode\022\013\n\007SUCC" +
+      "ESS\020\000\022\026\n\021MALFORMED_REQUEST\020\221\003\022\022\n\rNO_SUCH" +
+      "_TOPIC\020\222\003\022\036\n\031CLIENT_ALREADY_SUBSCRIBED\020\223" +
+      "\003\022\032\n\025CLIENT_NOT_SUBSCRIBED\020\224\003\022\026\n\021COULD_N" +
+      "OT_CONNECT\020\225\003\022\017\n\nTOPIC_BUSY\020\226\003\022\036\n\031NOT_RE" +
+      "SPONSIBLE_FOR_TOPIC\020\365\003\022\021\n\014SERVICE_DOWN\020\366",
+      "\003\022\024\n\017UNCERTAIN_STATE\020\367\003\022\033\n\026INVALID_MESSA" +
+      "GE_FILTER\020\370\003\022\033\n\026ZOOKEEPER_SERVICE_DOWN\020\371" +
+      "\003\022\020\n\013BAD_VERSION\020\210\004\022\036\n\031NO_TOPIC_PERSISTE" +
+      "NCE_INFO\020\211\004\022\"\n\035TOPIC_PERSISTENCE_INFO_EX" +
+      "ISTS\020\212\004\022\032\n\025NO_SUBSCRIPTION_STATE\020\213\004\022\036\n\031S" +
+      "UBSCRIPTION_STATE_EXISTS\020\214\004\022\030\n\023NO_TOPIC_" +
+      "OWNER_INFO\020\215\004\022\034\n\027TOPIC_OWNER_INFO_EXISTS" +
+      "\020\216\004\022\031\n\024UNEXPECTED_CONDITION\020\330\004\022\016\n\tCOMPOS" +
+      "ITE\020\274\005B\036\n\032org.apache.hedwig.protocolH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -15388,7 +15453,7 @@ public final class PubSubProtocol {
           internal_static_Hedwig_LedgerRange_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_Hedwig_LedgerRange_descriptor,
-              new java.lang.String[] { "LedgerId", "EndSeqIdIncluded", },
+              new java.lang.String[] { "LedgerId", "StartSeqIdIncluded", "EndSeqIdIncluded", },
               org.apache.hedwig.protocol.PubSubProtocol.LedgerRange.class,
               org.apache.hedwig.protocol.PubSubProtocol.LedgerRange.Builder.class);
           internal_static_Hedwig_LedgerRanges_descriptor =

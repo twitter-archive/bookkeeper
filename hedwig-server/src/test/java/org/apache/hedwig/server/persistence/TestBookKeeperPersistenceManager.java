@@ -179,6 +179,51 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         }
     }
 
+    private void waitForPendingOps(com.google.protobuf.ByteString topic) throws InterruptedException {
+        while (manager.IsTopicOpPending(topic)) {
+            Thread.sleep(readDelay);
+        }
+    }
+
+    @Test
+    public void testLedgerGCBeforeRecovery() throws Exception {
+        ByteString topic = ByteString.copyFromUtf8("testLedgerGCBeforeRecovery");
+
+        List<Message> msgs = new ArrayList<Message>();
+
+        acquireTopic(topic);
+        msgs.addAll(publishMessages(topic, 1));
+        releaseTopic(topic);
+
+        // acquire topic again to force a new ledger
+        acquireTopic(topic);
+        msgs.addAll(publishMessages(topic, 3));
+
+        // GC first ledger
+        manager.consumedUntil(topic, 1L);
+        waitForPendingOps(topic);
+
+        releaseTopic(topic);
+
+        // acquire topic again to recovery last ledger
+        acquireTopic(topic);
+
+        // scan messages
+        LinkedBlockingQueue<Boolean> statusQueue = new LinkedBlockingQueue<Boolean>();
+        RangeScanRequest nextScan = new RangeScanRequest(topic, 4, 1, Long.MAX_VALUE,
+                new RangeScanVerifier(subMessages(msgs, 3, 3), null), statusQueue);
+        manager.scanMessages(new RangeScanRequest(topic, 2, 2, Long.MAX_VALUE,
+                new RangeScanVerifier(subMessages(msgs, 1, 2), nextScan), statusQueue));
+        Boolean b = statusQueue.poll(10 * readDelay, TimeUnit.MILLISECONDS);
+        if (b == null) {
+            fail("One scan request doesn't finish");
+        }
+        b = statusQueue.poll(10 * readDelay, TimeUnit.MILLISECONDS);
+        if (b == null) {
+            fail("One scan request doesn't finish");
+        }
+    }
+
     class TestCallback implements Callback<PubSubProtocol.MessageSeqId> {
 
         @Override

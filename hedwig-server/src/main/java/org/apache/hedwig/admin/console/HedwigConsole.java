@@ -633,16 +633,14 @@ public class HedwigConsole {
                 return;
             }
             Iterator<LedgerRange> lrIterator = lrs.iterator();
-            long startOfLedger = 1;
             while (lrIterator.hasNext()) {
                 LedgerRange range = lrIterator.next();
+                long startOfLedger = range.getStartSeqIdIncluded();
                 long endOfLedger = Long.MAX_VALUE;
                 if (range.hasEndSeqIdIncluded()) {
                     endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
                 }
                 System.out.println("Ledger " + range.getLedgerId() + " [ " + startOfLedger + " ~ " + (endOfLedger == Long.MAX_VALUE ? "" : endOfLedger) + " ]");
-
-                startOfLedger = endOfLedger + 1;
             }
             System.out.println();
         }

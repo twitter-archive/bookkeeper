@@ -407,7 +407,8 @@ public class HedwigAdmin {
             lrs = newLrs;
             MessageSeqId lastSeqId;
             if (lrs.size() == 1) {
-                lastSeqId = MessageSeqId.newBuilder().setLocalComponent(1).build();
+                long endSeqId = lrs.get(0).getStartSeqIdIncluded() - 1;
+                lastSeqId = MessageSeqId.newBuilder().setLocalComponent(endSeqId).build();
             } else {
                 lastSeqId = lrs.get(lrs.size() - 2).getEndSeqIdIncluded();
             }
@@ -430,10 +431,14 @@ public class HedwigAdmin {
     LedgerRange refreshLastLedgerRange(MessageSeqId lastSeqId, LedgerRange oldRange)
         throws BKException, KeeperException, InterruptedException {
         LedgerHandle lh = bk.openLedgerNoRecovery(oldRange.getLedgerId(), DigestType.CRC32, passwd);
+        LedgerRange.Builder builder = LedgerRange.newBuilder().mergeFrom(oldRange);
         long lastConfirmed = lh.readLastConfirmed();
-        MessageSeqId newSeqId = MessageSeqId.newBuilder().mergeFrom(lastSeqId)
+        if (lastConfirmed != -1) {
+            MessageSeqId newSeqId = MessageSeqId.newBuilder().mergeFrom(lastSeqId)
                                 .setLocalComponent(lastSeqId.getLocalComponent() + lastConfirmed).build();
-        return LedgerRange.newBuilder().mergeFrom(oldRange).setEndSeqIdIncluded(newSeqId).build();
+            builder.setEndSeqIdIncluded(newSeqId);
+        }
+        return builder.build();
     }
 
     /**

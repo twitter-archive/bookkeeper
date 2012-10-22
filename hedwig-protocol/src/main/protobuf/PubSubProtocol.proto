@@ -255,7 +255,8 @@ message SubscriptionData {
 
 message LedgerRange{
     required uint64 ledgerId = 1;
-    optional MessageSeqId endSeqIdIncluded = 2;
+    required uint64 startSeqIdIncluded = 2;
+    optional MessageSeqId endSeqIdIncluded = 3;
 }
 
 message LedgerRanges{
