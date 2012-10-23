@@ -1052,12 +1052,8 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
     }
 
     public void closeLedger(LedgerHandle lh) {
-        // try {
-        // lh.asyncClose(noOpCloseCallback, null);
-        // } catch (InterruptedException e) {
-        // logger.error(e);
-        // Thread.currentThread().interrupt();
-        // }
+        logger.info("Issuing a close for ledger:" + lh.getId());
+        lh.asyncClose(noOpCloseCallback, null);
     }
 
     class ReleaseOp extends TopicOpQueuer.SynchronousOp {
