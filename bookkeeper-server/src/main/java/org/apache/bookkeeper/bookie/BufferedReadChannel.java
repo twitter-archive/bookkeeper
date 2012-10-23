@@ -26,15 +26,22 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * A Buffered channel without a write buffer. Only reads are buffered.
  */
 public class BufferedReadChannel {
+    private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
+
     final FileChannel fileChannel;
     final int capacity;
     ByteBuffer readBuffer;
     // The start position of the data currently in the read buffer.
     long readBufferStartPosition = Long.MIN_VALUE;
+    long invocationCount = 0;
+    long cacheHitCount = 0;
 
     public BufferedReadChannel(FileChannel fileChannel, int capacity) throws IOException {
         this.fileChannel = fileChannel;
@@ -63,6 +70,7 @@ public class BufferedReadChannel {
     }
 
     synchronized public int read(ByteBuffer buff, long pos) throws IOException {
+        invocationCount++;
         long currentPosition = pos;
         while (buff.remaining() > 0) {
             // Check if the data is in the buffer, if so, copy it.
@@ -74,6 +82,7 @@ public class BufferedReadChannel {
                 rbDup.limit((int)(posInBuffer + bytesToCopy));
                 buff.put(rbDup);
                 currentPosition += bytesToCopy;
+                cacheHitCount++;
             } else {
                 // We don't have it in the buffer, so put necessary data in the buffer
                 readBuffer.clear();
@@ -91,5 +100,9 @@ public class BufferedReadChannel {
     synchronized public void clear() {
         readBuffer.clear();
         readBuffer.limit(0);
+    }
+
+    protected void finalize () {
+        LOG.info("Buffer Cache Hit Rate: #invocations:" + invocationCount + " #readCacheHits:" + cacheHitCount);
     }
 }
