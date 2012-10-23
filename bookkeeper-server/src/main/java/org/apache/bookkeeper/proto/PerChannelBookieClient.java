@@ -23,6 +23,8 @@ import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.bookkeeper.client.BKException;
@@ -83,10 +85,22 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     AtomicLong totalBytesOutstanding;
     ClientSocketChannelFactory channelFactory;
     OrderedSafeExecutor executor;
+    ScheduledExecutorService timeoutExecutor;
+    // TODO(Aniruddha): Remove this completely or should we have a lower read timeout and a somewhat higher timeout task interval
     private Timer readTimeoutTimer;
 
-    ConcurrentHashMap<CompletionKey, AddCompletion> addCompletions = new ConcurrentHashMap<CompletionKey, AddCompletion>();
-    ConcurrentHashMap<CompletionKey, ReadCompletion> readCompletions = new ConcurrentHashMap<CompletionKey, ReadCompletion>();
+    final ConcurrentHashMap<CompletionKey, AddCompletion> addCompletions = new ConcurrentHashMap<CompletionKey, AddCompletion>();
+    final ConcurrentHashMap<CompletionKey, ReadCompletion> readCompletions = new ConcurrentHashMap<CompletionKey, ReadCompletion>();
+
+    /**
+     * This task is submitted to the scheduled executor service thread. It periodically wakes up
+     * and errors out entries that have timed out.
+     */
+    private class TimeoutTask implements Runnable {
+        public void run() {
+            errorOutTimedOutEntries();
+        }
+    }
 
     /**
      * The following member variables do not need to be concurrent, or volatile
@@ -102,13 +116,53 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     private volatile ConnectionState state;
     private final ClientConfiguration conf;
 
+    /**
+     * Error out any entries that have timed out.
+     */
+    private void errorOutTimedOutEntries() {
+        // Error out keys that have timed out.
+        int numAdd = 0, numRead = 0;
+        int totalAdd = 0, totalRead = 0;
+        for (CompletionKey key : PerChannelBookieClient.this.addCompletions.keySet()) {
+            totalAdd++;
+            if (key.shouldTimeout()) {
+                try {
+                    errorOutAddKey(key);
+                    numAdd++;
+                } catch (RuntimeException e) {
+                    LOG.error("Caught RuntimeException while erroring out add key:" + key.toString());
+                }
+            }
+        }
+        for (CompletionKey key : PerChannelBookieClient.this.readCompletions.keySet()) {
+            totalRead++;
+            if (key.shouldTimeout()) {
+                try {
+                    errorOutReadKey(key);
+                    numRead++;
+                } catch (RuntimeException e) {
+                    LOG.error("Caught RuntimeException while erroring out read key:" + key.toString());
+                }
+            }
+        }
+        if (numAdd + numRead > 0) {
+            LOG.warn("Timeout Task errored out " + numAdd + " entries from a total of " + totalAdd);
+            LOG.warn("Timeout Task errored out " + numRead + " entries from a total of " + totalRead);
+        }
+    }
+
+    public PerChannelBookieClient(OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
+                                  InetSocketAddress addr, AtomicLong totalBytesOutstanding, ScheduledExecutorService timeoutExecutor) {
+        this(new ClientConfiguration(), executor, channelFactory, addr, totalBytesOutstanding, timeoutExecutor);
+    }
+
     public PerChannelBookieClient(OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
                                   InetSocketAddress addr, AtomicLong totalBytesOutstanding) {
-        this(new ClientConfiguration(), executor, channelFactory, addr, totalBytesOutstanding);
+        this(new ClientConfiguration(), executor, channelFactory, addr, totalBytesOutstanding, null);
     }
 
     public PerChannelBookieClient(ClientConfiguration conf, OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
-                                  InetSocketAddress addr, AtomicLong totalBytesOutstanding) {
+                                  InetSocketAddress addr, AtomicLong totalBytesOutstanding, ScheduledExecutorService timeoutExecutor) {
         this.conf = conf;
         this.addr = addr;
         this.executor = executor;
@@ -117,6 +171,12 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         this.state = ConnectionState.DISCONNECTED;
         this.readTimeoutTimer = null;
         this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(addr);
+        this.timeoutExecutor = timeoutExecutor;
+        // Schedule the timeout task
+        if (null != this.timeoutExecutor) {
+            this.timeoutExecutor.scheduleWithFixedDelay(new TimeoutTask(), conf.getTimeoutTaskIntervalMillis(),
+                    conf.getTimeoutTaskIntervalMillis(), TimeUnit.MILLISECONDS);
+        }
     }
 
     private void connect() {
@@ -471,16 +531,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             return;
         }
         if (t instanceof ReadTimeoutException) {
-            for (CompletionKey key : addCompletions.keySet()) {
-                if (key.shouldTimeout()) {
-                    errorOutAddKey(key);
-                }
-            }
-            for (CompletionKey key : readCompletions.keySet()) {
-                if (key.shouldTimeout()) {
-                    errorOutReadKey(key);
-                }
-            }
+            errorOutTimedOutEntries();
             return;
         }
 

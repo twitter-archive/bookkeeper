@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.BKException;
@@ -56,7 +57,7 @@ public class BookieClient {
     OrderedSafeExecutor executor;
     ClientSocketChannelFactory channelFactory;
     ConcurrentHashMap<InetSocketAddress, PerChannelBookieClient> channels = new ConcurrentHashMap<InetSocketAddress, PerChannelBookieClient>();
-
+    ScheduledExecutorService timeoutExecutor = Executors.newSingleThreadScheduledExecutor();
     private final ClientConfiguration conf;
 
     public BookieClient(ClientConfiguration conf, ClientSocketChannelFactory channelFactory, OrderedSafeExecutor executor) {
@@ -69,7 +70,8 @@ public class BookieClient {
         PerChannelBookieClient channel = channels.get(addr);
 
         if (channel == null) {
-            channel = new PerChannelBookieClient(conf, executor, channelFactory, addr, totalBytesOutstanding);
+            channel = new PerChannelBookieClient(conf, executor, channelFactory, addr, totalBytesOutstanding,
+                    timeoutExecutor);
             PerChannelBookieClient prevChannel = channels.putIfAbsent(addr, channel);
             if (prevChannel != null) {
                 channel = prevChannel;
@@ -158,6 +160,8 @@ public class BookieClient {
         for (PerChannelBookieClient channel: channels.values()) {
             channel.close();
         }
+        // Shut down the timeout executor.
+        this.timeoutExecutor.shutdownNow();
     }
 
     private static class Counter {

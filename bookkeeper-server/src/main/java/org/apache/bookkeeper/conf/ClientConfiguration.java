@@ -18,6 +18,7 @@
 package org.apache.bookkeeper.conf;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 
@@ -50,6 +51,8 @@ public class ClientConfiguration extends AbstractConfiguration {
     // NIO Parameters
     protected final static String CLIENT_TCP_NODELAY = "clientTcpNoDelay";
     protected final static String READ_TIMEOUT = "readTimeout";
+
+    protected final static String TIMEOUT_TASK_INTERVAL_MILLIS = "timeoutTaskIntervalMillis";
 
     // Number Woker Threads
     protected final static String NUM_WORKER_THREADS = "numWorkerThreads";
@@ -278,6 +281,21 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setReadTimeout(int timeout) {
         setProperty(READ_TIMEOUT, Integer.toString(timeout));
+        return this;
+    }
+
+    /**
+     * Get the interval between successive executions of the PerChannelBookieClient's
+     * TimeoutTask. This value is in milliseconds. Every X milliseconds, the timeout task
+     * will be executed and it will error out entries that have timed out.
+     * @return
+     */
+    public long getTimeoutTaskIntervalMillis() {
+        return getLong(TIMEOUT_TASK_INTERVAL_MILLIS, TimeUnit.SECONDS.toMillis(getReadTimeout()) + 10);
+    }
+
+    public ClientConfiguration setTimeoutTaskIntervalMillis(long timeoutMillis) {
+        setProperty(TIMEOUT_TASK_INTERVAL_MILLIS, Long.toString(timeoutMillis));
         return this;
     }
 
