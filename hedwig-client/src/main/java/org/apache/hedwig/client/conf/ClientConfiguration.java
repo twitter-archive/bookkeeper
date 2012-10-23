@@ -38,6 +38,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected static final String MESSAGE_CONSUME_RETRY_WAIT_TIME = "message_consume_retry_wait_time";
     protected static final String SUBSCRIBE_RECONNECT_RETRY_WAIT_TIME = "subscribe_reconnect_retry_wait_time";
     protected static final String MAX_OUTSTANDING_MESSAGES = "max_outstanding_messages";
+    protected static final String RECEIVE_RESTART_PERCENTAGE = "receive_restart_percentage";
     protected static final String SERVER_ACK_RESPONSE_TIMEOUT = "server_ack_response_timeout";
     protected static final String TIMEOUT_THREAD_RUN_INTERVAL = "timeout_thread_run_interval";
     protected static final String SSL_ENABLED = "ssl_enabled";
@@ -117,6 +118,14 @@ public class ClientConfiguration extends AbstractConfiguration {
     // we throttle things and stop reading from the Netty Channel.
     public int getMaximumOutstandingMessages() {
         return conf.getInt(MAX_OUTSTANDING_MESSAGES, 10);
+    }
+
+    // If we've throttled delivery of messages on the subscriber channel, restart
+    // them if the number of outstanding messages falls below this threshold percentage
+    // of the max_oustanding_messages value.
+
+    public double getReceiveRestartPercentage() {
+        return conf.getDouble(RECEIVE_RESTART_PERCENTAGE, 70.0);
     }
 
     // This parameter is used to determine how long we wait (in milliseconds)

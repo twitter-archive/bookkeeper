@@ -20,6 +20,7 @@ package org.apache.hedwig.client.netty;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.apache.hedwig.protocol.PubSubProtocol;
@@ -62,7 +63,7 @@ public class HedwigPublisher implements Publisher {
 
     private final HedwigClientImpl client;
     private final ClientConfiguration cfg;
-    private boolean closed = false;
+    private AtomicBoolean closed = new AtomicBoolean(false);
 
     protected HedwigPublisher(HedwigClientImpl client) {
         this.client = client;
@@ -223,12 +224,16 @@ public class HedwigPublisher implements Publisher {
         future.addListener(new WriteCallback(pubSubData, client));
     }
 
-    // Synchronized method to store the host2Channel mapping (if it doesn't
+    // A method to store the host2Channel mapping (if it doesn't
     // exist yet). Retrieve the hostname info from the Channel created via the
     // RemoteAddress tied to it.
-    protected synchronized void storeHost2ChannelMapping(Channel channel) {
+    protected void storeHost2ChannelMapping(Channel channel) {
+        if (null == channel) {
+            return;
+        }
+
         InetSocketAddress host = HedwigClientImpl.getHostFromChannel(channel);
-        if (!closed && host2Channel.putIfAbsent(host, channel) == null) {
+        if (!closed.get() && host2Channel.putIfAbsent(host, channel) == null) {
             if (logger.isDebugEnabled())
                 logger.debug("Stored a new Channel mapping for host: " + host);
         } else {
@@ -266,9 +271,7 @@ public class HedwigPublisher implements Publisher {
     }
 
     void close() {
-        synchronized(this) {
-            closed = true;
-        }
+        closed.set(true);
         for (Channel channel : host2Channel.values()) {
             try {
                 client.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();

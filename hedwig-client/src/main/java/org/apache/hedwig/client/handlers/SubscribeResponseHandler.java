@@ -19,10 +19,10 @@ package org.apache.hedwig.client.handlers;
 
 import java.util.Collections;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.LinkedList;
-import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,33 +57,45 @@ public class SubscribeResponseHandler {
     // down. For that, we need to store the original PubSubData for the
     // subscribe request, and also the MessageHandler that was registered when
     // delivery of messages started for the subscription.
-    private PubSubData origSubData;
-    private Channel subscribeChannel;
-    private MessageHandler messageHandler;
+    private volatile PubSubData origSubData;
+    private volatile Channel subscribeChannel;
     // Counter for the number of consumed messages so far to buffer up before we
     // send the Consume message back to the server along with the last/largest
     // message seq ID seen so far in that batch.
-    private int numConsumedMessagesInBuffer = 0;
+    private AtomicInteger numConsumedMessagesInBuffer = new AtomicInteger(0);
     private MessageSeqId lastMessageSeqId;
-    // Queue used for subscribes when the MessageHandler hasn't been registered
-    // yet but we've already received subscription messages from the server.
-    // This will be lazily created as needed.
-    private Queue<Message> subscribeMsgQueue;
+
+    // The Message delivery handler that is used to deliver messages without locking.
+    final private MessageDeliveryHandler deliveryHandler = new MessageDeliveryHandler();
+
     // Set to store all of the outstanding subscribed messages that are pending
     // to be consumed by the client app's MessageHandler. If this ever grows too
     // big (e.g. problem at the client end for message consumption), we can
     // throttle things by temporarily setting the Subscribe Netty Channel
     // to not be readable. When the Set has shrunk sufficiently, we can turn the
     // channel back on to read new messages.
-    private Set<Message> outstandingMsgSet;
+    final private Set<Message> outstandingMsgSet;
 
     public SubscribeResponseHandler(ResponseHandler responseHandler) {
         this.responseHandler = responseHandler;
+        // Create the Set (from a concurrent hashmap) to keep track
+        // of outstanding Messages to be consumed by the client app. At this
+        // stage, delivery for that topic hasn't started yet so creation of
+        // this Set should be thread safe. We'll create the Set with an initial
+        // capacity equal to the configured parameter for the maximum number of
+        // outstanding messages to allow. The load factor will be set to
+        // 1.0f which means we'll only rehash and allocate more space if
+        // we ever exceed the initial capacity. That should be okay
+        // because when that happens, things are slow already and piling
+        // up on the client app side to consume messages.
+        outstandingMsgSet = Collections.newSetFromMap(
+                new ConcurrentHashMap<Message,Boolean>(
+                        responseHandler.getConfiguration().getMaximumOutstandingMessages(), 1.0f));
     }
 
     // Public getter to retrieve the original PubSubData used for the Subscribe
     // request.
-    synchronized public PubSubData getOrigSubData() {
+    public PubSubData getOrigSubData() {
         return origSubData;
     }
 
@@ -105,9 +117,9 @@ public class SubscribeResponseHandler {
             channel.close();
         }
 
-        if (logger.isDebugEnabled())
-            logger.debug("Handling a Subscribe response: " + response + ", pubSubData: " + pubSubData + ", host: "
+        logger.info("Handling a Subscribe response: " + response + ", pubSubData: " + pubSubData + ", host: "
                          + HedwigClientImpl.getHostFromChannel(channel));
+
         switch (response.getStatusCode()) {
         case SUCCESS:
             synchronized(this) {
@@ -120,6 +132,7 @@ public class SubscribeResponseHandler {
                 // Store the original PubSubData used to create this successful
                 // Subscribe request.
                 origSubData = pubSubData;
+                deliveryHandler.setOrigSubData(pubSubData);
 
                 SubscriptionPreferences preferences = null;
                 if (response.hasResponseBody()) {
@@ -128,34 +141,18 @@ public class SubscribeResponseHandler {
                         SubscribeResponse resp = respBody.getSubscribeResponse();
                         if (resp.hasPreferences()) {
                             preferences = resp.getPreferences();
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Receive subscription preferences for (topic:" + pubSubData.topic.toStringUtf8()
-                                           + ", subscriber:" + pubSubData.subscriberId.toStringUtf8() + ") :"
-                                           + SubscriptionStateUtils.toString(preferences));
-                            }
+                            logger.info("Receive subscription preferences for (topic:" + pubSubData.topic.toStringUtf8()
+                                    + ", subscriber:" + pubSubData.subscriberId.toStringUtf8() + ") :"
+                                    + SubscriptionStateUtils.toString(preferences));
                         }
                     }
                 }
-
                 // Store the mapping for the TopicSubscriber to the Channel.
                 // This is so we can control the starting and stopping of
                 // message deliveries from the server on that Channel. Store
                 // this only on a successful ack response from the server.
                 TopicSubscriber topicSubscriber = new TopicSubscriber(pubSubData.topic, pubSubData.subscriberId);
                 responseHandler.getSubscriber().setChannelAndPreferencesForTopic(topicSubscriber, channel, preferences);
-                // Lazily create the Set (from a concurrent hashmap) to keep track
-                // of outstanding Messages to be consumed by the client app. At this
-                // stage, delivery for that topic hasn't started yet so creation of
-                // this Set should be thread safe. We'll create the Set with an initial
-                // capacity equal to the configured parameter for the maximum number of
-                // outstanding messages to allow. The load factor will be set to
-                // 1.0f which means we'll only rehash and allocate more space if
-                // we ever exceed the initial capacity. That should be okay
-                // because when that happens, things are slow already and piling
-                // up on the client app side to consume messages.
-                outstandingMsgSet = Collections.newSetFromMap(
-                        new ConcurrentHashMap<Message,Boolean>(
-                                responseHandler.getConfiguration().getMaximumOutstandingMessages(), 1.0f));
             }
             // Response was success so invoke the callback's operationFinished
             // method.
@@ -200,38 +197,14 @@ public class SubscribeResponseHandler {
                     new Object[] { response, getOrigSubData().topic.toStringUtf8(),
                                    getOrigSubData().subscriberId.toStringUtf8() });
         }
-        Message message = response.getMessage();
-
-        synchronized (this) {
-            // Consume the message asynchronously that the client is subscribed
-            // to. Do this only if delivery for the subscription has started and
-            // a MessageHandler has been registered for the TopicSubscriber.
-            if (messageHandler != null) {
-                asyncMessageConsume(message);
-            } else {
-                // MessageHandler has not yet been registered so queue up these
-                // messages for the Topic Subscription. Make the initial lazy
-                // creation of the message queue thread safe just so we don't
-                // run into a race condition where two simultaneous threads process
-                // a received message and both try to create a new instance of
-                // the message queue. Performance overhead should be okay
-                // because the delivery of the topic has not even started yet
-                // so these messages are not consumed and just buffered up here.
-                if (subscribeMsgQueue == null)
-                    subscribeMsgQueue = new LinkedList<Message>();
-                if (logger.isDebugEnabled())
-                    logger
-                    .debug("Message has arrived but Subscribe channel does not have a registered MessageHandler yet so queueing up the message: "
-                           + message);
-                subscribeMsgQueue.add(message);
-            }
-        }
+        // Simply call asyncMessageConsume on this message. asyncMessageConsume will take care of queuing the message
+        // if no message handler is available.
+        asyncMessageConsume(response.getMessage());
     }
 
     /**
      * Method called when a message arrives for a subscribe Channel and we want
-     * to consume it asynchronously via the registered MessageHandler (should
-     * not be null when called here).
+     * to consume it asynchronously via the registered MessageDeliveryHandler
      *
      * @param message
      *            Message from Subscribe Channel we want to consume.
@@ -248,15 +221,25 @@ public class SubscribeResponseHandler {
                 && subscribeChannel.isReadable()) {
             // Too many outstanding messages so throttle it by setting the Netty
             // Channel to not be readable.
-            if (logger.isDebugEnabled())
-                logger.debug("Too many outstanding messages (" + outstandingMsgSet.size()
-                             + ") so throttling the subscribe netty Channel");
+            logger.warn("Too many outstanding messages (" + outstandingMsgSet.size()
+                         + ") for topic:" + origSubData.topic.toStringUtf8() + " and subscriber:" + origSubData.subscriberId.toStringUtf8()
+                         + " so throttling the subscribe netty Channel");
             subscribeChannel.setReadable(false);
         }
+        // The message set in the MessageConsumeData class below is used by the MessageDeliveryHandler to
+        // invoke deliver.
         MessageConsumeData messageConsumeData = new MessageConsumeData(origSubData.topic, origSubData.subscriberId,
-                message);
-        messageHandler.deliver(origSubData.topic, origSubData.subscriberId, message, responseHandler.getClient()
-                .getConsumeCallback(), messageConsumeData);
+                message, responseHandler.getClient().getConsumeCallback());
+        try {
+            deliveryHandler.offerAndOptionallyDeliver(messageConsumeData);
+        } catch (MessageDeliveryHandler.MessageDeliveryException e) {
+            logger.error("Caught exception while trying to deliver messages to the message handler." + e);
+            // We close the channel so that this subscription is closed and retried later resulting in a new response handler.
+            // We want the state to be cleared so we don't close the channel explicitly.
+            if (null != subscribeChannel) {
+                subscribeChannel.close();
+            }
+        }
     }
 
     /**
@@ -266,63 +249,53 @@ public class SubscribeResponseHandler {
      * consumed will have the callback response done in the same order. So if we
      * asynchronously call the MessageHandler to consume messages #1-5, that
      * should call the messageConsumed method here via the VoidCallback in the
-     * same order. To make this thread safe, since multiple outstanding messages
-     * could be consumed by the client app and then called back to here, make
-     * this method synchronized.
+     * same order. As the contract with the client app states that this message will be
+     * called in the same order, there is no need to synchronize on this.
      *
      * @param message
      *            Message sent from server for topic subscription that has been
      *            consumed by the client.
      */
-    protected synchronized void messageConsumed(Message message) {
+    protected void messageConsumed(Message message) {
         if (logger.isDebugEnabled())
             logger.debug("Message has been successfully consumed by the client app for message: " + message
                          + ", topic: " + origSubData.topic.toStringUtf8() + ", subscriberId: "
                          + origSubData.subscriberId.toStringUtf8());
-        // Update the consumed messages buffer variables
-        if (responseHandler.getConfiguration().isAutoSendConsumeMessageEnabled()) {
-            // Update these variables only if we are auto-sending consume
-            // messages to the server. Otherwise the onus is on the client app
-            // to call the Subscriber consume API to let the server know which
-            // messages it has successfully consumed.
-            numConsumedMessagesInBuffer++;
-            lastMessageSeqId = message.getMsgId();
-        }
+
+        ClientConfiguration cfg = responseHandler.getConfiguration();
+
         // Remove this consumed message from the outstanding Message Set.
         outstandingMsgSet.remove(message);
 
-        // For consume response to server, there is a config param on how many
-        // messages to consume and buffer up before sending the consume request.
-        // We just need to keep a count of the number of messages consumed
-        // and the largest/latest msg ID seen so far in this batch. Messages
-        // should be delivered in order and without gaps. Do this only if
-        // auto-sending of consume messages is enabled.
-        if (responseHandler.getConfiguration().isAutoSendConsumeMessageEnabled()
-                && numConsumedMessagesInBuffer >= responseHandler.getConfiguration().getConsumedMessagesBufferSize()) {
-            // Send the consume request and reset the consumed messages buffer
-            // variables. We will use the same Channel created from the
-            // subscribe request for the TopicSubscriber.
-            if (logger.isDebugEnabled())
-                logger
-                .debug("Consumed message buffer limit reached so send the Consume Request to the server with lastMessageSeqId: "
-                       + lastMessageSeqId);
-            responseHandler.getSubscriber().doConsume(origSubData, subscribeChannel, lastMessageSeqId);
-            numConsumedMessagesInBuffer = 0;
-            lastMessageSeqId = null;
+        // If we had throttled delivery and the outstanding message number is below the configured threshold,
+        // set the channel to readable.
+        if (!subscribeChannel.isReadable() && outstandingMsgSet.size() <= cfg.getConsumedMessagesBufferSize()
+                * cfg.getReceiveRestartPercentage() / 100.0) {
+            logger.info("Message consumption has caught up so okay to turn off throttling of messages on the subscribe channel for topic:"
+                   + origSubData.topic.toStringUtf8()
+                   + ", subscriber:"
+                   + origSubData.subscriberId.toStringUtf8());
+            subscribeChannel.setReadable(true);
         }
 
-        // Check if we throttled message consumption previously when the
-        // outstanding message limit was reached. For now, only turn the
-        // delivery back on if there are no more outstanding messages to
-        // consume. We could make this a configurable parameter if needed.
-        if (!subscribeChannel.isReadable() && outstandingMsgSet.isEmpty()) {
-            if (logger.isDebugEnabled())
-                logger
-                .debug("Message consumption has caught up so okay to turn off throttling of messages on the subscribe channel for topic: "
-                       + origSubData.topic.toStringUtf8()
-                       + ", subscriberId: "
-                       + origSubData.subscriberId.toStringUtf8());
-            subscribeChannel.setReadable(true);
+        // Update these variables only if we are auto-sending consume
+        // messages to the server. Otherwise the onus is on the client app
+        // to call the Subscriber consume API to let the server know which
+        // messages it has successfully consumed.
+        if (cfg.isAutoSendConsumeMessageEnabled()) {
+            lastMessageSeqId = message.getMsgId();
+            // We just need to keep a count of the number of messages consumed
+            // and the largest/latest msg ID seen so far in this batch. Messages
+            // should be delivered in order and without gaps.
+            if (numConsumedMessagesInBuffer.incrementAndGet() == cfg.getConsumedMessagesBufferSize()) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Sending consume message to hedwig server for topic:" + origSubData.topic.toStringUtf8()
+                    + ", subscriber:" + origSubData.subscriberId.toStringUtf8() + " with message sequence id:"
+                    + lastMessageSeqId);
+                }
+                responseHandler.getSubscriber().doConsume(origSubData, subscribeChannel, lastMessageSeqId);
+                numConsumedMessagesInBuffer.addAndGet(-(cfg.getConsumedMessagesBufferSize()));
+            }
         }
     }
 
@@ -335,29 +308,15 @@ public class SubscribeResponseHandler {
      *            MessageHandler to register for this ResponseHandler instance.
      */
     public void setMessageHandler(MessageHandler messageHandler) {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Setting the messageHandler for topic: {}, subscriberId: {}",
-                         getOrigSubData().topic.toStringUtf8(),
-                         getOrigSubData().subscriberId.toStringUtf8());
-        }
-        synchronized (this) {
-            this.messageHandler = messageHandler;
-            // Once the MessageHandler is registered, see if we have any queued up
-            // subscription messages sent to us already from the server. If so,
-            // consume those first. Do this only if the MessageHandler registered is
-            // not null (since that would be the HedwigSubscriber.stopDelivery
-            // call).
-            if (messageHandler != null && subscribeMsgQueue != null && subscribeMsgQueue.size() > 0) {
-                if (logger.isDebugEnabled())
-                    logger.debug("Consuming " + subscribeMsgQueue.size() + " queued up messages for topic: "
-                                 + origSubData.topic.toStringUtf8() + ", subscriberId: "
-                                 + origSubData.subscriberId.toStringUtf8());
-                for (Message message : subscribeMsgQueue) {
-                    asyncMessageConsume(message);
-                }
-                // Now we can remove the queued up messages since they are all
-                // consumed.
-                subscribeMsgQueue.clear();
+        logger.info("Setting the messageHandler for topic: {}, subscriberId: {}",
+                getOrigSubData().topic.toStringUtf8(),
+                getOrigSubData().subscriberId.toStringUtf8());
+        try {
+            deliveryHandler.setMessageHandlerOptionallyDeliver(messageHandler);
+        } catch (MessageDeliveryHandler.MessageDeliveryException e) {
+            logger.error("Error while setting message handler and delivering outstanding messages." + e);
+            if (null != subscribeChannel) {
+                subscribeChannel.close();
             }
         }
     }
@@ -368,6 +327,6 @@ public class SubscribeResponseHandler {
      * @return The MessageHandler for consuming messages
      */
     public MessageHandler getMessageHandler() {
-        return messageHandler;
+        return deliveryHandler.getMessageHandler();
     }
 }

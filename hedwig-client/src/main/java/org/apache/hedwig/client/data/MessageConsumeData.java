@@ -18,6 +18,7 @@
 package org.apache.hedwig.client.data;
 
 import com.google.protobuf.ByteString;
+import org.apache.hedwig.client.handlers.MessageConsumeCallback;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 
 /**
@@ -28,6 +29,8 @@ import org.apache.hedwig.protocol.PubSubProtocol.Message;
  * message.
  *
  */
+
+//TODO(Aniruddha): Name this to something more meaningful?
 public class MessageConsumeData {
 
     // Member variables
@@ -36,12 +39,16 @@ public class MessageConsumeData {
     // This is the Message sent from the server for Subscribes for consumption
     // by the client.
     public final Message msg;
+    // The callback to be executed when this message is delivered.
+    public final MessageConsumeCallback cb;
 
     // Constructor
-    public MessageConsumeData(final ByteString topic, final ByteString subscriberId, final Message msg) {
+    public MessageConsumeData(final ByteString topic, final ByteString subscriberId, final Message msg,
+                              MessageConsumeCallback cb) {
         this.topic = topic;
         this.subscriberId = subscriberId;
         this.msg = msg;
+        this.cb = cb;
     }
 
     @Override
