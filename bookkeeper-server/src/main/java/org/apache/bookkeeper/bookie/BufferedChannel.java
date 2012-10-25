@@ -30,45 +30,40 @@ import java.nio.channels.FileChannel;
  */
 
 /**
- * TODO: Create a BufferedReadOnlyChannel if we plan on using buffered channels.
+ * TODO: Rename this to a BufferedReadWriteChannel?
  */
-public class BufferedChannel
-{
-    ByteBuffer writeBuffer;
-    ByteBuffer readBuffer;
-    private FileChannel bc;
-    volatile long position;
-    volatile int capacity;
-    volatile long readBufferStartPosition;
-    volatile long writeBufferStartPosition;
+public class BufferedChannel extends BufferedReadChannel {
+    // The capacity of the write buffer.
+    protected final int writeCapacity;
+    // The position of the file channel's write pointer.
+    protected volatile long writeBufferStartPosition;
+    // The buffer used to write operations.
+    protected final ByteBuffer writeBuffer;
+    // The absolute position of the next write operation.
+    protected volatile long position;
+
     // make constructor to be public for unit test
-    public BufferedChannel(FileChannel bc, int capacity) throws IOException {
-        this.bc = bc;
-        this.capacity = capacity;
-        position = bc.position();
-        writeBufferStartPosition = position;
+    public BufferedChannel(FileChannel fc, int capacity) throws IOException {
+        // Use the same capacity for read and write buffers.
+        super(fc, capacity);
+        // Set the read buffer's limit to capacity.
+        this.readBuffer.limit(capacity);
+        this.writeCapacity = capacity;
+        this.position = fc.position();
+        this.writeBufferStartPosition = position;
+        this.writeBuffer = ByteBuffer.allocateDirect(writeCapacity);
     }
 
     /**
-     * @return file channel
+     * Write all the data in src to the {@link FileChannel}. Note that this function can
+     * buffer or re-order writes based on the implementation. These writes will be flushed
+     * to the disk only when flush() is invoked.
+     * @param src The source ByteBuffer which contains the data to be written.
+     * @return The total number of bytes written.
+     * @throws IOException if a write operation fails.
      */
-    FileChannel getFileChannel() {
-        return this.bc;
-    }
-
-    /*    public void close() throws IOException {
-            bc.close();
-        }
-    */
-//    public boolean isOpen() {
-//        return bc.isOpen();
-//    }
-
     synchronized public int write(ByteBuffer src) throws IOException {
         int copied = 0;
-        if (writeBuffer == null) {
-            writeBuffer = ByteBuffer.allocateDirect(capacity);
-        }
         while(src.remaining() > 0) {
             int truncated = 0;
             if (writeBuffer.remaining() < src.remaining()) {
@@ -80,61 +75,59 @@ public class BufferedChannel
             src.limit(src.limit()+truncated);
             if (writeBuffer.remaining() == 0) {
                 writeBuffer.flip();
-                bc.write(writeBuffer);
+                fileChannel.write(writeBuffer);
                 writeBuffer.clear();
-                writeBufferStartPosition = bc.position();
+                writeBufferStartPosition = fileChannel.position();
             }
         }
         position += copied;
         return copied;
     }
 
+    /**
+     * Get the position where the next write operation will begin writing from.
+     * @return
+     */
     public long position() {
         return position;
     }
 
     /**
-     * Retrieve the current size of the underlying FileChannel
-     *
-     * @return FileChannel size measured in bytes
-     *
-     * @throws IOException if some I/O error occurs reading the FileChannel
+     * Get the position of the file channel's write pointer.
+     * @return
      */
-    public long size() throws IOException {
-        return bc.size();
+    public long getFileChannelPosition() {
+        return writeBufferStartPosition;
     }
 
+    /**
+     * Write any data in the buffer to the file. If sync is set to true, force a sync operation so that
+     * data is persisted to the disk.
+     * @param sync
+     * @throws IOException if the write or sync operation fails.
+     */
     public void flush(boolean sync) throws IOException {
         synchronized(this) {
-            if (writeBuffer == null) {
-                return;
-            }
             writeBuffer.flip();
-            bc.write(writeBuffer);
+            fileChannel.write(writeBuffer);
             writeBuffer.clear();
-            writeBufferStartPosition = bc.position();
+            writeBufferStartPosition = fileChannel.position();
         }
         if (sync) {
-            bc.force(false);
+            fileChannel.force(false);
         }
     }
 
-    /*public Channel getInternalChannel() {
-        return bc;
-    }*/
-    synchronized public int read(ByteBuffer buff, long pos) throws IOException {
-        if (readBuffer == null) {
-            readBuffer = ByteBuffer.allocateDirect(capacity);
-            readBufferStartPosition = Long.MIN_VALUE;
-        }
+    @Override
+    synchronized public int read(ByteBuffer dest, long pos) throws IOException {
         long prevPos = pos;
-        while(buff.remaining() > 0) {
+        while(dest.remaining() > 0) {
             // check if it is in the write buffer
             if (writeBuffer != null && writeBufferStartPosition <= pos) {
                 long positionInBuffer = pos - writeBufferStartPosition;
                 long bytesToCopy = writeBuffer.position()-positionInBuffer;
-                if (bytesToCopy > buff.remaining()) {
-                    bytesToCopy = buff.remaining();
+                if (bytesToCopy > dest.remaining()) {
+                    bytesToCopy = dest.remaining();
                 }
                 if (bytesToCopy == 0) {
                     throw new IOException("Read past EOF");
@@ -142,7 +135,7 @@ public class BufferedChannel
                 ByteBuffer src = writeBuffer.duplicate();
                 src.position((int) positionInBuffer);
                 src.limit((int) (positionInBuffer+bytesToCopy));
-                buff.put(src);
+                dest.put(src);
                 pos+= bytesToCopy;
             } else if (writeBuffer == null && writeBufferStartPosition <= pos) {
                 // here we reach the end
@@ -151,13 +144,13 @@ public class BufferedChannel
             } else if (readBufferStartPosition <= pos && pos < readBufferStartPosition+readBuffer.capacity()) {
                 long positionInBuffer = pos - readBufferStartPosition;
                 long bytesToCopy = readBuffer.capacity()-positionInBuffer;
-                if (bytesToCopy > buff.remaining()) {
-                    bytesToCopy = buff.remaining();
+                if (bytesToCopy > dest.remaining()) {
+                    bytesToCopy = dest.remaining();
                 }
                 ByteBuffer src = readBuffer.duplicate();
                 src.position((int) positionInBuffer);
                 src.limit((int) (positionInBuffer+bytesToCopy));
-                buff.put(src);
+                dest.put(src);
                 pos += bytesToCopy;
                 // let's read it
             } else {
@@ -171,7 +164,7 @@ public class BufferedChannel
                     }
                 }
                 while(readBuffer.remaining() > 0) {
-                    if (bc.read(readBuffer, readBufferStartPosition+readBuffer.position()) <= 0) {
+                    if (fileChannel.read(readBuffer, readBufferStartPosition+readBuffer.position()) <= 0) {
                         throw new IOException("Short read");
                     }
                 }
@@ -180,5 +173,11 @@ public class BufferedChannel
             }
         }
         return (int)(pos - prevPos);
+    }
+
+    @Override
+    synchronized public void clear() {
+        super.clear();
+        writeBuffer.clear();
     }
 }

@@ -21,7 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
-import java.io.IOError;
+import org.apache.bookkeeper.bookie.BufferedChannelBase;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -34,55 +35,46 @@ import org.slf4j.LoggerFactory;
 /**
  * A Buffered channel without a write buffer. Only reads are buffered.
  */
-public class BufferedReadChannel {
-    private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
+public class BufferedReadChannel extends BufferedChannelBase {
+    private static Logger LOG = LoggerFactory.getLogger(BufferedReadChannel.class);
+    // The capacity of the read buffer.
+    protected final int readCapacity;
+    // The buffer for read operations.
+    protected ByteBuffer readBuffer;
+    // The starting position of the data currently in the read buffer.
+    protected long readBufferStartPosition = Long.MIN_VALUE;
 
-    final FileChannel fileChannel;
-    final int capacity;
-    ByteBuffer readBuffer;
-    // The start position of the data currently in the read buffer.
-    long readBufferStartPosition = Long.MIN_VALUE;
     long invocationCount = 0;
     long cacheHitCount = 0;
 
-    public BufferedReadChannel(FileChannel fileChannel, int capacity) throws IOException {
-        this.fileChannel = fileChannel;
-        this.capacity = capacity;
-        this.readBuffer = ByteBuffer.allocateDirect(capacity);
+    public BufferedReadChannel(FileChannel fileChannel, int readCapacity) throws IOException {
+        super(fileChannel);
+        this.readCapacity = readCapacity;
+        this.readBuffer = ByteBuffer.allocateDirect(readCapacity);
         this.readBuffer.limit(0);
     }
 
-    public FileChannel getFileChannel() {
-        return this.fileChannel;
-    }
-
-    private FileChannel validateAndGetFileChannel() throws IOException {
-        // Even if we have BufferedReadChannel objects in the cache, higher layers should
-        // guarantee that once a log file has been closed and possibly deleted during garbage
-        // collection, attempts will not be made to read from it
-        if (!fileChannel.isOpen()) {
-            throw new IOException("Attempting to access a file channel that has already been closed");
-        }
-
-        return fileChannel;
-    }
-
-    public long size() throws IOException {
-        return validateAndGetFileChannel().size();
-    }
-
-    synchronized public int read(ByteBuffer buff, long pos) throws IOException {
+    /**
+     * Read as many bytes into dest as dest.capacity() starting at position pos in the
+     * FileChannel. This function can read from the buffer or the file channel
+     * depending on the implementation.
+     * @param dest
+     * @param pos
+     * @return The total number of bytes read.
+     * @throws IOException if a read operation fails or in case of a short read.
+     */
+    synchronized public int read(ByteBuffer dest, long pos) throws IOException {
         invocationCount++;
         long currentPosition = pos;
-        while (buff.remaining() > 0) {
+        while (dest.remaining() > 0) {
             // Check if the data is in the buffer, if so, copy it.
             if (readBufferStartPosition <= currentPosition && currentPosition < readBufferStartPosition + readBuffer.limit()) {
                 long posInBuffer = currentPosition - readBufferStartPosition;
-                long bytesToCopy = Math.min(buff.remaining(), readBuffer.limit() - posInBuffer);
+                long bytesToCopy = Math.min(dest.remaining(), readBuffer.limit() - posInBuffer);
                 ByteBuffer rbDup = readBuffer.duplicate();
                 rbDup.position((int)posInBuffer);
                 rbDup.limit((int)(posInBuffer + bytesToCopy));
-                buff.put(rbDup);
+                dest.put(rbDup);
                 currentPosition += bytesToCopy;
                 cacheHitCount++;
             } else {

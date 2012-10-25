@@ -151,7 +151,7 @@ public class EntryLogger {
         if (entryLogId == logId) {
             if (null != logChannel) {
                 synchronized (logChannel) {
-                    if (pos + buff.remaining() >= logChannel.position() - 2*logChannel.capacity) {
+                    if (pos + buff.remaining() >= logChannel.getFileChannelPosition()) {
                         return logChannel.read(buff, pos);
                     }
                 }
