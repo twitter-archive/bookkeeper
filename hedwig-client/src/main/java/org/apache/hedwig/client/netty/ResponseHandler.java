@@ -66,7 +66,7 @@ public class ResponseHandler extends SimpleChannelHandler {
     // Boolean indicating if we closed the channel this ResponseHandler is
     // attached to explicitly or not. If so, we do not need to do the
     // channel disconnected logic here.
-    private boolean channelClosedExplicitly = false;
+    private volatile boolean channelClosedExplicitly = false;
 
     private final HedwigClientImpl client;
     private final HedwigPublisher pub;

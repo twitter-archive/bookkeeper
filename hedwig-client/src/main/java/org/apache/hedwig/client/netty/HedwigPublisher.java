@@ -227,7 +227,7 @@ public class HedwigPublisher implements Publisher {
     // A method to store the host2Channel mapping (if it doesn't
     // exist yet). Retrieve the hostname info from the Channel created via the
     // RemoteAddress tied to it.
-    protected void storeHost2ChannelMapping(Channel channel) {
+    synchronized protected void storeHost2ChannelMapping(Channel channel) {
         if (null == channel) {
             return;
         }
@@ -271,7 +271,9 @@ public class HedwigPublisher implements Publisher {
     }
 
     void close() {
-        closed.set(true);
+        synchronized (this) {
+            closed.set(true);
+        }
         for (Channel channel : host2Channel.values()) {
             try {
                 client.getResponseHandlerFromChannel(channel).handleChannelClosedExplicitly();
