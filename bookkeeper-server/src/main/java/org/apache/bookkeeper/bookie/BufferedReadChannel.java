@@ -25,6 +25,8 @@ import java.io.IOError;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.lang.Math;
+
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -102,7 +104,15 @@ public class BufferedReadChannel {
         readBuffer.limit(0);
     }
 
+    private boolean randomSample (int percent)
+    {
+        return (Math.random()*100 < percent);
+    }
+
     protected void finalize () {
-        LOG.info("Buffer Cache Hit Rate: #invocations:" + invocationCount + " #readCacheHits:" + cacheHitCount);
+        // To avoid too much logging lets do it only 10% of the times
+        if (randomSample(10)) {
+            LOG.info("Buffer Cache Hit Rate: #invocations:" + invocationCount + " #readCacheHits:" + cacheHitCount);
+        }
     }
 }
