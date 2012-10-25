@@ -146,8 +146,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             }
         }
         if (numAdd + numRead > 0) {
-            LOG.warn("Timeout Task errored out " + numAdd + " entries from a total of " + totalAdd);
-            LOG.warn("Timeout Task errored out " + numRead + " entries from a total of " + totalRead);
+            LOG.warn("Timeout Task errored out " + numAdd + " add entries from a total of " + totalAdd);
+            LOG.warn("Timeout Task errored out " + numRead + " read entries from a total of " + totalRead);
         }
     }
 

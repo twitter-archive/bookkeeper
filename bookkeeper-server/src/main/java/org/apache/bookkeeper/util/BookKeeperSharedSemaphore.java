@@ -52,27 +52,27 @@ public class BookKeeperSharedSemaphore {
     }
 
     public void acquire(BKSharedOp op) throws InterruptedException {
-        switch (op) {
+        /*switch (op) {
             case READ_OP:
                 // If this is a read operation, we can only acquire a read semaphore
-                readSem.acquire();
+                //readSem.acquire();
                 break;
             case ADD_OP:
                 // Check if we can acquire from addSem. If not, acquire from the read pool.
                 if (!addSem.tryAcquire()) {
-                    readSem.acquire();
+                    //readSem.acquire();
                     readPoolAdd.incrementAndGet();
                 }
                 break;
             default:
                 throw new RuntimeException("BookKeeperSharedSemaphore does not support operation:" + op.name());
-        }
+        }*/
     }
 
     public void release(BKSharedOp op) {
-        switch (op) {
+        /*switch (op) {
             case READ_OP:
-                readSem.release();
+                //readSem.release();
                 break;
             case ADD_OP:
                 // If we've acquired a read pool permit for an add operation, release it.
@@ -80,18 +80,18 @@ public class BookKeeperSharedSemaphore {
                 while ((readsTaken = readPoolAdd.get()) > 0) {
                     if (readPoolAdd.compareAndSet(readsTaken, readsTaken - 1)) {
                         // We had acquired a permit from the read pool and we're releasing it.
-                        readSem.release();
+                        //readSem.release();
                         break;
                     }
                 }
                 // readsTaken will be 0 if we haven't taken a read pool permit
                 if (readsTaken == 0) {
-                    addSem.release();
+                    //addSem.release();
                 }
                 break;
             default:
                 throw new RuntimeException("BookKeeperSharedSemaphore does not support operation:" + op.name());
-        }
+        }*/
     }
 
     public int availablePermits() {
