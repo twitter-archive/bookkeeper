@@ -233,12 +233,12 @@ public class RegionManager implements SubscriptionEventListener {
                     tm.setTopicSubscribedFromRegion(topic, sub.getHubHostName(), new Callback<Void>() {
                         @Override
                         public void operationFinished(Object ctx, Void result) {
+                            LOGGER.info("region: " + sub.getHubHostName() + "is now registered under topic: " + topic.toStringUtf8());
                             mcb.operationFinished(ctx, null);
                         }
                         @Override
                         public void operationFailed(Object ctx, PubSubException exception) {
-                            if (LOGGER.isDebugEnabled())
-                                LOGGER.error("region: " + sub.getHubHostName() + "could not be registered under topic: " + topic.toStringUtf8(), exception);
+                            LOGGER.error("region: " + sub.getHubHostName() + "could not be registered under topic: " + topic.toStringUtf8(), exception);
                             mcb.operationFinished(ctx, null);  // Ignore failure
                         }
                     }, ctx);

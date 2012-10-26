@@ -198,8 +198,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
             @Override
             public void safeProcessResult(int rc, String path, Object ctx, Stat stat) {
                 if (rc == Code.OK.intValue()) {
-                    if (logger.isDebugEnabled())
-                        logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
+                    logger.info("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
                     cb.operationFinished(ctx, null);
                 }
                 else {
@@ -230,8 +229,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                 // Remove bookkeeping of hub-subscription metadata version
                 regiontopic2version.remove(new RegionTopicPair(regionAddress, topic));
                 if (rc == Code.NONODE.intValue() || rc == Code.OK.intValue()) {
-                    if (logger.isDebugEnabled())
-                        logger.debug("region node: " + regionAddress + " has been removed from topic: " + topic.toStringUtf8());
+                    logger.info("region node: " + regionAddress + " has been removed from topic: " + topic.toStringUtf8());
                     cb.operationFinished(ctx, null);
                 }
                 else {
@@ -265,10 +263,10 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                         @Override
                         public void safeProcessResult(int rc, String path, Object ctx, Stat stat) {
                             if (rc == Code.OK.intValue()) {
-                              if (logger.isDebugEnabled())
-                                logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
-                              updateZkNodeVersion(regionAddress, topic, stat.getVersion());
-                              cb.operationFinished(ctx, null);
+                                if (logger.isDebugEnabled())
+                                    logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
+                                updateZkNodeVersion(regionAddress, topic, stat.getVersion());
+                                cb.operationFinished(ctx, null);
                             }
                             else {
                                 logger.warn("region node: " + regionAddress + " under topic: " + topic.toStringUtf8() + " update failure: " + rc);
