@@ -62,7 +62,7 @@ public class BufferedChannel extends BufferedReadChannel {
      * @return The total number of bytes written.
      * @throws IOException if a write operation fails.
      */
-    synchronized public int write(ByteBuffer src) throws IOException {
+    synchronized public void write(ByteBuffer src) throws IOException {
         int copied = 0;
         while(src.remaining() > 0) {
             int truncated = 0;
@@ -81,7 +81,6 @@ public class BufferedChannel extends BufferedReadChannel {
             }
         }
         position += copied;
-        return copied;
     }
 
     /**
@@ -100,22 +99,27 @@ public class BufferedChannel extends BufferedReadChannel {
         return writeBufferStartPosition;
     }
 
+
     /**
      * Write any data in the buffer to the file. If sync is set to true, force a sync operation so that
      * data is persisted to the disk.
      * @param sync
      * @throws IOException if the write or sync operation fails.
      */
-    public void flush(boolean sync) throws IOException {
+    public void flush(boolean shouldForceWrite) throws IOException {
         synchronized(this) {
             writeBuffer.flip();
             fileChannel.write(writeBuffer);
             writeBuffer.clear();
             writeBufferStartPosition = fileChannel.position();
         }
-        if (sync) {
-            fileChannel.force(false);
+        if (shouldForceWrite) {
+            forceWrite();
         }
+    }
+
+    public void forceWrite() throws IOException {
+        fileChannel.force(false);
     }
 
     @Override

@@ -31,6 +31,8 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -238,6 +240,109 @@ class Journal extends Thread {
         Object ctx;
     }
 
+    private class ForceWriteRequest {
+        private JournalChannel logFile;
+        private LinkedList<QueueEntry> forceWriteWaiters;
+        private boolean shouldClose;
+        private long lastFlushedPosition;
+        private long logId;
+
+        private ForceWriteRequest(JournalChannel logFile,
+                          long logId,
+                          long lastFlushedPosition,
+                          LinkedList<QueueEntry> forceWriteWaiters,
+                          boolean shouldClose) {
+            this.forceWriteWaiters = forceWriteWaiters;
+            this.logFile = logFile;
+            this.logId = logId;
+            this.lastFlushedPosition = lastFlushedPosition;
+            this.shouldClose = shouldClose;
+        }
+
+        public void process() throws IOException {
+            try {
+                this.logFile.getBufferedChannel().forceWrite();
+                lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
+                // Notify the waiters that the force write succeeded
+                for (QueueEntry e : this.forceWriteWaiters) {
+                    e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
+                }
+            }
+            finally {
+                closeFileIfNecessary();
+            }
+
+        }
+
+        public void closeFileIfNecessary() {
+            // Close if shouldClose is set
+            if (shouldClose) {
+                // We should guard against exceptions so its
+                // safe to call in catch blocks
+                try {
+                    logFile.close();
+                    // Call close only once
+                    shouldClose = false;
+                }
+                catch (IOException ioe) {
+                    LOG.error("I/O exception while closing file", ioe);
+                }
+            }
+        }
+    }
+
+    /**
+     * ForceWriteThread is a background thread which makes the journal durable periodically
+     *
+     */
+    private class ForceWriteThread extends Thread {
+        volatile boolean running = true;
+        // This holds the queue entries that should be notified after a
+        // successful force write
+        Thread threadToNotifyOnEx;
+        // make flush interval as a parameter
+        public ForceWriteThread(Thread threadToNotifyOnEx) {
+            super("ForceWriteThread");
+            this.threadToNotifyOnEx = threadToNotifyOnEx;
+        }
+        @Override
+        public void run() {
+            LOG.info("ForceWrite Thread started");
+            while(running) {
+                ForceWriteRequest req = null;
+                try {
+                    req = forceWriteRequests.take();
+                    if (null != req) {
+                        // Force write the file and then notify the write completions
+                        //
+                        req.process();
+                        req = null;
+                    }
+                } catch (IOException ioe) {
+                    LOG.error("I/O exception in ForceWrite thread", ioe);
+                    running = false;
+                } catch (InterruptedException e) {
+                    LOG.error("ForceWrite thread interrupted", e);
+                    // close is idempotent
+                    if (null != req) {
+                        req.closeFileIfNecessary();
+                    }
+                    running = false;
+                }
+            }
+            // Regardless of what caused us to exit, we should notify the
+            // the parent thread as it should either exit or be in the process
+            // of exiting else we will have write requests hang
+            threadToNotifyOnEx.interrupt();
+        }
+        // shutdown sync thread
+        void shutdown() throws InterruptedException {
+            running = false;
+            this.interrupt();
+            this.join();
+        }
+    }
+
     final static long MB = 1024 * 1024L;
     // max journal file size
     final long maxJournalSize;
@@ -247,11 +352,13 @@ class Journal extends Thread {
     final File journalDirectory;
     final File ledgerDirectories[];
     final ServerConfiguration conf;
+    ForceWriteThread forceWriteThread;
 
     private LastLogMark lastLogMark = new LastLogMark(0, 0);
 
     // journal entry queue to commit
     LinkedBlockingQueue<QueueEntry> queue = new LinkedBlockingQueue<QueueEntry>();
+    LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
 
     volatile boolean running = true;
 
@@ -262,6 +369,7 @@ class Journal extends Thread {
         this.ledgerDirectories = Bookie.getCurrentDirectories(conf.getLedgerDirs());
         this.maxJournalSize = conf.getMaxJournalSize() * MB;
         this.maxBackupJournals = conf.getMaxBackupJournals();
+        this.forceWriteThread = new ForceWriteThread(this);
 
         // read last log mark
         lastLogMark.readLog();
@@ -472,6 +580,7 @@ class Journal extends Thread {
         LinkedList<QueueEntry> toFlush = new LinkedList<QueueEntry>();
         ByteBuffer lenBuff = ByteBuffer.allocate(4);
         JournalChannel logFile = null;
+        forceWriteThread.start();
         try {
             long logId = 0;
             BufferedChannel bc = null;
@@ -479,6 +588,10 @@ class Journal extends Thread {
 
             QueueEntry qe = null;
             while (true) {
+                if (null == toFlush) {
+                    toFlush = new LinkedList<QueueEntry>();
+                }
+
                 // new journal file to write
                 if (null == logFile) {
                     logId = MathUtils.now();
@@ -495,17 +608,12 @@ class Journal extends Thread {
                         qe = queue.poll();
                         if (qe == null || bc.position() > lastFlushPosition + 512*1024) {
                             //logFile.force(false);
-                            bc.flush(true);
+                            bc.flush(false);
                             lastFlushPosition = bc.position();
-                            lastLogMark.setLastLogMark(logId, lastFlushPosition);
-                            for (QueueEntry e : toFlush) {
-                                e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
-                            }
-                            toFlush.clear();
-
+                            forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize)));
+                            toFlush = null;
                             // check whether journal file is over file limit
                             if (bc.position() > maxJournalSize) {
-                                logFile.close();
                                 logFile = null;
                                 continue;
                             }
@@ -543,6 +651,11 @@ class Journal extends Thread {
         } catch (InterruptedException ie) {
             LOG.warn("Journal exits when shutting down", ie);
         } finally {
+            // There could be packets queued for forceWrite on this logFile
+            // That is fine as this exception is going to anyway take down the
+            // the bookie. If we execute this as a part of graceful shutdown,
+            // close will flush the file system cache making any previous
+            // cached writes durable so this is fine as well.
             IOUtils.close(LOG, logFile);
         }
     }
@@ -555,6 +668,7 @@ class Journal extends Thread {
             if (!running) {
                 return;
             }
+            forceWriteThread.shutdown();
             running = false;
             this.interrupt();
             this.join();
