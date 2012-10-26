@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hedwig.client.exceptions.NoResponseHandlerException;
 import org.apache.hedwig.protocol.PubSubProtocol;
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.bootstrap.ClientBootstrap;
@@ -106,6 +108,8 @@ public class HedwigClientImpl implements Client {
     private final MessageConsumeCallback consumeCb;
     private SslClientContextFactory sslFactory = null;
 
+    private final Timer timeoutTimer;
+
     public static Client create(ClientConfiguration cfg) {
         return new HedwigClientImpl(cfg);
     }
@@ -131,6 +135,7 @@ public class HedwigClientImpl implements Client {
         sub = new HedwigSubscriber(this);
         pipelineFactory = new ClientChannelPipelineFactory(this);
         consumeCb = new MessageConsumeCallback(this);
+        timeoutTimer = new HashedWheelTimer();
         if (cfg.isSSLEnabled()) {
             sslFactory = new SslClientContextFactory(cfg);
         }
@@ -253,6 +258,10 @@ public class HedwigClientImpl implements Client {
         if (ownChannelFactory) {
             socketFactory.releaseExternalResources();
         }
+
+        // Close the timeout handler
+        timeoutTimer.stop();
+
         logger.info("Completed stopping the client!");
     }
 
@@ -458,6 +467,11 @@ public class HedwigClientImpl implements Client {
     // This is so we can reuse this and not have to create multiple executors.
     public ScheduledExecutorService getClientScheduledExecutor() {
         return clientScheduledExecutor;
+    }
+
+    // Get the timeout timer for the read timeout handler for subscription channels.
+    public Timer getTimeoutTimer() {
+        return this.timeoutTimer;
     }
 
     // This ThreadFactory returns threads that catch any uncaught exception

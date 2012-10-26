@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
+import org.jboss.netty.handler.timeout.ReadTimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -385,8 +386,29 @@ public class ResponseHandler extends SimpleChannelHandler {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) {
-        logger.error("Exception caught on client channel", e.getCause());
+        // Check if we timed out.
+        PubSubData origData = subHandler.getOrigSubData();
+        if (e.getCause() instanceof ReadTimeoutException) {
+            // Ignore if this is a publish channel.
+            if (null == origData) {
+                logger.warn("Read timeout exception on a client publish channel. Local:" + ctx.getChannel().getLocalAddress() +
+                        " Remote:" + ctx.getChannel().getRemoteAddress());
+                return;
+            }
+            // If we have set the channel to unreadable because of throttling, ignore this.
+            if (!ctx.getChannel().isReadable()) {
+                logger.warn("Read timeout exception on an unreadable client subscription channel. Local:" + ctx.getChannel().getLocalAddress() +
+                        " Remote:" + ctx.getChannel().getRemoteAddress() + " for data:" + origData + " Ignoring");
+                return;
+            }
+            // Else, we have not read from this readable subscription channel for the configured timeout period
+            // so we should close it.
+            logger.error("Read timeout exception on client channel. Local:" + ctx.getChannel().getLocalAddress() +
+                    " Remote:" + ctx.getChannel().getRemoteAddress() + " for data:" + origData);
+        } else {
+            logger.error("Exception on client channel. Local:" + ctx.getChannel().getLocalAddress() +
+                    " Remote:" + ctx.getChannel().getRemoteAddress() + " for data:" + origData, e.getCause());
+        }
         e.getChannel().close();
     }
-
 }
