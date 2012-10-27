@@ -243,22 +243,17 @@ public class RegionManager implements SubscriptionEventListener {
                         }
                     }, ctx);
                 } catch (PubSubException ex) {
-                    if (LOGGER.isDebugEnabled())
-                        LOGGER.error(
-                                "[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
+                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
                     mcb.operationFailed(ctx, ex);
                 } catch (AlreadyStartDeliveryException ex) {
-                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic "
-                               + topic.toStringUtf8(), ex);
+                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
                     mcb.operationFailed(ctx, new PubSubException.UnexpectedConditionException("cross-region start-delivery failed : " + ex.getMessage()));
                 }
             }
 
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
-                if (LOGGER.isDebugEnabled())
-                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region subscribe failed for topic " + topic.toStringUtf8(),
-                            exception);
+                LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region subscribe failed for topic " + topic.toStringUtf8(), exception);
                 putTopicInRetryMap(client, topic);
                 // Check if topic has been subscribed from remote region, return success if so to
                 // handle transient failure.

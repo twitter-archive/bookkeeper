@@ -123,21 +123,20 @@ public class MessageDeliveryHandler {
                             messageConsumeDataToDeliver.cb, messageConsumeDataToDeliver);
                     messageQueue.poll();
                     numDelivered++;
-                    // give up delivery to give other threads a chance to take this up.
-                    delivering.set(false);
                 } catch (RuntimeException e) {
-                    logger.error("RuntimeException thrown while calling deliver on message:" + messageConsumeDataToDeliver.msg.toString()
+                   logger.error("RuntimeException thrown while calling deliver on message:" + messageConsumeDataToDeliver.msg.toString()
                             + " for topic:" + origSubData.topic.toStringUtf8()
                             + " , subscriber:" + origSubData.subscriberId.toStringUtf8() + ", Exception:" + e);
                     // We don't set delivering to false in case we throw an exception so as to stop anyone else
                     // from accidentally delivering messages while the exception is handled.
                     throw new MessageDeliveryException("RuntimeException while delivering message");
                 }
-            } else {
-                delivering.set(false);
-                continue;
             }
+
+            // give up delivery to give other threads a chance to take this up.
+            delivering.set(false);
         }
+
         // If we did not delivery because the handler was not set, log this.
         if (null == handler && numDelivered == 0) {
             logger.warn("Could not attempt delivery for topic:" + origSubData.topic.toStringUtf8() + ", subscriber:"
