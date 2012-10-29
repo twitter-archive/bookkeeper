@@ -23,6 +23,7 @@ package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
 
@@ -38,7 +39,7 @@ public class LedgerEntryPage {
     private final ByteBuffer page;
     volatile private boolean clean = true;
     volatile private boolean pinned = false;
-    volatile private int useCount;
+    private final AtomicInteger useCount = new AtomicInteger();
     volatile private int version;
 
     public LedgerEntryPage(int pageSize, int entriesPerPage) {
@@ -54,11 +55,11 @@ public class LedgerEntryPage {
         sb.append('@');
         sb.append(getFirstEntry());
         sb.append(clean ? " clean " : " dirty ");
-        sb.append(useCount);
+        sb.append(useCount.get());
         return sb.toString();
     }
-    synchronized public void usePage() {
-        useCount++;
+    public void usePage() {
+        useCount.getAndIncrement();
     }
     synchronized public void pin() {
         pinned = true;
@@ -69,14 +70,13 @@ public class LedgerEntryPage {
     synchronized public boolean isPinned() {
         return pinned;
     }
-    synchronized public void releasePage() {
-        useCount--;
-        if (useCount < 0) {
+    public void releasePage() {
+        if (useCount.decrementAndGet() < 0) {
             throw new IllegalStateException("Use count has gone below 0");
         }
     }
-    synchronized private void checkPage() {
-        if (useCount <= 0) {
+    private void checkPage() {
+        if (useCount.get() <= 0) {
             throw new IllegalStateException("Page not marked in use");
         }
     }
@@ -101,9 +101,9 @@ public class LedgerEntryPage {
     }
     public void setOffset(long offset, int position) {
         checkPage();
+        page.putLong(position, offset);
         version++;
         this.clean = false;
-        page.putLong(position, offset);
     }
     public long getOffset(int position) {
         checkPage();
@@ -150,7 +150,7 @@ public class LedgerEntryPage {
         return firstEntry;
     }
     public boolean inUse() {
-        return useCount > 0;
+        return useCount.get() > 0;
     }
     public long getLastEntry() {
         for(int i = entriesPerPage - 1; i >= 0; i--) {
