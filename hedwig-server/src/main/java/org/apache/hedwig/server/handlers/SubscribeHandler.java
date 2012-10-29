@@ -155,6 +155,8 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
             subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             return;
         }
+        logger.info("Received a subscription request for topic:" + request.getTopic().toStringUtf8() + " and subId:" + request
+                .getSubscribeRequest().getSubscriberId().toStringUtf8() + " from address:" + channel.getRemoteAddress());
 
         final ByteString topic = request.getTopic();
 
@@ -206,6 +208,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
 
                     if (null != sub2Channel.putIfAbsent(topicSub, channel)) {
                         // there was another channel mapped to this sub
+                        logger.error("Subscription for topic, subscriber pair:" + request.getTopic().toStringUtf8() + ", " +
+                                request.getSubscribeRequest().getSubscriberId().toStringUtf8() + " is being served on a different" +
+                                " channel");
                         PubSubException pse = new PubSubException.TopicBusyException(
                             "subscription for this topic, subscriberId is already being served on a different channel");
                         channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))

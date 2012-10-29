@@ -314,6 +314,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         @Override
         public void run() {
 
+            logger.info("Executing a subscription request for topic:" + topic.toStringUtf8() + " from subscriber:" + subRequest.getSubscriberId()
+                    .toStringUtf8());
             final Map<ByteString, InMemorySubscriptionState> topicSubscriptions = top2sub2seq.get(topic);
             if (topicSubscriptions == null) {
                 cb.operationFailed(ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
@@ -330,7 +332,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     String msg = "Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
                                  + " requested creating a subscription but it is already subscribed with state: "
                                  + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState());
-                    logger.debug(msg);
+                    logger.error(msg);
                     cb.operationFailed(ctx, new PubSubException.ClientAlreadySubscribedException(msg));
                     return;
                 }
@@ -348,13 +350,11 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                         @Override
                         public void operationFinished(Object ctx, Void resultOfOperation) {
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
-                                             + " attaching to subscription with state: "
-                                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
-                                             + ", with preferences: "
-                                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
-                            }
+                            logger.info("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
+                                         + " attaching to subscription with state: "
+                                         + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
+                                         + ", with preferences: "
+                                         + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
                             // update message bound if necessary
                             updateMessageBound(topic);
                             cb.operationFinished(ctx, subscriptionState.toSubscriptionData());
@@ -364,13 +364,11 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 }
 
                 // otherwise just attach
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
-                                 + " attaching to subscription with state: "
-                                 + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
-                                 + ", with preferences: "
-                                 + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
-                }
+                logger.info("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
+                             + " attaching to subscription with state: "
+                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
+                             + ", with preferences: "
+                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
 
                 cb.operationFinished(ctx, subscriptionState.toSubscriptionData());
                 return;
@@ -380,7 +378,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
             if (createOrAttach.equals(CreateOrAttach.ATTACH)) {
                 String msg = "Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
                              + " requested attaching to an existing subscription but it is not subscribed";
-                logger.debug(msg);
+                logger.info(msg);
                 cb.operationFailed(ctx, new PubSubException.ClientNotSubscribedException(msg));
                 return;
             }
@@ -449,8 +447,11 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                     // if this will be the first local subscription, notifySubscribe
                     if (!SubscriptionStateUtils.isHubSubscriber(subRequest.getSubscriberId())
-                        && !hasLocalSubscriptions(topicSubscriptions))
+                        && !hasLocalSubscriptions(topicSubscriptions)) {
+                        logger.info("This is the first subscription for topic:" + topic.toStringUtf8() +
+                                " so we are notifying listeners.");
                         notifySubscribe(topic, subRequest.getSynchronous(), cb2, ctx);
+                    }
                     else
                         cb2.operationFinished(ctx, resultOfOperation);
                 }
