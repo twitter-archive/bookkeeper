@@ -25,7 +25,6 @@ import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,7 +54,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     private final ServerConfiguration cfg;
     final ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>> top2sub2seq = new ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>>();
-    private final TopicOpQueuer queuer;
+    // We use different queues for remote and local subscriptions
+    private final TopicOpQueuer localQueuer;
+    private final TopicOpQueuer remoteQueuer;
+
     private final ArrayList<SubscriptionEventListener> listeners = new ArrayList<SubscriptionEventListener>();
 
     // Handle to the PersistenceManager for the server so we can pass along the
@@ -85,7 +87,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     public AbstractSubscriptionManager(ServerConfiguration cfg, TopicManager tm, PersistenceManager pm,
                                        ScheduledExecutorService scheduler) {
         this.cfg = cfg;
-        queuer = new TopicOpQueuer(scheduler);
+        localQueuer = new TopicOpQueuer(scheduler);
+        remoteQueuer = new TopicOpQueuer(scheduler);
         tm.addTopicOwnershipChangeListener(this);
         this.pm = pm;
         // Schedule the recurring MessagesConsumedTask only if a
@@ -145,8 +148,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     }
 
     private class AcquireOp extends TopicOpQueuer.AsynchronousOp<Void> {
-        public AcquireOp(ByteString topic, Callback<Void> callback, Object ctx) {
-            queuer.super(topic, callback, ctx);
+        public AcquireOp(TopicOpQueuer enclosingInstance, ByteString topic, Callback<Void> callback, Object ctx) {
+            enclosingInstance.super(topic, callback, ctx);
         }
 
         @Override
@@ -212,6 +215,18 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         }
     }
 
+    private TopicOpQueuer getOpQueuer(ByteString subscriberId) {
+        if (SubscriptionStateUtils.isHubSubscriber(subscriberId)) {
+            return remoteQueuer;
+        } else {
+            return localQueuer;
+        }
+    }
+
+    private void subSpecificPushAndMaybeRun(ByteString topic, ByteString subId, TopicOpQueuer.Op op) {
+        getOpQueuer(subId).pushAndMaybeRun(topic, op);
+    }
+
     /**
      * Figure out who is subscribed. Do nothing if already acquired. If there's
      * an error reading the subscribers' sequence IDs, then the topic is not
@@ -223,13 +238,13 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
      */
     @Override
     public void acquiredTopic(final ByteString topic, final Callback<Void> callback, Object ctx) {
-        queuer.pushAndMaybeRun(topic, new AcquireOp(topic, callback, ctx));
+        localQueuer.pushAndMaybeRun(topic, new AcquireOp(localQueuer, topic, callback, ctx));
     }
 
     class ReleaseOp extends TopicOpQueuer.AsynchronousOp<Void> {
 
-        public ReleaseOp(final ByteString topic, final Callback<Void> cb, Object ctx) {
-            queuer.super(topic, cb, ctx);
+        public ReleaseOp(TopicOpQueuer enclosingInstance, final ByteString topic, final Callback<Void> cb, Object ctx) {
+            enclosingInstance.super(topic, cb, ctx);
         }
 
         @Override
@@ -289,7 +304,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
      */
     @Override
     public void lostTopic(ByteString topic) {
-        queuer.pushAndMaybeRun(topic, new ReleaseOp(topic, noopCallback, null));
+        localQueuer.pushAndMaybeRun(topic, new ReleaseOp(localQueuer, topic, noopCallback, null));
     }
 
     private void notifyUnsubcribe(ByteString topic, boolean lastSubscriber) {
@@ -304,9 +319,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         SubscribeRequest subRequest;
         MessageSeqId consumeSeqId;
 
-        public SubscribeOp(ByteString topic, SubscribeRequest subRequest, MessageSeqId consumeSeqId,
-                           Callback<SubscriptionData> callback, Object ctx) {
-            queuer.super(topic, callback, ctx);
+        public SubscribeOp(TopicOpQueuer enclosingInstance, ByteString topic, SubscribeRequest subRequest,
+                           MessageSeqId consumeSeqId, Callback<SubscriptionData> callback, Object ctx) {
+            enclosingInstance.super(topic, callback, ctx);
             this.subRequest = subRequest;
             this.consumeSeqId = consumeSeqId;
         }
@@ -494,16 +509,18 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     @Override
     public void serveSubscribeRequest(ByteString topic, SubscribeRequest subRequest, MessageSeqId consumeSeqId,
                                       Callback<SubscriptionData> callback, Object ctx) {
-        queuer.pushAndMaybeRun(topic, new SubscribeOp(topic, subRequest, consumeSeqId, callback, ctx));
+        SubscribeOp op = new SubscribeOp(getOpQueuer(subRequest.getSubscriberId()), topic, subRequest,
+                consumeSeqId, callback, ctx);
+        subSpecificPushAndMaybeRun(topic, subRequest.getSubscriberId(), op);
     }
 
     private class ConsumeOp extends TopicOpQueuer.AsynchronousOp<Void> {
         ByteString subscriberId;
         MessageSeqId consumeSeqId;
 
-        public ConsumeOp(ByteString topic, ByteString subscriberId, MessageSeqId consumeSeqId, Callback<Void> callback,
-                         Object ctx) {
-            queuer.super(topic, callback, ctx);
+        public ConsumeOp(TopicOpQueuer enclosingInstance, ByteString topic, ByteString subscriberId,
+                         MessageSeqId consumeSeqId, Callback<Void> callback, Object ctx) {
+            enclosingInstance.super(topic, callback, ctx);
             this.subscriberId = subscriberId;
             this.consumeSeqId = consumeSeqId;
         }
@@ -541,14 +558,16 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     @Override
     public void setConsumeSeqIdForSubscriber(ByteString topic, ByteString subscriberId, MessageSeqId consumeSeqId,
             Callback<Void> callback, Object ctx) {
-        queuer.pushAndMaybeRun(topic, new ConsumeOp(topic, subscriberId, consumeSeqId, callback, ctx));
+        ConsumeOp op = new ConsumeOp(getOpQueuer(subscriberId), topic, subscriberId, consumeSeqId, callback, ctx);
+        subSpecificPushAndMaybeRun(topic, subscriberId, op);
     }
 
     private class UnsubscribeOp extends TopicOpQueuer.AsynchronousOp<Void> {
         ByteString subscriberId;
 
-        public UnsubscribeOp(ByteString topic, ByteString subscriberId, Callback<Void> callback, Object ctx) {
-            queuer.super(topic, callback, ctx);
+        public UnsubscribeOp(TopicOpQueuer enclosingInstance, ByteString topic, ByteString subscriberId,
+                             Callback<Void> callback, Object ctx) {
+            enclosingInstance.super(topic, callback, ctx);
             this.subscriberId = subscriberId;
         }
 
@@ -590,7 +609,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     @Override
     public void unsubscribe(ByteString topic, ByteString subscriberId, Callback<Void> callback, Object ctx) {
-        queuer.pushAndMaybeRun(topic, new UnsubscribeOp(topic, subscriberId, callback, ctx));
+        UnsubscribeOp op = new UnsubscribeOp(getOpQueuer(subscriberId), topic, subscriberId, callback, ctx);
+        subSpecificPushAndMaybeRun(topic, subscriberId, op);
     }
 
     /**
