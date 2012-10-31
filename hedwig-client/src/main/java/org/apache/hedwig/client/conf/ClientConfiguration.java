@@ -41,7 +41,6 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected static final String RECEIVE_RESTART_PERCENTAGE = "receive_restart_percentage";
     protected static final String SERVER_ACK_RESPONSE_TIMEOUT = "server_ack_response_timeout";
     protected static final String TIMEOUT_THREAD_RUN_INTERVAL = "timeout_thread_run_interval";
-    protected static final String SUB_CHANNEL_TIMEOUT_SECONDS = "sub_channel_timeout_seconds";
     protected static final String SSL_ENABLED = "ssl_enabled";
     protected static final String SUBSCRIPTION_MESSAGE_BOUND = "subscription_message_bound";
 
@@ -134,12 +133,6 @@ public class ClientConfiguration extends AbstractConfiguration {
     // server successfully but haven't yet received the ack response.
     public long getServerAckResponseTimeout() {
         return conf.getLong(SERVER_ACK_RESPONSE_TIMEOUT, 30000);
-    }
-
-    // If nothing has been read on the channel for the configured time,
-    // we timeout all pending entries on that channel.
-    public int getSubChannelTimeoutSeconds() {
-        return conf.getInt(SUB_CHANNEL_TIMEOUT_SECONDS, 20);
     }
 
     // This parameter is used to determine how often we run the server ack

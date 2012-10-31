@@ -27,7 +27,6 @@ import org.jboss.netty.handler.codec.protobuf.ProtobufEncoder;
 import org.jboss.netty.handler.ssl.SslHandler;
 
 import org.apache.hedwig.protocol.PubSubProtocol;
-import org.jboss.netty.handler.timeout.ReadTimeoutHandler;
 
 public class ClientChannelPipelineFactory implements ChannelPipelineFactory {
 
@@ -42,11 +41,6 @@ public class ClientChannelPipelineFactory implements ChannelPipelineFactory {
         // Create a new ChannelPipline using the factory method from the
         // Channels helper class.
         ChannelPipeline pipeline = Channels.pipeline();
-        // Add a read timeout handler to the channel. The readtimeout handler takes
-        // the time in seconds.
-        pipeline.addLast("readTimeout", new ReadTimeoutHandler(client.getTimeoutTimer(),
-                client.getConfiguration().getSubChannelTimeoutSeconds()));
-
         if (client.getSslFactory() != null) {
             pipeline.addLast("ssl", new SslHandler(client.getSslFactory().getEngine()));
         }
