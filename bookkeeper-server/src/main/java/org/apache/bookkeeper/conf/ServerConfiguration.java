@@ -46,6 +46,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Journal Parameters
     protected final static String MAX_JOURNAL_SIZE = "journalMaxSizeMB";
     protected final static String MAX_BACKUP_JOURNALS = "journalMaxBackups";
+    protected final static String GROUP_JOURNAL_FORCE_WRITES = "groupJournalForceWrites";
     // Bookie Parameters
     protected final static String BOOKIE_PORT = "bookiePort";
     protected final static String JOURNAL_DIR = "journalDirectory";
@@ -603,6 +604,15 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getReadBufferBytes() {
         return getInt(READ_BUFFER_SIZE, 512);
+    }
+
+    /**
+     * Should we group journal force writes
+     *
+     * @return group journal force writes
+     */
+    public boolean getGroupJournalForceWrites() {
+        return getBoolean(GROUP_JOURNAL_FORCE_WRITES, true);
     }
 
 }

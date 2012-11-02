@@ -244,6 +244,7 @@ class Journal extends Thread {
         private JournalChannel logFile;
         private LinkedList<QueueEntry> forceWriteWaiters;
         private boolean shouldClose;
+        private boolean isMarker;
         private long lastFlushedPosition;
         private long logId;
 
@@ -251,18 +252,28 @@ class Journal extends Thread {
                           long logId,
                           long lastFlushedPosition,
                           LinkedList<QueueEntry> forceWriteWaiters,
-                          boolean shouldClose) {
+                          boolean shouldClose,
+                          boolean isMarker) {
             this.forceWriteWaiters = forceWriteWaiters;
             this.logFile = logFile;
             this.logId = logId;
             this.lastFlushedPosition = lastFlushedPosition;
             this.shouldClose = shouldClose;
+            this.isMarker = isMarker;
         }
 
-        public void process() throws IOException {
+        public void process(boolean shouldForceWrite) throws IOException {
+            if (isMarker) {
+                return;
+            }
+
             try {
-                this.logFile.getBufferedChannel().forceWrite();
+                if (shouldForceWrite) {
+                    this.logFile.getBufferedChannel().forceWrite();
+                }
+
                 lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
+
                 // Notify the waiters that the force write succeeded
                 for (QueueEntry e : this.forceWriteWaiters) {
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
@@ -271,7 +282,6 @@ class Journal extends Thread {
             finally {
                 closeFileIfNecessary();
             }
-
         }
 
         public void closeFileIfNecessary() {
@@ -300,23 +310,52 @@ class Journal extends Thread {
         // This holds the queue entries that should be notified after a
         // successful force write
         Thread threadToNotifyOnEx;
+        // should we group force writes
+        private final boolean enableGroupForceWrites;
         // make flush interval as a parameter
-        public ForceWriteThread(Thread threadToNotifyOnEx) {
+        public ForceWriteThread(Thread threadToNotifyOnEx, boolean enableGroupForceWrites) {
             super("ForceWriteThread");
             this.threadToNotifyOnEx = threadToNotifyOnEx;
+            this.enableGroupForceWrites = enableGroupForceWrites;
         }
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
+            boolean shouldForceWrite = true;
+            JournalChannel currLogFile = null;
             while(running) {
                 ForceWriteRequest req = null;
                 try {
                     req = forceWriteRequests.take();
-                    if (null != req) {
-                        // Force write the file and then notify the write completions
-                        //
-                        req.process();
-                        req = null;
+
+                    // Force write the file and then notify the write completions
+                    //
+                    if (!req.isMarker) {
+                        if (enableGroupForceWrites) {
+                            // if we are going to force write, any request that is already in the
+                            // queue will benefit from this force write - post a marker prior to issuing
+                            // the flush so until this marker is encountered we can skip the force write
+                            if (shouldForceWrite) {
+                                forceWriteRequests.put(new ForceWriteRequest(req.logFile, 0, 0, null, false, true));
+                            }
+                        }
+                        req.process(shouldForceWrite);
+                        currLogFile = req.logFile;
+                    }
+
+                    if (enableGroupForceWrites &&
+                        // if its a marker we should switch back to flushing unless its not
+                        // for the current file where the shouldClose would have caused the
+                        // force write flag to have been reset
+                        (!req.isMarker || req.logFile != currLogFile) &&
+                        // This indicates that this is the last request in a given file
+                        // so subsequent requests will go to a different file so we should
+                        // flush on the next request
+                        !req.shouldClose) {
+                        shouldForceWrite = false;
+                    }
+                    else {
+                        shouldForceWrite = true;
                     }
                 } catch (IOException ioe) {
                     LOG.error("I/O exception in ForceWrite thread", ioe);
@@ -369,7 +408,7 @@ class Journal extends Thread {
         this.ledgerDirectories = Bookie.getCurrentDirectories(conf.getLedgerDirs());
         this.maxJournalSize = conf.getMaxJournalSize() * MB;
         this.maxBackupJournals = conf.getMaxBackupJournals();
-        this.forceWriteThread = new ForceWriteThread(this);
+        this.forceWriteThread = new ForceWriteThread(this, conf.getGroupJournalForceWrites());
 
         // read last log mark
         lastLogMark.readLog();
@@ -610,7 +649,7 @@ class Journal extends Thread {
                             //logFile.force(false);
                             bc.flush(false);
                             lastFlushPosition = bc.position();
-                            forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize)));
+                            forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
                             toFlush = null;
                             // check whether journal file is over file limit
                             if (bc.position() > maxJournalSize) {
