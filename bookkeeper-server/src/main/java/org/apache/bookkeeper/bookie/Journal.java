@@ -627,10 +627,6 @@ class Journal extends Thread {
 
             QueueEntry qe = null;
             while (true) {
-                if (null == toFlush) {
-                    toFlush = new LinkedList<QueueEntry>();
-                }
-
                 // new journal file to write
                 if (null == logFile) {
                     logId = MathUtils.now();
@@ -650,7 +646,7 @@ class Journal extends Thread {
                             bc.flush(false);
                             lastFlushPosition = bc.position();
                             forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
-                            toFlush = null;
+                            toFlush = new LinkedList<QueueEntry>();
                             // check whether journal file is over file limit
                             if (bc.position() > maxJournalSize) {
                                 logFile = null;
