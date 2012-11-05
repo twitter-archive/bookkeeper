@@ -52,4 +52,9 @@ public class BaseStatsImpl implements StatsLogger {
             statLogger.clear();
         }
     }
+
+    @Override
+    public String getStatName(Enum type) {
+        return (name + type.toString()).toLowerCase();
+    }
 }

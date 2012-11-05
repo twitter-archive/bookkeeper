@@ -25,6 +25,10 @@ import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +39,7 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
     public ReadEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
         super(packet, srcConn, bookie);
     }
+
     public void run() {
         final long startTimeMillis = MathUtils.now();
         header = PacketHeader.fromInt(packet.getInt());
@@ -66,14 +71,29 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
             rc = BookieProtocol.EOK;
         } catch (Bookie.NoLedgerException e) {
             rc = BookieProtocol.ENOLEDGER;
+            logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +
+                    ledgerId);
         } catch (Bookie.NoEntryException e) {
             rc = BookieProtocol.ENOENTRY;
+            logger.error("No entry found while reading entry:" + entryId + " from ledger:" +
+                    ledgerId);
         } catch (IOException e) {
             rc = BookieProtocol.EIO;
+            logger.error("IOException while reading entry:" + entryId + " from ledger:" +
+                    ledgerId);
         } catch (BookieException e) {
             logger.error("Unauthorized access to ledger:" + ledgerId + " while reading entry:" + entryId + " in request " +
                     "from address:" + srcConn.getPeerName());
             rc = BookieProtocol.EUA;
+        }
+
+        long latencyMillis = MathUtils.now() - startTimeMillis;
+        if (rc == BookieProtocol.EOK) {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                    .READ_ENTRY).registerSuccessfulEvent(latencyMillis);
+        } else {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                    .READ_ENTRY).registerFailedEvent(latencyMillis);
         }
 
         toSend[0] = buildResponse(rc);

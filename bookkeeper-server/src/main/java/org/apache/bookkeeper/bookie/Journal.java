@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
@@ -227,7 +229,10 @@ class Journal extends Thread {
             this.ctx = ctx;
             this.ledgerId = ledgerId;
             this.entryId = entryId;
+            this.startTimeMillis = MathUtils.now();
         }
+
+        long startTimeMillis;
 
         ByteBuffer entry;
 
@@ -276,6 +281,10 @@ class Journal extends Thread {
 
                 // Notify the waiters that the force write succeeded
                 for (QueueEntry e : this.forceWriteWaiters) {
+                    ServerStatsProvider.getStatsLoggerInstance()
+                            .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
+                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.now()
+                            - e.startTimeMillis);
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
                 }
             }
@@ -587,6 +596,9 @@ class Journal extends Thread {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
+                .inc();
         queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx));
     }
 
@@ -664,6 +676,13 @@ class Journal extends Thread {
                 if (qe == null) { // no more queue entry
                     continue;
                 }
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_WRITE_BYTES)
+                        .add(qe.entry.remaining());
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
+                        .dec();
+
                 lenBuff.clear();
                 lenBuff.putInt(qe.entry.remaining());
                 lenBuff.flip();

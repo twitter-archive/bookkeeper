@@ -64,6 +64,10 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
     protected final static String NUM_READ_WORKER_THREADS = "numReadWorkerThreads";
 
+    // Stats exporting
+    protected final static String STATS_EXPORT = "statsExport";
+    protected final static String STATS_HTTP_PORT = "statsHttpPort";
+
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
 
     /**
@@ -606,6 +610,16 @@ public class ServerConfiguration extends AbstractConfiguration {
         return getInt(READ_BUFFER_SIZE, 512);
     }
 
+    // Whether we should export stats on the http server or not.
+    public boolean getStatsExport() {
+        return getBoolean(STATS_EXPORT, false);
+    }
+
+    // The port on which the http server exporting stats runs.
+    public int getStatsHttpPort() {
+        return getInt(STATS_HTTP_PORT, 9002);
+    }
+
     /**
      * Should we group journal force writes
      *
@@ -614,5 +628,4 @@ public class ServerConfiguration extends AbstractConfiguration {
     public boolean getGroupJournalForceWrites() {
         return getBoolean(GROUP_JOURNAL_FORCE_WRITES, true);
     }
-
 }

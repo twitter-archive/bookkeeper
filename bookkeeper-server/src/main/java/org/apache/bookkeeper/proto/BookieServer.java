@@ -36,6 +36,7 @@ import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
+import org.apache.bookkeeper.stats.HTTPStatsExporter;
 import org.apache.bookkeeper.util.MathUtils;
 
 import static org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
@@ -60,6 +61,7 @@ public class BookieServer {
     Bookie bookie;
     DeathWatcher deathWatcher;
 
+    private HTTPStatsExporter statsExporter;
     static Logger LOG = LoggerFactory.getLogger(BookieServer.class);
 
     int exitCode = ExitCode.OK;
@@ -72,6 +74,7 @@ public class BookieServer {
     public BookieServer(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
         this.conf = conf;
+        this.statsExporter = new HTTPStatsExporter(conf.getStatsHttpPort());
         this.bookie = newBookie(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
     }
@@ -87,6 +90,14 @@ public class BookieServer {
         this.bookie.start();
 
         nioServerFactory.start();
+
+        // Start stats exporter.
+        try {
+            this.statsExporter.start();
+        } catch (Exception e) {
+            LOG.error("Exception while starting stats exporter", e);
+        }
+
         running = true;
         deathWatcher = new DeathWatcher(conf);
         deathWatcher.start();
@@ -108,6 +119,12 @@ public class BookieServer {
             return;
         }
         nioServerFactory.shutdown();
+        // Stop stats exporter.
+        try {
+            statsExporter.stop();
+        } catch (Exception e) {
+            LOG.error("Exception while shutting down stats exporter.");
+        }
         exitCode = bookie.shutdown();
         running = false;
 

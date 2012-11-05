@@ -36,8 +36,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.twitter.common.stats.SampledStat;
+import com.twitter.common.stats.Stats;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,6 +72,27 @@ public class LedgerCacheImpl implements LedgerCache {
         activeLedgerManager = alm;
         // Retrieve all of the active ledgers.
         getActiveLedgers();
+
+        // Export sampled stats for index pages, ledgers.
+        Stats.export(new SampledStat<Integer>(ServerStatsProvider
+                .getStatsLoggerInstance().getStatName(BookkeeperServerSimpleStatType
+                .NUM_INDEX_PAGES), 0) {
+            @Override
+            public Integer doSample() {
+                return getNumUsedPages();
+            }
+        });
+
+        Stats.export(new SampledStat<Integer>(ServerStatsProvider
+                .getStatsLoggerInstance().getStatName(BookkeeperServerSimpleStatType
+                        .NUM_OPEN_LEDGERS), 0) {
+            @Override
+            public Integer doSample() {
+                synchronized (openLedgers) {
+                    return openLedgers.size();
+                }
+            }
+        });
     }
     /**
      * the set of potentially clean ledgers

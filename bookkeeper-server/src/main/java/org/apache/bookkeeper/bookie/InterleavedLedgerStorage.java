@@ -29,6 +29,11 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +63,7 @@ class InterleavedLedgerStorage implements LedgerStorage {
                 activeLedgerManager, new EntryLogCompactionScanner());
     }
 
-    @Override    
+    @Override
     public void start() {
         gcThread.start();
     }
@@ -96,13 +101,16 @@ class InterleavedLedgerStorage implements LedgerStorage {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-        
+
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
+                .add(entry.remaining());
         /*
          * Log the entry
          */
         long pos = entryLogger.addEntry(ledgerId, entry);
-        
-        
+
+
         /*
          * Set offset of entry id to be the current ledger position
          */
@@ -122,12 +130,23 @@ class InterleavedLedgerStorage implements LedgerStorage {
         if (entryId == BookieProtocol.LAST_ADD_CONFIRMED) {
             entryId = ledgerCache.getLastEntry(ledgerId);
         }
+        long startTimeMillis = MathUtils.now();
 
         offset = ledgerCache.getEntryOffset(ledgerId, entryId);
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+
         if (offset == 0) {
             throw new Bookie.NoEntryException(ledgerId, entryId);
         }
-        return ByteBuffer.wrap(entryLogger.readEntry(ledgerId, entryId, offset));
+        startTimeMillis = MathUtils.now();
+        byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.READ_BYTES)
+                .add(retBytes.length);
+        return ByteBuffer.wrap(retBytes);
     }
 
     @Override

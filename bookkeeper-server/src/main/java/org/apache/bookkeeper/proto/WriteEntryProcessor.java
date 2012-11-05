@@ -21,6 +21,10 @@ import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,29 +67,46 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
                                       InetSocketAddress addr, Object ctx) {
+                long latencyMillis = MathUtils.now() - startTimeMillis;
+                if (rc == BookieProtocol.EOK) {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                            .ADD_ENTRY).registerSuccessfulEvent(latencyMillis);
+                } else {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                            .ADD_ENTRY).registerFailedEvent(latencyMillis);
+                }
                 Cnxn conn = (Cnxn) ctx;
                 assert ledgerId == WriteEntryProcessor.this.ledgerId;
                 assert entryId == WriteEntryProcessor.this.entryId;
                 conn.sendResponse(buildResponse(rc));
             }
         };
+        int rc = BookieProtocol.EOK;
         try {
             if ((flags & BookieProtocol.FLAG_RECOVERY_ADD) == BookieProtocol.FLAG_RECOVERY_ADD) {
                 bookie.recoveryAddEntry(packet.slice(), wcb, srcConn, masterKey);
             } else {
                 bookie.addEntry(packet.slice(), wcb, srcConn, masterKey);
             }
+            rc = BookieProtocol.EOK;
         } catch (IOException e) {
             logger.error("Error writing entry:" + entryId + " to ledger:" + ledgerId, e);
-            srcConn.sendResponse(buildResponse(BookieProtocol.EIO));
+            rc = BookieProtocol.EIO;
         } catch (BookieException.LedgerFencedException e) {
             logger.error("Ledger fenced while writing entry:" + entryId +
                     " to ledger:" + ledgerId);
-            srcConn.sendResponse(buildResponse(BookieProtocol.EFENCED));
+            rc = BookieProtocol.EFENCED;
         } catch (BookieException e) {
             logger.error("Unauthorized access to ledger:" + ledgerId +
                     " while writing entry:" + entryId);
-            srcConn.sendResponse(buildResponse(BookieProtocol.EUA));
+            rc = BookieProtocol.EUA;
+        }
+
+        if (rc != BookieProtocol.EOK) {
+            long latencyMillis = MathUtils.now() - startTimeMillis;
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                    .ADD_ENTRY).registerFailedEvent(latencyMillis);
+            srcConn.sendResponse(buildResponse(rc));
         }
     }
 }

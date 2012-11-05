@@ -18,6 +18,12 @@ public interface StatsLogger {
     public SimpleStat getSimpleStatLogger(Enum type);
 
     /**
+     * @param type
+     * @return Get the full stat name for the enum.
+     */
+    public String getStatName(Enum type);
+
+    /**
      * Clear state
      */
     public void clear();
