@@ -20,6 +20,7 @@ package org.apache.bookkeeper.conf;
 import java.io.File;
 import java.util.List;
 
+import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 
 /**
@@ -69,6 +70,9 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
+
+    protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
+    protected final static String WRITE_CHUNK_MIN_SIZE = "writeChunkMinSizeBytes";
 
     /**
      * Construct a default configuration object
@@ -620,6 +624,38 @@ public class ServerConfiguration extends AbstractConfiguration {
         return getInt(STATS_HTTP_PORT, 9002);
     }
 
+    /**
+     * Get the number of bytes used as capacity for the reordered write buffer. Default is
+     * 64KB.
+     * NOTE: Make sure this value is greater than the maximum message size.
+     * @return
+     */
+    public int getWriteBufferBytes() {
+        return getInt(WRITE_BUFFER_SIZE, 65536);
+    }
+
+    /**
+     * Get the minimum size of a chunk used by the reordered write buffered channel. Default is 2KB
+     * @return
+     */
+    public int getWriteChunkMinBytes() {
+        return getInt(WRITE_CHUNK_MIN_SIZE, 2048);
+    }
+
+    public void setWriteChunkMinBytes(int minChunkSize) {
+        setProperty(WRITE_CHUNK_MIN_SIZE, minChunkSize);
+    }
+
+    /**
+     * Validate the configuration.
+     * @throws ConfigurationException
+     */
+    public void validate() throws ConfigurationException {
+        if (getWriteChunkMinBytes() > getWriteBufferBytes()) {
+            throw new ConfigurationException("Write buffer should be larger than the minimum" +
+                    "chunk size.");
+        }
+    }
     /**
      * Should we group journal force writes
      *

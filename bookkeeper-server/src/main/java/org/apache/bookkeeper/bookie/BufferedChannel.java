@@ -45,10 +45,14 @@ public class BufferedChannel extends BufferedReadChannel {
     // make constructor to be public for unit test
     public BufferedChannel(FileChannel fc, int capacity) throws IOException {
         // Use the same capacity for read and write buffers.
-        super(fc, capacity);
-        // Set the read buffer's limit to capacity.
-        this.readBuffer.limit(capacity);
-        this.writeCapacity = capacity;
+        this(fc, capacity, capacity);
+    }
+
+    public BufferedChannel(FileChannel fc, int writeCapacity, int readCapacity) throws IOException {
+        super(fc, readCapacity);
+        // Set the read buffer's limit to readCapacity.
+        this.readBuffer.limit(readCapacity);
+        this.writeCapacity = writeCapacity;
         this.position = fc.position();
         this.writeBufferStartPosition = position;
         this.writeBuffer = ByteBuffer.allocateDirect(writeCapacity);

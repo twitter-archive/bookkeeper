@@ -97,7 +97,7 @@ public class GarbageCollectorThread extends Thread {
 
         @Override
         public boolean accept(long ledgerId) {
-            return meta.containsLedger(ledgerId) && scanner.accept(ledgerId);
+            return ledgerId != EntryLogger.INVALID_LID && meta.containsLedger(ledgerId) && scanner.accept(ledgerId);
         }
 
         @Override
@@ -447,7 +447,7 @@ public class GarbageCollectorThread extends Thread {
 
         @Override
         public boolean accept(long ledgerId) {
-            return true;
+            return ledgerId != EntryLogger.INVALID_LID;
         }
         @Override
         public void process(long ledgerId, long offset, ByteBuffer entry) {

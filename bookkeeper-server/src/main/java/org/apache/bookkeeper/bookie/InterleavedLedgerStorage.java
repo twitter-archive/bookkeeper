@@ -192,8 +192,8 @@ class InterleavedLedgerStorage implements LedgerStorage {
         @Override
         public boolean accept(long ledgerId) {
             // bookie has no knowledge about which ledger is deleted
-            // so just accept all ledgers.
-            return true;
+            // so just accept all ledgers that aren't invalid.
+            return ledgerId != EntryLogger.INVALID_LID;
         }
 
         @Override

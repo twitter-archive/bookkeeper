@@ -247,11 +247,6 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
         testReadWriteAsyncSingleClient(200);
     }
 
-    @Test
-    public void testReadWriteAsyncSingleClient200000() throws IOException {
-        testReadWriteAsyncSingleClient(200000);
-    }
-
     /**
      * Check that the add api with offset and length work correctly.
      * First try varying the offset. Then the length with a fixed non-zero

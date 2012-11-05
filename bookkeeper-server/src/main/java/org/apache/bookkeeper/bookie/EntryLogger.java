@@ -62,19 +62,18 @@ public class EntryLogger {
      * The maximum size of a entry logger file.
      */
     final long logSizeLimit;
-    private volatile BufferedChannel logChannel;
+    private volatile BufferedReorderedWriteChannel logChannel;
     /**
      * The 1K block at the head of the entry logger file
      * that contains the fingerprint and (future) meta-data
      */
     final static int LOGFILE_HEADER_SIZE = 1024;
+    public final static long INVALID_LID = -1L;
     final ByteBuffer LOGFILE_HEADER = ByteBuffer.allocate(LOGFILE_HEADER_SIZE);
 
     final static long MB = 1024 * 1024;
 
-    // The capacity of the read buffer in bytes.
-    final int readBufferCap;
-
+    final ServerConfiguration serverCfg;
     /**
      * Scan entries in a entry log file.
      */
@@ -130,7 +129,7 @@ public class EntryLogger {
                 logId = lastLogId;
             }
         }
-        this.readBufferCap = conf.getReadBufferBytes();
+        this.serverCfg = conf;
         initialize();
     }
 
@@ -250,7 +249,10 @@ public class EntryLogger {
             }
         } while (newLogFile == null);
 
-        logChannel = new BufferedChannel(new RandomAccessFile(newLogFile, "rw").getChannel(), 64*1024);
+        logChannel = new BufferedReorderedWriteChannel(new RandomAccessFile(newLogFile, "rw").getChannel(),
+                serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes(),
+                serverCfg.getWriteChunkMinBytes());
+
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
         for(File f: dirs) {
             setLastLogId(f, logId);
@@ -360,16 +362,19 @@ public class EntryLogger {
         }
     }
     synchronized long addEntry(long ledger, ByteBuffer entry) throws IOException {
-        if (logChannel.position() + entry.remaining() + 4 > logSizeLimit) {
+        // There is some slack above the configured log size limit because of the
+        // way we allocate chunks. Only create a new log if we have moved past
+        // the max size limit.
+        if (logChannel.position() > logSizeLimit) {
             createNewLog();
         }
-        ByteBuffer buff = ByteBuffer.allocate(4);
+        ByteBuffer buff = ByteBuffer.allocate(4 + entry.remaining());
         buff.putInt(entry.remaining());
+        buff.put(entry);
         buff.flip();
-        logChannel.write(buff);
-        long pos = logChannel.position();
-        logChannel.write(entry);
-        //logChannel.flush(false);
+        // Because the first 4 bytes are the size of the entry, the actual position of the
+        // entry will be the value returned by write + 4.
+        long pos = logChannel.write(ledger, buff) + 4;
         return (logId << 32L) | pos;
     }
 
@@ -431,7 +436,7 @@ public class EntryLogger {
         }
         // We set the position of the write buffer of this buffered channel to Long.MAX_VALUE
         // so that there are no overlaps with the write buffer while reading
-        fc = new BufferedReadChannel(newFc, readBufferCap);
+        fc = new BufferedReadChannel(newFc, serverCfg.getReadBufferBytes());
         putInChannels(entryLogId, fc);
         return fc;
     }

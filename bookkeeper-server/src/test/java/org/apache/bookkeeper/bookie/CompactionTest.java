@@ -24,6 +24,8 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Enumeration;
 
+import org.apache.bookkeeper.bookie.BufferedReorderedWriteChannel;
+import org.apache.bookkeeper.client.ClientUtil;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -37,6 +39,7 @@ import org.junit.Test;
 
 /**
  * This class tests the entry log compaction functionality.
+ * TODO: Modify the test to handle dynamically allocated chunks.
  */
 public class CompactionTest extends BookKeeperClusterTestCase {
     static Logger LOG = LoggerFactory.getLogger(CompactionTest.class);
@@ -52,6 +55,8 @@ public class CompactionTest extends BookKeeperClusterTestCase {
     long minorCompactionInterval;
     long majorCompactionInterval;
 
+    // The digest manager's overhead per entry that we use to calculate the chunk size.
+    final int actualEntrySize = ClientUtil.generatePacket(0, 0, 0, 0, new byte[ENTRY_SIZE]).readableBytes();
     String msg;
 
     public CompactionTest() {
@@ -78,7 +83,12 @@ public class CompactionTest extends BookKeeperClusterTestCase {
     @Override
     public void setUp() throws Exception {
         // Set up the configuration properties needed.
-        baseConf.setEntryLogSizeLimit(numEntries * ENTRY_SIZE);
+        // TODO:Change this when we have dynamically calculated chunks.
+        // Set the minchunksize to entrysize so that one entry goes in one chunk. Adjust for fake ceiling
+        // and the entry size of 4 bytes added by bookkeeper.
+        baseConf.setWriteChunkMinBytes(actualEntrySize + BufferedReorderedWriteChannel.FAKE_CEILING_BYTES + 4);
+        // We only allocate a new log if we have moved past the previous one. So use numEntries-1
+        baseConf.setEntryLogSizeLimit((numEntries-1) * baseConf.getWriteChunkMinBytes());
         baseConf.setGcWaitTime(gcWaitTime);
         baseConf.setMinorCompactionThreshold(minorCompactionThreshold);
         baseConf.setMajorCompactionThreshold(majorCompactionThreshold);
@@ -147,7 +157,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
                 if (id >= numFiles) {
                     continue;
                 }
-                hasLogFiles[id] = true; 
+                hasLogFiles[id] = true;
             }
         }
         return hasLogFiles;
@@ -205,7 +215,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
 
         // entry logs ([0,1,2].log) should be compacted.
         for (File ledgerDirectory : tmpDirs) {
-            boolean[] hasLog = checkLogFiles(ledgerDirectory, 3); 
+            boolean[] hasLog = checkLogFiles(ledgerDirectory, 3);
             assertFalse("Found entry log file ([0,1,2].log that should have not been compacted in ledgerDirectory: " + ledgerDirectory, hasLog[0] | hasLog[1] | hasLog[2]);
         }
 
@@ -240,7 +250,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
 
         // entry logs ([0,1,2].log) should be compacted
         for (File ledgerDirectory : tmpDirs) {
-            boolean[] hasLogFiles = checkLogFiles(ledgerDirectory, 3); 
+            boolean[] hasLogFiles = checkLogFiles(ledgerDirectory, 3);
             assertFalse("Found entry log file ([0,1,2].log that should have not been compacted in ledgerDirectory: "
                       + ledgerDirectory, hasLogFiles[0] | hasLogFiles[1] | hasLogFiles[2]);
         }
@@ -268,7 +278,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
 
         // entry logs ([0,1,2].log) should not be compacted
         for (File ledgerDirectory : tmpDirs) {
-            boolean[] hasLogFiles = checkLogFiles(ledgerDirectory, 3); 
+            boolean[] hasLogFiles = checkLogFiles(ledgerDirectory, 3);
             assertTrue("Not Found entry log file ([1,2].log that should have been compacted in ledgerDirectory: "
                      + ledgerDirectory, hasLogFiles[0] & hasLogFiles[1] & hasLogFiles[2]);
         }
@@ -305,7 +315,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         // entry logs ([1,2,3].log) should be compacted.
         for (File ledgerDirectory : tmpDirs) {
             boolean[] hasLog = checkLogFiles(ledgerDirectory, 4);
-            
+
             assertTrue("Not Found entry log file ([0].log that should have been compacted in ledgerDirectory: "
                      + ledgerDirectory, hasLog[0]);
             assertFalse("Found entry log file ([1,2,3].log that should have not been compacted in ledgerDirectory: "

@@ -30,6 +30,7 @@ import junit.framework.TestCase;
 
 import org.apache.bookkeeper.bookie.GarbageCollectorThread.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.GarbageCollectorThread.ExtractionScanner;
+import org.apache.bookkeeper.bookie.BufferedReorderedWriteChannel;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -52,6 +53,22 @@ public class EntryLogTest extends TestCase {
             }
         }
         return true;
+    }
+
+    private ByteBuffer getBufferOfSize(int size) {
+        byte[] ret = new byte[size];
+        for (int i = 0; i < size; i++) {
+            ret[i] = (byte)(i % Byte.MAX_VALUE);
+        }
+        return ByteBuffer.wrap(ret);
+    }
+
+    private BufferedReorderedWriteChannel getReorderedWriteChannel(int writeCap,
+                                                                   int readCap,
+                                                                   int chunkSize) throws IOException {
+        File tmpFile = File.createTempFile("BufferedReorderedTest", ".tmp");
+        RandomAccessFile raf = new RandomAccessFile(tmpFile, "rw");
+        return new BufferedReorderedWriteChannel(raf.getChannel(), writeCap, readCap, chunkSize);
     }
 
     @Test
@@ -132,6 +149,90 @@ public class EntryLogTest extends TestCase {
         }
     }
 
+    //TODO: Modify this test when chunk calculation is dynamic.
+    @Test
+    public void testBufferedReorderedWriteChannel() throws Exception {
+        int writeCap = 2048;
+        int chunkSize = 128;
+        int readCap = 128;
+        BufferedReorderedWriteChannel channel
+                = getReorderedWriteChannel(writeCap, readCap, chunkSize);
+        // A write of size more than writeCap or writeCap - fakeceil should fail.
+        try {
+            channel.write(0, getBufferOfSize(writeCap + 1));
+            fail("Write greater than write capacity did not throw an exception");
+        } catch (IOException e) {
+            // This is expected.
+        }
+        try {
+            channel.write(0, getBufferOfSize(writeCap - BufferedReorderedWriteChannel.FAKE_CEILING_BYTES + 1));
+            fail("Write greater than write capacity did not throw an exception");
+        } catch (IOException e) {
+            // This is expected.
+        }
+
+        // Test if writes to different keys go to different chunks.
+        long base = 0;
+        // All new keys should go to a new chunk.
+        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
+            assertTrue("Misaligned first write.", channel.write(i, getBufferOfSize(10)) == base + i*128);
+        }
+        // All writes to the same keys should now go to the same chunk as before
+        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
+            assertTrue("Misaligned second write.", channel.write(i, getBufferOfSize(10)) == base + 10 + i*128);
+        }
+        // A flush now should cause the pointer to be at 2048 - 128
+        channel.flush(false);
+        assertTrue("Misaligned position on first flush.", (base = channel.position()) == writeCap - chunkSize);
+
+        // A write of writeCap - fakeceil should succeed.
+        assertTrue("Could not write maximum number of bytes.", channel.write(0, getBufferOfSize(
+                writeCap-BufferedReorderedWriteChannel.FAKE_CEILING_BYTES)) == base);
+        // The position should have moved to base + writeCap
+        assertTrue("Misaligned position on write.", channel.position() == base + writeCap);
+
+        // A flush should not change the position.
+        long prevPos = channel.position();
+        channel.flush(false);
+        assertTrue("Misaligned position on second flush.", (base = channel.position()) == prevPos);
+        // A write asking for multiple chunks should succeed.
+        assertTrue("Misaligned write.", channel.write(1, getBufferOfSize(chunkSize/2)) == base);
+        // A write not crossing the fake ceiling should be in the same chunk
+        assertTrue("Misaligned write.", channel.write(1, getBufferOfSize(
+                chunkSize/2 - BufferedReorderedWriteChannel.FAKE_CEILING_BYTES)) == base + chunkSize/2);
+        // We should not have allocated another chunk.
+        assertTrue("Misaligned position.", channel.position() == base + chunkSize);
+
+        prevPos = channel.position();
+        channel.flush(false);
+        assertTrue("Misaligned position on second flush.", (base = channel.position()) == prevPos);
+
+        // A write which overflows the fake ceiling should start at a new chunk.
+        assertTrue("Misaligned first write while testing overflow.", channel.write(1, getBufferOfSize(chunkSize/2)) == base);
+        assertTrue("Misaligned second write while testing overflow.", channel.write(1, getBufferOfSize(chunkSize/2)) == base + chunkSize);
+
+        channel.flush(false);
+        base = channel.position();
+
+        // A write that overflows the last chunk should result in a flush and new allocation. The
+        // flush should change the filechannel's position to writeCap - chunkSize. The next write
+        // should go at this position and allocate two chunks.
+        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
+            assertTrue("Misaligned write.", channel.write(i, getBufferOfSize(10)) == base + i*128);
+        }
+        // Now try to write to a new key that does not fit in one chunk. The new write should take
+        // up two chunks.
+        long prevFilePos = channel.getFileChannelPosition();
+        assertTrue("Misaligned write while testing last chunk overflow.", channel.write(
+                writeCap/chunkSize-1, getBufferOfSize(chunkSize)) == base + writeCap - chunkSize);
+        // File position should have changed because of the flush.
+        assertTrue("File channel position did not change.", channel.getFileChannelPosition() == prevFilePos + writeCap
+                - chunkSize);
+        // Also, we should have allocated 2 chunks.
+        base = channel.getFileChannelPosition();
+        assertTrue("Did not allocate 2 chunks.", channel.position() == base + 2*chunkSize);
+    }
+
     @Test
     public void testCorruptEntryLog() throws Exception {
         File tmpDir = File.createTempFile("bkTest", ".dir");
@@ -153,7 +254,8 @@ public class EntryLogTest extends TestCase {
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
         RandomAccessFile raf = new RandomAccessFile(f, "rw");
-        raf.setLength(raf.length()-10);
+        // TODO: Change this after making chunk sizes dynamic.
+        raf.setLength(raf.length()-conf.getWriteChunkMinBytes()+10);
         raf.close();
         // now see which ledgers are in the log
         logger = new EntryLogger(conf);
@@ -167,6 +269,7 @@ public class EntryLogTest extends TestCase {
         } catch (IOException ie) {
         }
         LOG.info("Extracted Meta From Entry Log {}", meta);
+        System.out.println("Extracted Meta From Entry Log " + meta);
         assertNotNull(meta.ledgersMap.get(1L));
         assertNull(meta.ledgersMap.get(2L));
         assertNotNull(meta.ledgersMap.get(3L));

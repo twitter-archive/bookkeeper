@@ -746,7 +746,7 @@ public class BookieShell implements Tool {
         scanEntryLog(logId, new EntryLogScanner() {
             @Override
             public boolean accept(long ledgerId) {
-                return true;
+                return ledgerId != EntryLogger.INVALID_LID;
             }
             @Override
             public void process(long ledgerId, long startPos, ByteBuffer entry) {

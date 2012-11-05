@@ -233,6 +233,7 @@ public class BookieServer {
         throws IllegalArgumentException {
         try {
             conf.loadConf(new File(confFile).toURI().toURL());
+            conf.validate();
         } catch (MalformedURLException e) {
             LOG.error("Could not open configuration file: " + confFile, e);
             throw new IllegalArgumentException();
