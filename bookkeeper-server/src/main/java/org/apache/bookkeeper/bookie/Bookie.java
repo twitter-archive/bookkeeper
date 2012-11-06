@@ -66,7 +66,7 @@ import org.apache.zookeeper.Watcher.Event.EventType;
  *
  */
 
-public class Bookie extends Thread {
+public class Bookie extends BookieThread {
     public static final String INSTANCEID = "INSTANCEID";
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
@@ -166,7 +166,7 @@ public class Bookie extends Thread {
      * number of old journal files which may be used for manual recovery in critical disaster.
      * </p>
      */
-    class SyncThread extends Thread {
+    class SyncThread extends BookieThread {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);
