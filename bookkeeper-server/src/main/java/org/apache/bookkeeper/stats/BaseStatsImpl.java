@@ -55,6 +55,6 @@ public class BaseStatsImpl implements StatsLogger {
 
     @Override
     public String getStatName(Enum type) {
-        return (name + type.toString()).toLowerCase();
+        return (name + "_" + type.toString()).toLowerCase();
     }
 }
