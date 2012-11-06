@@ -274,7 +274,11 @@ class Journal extends Thread {
 
             try {
                 if (shouldForceWrite) {
+                    long startTimeMillis = MathUtils.now();
                     this.logFile.getBufferedChannel().forceWrite();
+                    ServerStatsProvider.getStatsLoggerInstance()
+                        .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
+                            .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.now()- startTimeMillis);
                 }
 
                 lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
