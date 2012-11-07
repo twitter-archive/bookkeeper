@@ -222,27 +222,22 @@ class Journal extends BookieThread {
      * Journal Entry to Record
      */
     private static class QueueEntry {
+        ByteBuffer entry;
+        long ledgerId;
+        long entryId;
+        WriteCallback cb;
+        Object ctx;
+        long enqueueTime;
+
         QueueEntry(ByteBuffer entry, long ledgerId, long entryId,
-                   WriteCallback cb, Object ctx) {
+                   WriteCallback cb, Object ctx, long enqueueTime) {
             this.entry = entry.duplicate();
             this.cb = cb;
             this.ctx = ctx;
             this.ledgerId = ledgerId;
             this.entryId = entryId;
-            this.startTimeMillis = MathUtils.now();
+            this.enqueueTime = enqueueTime;
         }
-
-        long startTimeMillis;
-
-        ByteBuffer entry;
-
-        long ledgerId;
-
-        long entryId;
-
-        WriteCallback cb;
-
-        Object ctx;
     }
 
     private class ForceWriteRequest {
@@ -274,11 +269,11 @@ class Journal extends BookieThread {
 
             try {
                 if (shouldForceWrite) {
-                    long startTimeMillis = MathUtils.now();
+                    long startTimeNanos = MathUtils.nowInNano();
                     this.logFile.getBufferedChannel().forceWrite();
                     ServerStatsProvider.getStatsLoggerInstance()
                         .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.now()- startTimeMillis);
+                            .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
                 }
 
                 lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
@@ -287,8 +282,7 @@ class Journal extends BookieThread {
                 for (QueueEntry e : this.forceWriteWaiters) {
                     ServerStatsProvider.getStatsLoggerInstance()
                             .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.now()
-                            - e.startTimeMillis);
+                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(e.enqueueTime));
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
                 }
             }
@@ -410,6 +404,12 @@ class Journal extends BookieThread {
     final File ledgerDirectories[];
     final ServerConfiguration conf;
     ForceWriteThread forceWriteThread;
+    // should we group force writes
+    private final boolean enableGroupForceWrites;
+    // Time after which we will stop grouping and issue the flush
+    private final long maxGroupWaitInMSec;
+    // Threshold after which we flush any buffered journal writes
+    private final long bufferedWritesThreshold;
 
     private LastLogMark lastLogMark = new LastLogMark(0, 0);
 
@@ -428,7 +428,10 @@ class Journal extends BookieThread {
         this.journalPreAllocSize = conf.getJournalPreAllocSizeMB() * MB;
         this.journalWriteBufferSize = conf.getJournalWriteBufferSizeKB() * KB;
         this.maxBackupJournals = conf.getMaxBackupJournals();
-        this.forceWriteThread = new ForceWriteThread(this, conf.getGroupJournalForceWrites());
+        this.enableGroupForceWrites = conf.getJournalAdaptiveGroupWrites();
+        this.forceWriteThread = new ForceWriteThread(this, enableGroupForceWrites);
+        this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
+        this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
 
         // read last log mark
         lastLogMark.readLog();
@@ -608,9 +611,9 @@ class Journal extends BookieThread {
         long entryId = entry.getLong();
         entry.rewind();
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
-                .inc();
-        queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx));
+            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
+            .inc();
+        queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx, MathUtils.nowInNano()));
     }
 
     /**
@@ -664,8 +667,15 @@ class Journal extends BookieThread {
                         qe = queue.take();
                     } else {
                         qe = queue.poll();
-                        if (qe == null || bc.position() > lastFlushPosition + 512*1024) {
-                            //logFile.force(false);
+                        // If the queue is empty i.e. no benefit of grouping. This happens when we have one
+                        // publish at a time - common case in tests.
+                        // or if we have buffered more than the buffWriteThreshold
+                        // or if the oldest pending entry has been pending for longer than the max wait time
+                        // we should issue a forceWrite -
+                        // toFlush is non null and not empty so should be safe to access getFirst
+                        if (qe == null ||
+                            (bc.position() > lastFlushPosition + bufferedWritesThreshold)  ||
+                            (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec))) {
                             bc.flush(false);
                             lastFlushPosition = bc.position();
                             forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
@@ -704,8 +714,10 @@ class Journal extends BookieThread {
                 bc.write(lenBuff);
                 bc.write(qe.entry);
 
+                // NOTE: preAlloc depends on the fact that we don't change file size while this is
+                // called or useful parts of the file will be zeroed out - in other words
+                // it depends on single threaded flushes to the JournalChannel
                 logFile.preAllocIfNeeded();
-
                 toFlush.add(qe);
                 qe = null;
             }
