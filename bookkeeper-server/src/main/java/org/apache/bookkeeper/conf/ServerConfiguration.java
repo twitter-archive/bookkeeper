@@ -71,6 +71,9 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
 
+    protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
+    protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
+    protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
     protected final static String WRITE_CHUNK_MIN_SIZE = "writeChunkMinSizeBytes";
 
@@ -632,6 +635,35 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getWriteBufferBytes() {
         return getInt(WRITE_BUFFER_SIZE, 65536);
+    }
+
+    /**
+     * Get skip list size limitation
+     *
+     * @return skip list size limitation
+     */
+    public long getSkipListSizeLimit() {
+        return this.getLong(SKIP_LIST_SIZE_LIMIT, 256 * 1024 * 1024L);
+    }
+
+    /**
+     * Get the number of bytes we should use as chunk allocation for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 2048 KB
+     * @return
+     */
+    public int getSkipListArenaChunkSize() {
+        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 2048 * 1024);
+    }
+
+    /**
+     * Get the max size we should delegate memory allocation to VM for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 256 KB
+     * @return
+     */
+    public int getSkipListArenaMaxAllocSize() {
+        return getInt(SKIP_LIST_MAX_ALLOC_ENTRY, 256  * 1024);
     }
 
     /**

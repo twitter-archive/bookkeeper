@@ -23,30 +23,21 @@ package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+
 /**
- * Implements a ledger inside a bookie. In particular, it implements operations
- * to write entries to a ledger and read entries from a ledger.
+ * Flush entries from skip list
  */
-public class LedgerDescriptorReadOnlyImpl extends LedgerDescriptorImpl {
-    LedgerDescriptorReadOnlyImpl(long ledgerId, LedgerStorage storage) {
-        super(null, ledgerId, storage);
-    }
-
-    @Override
-    void setFenced() throws IOException {
-        assert false;
-        throw new IOException("Invalid action on read only descriptor");
-    }
-
-    @Override
-    long addEntry(ByteBuffer entry, final CacheCallback cb) throws IOException {
-        assert false;
-        throw new IOException("Invalid action on read only descriptor");
-    }
-
-    @Override
-    void checkAccess(byte masterKey[]) throws BookieException, IOException {
-        assert false;
-        throw new IOException("Invalid action on read only descriptor");
-    }
+public interface SkipListFlusher {
+    /**
+     * Process an entry.
+     *
+     * @param ledgerId
+     *          Ledger ID.
+     * @param entryId
+     *          The entry id this entry.
+     * @param entry
+     *          Entry ByteBuffer
+     * @throws IOException
+     */
+    public void process(long ledgerId, long entryId, ByteBuffer entry) throws IOException;
 }

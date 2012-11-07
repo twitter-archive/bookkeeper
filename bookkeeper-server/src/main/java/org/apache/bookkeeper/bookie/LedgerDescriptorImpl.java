@@ -70,7 +70,7 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
     }
 
     @Override
-    long addEntry(ByteBuffer entry) throws IOException {
+    long addEntry(ByteBuffer entry, final CacheCallback cb) throws IOException {
         long ledgerId = entry.getLong();
 
         if (ledgerId != this.ledgerId) {
@@ -78,7 +78,7 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
         }
         entry.rewind();
 
-        return ledgerStorage.addEntry(entry);
+        return ledgerStorage.addEntry(entry, cb);
     }
 
     @Override

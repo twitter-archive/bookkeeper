@@ -63,10 +63,9 @@ public class BufferedChannel extends BufferedReadChannel {
      * buffer or re-order writes based on the implementation. These writes will be flushed
      * to the disk only when flush() is invoked.
      * @param src The source ByteBuffer which contains the data to be written.
-     * @return The total number of bytes written.
      * @throws IOException if a write operation fails.
      */
-    synchronized public void write(ByteBuffer src) throws IOException {
+    private void writeInternal(ByteBuffer src) throws IOException {
         int copied = 0;
         while(src.remaining() > 0) {
             int truncated = 0;
@@ -85,6 +84,25 @@ public class BufferedChannel extends BufferedReadChannel {
             }
         }
         position += copied;
+    }
+
+    synchronized public void write(ByteBuffer src) throws IOException {
+        writeInternal(src);
+    }
+
+    /**
+     * Write all the data in src to the {@link FileChannel}. Note that this function can
+     * buffer or re-order writes based on the implementation. These writes will be flushed
+     * to the disk only when flush() is invoked.
+     * @param src The source ByteBuffer which contains the data to be written.
+     * @param writeLen The length of src is written to the file channel or not.
+     * @throws IOException if a write operation fails.
+     */
+    synchronized public void write(ByteBuffer src, boolean writeLen) throws IOException {
+        if (writeLen) {
+            writeBuffer.putInt(src.remaining());
+        }
+        writeInternal(src);
     }
 
     /**

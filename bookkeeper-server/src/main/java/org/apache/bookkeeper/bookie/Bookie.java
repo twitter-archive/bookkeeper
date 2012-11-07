@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -66,7 +67,7 @@ import org.apache.zookeeper.Watcher.Event.EventType;
  *
  */
 
-public class Bookie extends BookieThread {
+public class Bookie extends BookieThread implements CacheCallback {
     public static final String INSTANCEID = "INSTANCEID";
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
@@ -105,6 +106,14 @@ public class Bookie extends BookieThread {
     BKMBeanInfo jmxLedgerStorageBean;
 
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
+
+    // Uses hard-coded # of sync requests for now (512 * skip-list-limits memory usage)
+    LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>(512);
+
+    @Override
+    public void onSizeLimitReached() throws IOException {
+        syncRequests.offer(Boolean.TRUE);
+    }
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -181,14 +190,20 @@ public class Bookie extends BookieThread {
         }
         @Override
         public void run() {
+            Boolean flushRequired = null;
             while(running) {
                 synchronized(this) {
                     try {
-                        wait(flushInterval);
+                        flushRequired = syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
+                        ledgerStorage.prepare(flushRequired == null);
                         if (!ledgerStorage.isFlushRequired()) {
                             continue;
                         }
-                    } catch (InterruptedException e) {
+                    } catch (IOException e) {
+                        LOG.error("Exception flushing Ledger", e);
+                        continue;
+                    }
+                    catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         continue;
                     }
@@ -384,13 +399,14 @@ public class Bookie extends BookieThread {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager);
+        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, this);
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
         journal = new Journal(conf);
     }
 
     void readJournal() throws IOException, BookieException {
+        final CacheCallback cb = this;
         journal.replay(new JournalScanner() {
             @Override
             public void process(int journalVersion, long offset, ByteBuffer recBuff) throws IOException {
@@ -418,7 +434,7 @@ public class Bookie extends BookieThread {
                         LedgerDescriptor handle = handles.getHandle(ledgerId, key);
 
                         recBuff.rewind();
-                        handle.addEntry(recBuff);
+                        handle.addEntry(recBuff, cb);
                     }
                 } catch (NoLedgerException nsle) {
                     LOG.debug("Skip replaying entries of ledger {} since it was deleted.", ledgerId);
@@ -722,7 +738,7 @@ public class Bookie extends BookieThread {
         throws IOException, BookieException {
         byte[] key = ledgerStorage.readMasterKey(ledgerId);
         LedgerDescriptor handle = handles.getHandle(ledgerId, key);
-        handle.addEntry(entry);
+        handle.addEntry(entry, this);
     }
 
     /**
@@ -732,7 +748,7 @@ public class Bookie extends BookieThread {
             throws IOException, BookieException {
         long ledgerId = handle.getLedgerId();
         entry.rewind();
-        long entryId = handle.addEntry(entry);
+        long entryId = handle.addEntry(entry, this);
 
         entry.rewind();
         if (LOG.isTraceEnabled()) {
