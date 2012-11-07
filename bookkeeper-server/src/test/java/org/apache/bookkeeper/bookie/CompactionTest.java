@@ -89,6 +89,8 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         baseConf.setWriteChunkMinBytes(actualEntrySize + BufferedReorderedWriteChannel.FAKE_CEILING_BYTES + 4);
         // We only allocate a new log if we have moved past the previous one. So use numEntries-1
         baseConf.setEntryLogSizeLimit((numEntries-1) * baseConf.getWriteChunkMinBytes());
+        // Disable skip list for compaction
+        baseConf.setSkipListUsageEnabled(false);
         baseConf.setGcWaitTime(gcWaitTime);
         baseConf.setMinorCompactionThreshold(minorCompactionThreshold);
         baseConf.setMajorCompactionThreshold(majorCompactionThreshold);

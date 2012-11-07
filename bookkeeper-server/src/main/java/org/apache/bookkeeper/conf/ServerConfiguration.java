@@ -71,6 +71,10 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
 
+    protected final static String SKIP_LIST_USAGE_ENABLED = "skipListUsageEnabled";
+    protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
+    protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
+    protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
     protected final static String WRITE_CHUNK_MIN_SIZE = "writeChunkMinSizeBytes";
 
@@ -632,6 +636,54 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getWriteBufferBytes() {
         return getInt(WRITE_BUFFER_SIZE, 65536);
+    }
+
+    /**
+     * Set skip list usage enabled or not
+     *
+     * @param enabled
+     */
+    public ServerConfiguration setSkipListUsageEnabled(boolean enabled) {
+        this.setProperty(SKIP_LIST_USAGE_ENABLED, Boolean.toString(enabled));
+        return this;
+    }
+
+    /**
+     * Check if skip list usage enabled (default true)
+     *
+     * @return
+     */
+    public boolean getSkipListUsageEnabled() {
+        return this.getBoolean(SKIP_LIST_USAGE_ENABLED, true);
+    }
+
+    /**
+     * Get skip list data size limitation (default 4MB)
+     *
+     * @return skip list data size limitation
+     */
+    public long getSkipListSizeLimit() {
+        return this.getLong(SKIP_LIST_SIZE_LIMIT, 4 * 1024 * 1024L);
+    }
+
+    /**
+     * Get the number of bytes we should use as chunk allocation for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 1 MB
+     * @return
+     */
+    public int getSkipListArenaChunkSize() {
+        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 1048 * 1024);
+    }
+
+    /**
+     * Get the max size we should delegate memory allocation to VM for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 64 KB
+     * @return
+     */
+    public int getSkipListArenaMaxAllocSize() {
+        return getInt(SKIP_LIST_MAX_ALLOC_ENTRY, 64 * 1024);
     }
 
     /**

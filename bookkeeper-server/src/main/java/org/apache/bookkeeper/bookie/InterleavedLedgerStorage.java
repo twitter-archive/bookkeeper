@@ -47,20 +47,28 @@ class InterleavedLedgerStorage implements LedgerStorage {
 
     private EntryLogger entryLogger;
     private LedgerCache ledgerCache;
+    private EntryMemTable memTable;
+    private final CacheCallback cacheCallback;
+
     // This is the thread that garbage collects the entry logs that do not
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
     final GarbageCollectorThread gcThread;
 
+    final private boolean isSkipListEnabled;
+
     // this indicates that a write has happened since the last flush
     private volatile boolean somethingWritten = false;
 
-    InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager)
-            throws IOException {
+    InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
+                             final CacheCallback cb) throws IOException {
         entryLogger = new EntryLogger(conf);
         ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager);
+        memTable = new EntryMemTable(conf);
+        cacheCallback = cb;
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger,
                 activeLedgerManager, new EntryLogCompactionScanner());
+        isSkipListEnabled = conf.getSkipListUsageEnabled();
     }
 
     @Override
@@ -97,7 +105,7 @@ class InterleavedLedgerStorage implements LedgerStorage {
     }
 
     @Override
-    synchronized public long addEntry(ByteBuffer entry) throws IOException {
+    public long addEntry(ByteBuffer entry) throws IOException {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
@@ -105,40 +113,45 @@ class InterleavedLedgerStorage implements LedgerStorage {
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                 BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
                 .add(entry.remaining());
-        /*
-         * Log the entry
-         */
-        long pos = entryLogger.addEntry(ledgerId, entry);
 
-
-        /*
-         * Set offset of entry id to be the current ledger position
-         */
-        ledgerCache.putEntryOffset(ledgerId, entryId, pos);
-
-        somethingWritten = true;
+        if (isSkipListEnabled) {
+            memTable.add(ledgerId, entryId, entry, cacheCallback);
+        }
+        else {
+            processEntry(ledgerId, entryId, entry);
+        }
 
         return entryId;
     }
 
     @Override
     public ByteBuffer getEntry(long ledgerId, long entryId) throws IOException {
-        long offset;
+        EntryKeyValue kv = null;
+
         /*
          * If entryId is BookieProtocol.LAST_ADD_CONFIRMED, then return the last written.
          */
         if (entryId == BookieProtocol.LAST_ADD_CONFIRMED) {
+            kv = memTable.getEntry(ledgerId, entryId);
+            if (kv != null) {
+                return kv.getAsByteBuffer();
+            }
             entryId = ledgerCache.getLastEntry(ledgerId);
         }
-        long startTimeMillis = MathUtils.now();
 
-        offset = ledgerCache.getEntryOffset(ledgerId, entryId);
+        long startTimeMillis = MathUtils.now();
+        long offset = ledgerCache.getEntryOffset(ledgerId, entryId);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                 .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
 
         if (offset == 0) {
+            kv = memTable.getEntry(ledgerId, entryId);
+            if (kv != null) {
+                return kv.getAsByteBuffer();
+            }
             throw new Bookie.NoEntryException(ledgerId, entryId);
         }
+
         startTimeMillis = MathUtils.now();
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
@@ -147,6 +160,13 @@ class InterleavedLedgerStorage implements LedgerStorage {
                 BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.READ_BYTES)
                 .add(retBytes.length);
         return ByteBuffer.wrap(retBytes);
+    }
+
+    @Override
+    public void prepare(boolean force) throws IOException {
+        if (isSkipListEnabled) {
+            memTable.flush(this, force);
+        }
     }
 
     @Override
@@ -199,8 +219,30 @@ class InterleavedLedgerStorage implements LedgerStorage {
         @Override
         public void process(long ledgerId, long offset, ByteBuffer buffer)
             throws IOException {
-            addEntry(buffer);
+            buffer.getLong();   // Skip ledger id
+            long entryId = buffer.getLong();
+            buffer.rewind();
+            processEntry(ledgerId, entryId, buffer);
         }
     }
 
+    synchronized private void processEntry(long ledgerId, long entryId, ByteBuffer entry)
+            throws IOException {
+        /*
+         * Log the entry
+         */
+        long pos = entryLogger.addEntry(ledgerId, entry);
+
+        /*
+         * Set offset of entry id to be the current ledger position
+         */
+        ledgerCache.putEntryOffset(ledgerId, entryId, pos);
+
+        somethingWritten = true;
+    }
+
+    @Override
+    public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
+        processEntry(ledgerId, entryId, buffer);
+    }
 }

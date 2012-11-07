@@ -62,8 +62,8 @@ public class BufferedChannel extends BufferedReadChannel {
      * Write all the data in src to the {@link FileChannel}. Note that this function can
      * buffer or re-order writes based on the implementation. These writes will be flushed
      * to the disk only when flush() is invoked.
+     *
      * @param src The source ByteBuffer which contains the data to be written.
-     * @return The total number of bytes written.
      * @throws IOException if a write operation fails.
      */
     synchronized public void write(ByteBuffer src) throws IOException {

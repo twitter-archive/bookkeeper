@@ -62,7 +62,7 @@ public class EntryLogger {
      * The maximum size of a entry logger file.
      */
     final long logSizeLimit;
-    private volatile BufferedReorderedWriteChannel logChannel;
+    private volatile BufferedChannel logChannel;
     /**
      * The 1K block at the head of the entry logger file
      * that contains the fingerprint and (future) meta-data
@@ -249,9 +249,8 @@ public class EntryLogger {
             }
         } while (newLogFile == null);
 
-        logChannel = new BufferedReorderedWriteChannel(new RandomAccessFile(newLogFile, "rw").getChannel(),
-                serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes(),
-                serverCfg.getWriteChunkMinBytes());
+        logChannel = new BufferedChannel(new RandomAccessFile(newLogFile, "rw").getChannel(),
+                serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes());
 
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
         for(File f: dirs) {
@@ -368,13 +367,14 @@ public class EntryLogger {
         if (logChannel.position() > logSizeLimit) {
             createNewLog();
         }
-        ByteBuffer buff = ByteBuffer.allocate(4 + entry.remaining());
+
+        ByteBuffer buff = ByteBuffer.allocate(4);
         buff.putInt(entry.remaining());
-        buff.put(entry);
         buff.flip();
-        // Because the first 4 bytes are the size of the entry, the actual position of the
-        // entry will be the value returned by write + 4.
-        long pos = logChannel.write(ledger, buff) + 4;
+        logChannel.write(buff);
+        long pos = logChannel.position();
+        logChannel.write(entry);
+
         return (logId << 32L) | pos;
     }
 
