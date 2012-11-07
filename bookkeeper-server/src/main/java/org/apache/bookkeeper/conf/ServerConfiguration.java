@@ -46,10 +46,11 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Journal Parameters
     protected final static String MAX_JOURNAL_SIZE = "journalMaxSizeMB";
     protected final static String MAX_BACKUP_JOURNALS = "journalMaxBackups";
-    protected final static String GROUP_JOURNAL_FORCE_WRITES = "groupJournalForceWrites";
+    protected final static String JOURNAL_ADAPTIVE_GROUP_WRITES = "journalAdaptiveGroupWrites";
+    protected final static String JOURNAL_MAX_GROUP_WAIT_MSEC = "journalMaxGroupWaitMSec";
+    protected final static String JOURNAL_BUFFERED_WRITES_THRESHOLD = "journalBufferedWritesThreshold";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
-
     // Bookie Parameters
     protected final static String BOOKIE_PORT = "bookiePort";
     protected final static String JOURNAL_DIR = "journalDirectory";
@@ -646,7 +647,25 @@ public class ServerConfiguration extends AbstractConfiguration {
      *
      * @return group journal force writes
      */
-    public boolean getGroupJournalForceWrites() {
-        return getBoolean(GROUP_JOURNAL_FORCE_WRITES, true);
+    public boolean getJournalAdaptiveGroupWrites() {
+        return getBoolean(JOURNAL_ADAPTIVE_GROUP_WRITES, true);
+    }
+
+    /**
+     * Maximum latency to impose on a journal write to achieve grouping
+     *
+     * @return max wait for grouping
+     */
+    public long getJournalMaxGroupWaitMSec() {
+        return getLong(JOURNAL_MAX_GROUP_WAIT_MSEC, 20);
+    }
+
+    /**
+     * Maximum latency to impose on a journal write to achieve grouping
+     *
+     * @return max wait for grouping
+     */
+    public long getJournalBufferedWritesThreshold() {
+        return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512*1024);
     }
 }
