@@ -396,8 +396,13 @@ class Journal extends BookieThread {
     }
 
     final static long MB = 1024 * 1024L;
+    final static int KB = 1024;
     // max journal file size
     final long maxJournalSize;
+    // pre-allocation size for the journal files
+    final long journalPreAllocSize;
+    // write buffer size for the journal files
+    final int journalWriteBufferSize;
     // number journal files kept before marked journal
     final int maxBackupJournals;
 
@@ -419,7 +424,9 @@ class Journal extends BookieThread {
         this.conf = conf;
         this.journalDirectory = Bookie.getCurrentDirectory(conf.getJournalDir());
         this.ledgerDirectories = Bookie.getCurrentDirectories(conf.getLedgerDirs());
-        this.maxJournalSize = conf.getMaxJournalSize() * MB;
+        this.maxJournalSize = conf.getMaxJournalSizeMB() * MB;
+        this.journalPreAllocSize = conf.getJournalPreAllocSizeMB() * MB;
+        this.journalWriteBufferSize = conf.getJournalWriteBufferSizeKB() * KB;
         this.maxBackupJournals = conf.getMaxBackupJournals();
         this.forceWriteThread = new ForceWriteThread(this, conf.getGroupJournalForceWrites());
 
@@ -513,9 +520,9 @@ class Journal extends BookieThread {
         throws IOException {
         JournalChannel recLog;
         if (journalPos <= 0) {
-            recLog = new JournalChannel(journalDirectory, journalId);
+            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize);
         } else {
-            recLog = new JournalChannel(journalDirectory, journalId, journalPos);
+            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, journalPos);
         }
         int journalVersion = recLog.getFormatVersion();
         try {
@@ -646,7 +653,7 @@ class Journal extends BookieThread {
                 // new journal file to write
                 if (null == logFile) {
                     logId = MathUtils.now();
-                    logFile = new JournalChannel(journalDirectory, logId);
+                    logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize);
                     bc = logFile.getBufferedChannel();
 
                     lastFlushPosition = 0;

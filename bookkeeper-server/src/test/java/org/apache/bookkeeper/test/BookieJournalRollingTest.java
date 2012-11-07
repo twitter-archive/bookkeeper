@@ -56,7 +56,7 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
     @Override
     public void setUp() throws Exception {
         // Set up the configuration properties needed.
-        baseConf.setMaxJournalSize(1);
+        baseConf.setMaxJournalSizeMB(1);
         baseConf.setMaxBackupJournals(1);
         super.setUp();
     }
