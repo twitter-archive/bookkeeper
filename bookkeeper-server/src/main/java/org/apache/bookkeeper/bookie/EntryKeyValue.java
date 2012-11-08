@@ -27,7 +27,7 @@ import java.nio.ByteBuffer;
  * interpret the content as entry blob.
  */
 public class EntryKeyValue extends EntryKey {
-    private byte [] bytes = null;
+    final private byte [] bytes;
     private int offset = 0; // start offset of entry blob
     private int length = 0; // length of entry blob
 
@@ -58,7 +58,7 @@ public class EntryKeyValue extends EntryKey {
      * Presumes <code>bytes</code> content contains the value portion of a EntryKeyValue.
      * @param bytes byte array
      */
-    public EntryKeyValue(long ledgerId, long entryId, byte [] bytes) {
+    public EntryKeyValue(long ledgerId, long entryId, final byte [] bytes) {
         this(ledgerId, entryId, bytes, 0, bytes.length);
     }
 
@@ -70,7 +70,7 @@ public class EntryKeyValue extends EntryKey {
      * @param offset offset in bytes as start of blob
      * @param length of blob
      */
-    public EntryKeyValue(long ledgerId, long entryId, byte [] bytes, int offset, int length) {
+    public EntryKeyValue(long ledgerId, long entryId, final byte [] bytes, int offset, int length) {
         super(ledgerId, entryId);
         this.bytes = bytes;
         this.offset = offset;
@@ -82,7 +82,7 @@ public class EntryKeyValue extends EntryKey {
     *
     * @return the value
     */
-    public ByteBuffer getAsByteBuffer() {
+    public ByteBuffer getValueAsByteBuffer() {
         return ByteBuffer.wrap(getBuffer(), getOffset(), getLength());
     }
 

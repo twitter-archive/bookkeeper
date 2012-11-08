@@ -30,12 +30,12 @@ import org.junit.Before;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
 public class TestEntryMemTable implements CacheCallback {
-    private final Log LOG = LogFactory.getLog(this.getClass());
+    private static Logger Logger = LoggerFactory.getLogger(Journal.class);
     private EntryMemTable memTable;
     private final Random random = new Random();
 
@@ -55,12 +55,12 @@ public class TestEntryMemTable implements CacheCallback {
         byte[] data = new byte[10];
         random.nextBytes(data);
         ByteBuffer buf = ByteBuffer.wrap(data);
-        memTable.add(ledgerId, entryId, buf, this);
+        memTable.addEntry(ledgerId, entryId, buf, this);
         buf.rewind();
         EntryKeyValue kv = memTable.getEntry(ledgerId, entryId);
         assertTrue(kv.getLedgerId() == ledgerId);
         assertTrue(kv.getEntryId() == entryId);
-        assertTrue(kv.getAsByteBuffer().equals(buf));
+        assertTrue(kv.getValueAsByteBuffer().equals(buf));
     }
 
     /**
@@ -82,7 +82,7 @@ public class TestEntryMemTable implements CacheCallback {
         for (long entryId = 1; entryId < 100; entryId++) {
             for (long ledgerId = 1; ledgerId < 3; ledgerId++) {
                 random.nextBytes(data);
-                memTable.add(ledgerId, entryId, ByteBuffer.wrap(data), this);
+                memTable.addEntry(ledgerId, entryId, ByteBuffer.wrap(data), this);
                 keyValues.add(memTable.getEntry(ledgerId, entryId));
                 if (random.nextInt(16) == 0) {
                     memTable.snapshot();
@@ -124,7 +124,7 @@ public class TestEntryMemTable implements CacheCallback {
             for (long ledgerId = 1; ledgerId < 100; ledgerId++) {
                 random.nextBytes(data);
                 assertTrue(ledgerId + ":" + entryId + " is duplicate in mem-table!",
-                        memTable.add(ledgerId, entryId, ByteBuffer.wrap(data), this) != 0);
+                        memTable.addEntry(ledgerId, entryId, ByteBuffer.wrap(data), this) != 0);
                 assertTrue(ledgerId + ":" + entryId + " is duplicate in hash-set!",
                         keyValues.add(memTable.getEntry(ledgerId, entryId)));
                 if (random.nextInt(16) == 0) {

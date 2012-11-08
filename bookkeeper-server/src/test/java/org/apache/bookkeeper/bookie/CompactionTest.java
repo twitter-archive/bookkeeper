@@ -24,8 +24,6 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Enumeration;
 
-import org.apache.bookkeeper.bookie.BufferedReorderedWriteChannel;
-import org.apache.bookkeeper.client.ClientUtil;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -55,8 +53,6 @@ public class CompactionTest extends BookKeeperClusterTestCase {
     long minorCompactionInterval;
     long majorCompactionInterval;
 
-    // The digest manager's overhead per entry that we use to calculate the chunk size.
-    final int actualEntrySize = ClientUtil.generatePacket(0, 0, 0, 0, new byte[ENTRY_SIZE]).readableBytes();
     String msg;
 
     public CompactionTest() {
@@ -83,12 +79,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
     @Override
     public void setUp() throws Exception {
         // Set up the configuration properties needed.
-        // TODO:Change this when we have dynamically calculated chunks.
-        // Set the minchunksize to entrysize so that one entry goes in one chunk. Adjust for fake ceiling
-        // and the entry size of 4 bytes added by bookkeeper.
-        baseConf.setWriteChunkMinBytes(actualEntrySize + BufferedReorderedWriteChannel.FAKE_CEILING_BYTES + 4);
-        // We only allocate a new log if we have moved past the previous one. So use numEntries-1
-        baseConf.setEntryLogSizeLimit((numEntries-1) * baseConf.getWriteChunkMinBytes());
+        baseConf.setEntryLogSizeLimit(numEntries * ENTRY_SIZE);
         // Disable skip list for compaction
         baseConf.setSkipListUsageEnabled(false);
         baseConf.setGcWaitTime(gcWaitTime);

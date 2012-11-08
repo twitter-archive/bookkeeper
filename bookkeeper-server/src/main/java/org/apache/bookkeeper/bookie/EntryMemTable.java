@@ -29,30 +29,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
-
-/**
- * Entry skip list
- */
-class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
-    EntrySkipList() {
-        super(EntryKey.COMPARATOR);
-    }
-
-    @Override
-    public EntryKeyValue put(EntryKey k, EntryKeyValue v) {
-        return putIfAbsent(k, v);
-    }
-
-    @Override
-    public EntryKeyValue putIfAbsent(EntryKey k, EntryKeyValue v) {
-        assert k.equals(v);
-        return super.putIfAbsent(v, v);
-    }
-}
 
 /**
  * The EntryMemTable holds in-memory representation to the entries not-yet flushed.
@@ -61,7 +41,27 @@ class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
  * flusher reports in that the flush succeeded. At that point we let the snapshot go.
  */
 public class EntryMemTable {
-    private static final Log LOG = LogFactory.getLog(EntryMemTable.class);
+    private static Logger Logger = LoggerFactory.getLogger(Journal.class);
+
+    /**
+     * Entry skip list
+     */
+    static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
+        EntrySkipList() {
+            super(EntryKey.COMPARATOR);
+        }
+
+        @Override
+        public EntryKeyValue put(EntryKey k, EntryKeyValue v) {
+            return putIfAbsent(k, v);
+        }
+
+        @Override
+        public EntryKeyValue putIfAbsent(EntryKey k, EntryKeyValue v) {
+            assert k.equals(v);
+            return super.putIfAbsent(v, v);
+        }
+    }
 
     volatile EntrySkipList kvmap;
 
@@ -96,15 +96,15 @@ public class EntryMemTable {
         this.size = new AtomicLong(0);
         this.allocator = new SkipListArena(conf);
         // skip list size limit
-        skipListSizeLimit = conf.getSkipListSizeLimit();
+        this.skipListSizeLimit = conf.getSkipListSizeLimit();
     }
 
     void dump() {
         for (EntryKey key: this.kvmap.keySet()) {
-            LOG.info(key);
+            Logger.info(key.toString());
         }
         for (EntryKey key: this.snapshot.keySet()) {
-            LOG.info(key);
+            Logger.info(key.toString());
         }
     }
 
@@ -114,22 +114,24 @@ public class EntryMemTable {
     */
     boolean snapshot() throws IOException {
         boolean success = false;
-        this.lock.writeLock().lock();
-        try {
-            // No-op if snapshot currently has entries
-            if (this.snapshot.isEmpty()) {
-                if (!this.kvmap.isEmpty()) {
-                    this.snapshot = this.kvmap;
-                    this.kvmap = newSkipList();
-                    // Reset heap to not include any keys
-                    this.size.set(0);
-                    // Reset allocator so we get a fresh buffer for the new EntryMemTable
-                    this.allocator = new SkipListArena(conf);
-                    success = true;
+        // No-op if snapshot currently has entries
+        if (this.snapshot.isEmpty()) {
+            this.lock.writeLock().lock();
+            try {
+                if (this.snapshot.isEmpty()) {
+                    if (!this.kvmap.isEmpty()) {
+                        this.snapshot = this.kvmap;
+                        this.kvmap = newSkipList();
+                        // Reset heap to not include any keys
+                        this.size.set(0);
+                        // Reset allocator so we get a fresh buffer for the new EntryMemTable
+                        this.allocator = new SkipListArena(conf);
+                        success = true;
+                    }
                 }
+            } finally {
+                this.lock.writeLock().unlock();
             }
-        } finally {
-            this.lock.writeLock().unlock();
         }
         return success;
     }
@@ -138,21 +140,27 @@ public class EntryMemTable {
      * Flush snapshot and clear it
      * @param force all data to be flushed (incl' current)
      */
-    void flush(final SkipListFlusher flusher, boolean force) throws IOException {
+    synchronized public long flush(final SkipListFlusher flusher, boolean force)
+            throws IOException {
+        // No lock is required as only this function change non-empty this.snapshot
         EntrySkipList keyValues = this.snapshot;
+        long size = 0;
         if (!keyValues.isEmpty()) {
             for (EntryKey key : keyValues.keySet()) {
                 EntryKeyValue kv = (EntryKeyValue)key;
-                flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getAsByteBuffer());
+                size += kv.getLength();
+                flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getValueAsByteBuffer());
             }
+            Logger.info("skip list flushed " + size + " bytes");
             clearSnapshot(keyValues);
         }
 
         if (force) {
             if (snapshot()) {
-                flush(flusher, false);
+                size += flush(flusher, false);
             }
         }
+        return size;
     }
 
     /**
@@ -160,7 +168,8 @@ public class EntryMemTable {
     * @param keyValues The snapshot to clean out.
     * @see {@link #snapshot()}
     */
-    void clearSnapshot(final EntrySkipList keyValues) {
+    private void clearSnapshot(final EntrySkipList keyValues) {
+        // Caller makes sure that keyValues not empty
         assert !keyValues.isEmpty();
         this.lock.writeLock().lock();
         try {
@@ -177,7 +186,8 @@ public class EntryMemTable {
     * @param entry
     * @return approximate size of the passed key and value.
     */
-    long add(long ledgerId, long entryId, final ByteBuffer entry, final CacheCallback cb) throws IOException {
+    public long addEntry(long ledgerId, long entryId, final ByteBuffer entry, final CacheCallback cb)
+            throws IOException {
         if (isSizeLimitReached()) {
             if (snapshot()) {
                 cb.onSizeLimitReached();
@@ -264,6 +274,33 @@ public class EntryMemTable {
         }
 
         return value;
+    }
+
+    /**
+     * Find the last entry with the given ledger key
+     * @param ledgerId
+     * @return the entry kv or null if none found.
+     */
+    public EntryKeyValue getLastEntry(long ledgerId) throws IOException {
+        EntryKey result = null;
+        EntryKey key = new EntryKey(ledgerId, Long.MAX_VALUE);
+        this.lock.readLock().lock();
+        try {
+            long startTimeMillis = MathUtils.now();
+            result = this.kvmap.floorKey(key);
+            if (result == null || result.getLedgerId() != ledgerId) {
+                result = this.snapshot.floorKey(key);
+            }
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+        } finally {
+            this.lock.readLock().unlock();
+        }
+
+        if (result == null || result.getLedgerId() != ledgerId) {
+            return null;
+        }
+        return (EntryKeyValue)result;
     }
 
     /**

@@ -525,9 +525,10 @@ public class LedgerHandle {
         } catch (Exception e) {
             bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
             bkSharedSem.release(BKSharedOp.ADD_OP);
-            if (e instanceof BKException.BKLedgerClosedException) {
-                LOG.warn("Attempt to add to closed ledger: " + ledgerId);
-                cb.addComplete(BKException.Code.LedgerClosedException,
+            if (e instanceof BKException) {
+                BKException bkException = (BKException)e;
+                LOG.warn("Failed to add to ledger " + ledgerId + ": " + bkException.getMessage());
+                cb.addComplete(bkException.getCode(),
                             LedgerHandle.this, INVALID_ENTRY_ID, ctx);
             } else {
                 // TODO: BookieHandleNotAvailableException is probably incorrect

@@ -107,12 +107,13 @@ public class Bookie extends BookieThread implements CacheCallback {
 
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
 
-    // Uses hard-coded # of sync requests for now (512 * skip-list-limits memory usage)
-    LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>(512);
+    LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
 
     @Override
     public void onSizeLimitReached() throws IOException {
-        syncRequests.offer(Boolean.TRUE);
+        if (!shuttingdown) {
+            syncRequests.offer(Boolean.TRUE);
+        }
     }
 
     public static class NoLedgerException extends IOException {
@@ -190,18 +191,13 @@ public class Bookie extends BookieThread implements CacheCallback {
         }
         @Override
         public void run() {
-            Boolean flushRequired = null;
             while(running) {
                 synchronized(this) {
                     try {
-                        flushRequired = syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
-                        ledgerStorage.prepare(flushRequired == null);
+                        syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
                         if (!ledgerStorage.isFlushRequired()) {
                             continue;
                         }
-                    } catch (IOException e) {
-                        LOG.error("Exception flushing Ledger", e);
-                        continue;
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         continue;
@@ -441,6 +437,9 @@ public class Bookie extends BookieThread implements CacheCallback {
                 }
             }
         });
+
+        // Flush skip list
+        ledgerStorage.prepare(true);
     }
 
     synchronized public void start() {

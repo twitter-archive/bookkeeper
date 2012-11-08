@@ -249,9 +249,9 @@ public class EntryLogger {
             }
         } while (newLogFile == null);
 
-        logChannel = new BufferedChannel(new RandomAccessFile(newLogFile, "rw").getChannel(),
+        FileChannel channel = new RandomAccessFile(newLogFile, "rw").getChannel();
+        logChannel = new BufferedChannel(channel,
                 serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes());
-
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
         for(File f: dirs) {
             setLastLogId(f, logId);
@@ -368,13 +368,14 @@ public class EntryLogger {
             createNewLog();
         }
 
+        // Write length of entry first
         ByteBuffer buff = ByteBuffer.allocate(4);
         buff.putInt(entry.remaining());
         buff.flip();
         logChannel.write(buff);
-        long pos = logChannel.position();
-        logChannel.write(entry);
 
+        long pos =  logChannel.position();
+        logChannel.write(entry);
         return (logId << 32L) | pos;
     }
 

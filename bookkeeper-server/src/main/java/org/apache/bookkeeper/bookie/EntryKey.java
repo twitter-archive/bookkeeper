@@ -21,8 +21,6 @@ package org.apache.bookkeeper.bookie;
 
 import java.util.Comparator;
 
-import com.google.common.primitives.Longs;
-
 public class EntryKey {
     long ledgerId;
     long entryId;
@@ -56,13 +54,13 @@ public class EntryKey {
           return false;
         }
         EntryKey key = (EntryKey)other;
-        return Longs.compare(ledgerId, key.ledgerId) == 0 &&
-            Longs.compare(entryId, key.entryId) == 0;
+        return ledgerId == key.ledgerId &&
+            entryId == key.entryId;
     }
 
     @Override
     public int hashCode() {
-        return Longs.hashCode(ledgerId) * 13 ^ Longs.hashCode(entryId) * 17;
+        return (int)(ledgerId * 13 ^ entryId * 17);
     }
 }
 
@@ -72,9 +70,10 @@ public class EntryKey {
 class KeyComparator implements Comparator<EntryKey> {
     @Override
     public int compare(EntryKey left, EntryKey right) {
-        int ret = Longs.compare(left.ledgerId, right.ledgerId);
-        if (ret == 0)
-            ret = Longs.compare(left.entryId, right.entryId);
-        return ret;
+        long ret = left.ledgerId - right.ledgerId;
+        if (ret == 0) {
+            ret = left.entryId - right.entryId;
+        }
+        return (ret != 0)? ((ret > 0)? 1 : -1) : 0;
     }
 }

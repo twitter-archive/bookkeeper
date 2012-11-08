@@ -235,11 +235,9 @@ public class LedgerCacheImpl implements LedgerCache {
         if (lep == null) {
             lep = grabLedgerEntryPage(ledger, pageEntry);
         }
-        if (lep != null) {
-            lep.setOffset(offset, offsetInPage*8);
-            lep.releasePage();
-            return;
-        }
+        assert lep != null;
+        lep.setOffset(offset, offsetInPage*8);
+        lep.releasePage();
     }
 
     @Override

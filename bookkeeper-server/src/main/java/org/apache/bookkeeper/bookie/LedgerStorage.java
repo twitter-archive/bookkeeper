@@ -30,7 +30,7 @@ import org.apache.bookkeeper.jmx.BKMBeanInfo;
  * Interface for storing ledger data
  * on persistant storage.
  */
-interface LedgerStorage extends SkipListFlusher {
+interface LedgerStorage {
     /**
      * Start any background threads
      * belonging to the storage system. For example,

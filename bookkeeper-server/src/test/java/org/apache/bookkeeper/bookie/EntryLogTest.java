@@ -254,8 +254,8 @@ public class EntryLogTest extends TestCase {
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
         RandomAccessFile raf = new RandomAccessFile(f, "rw");
-        // TODO: Change this after making chunk sizes dynamic.
-        raf.setLength(raf.length()-conf.getWriteChunkMinBytes()+10);
+        long lenNew = raf.length() - 10;
+        raf.setLength(lenNew);
         raf.close();
         // now see which ledgers are in the log
         logger = new EntryLogger(conf);
