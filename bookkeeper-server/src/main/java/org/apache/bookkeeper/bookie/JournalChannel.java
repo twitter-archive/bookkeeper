@@ -53,14 +53,21 @@ class JournalChannel implements Closeable {
     int MIN_COMPAT_JOURNAL_FORMAT_VERSION = 1;
     int CURRENT_JOURNAL_FORMAT_VERSION = 3;
 
-    public final static long preAllocSize = 4*1024*1024;
+    private long preAllocSize;
     public final static ByteBuffer zeros = ByteBuffer.allocate(512);
 
+    // Mostly used by tests
     JournalChannel(File journalDirectory, long logId) throws IOException {
-        this(journalDirectory, logId, START_OF_FILE);
+        this(journalDirectory, logId, 4*1024*1024, 65536, START_OF_FILE);
     }
 
-    JournalChannel(File journalDirectory, long logId, long position) throws IOException {
+    JournalChannel(File journalDirectory, long logId, long preAllocSize, int writeBufferSize) throws IOException {
+        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE);
+    }
+
+    JournalChannel(File journalDirectory, long logId,
+                   long preAllocSize, int writeBufferSize, long position) throws IOException {
+        this.preAllocSize = preAllocSize;
         File fn = new File(journalDirectory, Long.toHexString(logId) + ".txn");
 
         LOG.info("Opening journal {}", fn);
@@ -75,7 +82,7 @@ class JournalChannel implements Closeable {
             fc.write(bb);
             fc.force(true);
 
-            bc = new BufferedChannel(fc, 65536);
+            bc = new BufferedChannel(fc, writeBufferSize);
 
             nextPrealloc = preAllocSize;
             fc.write(zeros, nextPrealloc);

@@ -77,11 +77,9 @@ public class BufferedChannel extends BufferedReadChannel {
             copied += src.remaining();
             writeBuffer.put(src);
             src.limit(src.limit()+truncated);
+            // if we have run out of buffer space, we should flush to the file
             if (writeBuffer.remaining() == 0) {
-                writeBuffer.flip();
-                fileChannel.write(writeBuffer);
-                writeBuffer.clear();
-                writeBufferStartPosition = fileChannel.position();
+                flushInternal();
             }
         }
         position += copied;
@@ -107,19 +105,28 @@ public class BufferedChannel extends BufferedReadChannel {
     /**
      * Write any data in the buffer to the file. If sync is set to true, force a sync operation so that
      * data is persisted to the disk.
-     * @param sync
+     * @param shouldForceWrite
      * @throws IOException if the write or sync operation fails.
      */
     public void flush(boolean shouldForceWrite) throws IOException {
         synchronized(this) {
-            writeBuffer.flip();
-            fileChannel.write(writeBuffer);
-            writeBuffer.clear();
-            writeBufferStartPosition = fileChannel.position();
+            flushInternal();
         }
         if (shouldForceWrite) {
             forceWrite();
         }
+    }
+
+    /**
+     * Write any data in the buffer to the file and advance the writeBufferPosition
+     * Callers are expected to synchronize appropriately
+     * @throws IOException if the write fails.
+     */
+    private void flushInternal() throws IOException {
+        writeBuffer.flip();
+        fileChannel.write(writeBuffer);
+        writeBuffer.clear();
+        writeBufferStartPosition = fileChannel.position();
     }
 
     public void forceWrite() throws IOException {
