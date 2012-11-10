@@ -66,7 +66,7 @@ public class BufferedChannel extends BufferedReadChannel {
      * @param src The source ByteBuffer which contains the data to be written.
      * @throws IOException if a write operation fails.
      */
-    synchronized public void write(ByteBuffer src) throws java.io.IOException {
+    synchronized public void write(ByteBuffer src) throws IOException {
         int copied = 0;
         while(src.remaining() > 0) {
             int truncated = 0;

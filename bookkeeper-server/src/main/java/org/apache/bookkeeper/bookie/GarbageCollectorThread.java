@@ -74,6 +74,8 @@ public class GarbageCollectorThread extends Thread {
     // Ledger Cache Handle
     final LedgerCache ledgerCache;
 
+    final LedgerStorage storage;
+
     final ActiveLedgerManager activeLedgerManager;
 
     // flag to ensure gc thread will not be interrupted during compaction
@@ -118,6 +120,7 @@ public class GarbageCollectorThread extends Thread {
     public GarbageCollectorThread(ServerConfiguration conf,
                                   LedgerCache ledgerCache,
                                   EntryLogger entryLogger,
+                                  LedgerStorage storage,
                                   ActiveLedgerManager activeLedgerManager,
                                   EntryLogScanner scanner)
         throws IOException {
@@ -125,6 +128,7 @@ public class GarbageCollectorThread extends Thread {
 
         this.ledgerCache = ledgerCache;
         this.entryLogger = entryLogger;
+        this.storage = storage;
         this.activeLedgerManager = activeLedgerManager;
         this.scanner = scanner;
 
@@ -292,7 +296,8 @@ public class GarbageCollectorThread extends Thread {
                 }
             }
         };
-        List<EntryLogMetadata> logsToCompact = new ArrayList<EntryLogMetadata>();
+        List<EntryLogMetadata> logsToCompact = new ArrayList<EntryLogMetadata>(entryLogMetaMap.size());
+        List<EntryLogMetadata> logsToRemove = new ArrayList<EntryLogMetadata>();
         logsToCompact.addAll(entryLogMetaMap.values());
         Collections.sort(logsToCompact, sizeComparator);
         for (EntryLogMetadata meta : logsToCompact) {
@@ -303,9 +308,34 @@ public class GarbageCollectorThread extends Thread {
                 LOG.debug("Compacting entry log " + meta.entryLogId + " below threshold "
                         + threshold + ".");
             }
-            compactEntryLog(meta.entryLogId);
+            if (compactEntryLog(meta.entryLogId)) {
+                // schedule entry log to be removed after moving entries
+                logsToRemove.add(meta);
+            }
             if (!running) { // if gc thread is not running, stop compaction
                 return;
+            }
+        }
+
+        if (logsToRemove.size() != 0) {
+            // Mark compacting flag to make sure it would not be interrupted
+            // by shutdown during entry logs removal.
+            if (!compacting.compareAndSet(false, true)) {
+                // set compacting flag failed, means compacting is true now
+                // indicates another thread wants to interrupt gc thread to exit
+                return;
+            }
+
+            // after persistence of new entry logs, remove old ones
+            try {
+                storage.prepare(true);
+                storage.flush();
+                for (EntryLogMetadata meta : logsToRemove)
+                    removeEntryLog(meta.entryLogId);
+            } catch (IOException e) {
+                LOG.info("Exception when flushing cache and removing entry logs", e);
+            } finally {
+                compacting.set(false);
             }
         }
     }
@@ -344,11 +374,12 @@ public class GarbageCollectorThread extends Thread {
      * @param entryLogId
      *          Entry Log File Id
      */
-    protected void compactEntryLog(long entryLogId) {
+    protected boolean compactEntryLog(long entryLogId) {
         EntryLogMetadata entryLogMeta = entryLogMetaMap.get(entryLogId);
+        boolean success = false;
         if (null == entryLogMeta) {
             LOG.warn("Can't get entry log meta when compacting entry log " + entryLogId + ".");
-            return;
+            return success;
         }
 
         // Similar with Sync Thread
@@ -359,21 +390,22 @@ public class GarbageCollectorThread extends Thread {
         if (!compacting.compareAndSet(false, true)) {
             // set compacting flag failed, means compacting is true now
             // indicates another thread wants to interrupt gc thread to exit
-            return;
+            return success;
         }
 
         LOG.info("Compacting entry log : " + entryLogId);
 
         try {
             entryLogger.scanEntryLog(entryLogId, new CompactionScanner(entryLogMeta));
-            // after moving entries to new entry log, remove this old one
-            removeEntryLog(entryLogId);
+            success = true;
         } catch (IOException e) {
             LOG.info("Premature exception when compacting " + entryLogId, e);
         } finally {
             // clear compacting flag
             compacting.set(false);
         }
+
+        return success;
     }
 
     /**

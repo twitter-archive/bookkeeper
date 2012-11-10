@@ -713,7 +713,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public void validate() throws ConfigurationException {
         if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
-            throw new ConfigurationException("Arena max allocation size should be larger than the chunk size.");
+            throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
     }
 
