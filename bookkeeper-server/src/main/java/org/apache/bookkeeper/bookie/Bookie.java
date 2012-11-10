@@ -67,7 +67,7 @@ import org.apache.zookeeper.Watcher.Event.EventType;
  *
  */
 
-public class Bookie extends BookieThread implements CacheCallback {
+public class Bookie extends BookieThread {
     public static final String INSTANCEID = "INSTANCEID";
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
@@ -106,15 +106,6 @@ public class Bookie extends BookieThread implements CacheCallback {
     BKMBeanInfo jmxLedgerStorageBean;
 
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
-
-    LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
-
-    @Override
-    public void onSizeLimitReached() throws IOException {
-        if (!shuttingdown) {
-            syncRequests.offer(Boolean.TRUE);
-        }
-    }
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -176,12 +167,22 @@ public class Bookie extends BookieThread implements CacheCallback {
      * number of old journal files which may be used for manual recovery in critical disaster.
      * </p>
      */
-    class SyncThread extends BookieThread {
+    class SyncThread extends BookieThread implements CacheCallback {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);
         // make flush interval as a parameter
         final int flushInterval;
+
+        LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
+
+        @Override
+        public void onSizeLimitReached() throws IOException {
+            if (running) {
+                syncRequests.offer(Boolean.TRUE);
+            }
+        }
+
         public SyncThread(ServerConfiguration conf) {
             super("SyncThread");
             flushInterval = conf.getFlushInterval();
@@ -394,7 +395,7 @@ public class Bookie extends BookieThread implements CacheCallback {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, this);
+        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread);
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
         journal = new Journal(conf);

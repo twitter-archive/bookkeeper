@@ -80,7 +80,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         memTable = new EntryMemTable(conf);
         scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
         cacheCallback = cb;
-        gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger,
+        gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
                 activeLedgerManager, new EntryLogCompactionScanner());
         isSkipListEnabled = conf.getSkipListUsageEnabled();
     }
@@ -96,8 +96,8 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         // also compaction will write entries again to entry log file
         gcThread.shutdown();
         try {
-            prepare(true);
             scheduler.shutdown();
+            prepare(true);
         } catch (Exception e) {
             LOG.error("Error while flushing the skip lists", e);
         }
@@ -219,7 +219,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
     };
 
     @Override
-    public void flush() throws IOException {
+    synchronized public void flush() throws IOException {
         if (!somethingWritten) {
             return;
         }
@@ -263,10 +263,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         @Override
         public void process(long ledgerId, long offset, ByteBuffer buffer)
             throws IOException {
-            buffer.getLong();   // Skip ledger id
-            long entryId = buffer.getLong();
-            buffer.rewind();
-            processEntry(ledgerId, entryId, buffer);
+            addEntry(buffer);
         }
     }
 
@@ -275,7 +272,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         /*
          * Log the entry
          */
-        long pos = entryLogger.addEntry(ledgerId, entry);
+        long pos = entryLogger.addEntry(entry);
 
         /*
          * Set offset of entry id to be the current ledger position

@@ -360,7 +360,7 @@ public class EntryLogger {
             logChannel.flush(true);
         }
     }
-    synchronized long addEntry(long ledger, ByteBuffer entry) throws IOException {
+    synchronized long addEntry(ByteBuffer entry) throws IOException {
         // There is some slack above the configured log size limit because of the
         // way we allocate chunks. Only create a new log if we have moved past
         // the max size limit.
