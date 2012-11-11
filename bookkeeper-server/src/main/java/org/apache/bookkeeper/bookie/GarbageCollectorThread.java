@@ -330,8 +330,9 @@ public class GarbageCollectorThread extends Thread {
             try {
                 storage.prepare(true);
                 storage.flush();
-                for (EntryLogMetadata meta : logsToRemove)
+                for (EntryLogMetadata meta : logsToRemove) {
                     removeEntryLog(meta.entryLogId);
+                }
             } catch (IOException e) {
                 LOG.info("Exception when flushing cache and removing entry logs", e);
             } finally {

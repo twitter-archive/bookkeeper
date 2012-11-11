@@ -95,12 +95,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         // shut down gc thread, which depends on zookeeper client
         // also compaction will write entries again to entry log file
         gcThread.shutdown();
-        try {
-            scheduler.shutdown();
-            prepare(true);
-        } catch (Exception e) {
-            LOG.error("Error while flushing the skip lists", e);
-        }
+        scheduler.shutdown();
         entryLogger.shutdown();
         try {
             ledgerCache.close();

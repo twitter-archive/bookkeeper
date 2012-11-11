@@ -230,7 +230,9 @@ public class Bookie extends BookieThread {
                 // have some ledgers are not flushed and their journal entries were lost
                 if (!flushFailed) {
                     journal.rollLog();
-                    journal.gcJournals();
+                    if (running) {
+                        journal.gcJournals();
+                    }
                 }
 
                 // clear flushing flag
@@ -241,7 +243,10 @@ public class Bookie extends BookieThread {
         // shutdown sync thread
         void shutdown() throws InterruptedException {
             running = false;
-            if (flushing.compareAndSet(false, true)) {
+            if (ledgerStorage.isFlushRequired()) {
+                // Offer queue item to wake up Sync thread
+                syncRequests.offer(Boolean.FALSE);
+            } else if (flushing.compareAndSet(false, true)) {
                 // if setting flushing flag succeed, means syncThread is not flushing now
                 // it is safe to interrupt itself now
                 this.interrupt();
@@ -681,10 +686,20 @@ public class Bookie extends BookieThread {
 
                 // Shutdown the ZK client
                 if(zk != null) zk.close();
+
+                // Flush cache
+                try {
+                    ledgerStorage.prepare(true);
+                } catch (IOException e) {
+                    LOG.error("Error while flushing cache", e);
+                }
+
+                // Shutdown Sync thread
+                syncThread.shutdown();
+
                 // Shutdown journal
                 journal.shutdown();
                 this.join();
-                syncThread.shutdown();
 
                 // Shutdown the EntryLogger which has the GarbageCollector Thread running
                 ledgerStorage.shutdown();

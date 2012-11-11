@@ -109,6 +109,6 @@ public class EntryKeyValue extends EntryKey {
     * String representation
     */
     public String toString() {
-        return Long.toString(ledgerId) + ":" + Long.toString(entryId);
+        return ledgerId + ":" + entryId;
     }
 }
