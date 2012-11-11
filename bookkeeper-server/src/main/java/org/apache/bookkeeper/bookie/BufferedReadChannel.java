@@ -29,6 +29,8 @@ import java.nio.channels.FileChannel;
 import java.lang.Math;
 
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,15 +98,12 @@ public class BufferedReadChannel extends BufferedChannelBase {
         readBuffer.limit(0);
     }
 
-    private boolean randomSample (int percent)
-    {
-        return (Math.random()*100 < percent);
-    }
-
     protected void finalize () {
-        // To avoid too much logging lets do it only 10% of the times
-        if (randomSample(10)) {
-            LOG.info("Buffer Cache Hit Rate: #invocations:" + invocationCount + " #readCacheHits:" + cacheHitCount);
-        }
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.BUFFERED_READER_NUM_READ_REQUESTS)
+            .add(invocationCount);
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.BUFFERED_READER_NUM_READ_CACHE_HITS)
+            .add(cacheHitCount);
     }
 }
