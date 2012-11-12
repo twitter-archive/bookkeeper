@@ -27,6 +27,7 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.BufferUnderflowException;
 import java.nio.channels.FileChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +66,7 @@ class FileInfo {
 
     static final long START_OF_DATA = 1024;
     private long size;
-    private int useCount;
+    private AtomicInteger useCount = new AtomicInteger(0);
     private boolean isClosed;
 
     // file access mode
@@ -196,7 +197,7 @@ class FileInfo {
     synchronized public void close(boolean force) throws IOException {
         isClosed = true;
         checkOpen(force);
-        if (useCount == 0 && fc != null) {
+        if (useCount.get() == 0 && fc != null) {
             fc.close();
         }
     }
@@ -228,13 +229,12 @@ class FileInfo {
         return masterKey;
     }
 
-    synchronized public void use() {
-        useCount++;
+    public void use() {
+        useCount.incrementAndGet();
     }
 
     synchronized public void release() {
-        useCount--;
-        if (isClosed && useCount == 0 && fc != null) {
+        if (isClosed && (useCount.decrementAndGet() == 0) && fc != null) {
             try {
                 fc.close();
             } catch (IOException e) {
