@@ -74,9 +74,12 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
-
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
-    protected final static String WRITE_CHUNK_MIN_SIZE = "writeChunkMinSizeBytes";
+
+    protected final static String SKIP_LIST_USAGE_ENABLED = "skipListUsageEnabled";
+    protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
+    protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
+    protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
 
     /**
      * Construct a default configuration object
@@ -657,15 +660,51 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
-     * Get the minimum size of a chunk used by the reordered write buffered channel. Default is 2KB
-     * @return
+     * Set skip list usage enabled or not
+     *
+     * @param enabled
      */
-    public int getWriteChunkMinBytes() {
-        return getInt(WRITE_CHUNK_MIN_SIZE, 2048);
+    public ServerConfiguration setSkipListUsageEnabled(boolean enabled) {
+        this.setProperty(SKIP_LIST_USAGE_ENABLED, enabled);
+        return this;
     }
 
-    public void setWriteChunkMinBytes(int minChunkSize) {
-        setProperty(WRITE_CHUNK_MIN_SIZE, minChunkSize);
+    /**
+     * Check if skip list usage enabled (default true)
+     *
+     * @return
+     */
+    public boolean getSkipListUsageEnabled() {
+        return this.getBoolean(SKIP_LIST_USAGE_ENABLED, true);
+    }
+
+    /**
+     * Get skip list data size limitation (default 32MB)
+     *
+     * @return skip list data size limitation
+     */
+    public long getSkipListSizeLimit() {
+        return this.getLong(SKIP_LIST_SIZE_LIMIT, 32 * 1024 * 1024L);
+    }
+
+    /**
+     * Get the number of bytes we should use as chunk allocation for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 2 MB
+     * @return
+     */
+    public int getSkipListArenaChunkSize() {
+        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 2096 * 1024);
+    }
+
+    /**
+     * Get the max size we should delegate memory allocation to VM for the {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}
+     * Default is 128 KB
+     * @return
+     */
+    public int getSkipListArenaMaxAllocSize() {
+        return getInt(SKIP_LIST_MAX_ALLOC_ENTRY, 128 * 1024);
     }
 
     /**
@@ -673,9 +712,8 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @throws ConfigurationException
      */
     public void validate() throws ConfigurationException {
-        if (getWriteChunkMinBytes() > getWriteBufferBytes()) {
-            throw new ConfigurationException("Write buffer should be larger than the minimum" +
-                    "chunk size.");
+        if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
+            throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
     }
 
@@ -703,6 +741,6 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @return max wait for grouping
      */
     public long getJournalBufferedWritesThreshold() {
-        return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512*1024);
+        return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512 * 1024);
     }
 }

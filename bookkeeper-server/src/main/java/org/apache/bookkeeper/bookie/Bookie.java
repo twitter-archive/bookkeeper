@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -166,12 +167,22 @@ public class Bookie extends BookieThread {
      * number of old journal files which may be used for manual recovery in critical disaster.
      * </p>
      */
-    class SyncThread extends BookieThread {
+    class SyncThread extends BookieThread implements CacheCallback {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);
         // make flush interval as a parameter
         final int flushInterval;
+
+        LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
+
+        @Override
+        public void onSizeLimitReached() throws IOException {
+            if (running) {
+                syncRequests.offer(Boolean.TRUE);
+            }
+        }
+
         public SyncThread(ServerConfiguration conf) {
             super("SyncThread");
             flushInterval = conf.getFlushInterval();
@@ -184,7 +195,7 @@ public class Bookie extends BookieThread {
             while(running) {
                 synchronized(this) {
                     try {
-                        wait(flushInterval);
+                        syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
                         if (!ledgerStorage.isFlushRequired()) {
                             continue;
                         }
@@ -219,7 +230,9 @@ public class Bookie extends BookieThread {
                 // have some ledgers are not flushed and their journal entries were lost
                 if (!flushFailed) {
                     journal.rollLog();
-                    journal.gcJournals();
+                    if (running) {
+                        journal.gcJournals();
+                    }
                 }
 
                 // clear flushing flag
@@ -230,7 +243,10 @@ public class Bookie extends BookieThread {
         // shutdown sync thread
         void shutdown() throws InterruptedException {
             running = false;
-            if (flushing.compareAndSet(false, true)) {
+            if (ledgerStorage.isFlushRequired()) {
+                // Offer queue item to wake up Sync thread
+                syncRequests.offer(Boolean.FALSE);
+            } else if (flushing.compareAndSet(false, true)) {
                 // if setting flushing flag succeed, means syncThread is not flushing now
                 // it is safe to interrupt itself now
                 this.interrupt();
@@ -384,7 +400,7 @@ public class Bookie extends BookieThread {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager);
+        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread);
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
         journal = new Journal(conf);
@@ -427,6 +443,9 @@ public class Bookie extends BookieThread {
                 }
             }
         });
+
+        // Flush skip list
+        ledgerStorage.prepare(true);
     }
 
     synchronized public void start() {
@@ -667,10 +686,20 @@ public class Bookie extends BookieThread {
 
                 // Shutdown the ZK client
                 if(zk != null) zk.close();
+
+                // Flush cache
+                try {
+                    ledgerStorage.prepare(true);
+                } catch (IOException e) {
+                    LOG.error("Error while flushing cache", e);
+                }
+
+                // Shutdown Sync thread
+                syncThread.shutdown();
+
                 // Shutdown journal
                 journal.shutdown();
                 this.join();
-                syncThread.shutdown();
 
                 // Shutdown the EntryLogger which has the GarbageCollector Thread running
                 ledgerStorage.shutdown();

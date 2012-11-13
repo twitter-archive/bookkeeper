@@ -73,6 +73,12 @@ interface LedgerStorage {
     ByteBuffer getEntry(long ledgerId, long entryId) throws IOException;
 
     /**
+     * Prepares data for flush
+     * @param force fresh data to be flushed as well
+     */
+    void prepare(boolean force) throws IOException;
+
+    /**
      * Whether there is data in the storage which needs to be flushed
      */
     boolean isFlushRequired();
@@ -80,7 +86,7 @@ interface LedgerStorage {
     /**
      * Flushes all data in the storage. Once this is called,
      * add data written to the LedgerStorage up until this point
-     * has been persisted to perminant storage
+     * has been persisted to permanent storage
      */
     void flush() throws IOException;
 

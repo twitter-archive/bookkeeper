@@ -247,15 +247,15 @@ public class EntryLogTest extends TestCase {
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
         // create some entries
         EntryLogger logger = new EntryLogger(conf);
-        logger.addEntry(1, generateEntry(1, 1));
-        logger.addEntry(3, generateEntry(3, 1));
-        logger.addEntry(2, generateEntry(2, 1));
+        logger.addEntry(generateEntry(1, 1));
+        logger.addEntry(generateEntry(3, 1));
+        logger.addEntry(generateEntry(2, 1));
         logger.flush();
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
         RandomAccessFile raf = new RandomAccessFile(f, "rw");
-        // TODO: Change this after making chunk sizes dynamic.
-        raf.setLength(raf.length()-conf.getWriteChunkMinBytes()+10);
+        long lenNew = raf.length() - 10;
+        raf.setLength(lenNew);
         raf.close();
         // now see which ledgers are in the log
         logger = new EntryLogger(conf);
@@ -303,7 +303,7 @@ public class EntryLogTest extends TestCase {
 
             EntryLogger logger = new EntryLogger(conf);
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
+                positions[i][j] = logger.addEntry(generateEntry(i, j));
             }
             logger.flush();
         }
@@ -317,7 +317,7 @@ public class EntryLogTest extends TestCase {
 
             EntryLogger logger = new EntryLogger(conf);
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
+                positions[i][j] = logger.addEntry(generateEntry(i, j));
             }
             logger.flush();
         }

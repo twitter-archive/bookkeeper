@@ -24,35 +24,20 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-import org.apache.bookkeeper.conf.ServerConfiguration;
-
 /**
- * Read Only Entry Logger
+ * Flush entries from skip list
  */
-public class ReadOnlyEntryLogger extends EntryLogger {
-
-    public ReadOnlyEntryLogger(ServerConfiguration conf) throws IOException {
-        super(conf);
-    }
-
-    @Override
-    protected void initialize() throws IOException {
-        // do nothing for read only entry logger
-    }
-
-    @Override
-    void createNewLog() throws IOException {
-        throw new IOException("Can't create new entry log using a readonly entry logger.");
-    }
-
-    @Override
-    protected boolean removeEntryLog(long entryLogId) {
-        // can't remove entry log in readonly mode
-        return false;
-    }
-
-    @Override
-    synchronized long addEntry(ByteBuffer entry) throws IOException {
-        throw new IOException("Can't add entry to a readonly entry logger.");
-    }
+public interface SkipListFlusher {
+    /**
+     * Process an entry.
+     *
+     * @param ledgerId
+     *          Ledger ID.
+     * @param entryId
+     *          The entry id this entry.
+     * @param entry
+     *          Entry ByteBuffer
+     * @throws IOException
+     */
+    public void process(long ledgerId, long entryId, ByteBuffer entry) throws IOException;
 }

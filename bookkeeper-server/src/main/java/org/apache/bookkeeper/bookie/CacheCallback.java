@@ -22,37 +22,13 @@
 package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-
-import org.apache.bookkeeper.conf.ServerConfiguration;
 
 /**
- * Read Only Entry Logger
+ * Interface plugged into caching to receive callback notifications
  */
-public class ReadOnlyEntryLogger extends EntryLogger {
-
-    public ReadOnlyEntryLogger(ServerConfiguration conf) throws IOException {
-        super(conf);
-    }
-
-    @Override
-    protected void initialize() throws IOException {
-        // do nothing for read only entry logger
-    }
-
-    @Override
-    void createNewLog() throws IOException {
-        throw new IOException("Can't create new entry log using a readonly entry logger.");
-    }
-
-    @Override
-    protected boolean removeEntryLog(long entryLogId) {
-        // can't remove entry log in readonly mode
-        return false;
-    }
-
-    @Override
-    synchronized long addEntry(ByteBuffer entry) throws IOException {
-        throw new IOException("Can't add entry to a readonly entry logger.");
-    }
+public interface CacheCallback {
+    /**
+     * Process notification that cache size limit reached
+     */
+    public void onSizeLimitReached() throws IOException;
 }
