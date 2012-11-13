@@ -32,6 +32,7 @@ import org.apache.bookkeeper.proto.BookieProtocol;
  * (entrylogfile, offset) for entry ids.
  */
 public class LedgerEntryPage {
+    private final static int indexEntrySize = 8;
     private final int pageSize;
     private final int entriesPerPage;
     volatile private long ledger = -1;
@@ -41,6 +42,10 @@ public class LedgerEntryPage {
     volatile private boolean pinned = false;
     private final AtomicInteger useCount = new AtomicInteger();
     volatile private int version;
+
+    public static int getIndexEntrySize() {
+        return indexEntrySize;
+    }
 
     public LedgerEntryPage(int pageSize, int entriesPerPage) {
         this.pageSize = pageSize;
@@ -120,8 +125,8 @@ public class LedgerEntryPage {
         checkPage();
         page.clear();
         while(page.remaining() != 0) {
-            if (fi.read(page, getFirstEntry()*8) <= 0) {
-                throw new IOException("Short page read of ledger " + getLedger() + " tried to get " + page.capacity() + " from position " + getFirstEntry()*8 + " still need " + page.remaining());
+            if (fi.read(page, getFirstEntryPosition()) <= 0) {
+                throw new IOException("Short page read of ledger " + getLedger() + " tried to get " + page.capacity() + " from position " + getFirstEntryPosition() + " still need " + page.remaining());
             }
         }
         clean = true;
@@ -149,12 +154,18 @@ public class LedgerEntryPage {
     long getFirstEntry() {
         return firstEntry;
     }
+    long getMaxPossibleEntry() {
+        return firstEntry+entriesPerPage;
+    }
+    long getFirstEntryPosition() {
+        return firstEntry*indexEntrySize;
+    }
     public boolean inUse() {
         return useCount.get() > 0;
     }
     public long getLastEntry() {
         for(int i = entriesPerPage - 1; i >= 0; i--) {
-            if (getOffset(i*8) > 0) {
+            if (getOffset(i*indexEntrySize) > 0) {
                 return i + firstEntry;
             }
         }
