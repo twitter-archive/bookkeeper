@@ -39,11 +39,6 @@ public interface LedgerCacheMXBean {
     public int getOpenFileLimit();
 
     /**
-     * @return the limit number of pages
-     */
-    public int getPageLimit();
-
-    /**
      * @return number of clean ledgers
      */
     public int getNumCleanLedgers();
