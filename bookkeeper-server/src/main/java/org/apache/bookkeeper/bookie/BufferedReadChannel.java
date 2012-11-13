@@ -59,7 +59,7 @@ public class BufferedReadChannel extends BufferedChannelBase {
     /**
      * Read as many bytes into dest as dest.capacity() starting at position pos in the
      * FileChannel. This function can read from the buffer or the file channel
-     * depending on the implementation.
+     * depending on the implementation..
      * @param dest
      * @param pos
      * @return The total number of bytes read.
