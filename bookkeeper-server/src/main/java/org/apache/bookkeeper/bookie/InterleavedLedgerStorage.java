@@ -45,44 +45,24 @@ import org.slf4j.LoggerFactory;
  * This ledger storage implementation stores all entries in a single
  * file and maintains an index file for each ledger.
  */
-class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
+class InterleavedLedgerStorage implements LedgerStorage {
     final static Logger LOG = LoggerFactory.getLogger(InterleavedLedgerStorage.class);
 
-    private EntryLogger entryLogger;
-    private LedgerCache ledgerCache;
-    private EntryMemTable memTable;
-    private final ScheduledExecutorService scheduler;
-    private DaemonThreadFactory threadFactory = new DaemonThreadFactory();
-    private final CacheCallback cacheCallback;
-
+    protected EntryLogger entryLogger;
+    protected LedgerCache ledgerCache;
     // This is the thread that garbage collects the entry logs that do not
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
     final GarbageCollectorThread gcThread;
 
-    final private boolean isSkipListEnabled;
-
-    static class DaemonThreadFactory implements ThreadFactory {
-        public Thread newThread(Runnable r) {
-            Thread thread = new Thread(r);
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
-
     // this indicates that a write has happened since the last flush
     private volatile boolean somethingWritten = false;
 
-    InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                             final CacheCallback cb) throws IOException {
+    public InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager) throws IOException {
         entryLogger = new EntryLogger(conf);
         ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager);
-        memTable = new EntryMemTable(conf);
-        scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
-        cacheCallback = cb;
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
                 activeLedgerManager, new EntryLogCompactionScanner());
-        isSkipListEnabled = conf.getSkipListUsageEnabled();
     }
 
     @Override
@@ -95,7 +75,6 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         // shut down gc thread, which depends on zookeeper client
         // also compaction will write entries again to entry log file
         gcThread.shutdown();
-        scheduler.shutdown();
         entryLogger.shutdown();
         try {
             ledgerCache.close();
@@ -144,24 +123,16 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-
+        // TODO: Move this to the function calling addEntry
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                 BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
                 .add(entry.remaining());
-
-        if (isSkipListEnabled) {
-            memTable.addEntry(ledgerId, entryId, entry, this);
-        }
-        else {
-            processEntry(ledgerId, entryId, entry);
-        }
-
+        processEntry(ledgerId, entryId, entry);
         return entryId;
     }
 
     @Override
     public ByteBuffer getEntry(long ledgerId, long entryId) throws IOException {
-        EntryKeyValue kv = null;
 
         /*
          * If entryId is BookieProtocol.LAST_ADD_CONFIRMED, then return the last written.
