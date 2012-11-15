@@ -124,6 +124,11 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
         return buffToRet;
     }
 
+    @Override
+    public void prepare(boolean force) throws IOException {
+        memTable.flush(this, force);
+    }
+
     // SkipListFlusher functions.
     @Override
     public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
