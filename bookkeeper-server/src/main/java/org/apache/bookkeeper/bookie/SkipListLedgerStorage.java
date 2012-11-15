@@ -67,9 +67,15 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
 
     @Override
     public boolean ledgerExists(long ledgerId) throws IOException {
-        // If it exists in the skip list, return. Else query the ledger cache.
-        // TODO: check skiplist
-        return super.ledgerExists(ledgerId);
+        // Done this way because checking the skip list is an O(logN) operation compared to
+        // the O(1) for the ledgerCache.
+        if (!super.ledgerExists(ledgerId)) {
+            EntryKeyValue kv = memTable.getLastEntry(ledgerId);
+            if (null == kv) {
+                return super.ledgerExists(ledgerId);
+            }
+        }
+        return true;
     }
 
     @Override
@@ -77,10 +83,6 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-        // TODO: Move this to the function calling addEntry
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
-                .add(entry.remaining());
         memTable.addEntry(ledgerId, entryId, entry, this);
         return entryId;
     }
@@ -104,11 +106,44 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
         if (entryId == BookieProtocol.LAST_ADD_CONFIRMED) {
             return getLastEntryId(ledgerId);
         }
-        EntryKeyValue kv = memTable.getEntry(ledgerId, entryId);
-        if (null != kv) {
-            return kv.getValueAsByteBuffer();
+        ByteBuffer buffToRet = null;
+        try {
+            buffToRet = super.getEntry(ledgerId, entryId);
+        } catch (Bookie.NoEntryException e) {
+            // We caught a no entry exception here which means that the entry might exist in the skip list cache.
+            EntryKeyValue kv = memTable.getEntry(ledgerId, entryId);
+            if (null == kv) {
+                // The entry might have been flushed since we last checked, so query the ledger cache again.
+                // If the entry truly doesn't exist, then this will throw a NoEntryException
+                buffToRet = super.getEntry(ledgerId, entryId);
+            } else {
+                buffToRet = kv.getValueAsByteBuffer();
+            }
         }
-        // If it doesn't exist in the skip list, then query the cache+index.
-        return super.getEntry(ledgerId, entryId);
+        // buffToRet will not be null when we reach here.
+        return buffToRet;
+    }
+
+    // SkipListFlusher functions.
+    @Override
+    public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
+        processEntry(ledgerId, entryId, buffer);
+    }
+
+    // CacheCallback functions.
+    @Override
+    public void onSizeLimitReached() throws IOException {
+        scheduler.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (memTable.flush(SkipListLedgerStorage.this, false) != 0) {
+                        cacheCallback.onSizeLimitReached();
+                    }
+                } catch (IOException e) {
+                    LOG.error("IOException thrown while flushing skip list cache.", e);
+                }
+            }
+        });
     }
 }

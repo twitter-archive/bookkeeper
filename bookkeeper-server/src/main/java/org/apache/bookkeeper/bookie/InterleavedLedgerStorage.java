@@ -83,26 +83,6 @@ class InterleavedLedgerStorage implements LedgerStorage {
         }
     }
 
-    private void flushInternal() throws IOException {
-        if (memTable.flush(this, false) != 0) {
-            cacheCallback.onSizeLimitReached();
-        }
-    }
-
-    @Override
-    public void onSizeLimitReached() throws IOException {
-        scheduler.submit(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    flushInternal();
-                } catch (Exception e) {
-                    LOG.error("Exception thrown while flush cache: " + e);
-                }
-            }
-        });
-    }
-
     @Override
     public void setMasterKey(long ledgerId, byte[] masterKey) throws IOException {
         ledgerCache.setMasterKey(ledgerId, masterKey);
@@ -133,17 +113,10 @@ class InterleavedLedgerStorage implements LedgerStorage {
 
     @Override
     public ByteBuffer getEntry(long ledgerId, long entryId) throws IOException {
-
         /*
          * If entryId is BookieProtocol.LAST_ADD_CONFIRMED, then return the last written.
          */
         if (entryId == BookieProtocol.LAST_ADD_CONFIRMED) {
-            if (isSkipListEnabled) {
-                kv = memTable.getLastEntry(ledgerId);
-                if (kv != null) {
-                    return kv.getValueAsByteBuffer();
-                }
-            }
             entryId = ledgerCache.getLastEntry(ledgerId);
         }
 
@@ -153,15 +126,8 @@ class InterleavedLedgerStorage implements LedgerStorage {
                 .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
 
         if (offset == 0) {
-            if (isSkipListEnabled) {
-                kv = memTable.getEntry(ledgerId, entryId);
-                if (kv != null) {
-                    return kv.getValueAsByteBuffer();
-                }
-            }
             throw new Bookie.NoEntryException(ledgerId, entryId);
         }
-
         startTimeMillis = MathUtils.now();
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
@@ -172,28 +138,10 @@ class InterleavedLedgerStorage implements LedgerStorage {
         return ByteBuffer.wrap(retBytes);
     }
 
-    @Override
-    public void prepare(boolean force) throws IOException {
-        if (isSkipListEnabled) {
-            memTable.flush(this, force);
-        }
-    }
-
-    @Override
-    public boolean isFlushRequired() {
-        return somethingWritten;
-    };
-
-    @Override
-    synchronized public void flush() throws IOException {
-        if (!somethingWritten) {
-            return;
-        }
-        somethingWritten = false;
+    synchronized private void flushOptional(boolean force) throws IOException {
         boolean flushFailed = false;
-
         try {
-            ledgerCache.flushLedger(true);
+            ledgerCache.flushLedger(force);
         } catch (IOException ioe) {
             LOG.error("Exception flushing Ledger cache", ioe);
             flushFailed = true;
@@ -208,6 +156,25 @@ class InterleavedLedgerStorage implements LedgerStorage {
         if (flushFailed) {
             throw new IOException("Flushing to storage failed, check logs");
         }
+    }
+
+    @Override
+    synchronized public void prepare(boolean force) throws IOException {
+        flushOptional(force);
+    }
+
+    @Override
+    public boolean isFlushRequired() {
+        return somethingWritten;
+    };
+
+    @Override
+    synchronized public void flush() throws IOException {
+        if (!somethingWritten) {
+            return;
+        }
+        somethingWritten = false;
+        flushOptional(true);
     }
 
     @Override
@@ -233,7 +200,7 @@ class InterleavedLedgerStorage implements LedgerStorage {
         }
     }
 
-    synchronized private void processEntry(long ledgerId, long entryId, ByteBuffer entry)
+    synchronized protected void processEntry(long ledgerId, long entryId, ByteBuffer entry)
             throws IOException {
         /*
          * Log the entry
@@ -246,10 +213,5 @@ class InterleavedLedgerStorage implements LedgerStorage {
         ledgerCache.putEntryOffset(ledgerId, entryId, pos);
 
         somethingWritten = true;
-    }
-
-    @Override
-    public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
-        processEntry(ledgerId, entryId, buffer);
     }
 }
