@@ -44,6 +44,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
+import org.apache.bookkeeper.bookie.SkipListLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
@@ -400,7 +402,12 @@ public class Bookie extends BookieThread {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread);
+        // Check the type of storage.
+        if (conf.getSkipListUsageEnabled()) {
+            ledgerStorage = new SkipListLedgerStorage(conf, activeLedgerManager, syncThread);
+        } else {
+            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager);
+        }
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
         journal = new Journal(conf);
