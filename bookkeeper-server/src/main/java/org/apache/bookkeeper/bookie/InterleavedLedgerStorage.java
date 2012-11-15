@@ -136,7 +136,14 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
 
     @Override
     public boolean ledgerExists(long ledgerId) throws IOException {
-        return ledgerCache.ledgerExists(ledgerId);
+        if (!ledgerCache.ledgerExists(ledgerId)) {
+            EntryKeyValue kv = memTable.getLastEntry(ledgerId);
+            if (kv == null) {
+                // Lookup ledger cache again as mem-table may have just flushed
+                return ledgerCache.ledgerExists(ledgerId);
+            }
+        }
+        return true;
     }
 
     @Override
@@ -159,6 +166,14 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         return entryId;
     }
 
+    private long getEntryOffset(long ledgerId, long entryId) throws IOException {
+        long startTimeMillis = MathUtils.now();
+        long offset = ledgerCache.getEntryOffset(ledgerId, entryId);
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+        return offset;
+    }
+
     @Override
     public ByteBuffer getEntry(long ledgerId, long entryId) throws IOException {
         EntryKeyValue kv = null;
@@ -176,22 +191,22 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
             entryId = ledgerCache.getLastEntry(ledgerId);
         }
 
-        long startTimeMillis = MathUtils.now();
-        long offset = ledgerCache.getEntryOffset(ledgerId, entryId);
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
-
+        long offset = getEntryOffset(ledgerId, entryId);
         if (offset == 0) {
             if (isSkipListEnabled) {
                 kv = memTable.getEntry(ledgerId, entryId);
                 if (kv != null) {
                     return kv.getValueAsByteBuffer();
                 }
+                // Lookup entry offset again as mem-table may have just flushed
+                offset = getEntryOffset(ledgerId, entryId);
             }
-            throw new Bookie.NoEntryException(ledgerId, entryId);
+            if (offset == 0) {
+                throw new Bookie.NoEntryException(ledgerId, entryId);
+            }
         }
 
-        startTimeMillis = MathUtils.now();
+        long startTimeMillis = MathUtils.now();
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                 .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
