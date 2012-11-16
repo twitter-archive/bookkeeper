@@ -39,6 +39,7 @@ import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
 import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.Test;
@@ -69,6 +70,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         basePath = baseClientConf.getZkLedgersRootPath() + '/'
                 + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE
                 + "/ledgers";
+        baseConf.setRereplicationEntryBatchSize(3);
     }
 
     @Override
@@ -223,8 +225,9 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         InetSocketAddress newBkAddr2 = new InetSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie2);
         LOG.info("New Bookie addr :" + newBkAddr2);
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(10000);
         ZooKeeper zkc1 = ZkUtils.createConnectedZookeeperClient(
-                zkUtil.getZooKeeperConnectString(), 10000);
+                zkUtil.getZooKeeperConnectString(), w);
         ReplicationWorker rw2 = new ReplicationWorker(zkc1, baseConf,
                 newBkAddr2);
         rw1.start();
@@ -501,7 +504,13 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
 
     private boolean isLedgerInUnderReplication(long id, String basePath)
             throws KeeperException, InterruptedException {
-        List<String> children = zkc.getChildren(basePath, true);
+        List<String> children;
+        try {
+            children = zkc.getChildren(basePath, true);
+        } catch (KeeperException.NoNodeException nne) {
+            return false;
+        }
+
         boolean isMatched = false;
         for (String child : children) {
             if (child.startsWith("urL") && child.contains(String.valueOf(id))) {
@@ -509,8 +518,12 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
                 break;
             } else {
                 String path = basePath + '/' + child;
-                if (zkc.getChildren(path, false).size() > 0) {
-                    isMatched = isLedgerInUnderReplication(id, path);
+                try {
+                    if (zkc.getChildren(path, false).size() > 0) {
+                        isMatched = isLedgerInUnderReplication(id, path);
+                    }
+                } catch (KeeperException.NoNodeException nne) {
+                    return false;
                 }
             }
 

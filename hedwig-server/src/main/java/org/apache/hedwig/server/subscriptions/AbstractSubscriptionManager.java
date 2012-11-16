@@ -53,9 +53,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     static Logger logger = LoggerFactory.getLogger(AbstractSubscriptionManager.class);
 
     private final ServerConfiguration cfg;
-    final ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>> top2sub2seq = new ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>>();
+    final ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>> top2sub2seq =
+		new ConcurrentHashMap<ByteString, Map<ByteString, InMemorySubscriptionState>>();
     // We use different queues for remote and local subscriptions
-    private final TopicOpQueuer localQueuer;
+    protected final TopicOpQueuer localQueuer;
     private final TopicOpQueuer remoteQueuer;
 
     private final ArrayList<SubscriptionEventListener> listeners = new ArrayList<SubscriptionEventListener>();
@@ -72,7 +73,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     // for all subscribers to the topic.
     private final ConcurrentHashMap<ByteString, Long> topic2MinConsumedMessagesMap = new ConcurrentHashMap<ByteString, Long>();
 
-    private final Callback<Void> noopCallback = new NoopCallback<Void>();
+    protected final Callback<Void> noopCallback = new NoopCallback<Void>();
 
     static class NoopCallback<T> implements Callback<T> {
         @Override
@@ -273,8 +274,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     cb.operationFinished(ctx, null);
                 }
             }, ctx);
+            }
         }
-    }
 
     void updateSubscriptionStates(ByteString topic, Callback<Void> finalCb, Object ctx) {
         final Map<ByteString, InMemorySubscriptionState> states = top2sub2seq.get(topic);
@@ -366,10 +367,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                         @Override
                         public void operationFinished(Object ctx, Void resultOfOperation) {
                             logger.info("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
-                                         + " attaching to subscription with state: "
-                                         + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
-                                         + ", with preferences: "
-                                         + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
+                                             + " attaching to subscription with state: "
+                                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
+                                             + ", with preferences: "
+                                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
                             // update message bound if necessary
                             updateMessageBound(topic);
                             cb.operationFinished(ctx, subscriptionState.toSubscriptionData());
@@ -380,10 +381,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 // otherwise just attach
                 logger.info("Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
-                             + " attaching to subscription with state: "
-                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
-                             + ", with preferences: "
-                             + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
+                                 + " attaching to subscription with state: "
+                                 + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionState())
+                                 + ", with preferences: "
+                                 + SubscriptionStateUtils.toString(subscriptionState.getSubscriptionPreferences()));
 
                 cb.operationFinished(ctx, subscriptionState.toSubscriptionData());
                 return;
@@ -552,8 +553,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 cb.operationFinished(ctx, null);
             }
 
+            }
         }
-    }
 
     @Override
     public void setConsumeSeqIdForSubscriber(ByteString topic, ByteString subscriberId, MessageSeqId consumeSeqId,

@@ -34,14 +34,20 @@ import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.bookkeeper.bookie.BufferedReadChannel;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
 import com.google.common.collect.MapMaker;
@@ -55,7 +61,10 @@ import com.google.common.collect.MapMaker;
  */
 public class EntryLogger {
     private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
-    private File dirs[];
+
+    volatile File currentDir;
+    private LedgerDirsManager ledgerDirsManager;
+    private AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
 
     private volatile long logId;
     /**
@@ -106,8 +115,9 @@ public class EntryLogger {
      * Create an EntryLogger that stores it's log files in the given
      * directories
      */
-    public EntryLogger(ServerConfiguration conf) throws IOException {
-        this.dirs = Bookie.getCurrentDirectories(conf.getLedgerDirs());
+    public EntryLogger(ServerConfiguration conf,
+            LedgerDirsManager ledgerDirsManager) throws IOException {
+        this.ledgerDirsManager = ledgerDirsManager;
         // log size limit
         this.logSizeLimit = conf.getEntryLogSizeLimit();
 
@@ -119,7 +129,7 @@ public class EntryLogger {
         LOGFILE_HEADER.put("BKLO".getBytes());
         // Find the largest logId
         logId = -1;
-        for(File dir: dirs) {
+        for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
             if (!dir.exists()) {
                 throw new FileNotFoundException(
                         "Entry log directory does not exist");
@@ -163,7 +173,6 @@ public class EntryLogger {
      * A thread-local variable that wraps a mapping of log ids to bufferedchannels
      * These channels should be used only for reading. logChannel is the one
      * that is used for writes.
-     * TODO(Aniruddha): Investigate why using initialValue() here causes certain tests to fail.
      */
     private ThreadLocal<Map<Long, BufferedReadChannel>> logid2channel
             = new ThreadLocal<Map<Long, BufferedReadChannel>>() {
@@ -220,16 +229,44 @@ public class EntryLogger {
     }
 
     protected void initialize() throws IOException {
+        // Register listener for disk full notifications.
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         // create a new log to write
         createNewLog();
+    }
+
+    private LedgerDirsListener getLedgerDirsListener() {
+        return new LedgerDirsListener() {
+            @Override
+            public void diskFull(File disk) {
+                // If the current entry log disk is full, then create new entry
+                // log.
+                if (currentDir != null && currentDir.equals(disk)) {
+                    shouldCreateNewEntryLog.set(true);
+                }
+            }
+
+            @Override
+            public void diskFailed(File disk) {
+                // Nothing to handle here. Will be handled in Bookie
+            }
+
+            @Override
+            public void allDisksFull() {
+                // Nothing to handle here. Will be handled in Bookie
+            }
+
+            @Override
+            public void fatalError() {
+                // Nothing to handle here. Will be handled in Bookie
+            }
+        };
     }
 
     /**
      * Creates a new log file
      */
-    synchronized void createNewLog() throws IOException {
-        List<File> list = Arrays.asList(dirs);
-        Collections.shuffle(list);
+    void createNewLog() throws IOException {
         if (logChannel != null) {
             logChannel.flush(true);
         }
@@ -237,23 +274,22 @@ public class EntryLogger {
         // It would better not to overwrite existing entry log files
         File newLogFile = null;
         do {
-            String logFileName = Long.toHexString(++logId) + ".log";
-            for (File dir : list) {
-                newLogFile = new File(dir, logFileName);
-                if (newLogFile.exists()) {
-                    LOG.warn("Found existed entry log " + newLogFile
-                           + " when trying to create it as a new log.");
-                    newLogFile = null;
-                    break;
-                }
+            if (newLogFile != null) {
+                LOG.warn("Found existed entry log " + newLogFile
+                        + " when trying to create it as a new log.");
             }
-        } while (newLogFile == null);
+            String logFileName = Long.toHexString(++logId) + ".log";
+            File dir = ledgerDirsManager.pickRandomWritableDir();
+            newLogFile = new File(dir, logFileName);
+            currentDir = dir;
+        } while (newLogFile.exists());
 
         FileChannel channel = new RandomAccessFile(newLogFile, "rw").getChannel();
         logChannel = new BufferedChannel(channel,
                 serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes());
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
-        for(File f: dirs) {
+
+        for (File f : ledgerDirsManager.getWritableLedgerDirs()) {
             setLastLogId(f, logId);
         }
     }
@@ -360,21 +396,25 @@ public class EntryLogger {
             logChannel.flush(true);
         }
     }
-    synchronized long addEntry(ByteBuffer entry) throws IOException {
-        // There is some slack above the configured log size limit because of the
-        // way we allocate chunks. Only create a new log if we have moved past
-        // the max size limit.
-        if (logChannel.position() > logSizeLimit) {
-            createNewLog();
-        }
 
-        // Write length of entry first
+    synchronized long addEntry(ByteBuffer entry) throws IOException {
+        // Create new log if logSizeLimit reached or current disk is full
+        boolean createNewLog = shouldCreateNewEntryLog.get();
+        if (createNewLog
+                || (logChannel.position() + entry.remaining() + 4 > logSizeLimit)) {
+            createNewLog();
+
+            // Reset the flag
+            if (createNewLog) {
+                shouldCreateNewEntryLog.set(false);
+            }
+        }
         ByteBuffer buff = ByteBuffer.allocate(4);
         buff.putInt(entry.remaining());
         buff.flip();
         logChannel.write(buff);
 
-        long pos =  logChannel.position();
+        long pos = logChannel.position();
         logChannel.write(entry);
         return (logId << 32L) | pos;
     }
@@ -439,14 +479,14 @@ public class EntryLogger {
         // so that there are no overlaps with the write buffer while reading
         fc = new BufferedReadChannel(newFc, serverCfg.getReadBufferBytes());
         putInChannels(entryLogId, fc);
-        return fc;
-    }
+            return fc;
+        }
 
     /**
      * Whether the log file exists or not.
      */
     boolean logExists(long logId) {
-        for (File d : dirs) {
+        for (File d : ledgerDirsManager.getAllLedgerDirs()) {
             File f = new File(d, Long.toHexString(logId) + ".log");
             if (f.exists()) {
                 return true;
@@ -456,7 +496,7 @@ public class EntryLogger {
     }
 
     private File findFile(long logId) throws FileNotFoundException {
-        for(File d: dirs) {
+        for (File d : ledgerDirsManager.getAllLedgerDirs()) {
             File f = new File(d, Long.toHexString(logId)+".log");
             if (f.exists()) {
                 return f;
@@ -545,7 +585,7 @@ public class EntryLogger {
                 FileChannel fc = bufferedChannel.getFileChannel();
                 if (null != fc && fc.isOpen ()) {
                     fc.close();
-                }
+            }
             }
         } catch (IOException ie) {
             // we have no idea how to avoid io exception during shutting down, so just ignore it

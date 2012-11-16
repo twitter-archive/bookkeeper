@@ -62,6 +62,12 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
             srcConn.sendResponse(buildResponse(BookieProtocol.EBADVERSION));
             return;
         }
+        if (bookie.isReadOnly()) {
+            logger.warn("BookieServer is running as readonly mode,"
+                    + " so rejecting the request from the client!");
+            srcConn.sendResponse(buildResponse(BookieProtocol.EREADONLY));
+            return;
+        }
         short flags = header.getFlags();
         BookkeeperInternalCallbacks.WriteCallback wcb = new BookkeeperInternalCallbacks.WriteCallback() {
             @Override

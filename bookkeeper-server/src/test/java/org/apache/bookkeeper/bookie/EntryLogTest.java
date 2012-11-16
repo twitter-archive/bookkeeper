@@ -30,11 +30,12 @@ import junit.framework.TestCase;
 
 import org.apache.bookkeeper.bookie.GarbageCollectorThread.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.GarbageCollectorThread.ExtractionScanner;
-import org.apache.bookkeeper.bookie.BufferedReorderedWriteChannel;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import java.util.Arrays;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,14 +62,6 @@ public class EntryLogTest extends TestCase {
             ret[i] = (byte)(i % Byte.MAX_VALUE);
         }
         return ByteBuffer.wrap(ret);
-    }
-
-    private BufferedReorderedWriteChannel getReorderedWriteChannel(int writeCap,
-                                                                   int readCap,
-                                                                   int chunkSize) throws IOException {
-        File tmpFile = File.createTempFile("BufferedReorderedTest", ".tmp");
-        RandomAccessFile raf = new RandomAccessFile(tmpFile, "rw");
-        return new BufferedReorderedWriteChannel(raf.getChannel(), writeCap, readCap, chunkSize);
     }
 
     @Test
@@ -149,90 +142,6 @@ public class EntryLogTest extends TestCase {
         }
     }
 
-    //TODO: Modify this test when chunk calculation is dynamic.
-    @Test
-    public void testBufferedReorderedWriteChannel() throws Exception {
-        int writeCap = 2048;
-        int chunkSize = 128;
-        int readCap = 128;
-        BufferedReorderedWriteChannel channel
-                = getReorderedWriteChannel(writeCap, readCap, chunkSize);
-        // A write of size more than writeCap or writeCap - fakeceil should fail.
-        try {
-            channel.write(0, getBufferOfSize(writeCap + 1));
-            fail("Write greater than write capacity did not throw an exception");
-        } catch (IOException e) {
-            // This is expected.
-        }
-        try {
-            channel.write(0, getBufferOfSize(writeCap - BufferedReorderedWriteChannel.FAKE_CEILING_BYTES + 1));
-            fail("Write greater than write capacity did not throw an exception");
-        } catch (IOException e) {
-            // This is expected.
-        }
-
-        // Test if writes to different keys go to different chunks.
-        long base = 0;
-        // All new keys should go to a new chunk.
-        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
-            assertTrue("Misaligned first write.", channel.write(i, getBufferOfSize(10)) == base + i*128);
-        }
-        // All writes to the same keys should now go to the same chunk as before
-        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
-            assertTrue("Misaligned second write.", channel.write(i, getBufferOfSize(10)) == base + 10 + i*128);
-        }
-        // A flush now should cause the pointer to be at 2048 - 128
-        channel.flush(false);
-        assertTrue("Misaligned position on first flush.", (base = channel.position()) == writeCap - chunkSize);
-
-        // A write of writeCap - fakeceil should succeed.
-        assertTrue("Could not write maximum number of bytes.", channel.write(0, getBufferOfSize(
-                writeCap-BufferedReorderedWriteChannel.FAKE_CEILING_BYTES)) == base);
-        // The position should have moved to base + writeCap
-        assertTrue("Misaligned position on write.", channel.position() == base + writeCap);
-
-        // A flush should not change the position.
-        long prevPos = channel.position();
-        channel.flush(false);
-        assertTrue("Misaligned position on second flush.", (base = channel.position()) == prevPos);
-        // A write asking for multiple chunks should succeed.
-        assertTrue("Misaligned write.", channel.write(1, getBufferOfSize(chunkSize/2)) == base);
-        // A write not crossing the fake ceiling should be in the same chunk
-        assertTrue("Misaligned write.", channel.write(1, getBufferOfSize(
-                chunkSize/2 - BufferedReorderedWriteChannel.FAKE_CEILING_BYTES)) == base + chunkSize/2);
-        // We should not have allocated another chunk.
-        assertTrue("Misaligned position.", channel.position() == base + chunkSize);
-
-        prevPos = channel.position();
-        channel.flush(false);
-        assertTrue("Misaligned position on second flush.", (base = channel.position()) == prevPos);
-
-        // A write which overflows the fake ceiling should start at a new chunk.
-        assertTrue("Misaligned first write while testing overflow.", channel.write(1, getBufferOfSize(chunkSize/2)) == base);
-        assertTrue("Misaligned second write while testing overflow.", channel.write(1, getBufferOfSize(chunkSize/2)) == base + chunkSize);
-
-        channel.flush(false);
-        base = channel.position();
-
-        // A write that overflows the last chunk should result in a flush and new allocation. The
-        // flush should change the filechannel's position to writeCap - chunkSize. The next write
-        // should go at this position and allocate two chunks.
-        for (int i = 0; i < writeCap/chunkSize - 1; i++) {
-            assertTrue("Misaligned write.", channel.write(i, getBufferOfSize(10)) == base + i*128);
-        }
-        // Now try to write to a new key that does not fit in one chunk. The new write should take
-        // up two chunks.
-        long prevFilePos = channel.getFileChannelPosition();
-        assertTrue("Misaligned write while testing last chunk overflow.", channel.write(
-                writeCap/chunkSize-1, getBufferOfSize(chunkSize)) == base + writeCap - chunkSize);
-        // File position should have changed because of the flush.
-        assertTrue("File channel position did not change.", channel.getFileChannelPosition() == prevFilePos + writeCap
-                - chunkSize);
-        // Also, we should have allocated 2 chunks.
-        base = channel.getFileChannelPosition();
-        assertTrue("Did not allocate 2 chunks.", channel.position() == base + 2*chunkSize);
-    }
-
     @Test
     public void testCorruptEntryLog() throws Exception {
         File tmpDir = File.createTempFile("bkTest", ".dir");
@@ -245,8 +154,9 @@ public class EntryLogTest extends TestCase {
         ServerConfiguration conf = new ServerConfiguration();
         conf.setGcWaitTime(gcWaitTime);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+        Bookie bookie = new Bookie(conf);
         // create some entries
-        EntryLogger logger = new EntryLogger(conf);
+        EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
         logger.addEntry(generateEntry(1, 1));
         logger.addEntry(generateEntry(3, 1));
         logger.addEntry(generateEntry(2, 1));
@@ -258,7 +168,7 @@ public class EntryLogTest extends TestCase {
         raf.setLength(lenNew);
         raf.close();
         // now see which ledgers are in the log
-        logger = new EntryLogger(conf);
+        logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
 
         EntryLogMetadata meta = new EntryLogMetadata(0L);
         ExtractionScanner scanner = new ExtractionScanner(meta);
@@ -269,17 +179,17 @@ public class EntryLogTest extends TestCase {
         } catch (IOException ie) {
         }
         LOG.info("Extracted Meta From Entry Log {}", meta);
-        System.out.println("Extracted Meta From Entry Log " + meta);
         assertNotNull(meta.ledgersMap.get(1L));
         assertNull(meta.ledgersMap.get(2L));
         assertNotNull(meta.ledgersMap.get(3L));
     }
 
     private ByteBuffer generateEntry(long ledger, long entry) {
-        ByteBuffer bb = ByteBuffer.wrap(new byte[64]);
+        byte[] data = ("ledger-" + ledger + "-" + entry).getBytes();
+        ByteBuffer bb = ByteBuffer.wrap(new byte[8 + 8 + data.length]);
         bb.putLong(ledger);
         bb.putLong(entry);
-        bb.put(("ledger-" + ledger + "-" + entry).getBytes());
+        bb.put(data);
         bb.flip();
         return bb;
     }
@@ -294,6 +204,7 @@ public class EntryLogTest extends TestCase {
 
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+        Bookie bookie = new Bookie(conf);
         // create some entries
         int numLogs = 3;
         int numEntries = 10;
@@ -301,7 +212,8 @@ public class EntryLogTest extends TestCase {
         for (int i=0; i<numLogs; i++) {
             positions[i] = new long[numEntries];
 
-            EntryLogger logger = new EntryLogger(conf);
+            EntryLogger logger = new EntryLogger(conf,
+                    bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
                 positions[i][j] = logger.addEntry(generateEntry(i, j));
             }
@@ -315,14 +227,16 @@ public class EntryLogTest extends TestCase {
         for (int i=numLogs; i<2*numLogs; i++) {
             positions[i] = new long[numEntries];
 
-            EntryLogger logger = new EntryLogger(conf);
+            EntryLogger logger = new EntryLogger(conf,
+                    bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
                 positions[i][j] = logger.addEntry(generateEntry(i, j));
             }
             logger.flush();
         }
 
-        EntryLogger newLogger = new EntryLogger(conf);
+        EntryLogger newLogger = new EntryLogger(conf,
+                bookie.getLedgerDirsManager());
         for (int i=0; i<(2*numLogs+1); i++) {
             File logFile = new File(curDir, Long.toHexString(i) + ".log");
             assertTrue(logFile.exists());
@@ -353,7 +267,7 @@ public class EntryLogTest extends TestCase {
         conf.setLedgerDirNames(new String[] { tmpDir.toString() });
         EntryLogger entryLogger = null;
         try {
-            entryLogger = new EntryLogger(conf);
+            entryLogger = new EntryLogger(conf, new LedgerDirsManager(conf));
             fail("Expecting FileNotFoundException");
         } catch (FileNotFoundException e) {
             assertEquals("Entry log directory does not exist", e
@@ -363,6 +277,41 @@ public class EntryLogTest extends TestCase {
                 entryLogger.shutdown();
             }
         }
+    }
+
+    /**
+     * Test to verify the DiskFull during addEntry
+     */
+    @Test
+    public void testAddEntryFailureOnDiskFull() throws Exception {
+        File ledgerDir1 = File.createTempFile("bkTest", ".dir");
+        ledgerDir1.delete();
+        File ledgerDir2 = File.createTempFile("bkTest", ".dir");
+        ledgerDir2.delete();
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { ledgerDir1.getAbsolutePath(),
+                ledgerDir2.getAbsolutePath() });
+        Bookie bookie = new Bookie(conf);
+        EntryLogger entryLogger = new EntryLogger(conf,
+                bookie.getLedgerDirsManager());
+        InterleavedLedgerStorage ledgerStorage = ((InterleavedLedgerStorage) bookie.ledgerStorage);
+        ledgerStorage.entryLogger = entryLogger;
+        // Create ledgers
+        ledgerStorage.setMasterKey(1, "key".getBytes());
+        ledgerStorage.setMasterKey(2, "key".getBytes());
+        ledgerStorage.setMasterKey(3, "key".getBytes());
+        // Add entries
+        ledgerStorage.addEntry(generateEntry(1, 1));
+        ledgerStorage.addEntry(generateEntry(2, 1));
+        ledgerStorage.prepare(true);
+        // Add entry with disk full failure simulation
+        bookie.getLedgerDirsManager().addToFilledDirs(entryLogger.currentDir);
+        ledgerStorage.addEntry(generateEntry(3, 1));
+        ledgerStorage.prepare(true);
+        // Verify written entries
+        Assert.assertTrue(0 == generateEntry(1, 1).compareTo(ledgerStorage.getEntry(1, 1)));
+        Assert.assertTrue(0 == generateEntry(2, 1).compareTo(ledgerStorage.getEntry(2, 1)));
+        Assert.assertTrue(0 == generateEntry(3, 1).compareTo(ledgerStorage.getEntry(3, 1)));
     }
 
     @After

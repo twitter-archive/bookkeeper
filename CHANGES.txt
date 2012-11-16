@@ -30,6 +30,8 @@ Trunk (unreleased changes)
 
       BOOKKEEPER-338: Create Version.NEW and Version.ANY static instances of Version so that were not passing around nulls (sijie via ivank)
 
+      BOOKKEEPER-32: Clean up LOG.debug statements (Stu Hood via sijie)
+
       bookkeeper-server:
 
         BOOKKEEPER-183: Provide tools to read/check data files in bookie server (sijie via ivank)
@@ -84,6 +86,24 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-396: Compilation issue in TestClient.java of BenchMark ( showing this in eclipse) (umamahesh via sijie)
 
+        BOOKKEEPER-403: ReReadMetadataCb is not executed in the thread responsible for that ledger (ivank)
+
+        BOOKKEEPER-405: Let's add Thread name for ReplicationWorker thread. (umamahesh via ivank)
+
+        BOOKKEEPER-418: Store hostname of locker in replication lock (ivank)
+
+        BOOKKEEPER-417: Hierarchical zk underreplication manager should clean up its hierarchy when done to allow for fast acquisition of underreplicated entries (ivank)
+
+        BOOKKEEPER-436: Journal#rollLog may leak file handler (umamahesh via ivank)
+
+        BOOKKEEPER-424: Bookie start is failing intermittently when zkclient connection delays (rakeshr via ivank)
+
+        BOOKKEEPER-416: LedgerChecker returns underreplicated fragments for an closed ledger with no entries (ivank)
+
+	BOOKKEEPER-425: Cleanup Bookie id generation (ivank via fpj)
+
+        BOOKKEEPER-430: Remove manual bookie registration from overview (fpj via ivank)
+
       hedwig-protocol:
 
         BOOKKEEPER-394: CompositeException message is not useful (Stu Hood via sijie)
@@ -136,6 +156,20 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-325: Delay the replication of a ledger if RW found that its last fragment is in underReplication. (umamahesh via ivank)
 
+        BOOKKEEPER-388: Document bookie format command (kiran_bc via ivank)
+
+        BOOKKEEPER-278: Ability to disable auto recovery temporarily (rakeshr via ivank)
+
+        BOOKKEEPER-319: Manage auditing and replication processes (Vinay via ivank)
+
+        BOOKKEEPER-315: Ledger entries should be replicated sequentially instead of parallel. (umamahesh via ivank)
+
+        BOOKKEEPER-345: Detect IOExceptions on entrylogger and bookie should consider next ledger dir(if any) (Vinay via ivank)
+
+        BOOKKEEPER-346: Detect IOExceptions in LedgerCache and bookie should look at next ledger dir(if any) (Vinay via ivank)
+
+        BOOKKEEPER-444: Refactor pending read op to make speculative reads possible (ivank)
+
       hedwig-server:
 
         BOOKKEEPER-250: Need a ledger manager like interface to manage metadata operations in Hedwig (sijie via ivank)
@@ -151,6 +185,8 @@ Trunk (unreleased changes)
         BOOKKEEPER-332: Add SubscriptionPreferences to record all preferences for a subscription (sijie via ivank)
 
         BOOKKEEPER-333: server-side message filter (sijie via ivank)
+
+        BOOKKEEPER-441: InMemorySubscriptionManager should back up top2sub2seq before change it (Yixue via ivank)
 
       hedwig-client:
 

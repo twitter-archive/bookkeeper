@@ -49,6 +49,12 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
             srcConn.sendResponse(buildResponse(BookieProtocol.EBADVERSION));
             return;
         }
+        if (bookie.isReadOnly()) {
+            logger.warn("BookieServer is running as readonly mode,"
+                    + " so rejecting the request from the client!");
+            srcConn.sendResponse(buildResponse(BookieProtocol.EREADONLY));
+            return;
+        }
         short flags = header.getFlags();
         // The response consists of 2 bytebuffers. The first one contains the packet header and meta data
         // The second contains the actual entry.

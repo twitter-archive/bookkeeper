@@ -303,6 +303,7 @@ public class IndexInMemPageMgr {
             if (dirtyLedgers.isEmpty()) {
                 dirtyLedgers.addAll(pages.keySet());
             }
+            indexPersistenceManager.relocateIndexFileIfDirFull(dirtyLedgers);
         }
         Long potentiallyDirtyLedger = null;
         while (null != (potentiallyDirtyLedger = dirtyLedgers.poll())) {

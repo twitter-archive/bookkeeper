@@ -34,6 +34,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
@@ -115,7 +116,7 @@ class Journal extends BookieThread {
             return txnLogPosition;
         }
 
-        synchronized void rollLog() {
+        synchronized void rollLog() throws NoWritableLedgerDirException {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             // we should record <logId, logPosition> marked in markLog
@@ -123,18 +124,25 @@ class Journal extends BookieThread {
             // persisted to disk (both index & entry logger)
             bb.putLong(lastMark.getTxnLogId());
             bb.putLong(lastMark.getTxnLogPosition());
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("RollLog to persist last marked log : " + lastMark);
-            }
-            for(File dir: ledgerDirectories) {
+            LOG.debug("RollLog to persist last marked log : {}", lastMark);
+            List<File> writableLedgerDirs = ledgerDirsManager
+                    .getWritableLedgerDirs();
+            for (File dir : writableLedgerDirs) {
                 File file = new File(dir, "lastMark");
+                FileOutputStream fos = null;
                 try {
-                    FileOutputStream fos = new FileOutputStream(file);
+                    fos = new FileOutputStream(file);
                     fos.write(buff);
                     fos.getChannel().force(true);
                     fos.close();
+                    fos = null;
                 } catch (IOException e) {
                     LOG.error("Problems writing to " + file, e);
+                } finally {
+                    // if stream already closed in try block successfully,
+                    // stream might have nullified, in such case below
+                    // call will simply returns
+                    IOUtils.close(LOG, fos);
                 }
             }
         }
@@ -147,7 +155,7 @@ class Journal extends BookieThread {
         synchronized void readLog() {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
-            for(File dir: ledgerDirectories) {
+            for(File dir: ledgerDirsManager.getAllLedgerDirs()) {
                 File file = new File(dir, "lastMark");
                 try {
                     FileInputStream fis = new FileInputStream(file);
@@ -284,7 +292,7 @@ class Journal extends BookieThread {
                             .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(e.enqueueTime));
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
-                }
+    }
             }
             finally {
                 closeFileIfNecessary();
@@ -401,7 +409,6 @@ class Journal extends BookieThread {
     final int maxBackupJournals;
 
     final File journalDirectory;
-    final File ledgerDirectories[];
     final ServerConfiguration conf;
     ForceWriteThread forceWriteThread;
     // should we group force writes
@@ -418,12 +425,13 @@ class Journal extends BookieThread {
     LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
 
     volatile boolean running = true;
+    private LedgerDirsManager ledgerDirsManager;
 
-    public Journal(ServerConfiguration conf) {
+    public Journal(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager) {
         super("BookieJournal-" + conf.getBookiePort());
+        this.ledgerDirsManager = ledgerDirsManager;
         this.conf = conf;
         this.journalDirectory = Bookie.getCurrentDirectory(conf.getJournalDir());
-        this.ledgerDirectories = Bookie.getCurrentDirectories(conf.getLedgerDirs());
         this.maxJournalSize = conf.getMaxJournalSizeMB() * MB;
         this.journalPreAllocSize = conf.getJournalPreAllocSizeMB() * MB;
         this.journalWriteBufferSize = conf.getJournalWriteBufferSizeKB() * KB;
@@ -435,9 +443,7 @@ class Journal extends BookieThread {
 
         // read last log mark
         lastLogMark.readLog();
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Last Log Mark : " + lastLogMark);
-        }
+        LOG.debug("Last Log Mark : {}", lastLogMark);
     }
 
     LastLogMark getLastLogMark() {
@@ -481,7 +487,7 @@ class Journal extends BookieThread {
      * </p>
      * @see #markLog()
      */
-    public void rollLog() {
+    public void rollLog() throws NoWritableLedgerDirException {
         lastLogMark.rollLog();
     }
 
@@ -588,9 +594,7 @@ class Journal extends BookieThread {
                 throw new IOException("Recovery log " + markedLogId + " is missing");
             }
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Try to relay journal logs : " + logs);
-        }
+        LOG.debug("Try to relay journal logs : {}", logs);
         // TODO: When reading in the journal logs that need to be synced, we
         // should use BufferedChannels instead to minimize the amount of
         // system calls done.

@@ -48,8 +48,8 @@ import org.slf4j.LoggerFactory;
 class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
     final static Logger LOG = LoggerFactory.getLogger(InterleavedLedgerStorage.class);
 
-    private EntryLogger entryLogger;
-    private LedgerCache ledgerCache;
+    EntryLogger entryLogger;
+    LedgerCache ledgerCache;
     private EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
     private DaemonThreadFactory threadFactory = new DaemonThreadFactory();
@@ -74,9 +74,9 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
     private volatile boolean somethingWritten = false;
 
     InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                             final CacheCallback cb) throws IOException {
-        entryLogger = new EntryLogger(conf);
-        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager);
+            final CacheCallback cb, LedgerDirsManager ledgerDirsManager) throws IOException {
+        entryLogger = new EntryLogger(conf, ledgerDirsManager);
+        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, ledgerDirsManager);
         memTable = new EntryMemTable(conf);
         scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
         cacheCallback = cb;
@@ -151,18 +151,18 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-
+        
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                 BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
                 .add(entry.remaining());
-
+        
         if (isSkipListEnabled) {
             memTable.addEntry(ledgerId, entryId, entry, this);
         }
         else {
             processEntry(ledgerId, entryId, entry);
         }
-
+        
         return entryId;
     }
 
@@ -266,8 +266,8 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         @Override
         public boolean accept(long ledgerId) {
             // bookie has no knowledge about which ledger is deleted
-            // so just accept all ledgers that aren't invalid.
-            return ledgerId != EntryLogger.INVALID_LID;
+            // so just accept all ledgers.
+            return true;
         }
 
         @Override
@@ -290,7 +290,7 @@ class InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipList
         ledgerCache.putEntryOffset(ledgerId, entryId, pos);
 
         somethingWritten = true;
-    }
+}
 
     @Override
     public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {

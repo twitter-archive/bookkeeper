@@ -21,27 +21,9 @@
 
 package org.apache.bookkeeper.bookie;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Random;
-import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import com.twitter.common.stats.SampledStat;
-import com.twitter.common.stats.Stats;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,18 +33,19 @@ import org.slf4j.LoggerFactory;
  */
 public class LedgerCacheImpl implements LedgerCache {
     private final static Logger LOG = LoggerFactory.getLogger(LedgerCacheImpl.class);
-    private final static ConcurrentHashMap<Long, LedgerEntryPage> EMPTY_PAGE_MAP
-            = new ConcurrentHashMap<Long, LedgerEntryPage>();
+    static final String IDX = ".idx";
+    static final String RLOC = ".rloc";
+
     private IndexInMemPageMgr indexPageManager;
-    private IndexPersistenceMgr indexPersistenceManager;
+    IndexPersistenceMgr indexPersistenceManager;
     final int pageSize;
     final int entriesPerPage;
 
-
-    public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm) {
+    public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm, LedgerDirsManager ledgerDirsManager)
+            throws IOException {
         this.pageSize = conf.getPageSize();
         this.entriesPerPage = pageSize / LedgerEntryPage.getIndexEntrySize();
-        this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm);
+        this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager);
         this.indexPageManager = new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager);
 
         LOG.info("maxMemory = " + Runtime.getRuntime().maxMemory());
@@ -89,7 +72,7 @@ public class LedgerCacheImpl implements LedgerCache {
         assert lep != null;
         lep.setOffset(offset, offsetInPage*8);
         lep.releasePage();
-    }
+        }
 
     @Override
     public long getEntryOffset(long ledger, long entry) throws IOException {
@@ -119,10 +102,9 @@ public class LedgerCacheImpl implements LedgerCache {
         sb.append(Integer.toHexString(parent));
         sb.append('/');
         sb.append(Long.toHexString(ledgerId));
-        sb.append(".idx");
+        sb.append(IDX);
         return sb.toString();
     }
-
 
     @Override
     public void flushLedger(boolean doAll) throws IOException {

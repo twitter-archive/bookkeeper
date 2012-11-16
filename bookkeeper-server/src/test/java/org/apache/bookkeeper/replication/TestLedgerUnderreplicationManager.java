@@ -23,6 +23,7 @@ package org.apache.bookkeeper.replication;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.fail;
 
 import java.nio.charset.Charset;
@@ -39,6 +40,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -49,8 +52,13 @@ import org.apache.bookkeeper.replication.ReplicationException.CompatibilityExcep
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.bookkeeper.test.ZooKeeperUtil;
 import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
+import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -76,6 +84,7 @@ public class TestLedgerUnderreplicationManager {
 
     String basePath;
     String urLedgerPath;
+    boolean isLedgerReplicationDisabled = true;
 
     @Before
     public void setupZooKeeper() throws Exception {
@@ -86,10 +95,12 @@ public class TestLedgerUnderreplicationManager {
 
         executor = Executors.newCachedThreadPool();
 
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(10000);
         zkc1 = ZkUtils.createConnectedZookeeperClient(
-                zkUtil.getZooKeeperConnectString(), 10000);
+                zkUtil.getZooKeeperConnectString(), w);
+        w = new ZooKeeperWatcherBase(10000);
         zkc2 = ZkUtils.createConnectedZookeeperClient(
-                zkUtil.getZooKeeperConnectString(), 10000);
+                zkUtil.getZooKeeperConnectString(), w);
         lmf1 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc1);
         lmf2 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc2);
         basePath = conf.getZkLedgersRootPath() + '/'
@@ -464,6 +475,230 @@ public class TestLedgerUnderreplicationManager {
         missingReplica.add("localhost:3181");
         missingReplica.add("localhost:3182");
         verifyMarkLedgerUnderreplicated(missingReplica);
+    }
+
+    /**
+     * Test disabling the ledger re-replication. After disabling, it will not be
+     * able to getLedgerToRereplicate(). This calls will enter into infinite
+     * waiting until enabling rereplication process
+     */
+    @Test(timeout = 20000)
+    public void testDisableLedegerReplication() throws Exception {
+        final LedgerUnderreplicationManager replicaMgr = lmf1
+                .newLedgerUnderreplicationManager();
+
+        // simulate few urLedgers before disabling
+        final Long ledgerA = 0xfeadeefdacL;
+        final String missingReplica = "localhost:3181";
+
+        // disabling replication
+        replicaMgr.disableLedgerReplication();
+        LOG.info("Disabled Ledeger Replication");
+
+        try {
+            replicaMgr.markLedgerUnderreplicated(ledgerA, missingReplica);
+        } catch (UnavailableException e) {
+            LOG.debug("Unexpected exception while marking urLedger", e);
+            fail("Unexpected exception while marking urLedger" + e.getMessage());
+        }
+
+        Future<Long> fA = getLedgerToReplicate(replicaMgr);
+        try {
+            fA.get(5, TimeUnit.SECONDS);
+            fail("Shouldn't be able to find a ledger to replicate");
+        } catch (TimeoutException te) {
+            // expected behaviour, as the replication is disabled
+            isLedgerReplicationDisabled = false;
+        }
+
+        assertTrue("Ledger replication is not disabled!",
+                !isLedgerReplicationDisabled);
+    }
+
+    /**
+     * Test enabling the ledger re-replication. After enableLedegerReplication,
+     * should continue getLedgerToRereplicate() task
+     */
+    @Test(timeout = 20000)
+    public void testEnableLedegerReplication() throws Exception {
+        isLedgerReplicationDisabled = true;
+        final LedgerUnderreplicationManager replicaMgr = lmf1
+                .newLedgerUnderreplicationManager();
+
+        // simulate few urLedgers before disabling
+        final Long ledgerA = 0xfeadeefdacL;
+        final String missingReplica = "localhost:3181";
+        try {
+            replicaMgr.markLedgerUnderreplicated(ledgerA, missingReplica);
+        } catch (UnavailableException e) {
+            LOG.debug("Unexpected exception while marking urLedger", e);
+            fail("Unexpected exception while marking urLedger" + e.getMessage());
+        }
+
+        // disabling replication
+        replicaMgr.disableLedgerReplication();
+        LOG.debug("Disabled Ledeger Replication");
+
+        String znodeA = getUrLedgerZnode(ledgerA);
+        final CountDownLatch znodeLatch = new CountDownLatch(2);
+        String urledgerA = StringUtils.substringAfterLast(znodeA, "/");
+        String urLockLedgerA = basePath + "/locks/" + urledgerA;
+        zkc1.exists(urLockLedgerA, new Watcher(){
+            @Override
+            public void process(WatchedEvent event) {
+                if (event.getType() == EventType.NodeCreated) {
+                    znodeLatch.countDown();
+                    LOG.debug("Recieved node creation event for the zNodePath:"
+                            + event.getPath());
+                }
+                
+            }});
+        // getLedgerToRereplicate is waiting until enable rereplication
+        Thread thread1 = new Thread() {
+            @Override
+            public void run() {
+                try {
+                    Long lA = replicaMgr.getLedgerToRereplicate();
+                    assertEquals("Should be the ledger I just marked", lA,
+                            ledgerA);
+                    isLedgerReplicationDisabled = false;
+                    znodeLatch.countDown();
+                } catch (UnavailableException e) {
+                    LOG.debug("Unexpected exception while marking urLedger", e);
+                    isLedgerReplicationDisabled = false;
+                }
+            }
+        };
+        thread1.start();
+
+        try {
+            znodeLatch.await(5, TimeUnit.SECONDS);
+            assertTrue("Ledger replication is not disabled!",
+                    isLedgerReplicationDisabled);
+            assertEquals("Failed to disable ledger replication!", 2, znodeLatch
+                    .getCount());
+
+            replicaMgr.enableLedgerReplication();
+            znodeLatch.await(5, TimeUnit.SECONDS);
+            LOG.debug("Enabled Ledeger Replication");
+            assertTrue("Ledger replication is not disabled!",
+                    !isLedgerReplicationDisabled);
+            assertEquals("Failed to disable ledger replication!", 0, znodeLatch
+                    .getCount());
+        } finally {
+            thread1.interrupt();
+        }
+    }
+
+    /**
+     * Test that the hierarchy gets cleaned up as ledgers
+     * are marked as fully replicated
+     */
+    @Test
+    public void testHierarchyCleanup() throws Exception {
+        final LedgerUnderreplicationManager replicaMgr = lmf1
+            .newLedgerUnderreplicationManager();
+        // 4 ledgers, 2 in the same hierarchy
+        long[] ledgers = { 0x00000000deadbeefL, 0x00000000deadbeeeL,
+                           0x00000000beefcafeL, 0x00000000cafed00dL };
+
+        for (long l : ledgers) {
+            replicaMgr.markLedgerUnderreplicated(l, "localhost:3181");
+        }
+        // can't simply test top level as we are limited to ledger
+        // ids no larger than an int
+        String testPath = urLedgerPath + "/0000/0000";
+        List<String> children = zkc1.getChildren(testPath, false);
+        assertEquals("Wrong number of hierarchies", 3, children.size());
+
+        int marked = 0;
+        while (marked < 3) {
+            long l = replicaMgr.getLedgerToRereplicate();
+            if (l != ledgers[0]) {
+                replicaMgr.markLedgerReplicated(l);
+                marked++;
+            } else {
+                replicaMgr.releaseUnderreplicatedLedger(l);
+            }
+        }
+        children = zkc1.getChildren(testPath, false);
+        assertEquals("Wrong number of hierarchies", 1, children.size());
+
+        long l = replicaMgr.getLedgerToRereplicate();
+        assertEquals("Got wrong ledger", ledgers[0], l);
+        replicaMgr.markLedgerReplicated(l);
+
+        children = zkc1.getChildren(urLedgerPath, false);
+        assertEquals("All hierarchies should be cleaned up", 0, children.size());
+    }
+
+    /**
+     * Test that as the hierarchy gets cleaned up, it doesn't interfere
+     * with the marking of other ledgers as underreplicated
+     */
+    @Test(timeout = 90000)
+    public void testHierarchyCleanupInterference() throws Exception {
+        final LedgerUnderreplicationManager replicaMgr1 = lmf1
+            .newLedgerUnderreplicationManager();
+        final LedgerUnderreplicationManager replicaMgr2 = lmf2
+            .newLedgerUnderreplicationManager();
+
+        final int iterations = 1000;
+        final AtomicBoolean threadFailed = new AtomicBoolean(false);
+        Thread markUnder = new Thread() {
+                public void run() {
+                    long l = 1;
+                    try {
+                        for (int i = 0; i < iterations; i++) {
+                            replicaMgr1.markLedgerUnderreplicated(l, "localhost:3181");
+                            l += 10000;
+                        }
+                    } catch (Exception e) {
+                        LOG.error("markUnder Thread failed with exception", e);
+                        threadFailed.set(true);
+                        return;
+                    }
+                }
+            };
+        final AtomicInteger processed = new AtomicInteger(0);
+        Thread markRepl = new Thread() {
+                public void run() {
+                    try {
+                        for (int i = 0; i < iterations; i++) {
+                            long l = replicaMgr2.getLedgerToRereplicate();
+                            replicaMgr2.markLedgerReplicated(l);
+                            processed.incrementAndGet();
+                        }
+                    } catch (Exception e) {
+                        LOG.error("markRepl Thread failed with exception", e);
+                        threadFailed.set(true);
+                        return;
+                    }
+                }
+            };
+        markRepl.setDaemon(true);
+        markUnder.setDaemon(true);
+
+        markRepl.start();
+        markUnder.start();
+        markUnder.join();
+        assertFalse("Thread failed to complete", threadFailed.get());
+
+        int lastProcessed = 0;
+        while (true) {
+            markRepl.join(10000);
+            if (!markRepl.isAlive()) {
+                break;
+            }
+            assertFalse("markRepl thread not progressing", lastProcessed == processed.get());
+        }
+        assertFalse("Thread failed to complete", threadFailed.get());
+
+        List<String> children = zkc1.getChildren(urLedgerPath, false);
+        for (String s : children) {
+            LOG.info("s: {}", s);
+        }
+        assertEquals("All hierarchies should be cleaned up", 0, children.size());
     }
 
     private void verifyMarkLedgerUnderreplicated(Collection<String> missingReplica)

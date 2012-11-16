@@ -45,17 +45,23 @@ import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.util.StringUtils;
+import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException.NodeExistsException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
@@ -69,11 +75,11 @@ import org.apache.zookeeper.Watcher.Event.EventType;
 
 public class Bookie extends BookieThread {
     public static final String INSTANCEID = "INSTANCEID";
+    public static final String READONLY = "readonly";
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
 
     final File journalDirectory;
-    final File ledgerDirectories[];
     final ServerConfiguration conf;
 
     final SyncThread syncThread;
@@ -90,9 +96,10 @@ public class Bookie extends BookieThread {
     private final String bookieRegistrationPath;
     static final String CURRENT_DIR = "current";
 
+    private LedgerDirsManager ledgerDirsManager;
+
     // ZooKeeper client instance for the Bookie
     ZooKeeper zk;
-    private volatile boolean isZkExpired = true;
 
     // Running flag
     private volatile boolean running = false;
@@ -106,6 +113,10 @@ public class Bookie extends BookieThread {
     BKMBeanInfo jmxLedgerStorageBean;
 
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
+
+    final private String zkBookieRegPath;
+
+    final private AtomicBoolean readOnly = new AtomicBoolean(false);
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -140,10 +151,10 @@ public class Bookie extends BookieThread {
         @Override
         public void writeComplete(int rc, long ledgerId, long entryId,
                                   InetSocketAddress addr, Object ctx) {
-            LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
-                      new Object[] { entryId, ledgerId, addr, rc });
+                LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
+                          new Object[] { entryId, ledgerId, addr, rc });
+            }
         }
-    }
 
     /**
      * SyncThread is a background thread which flushes ledger index pages periodically.
@@ -188,7 +199,7 @@ public class Bookie extends BookieThread {
             flushInterval = conf.getFlushInterval();
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Flush Interval : " + flushInterval);
-            }
+        }
         }
         @Override
         public void run() {
@@ -221,6 +232,10 @@ public class Bookie extends BookieThread {
                 boolean flushFailed = false;
                 try {
                     ledgerStorage.flush();
+                } catch (NoWritableLedgerDirException e) {
+                    flushFailed = true;
+                    flushing.set(false);
+                    transitionToReadOnlyMode();
                 } catch (IOException e) {
                     LOG.error("Exception flushing Ledger", e);
                     flushFailed = true;
@@ -229,9 +244,14 @@ public class Bookie extends BookieThread {
                 // if flush failed, we should not roll last mark, otherwise we would
                 // have some ledgers are not flushed and their journal entries were lost
                 if (!flushFailed) {
-                    journal.rollLog();
-                    if (running) {
-                        journal.gcJournals();
+                    try {
+                        journal.rollLog();
+                        if (running) {
+                        	journal.gcJournals();
+						}
+                    } catch (NoWritableLedgerDirException e) {
+                        flushing.set(false);
+                        transitionToReadOnlyMode();
                     }
                 }
 
@@ -248,7 +268,7 @@ public class Bookie extends BookieThread {
                 syncRequests.offer(Boolean.FALSE);
             } else if (flushing.compareAndSet(false, true)) {
                 // if setting flushing flag succeed, means syncThread is not flushing now
-                // it is safe to interrupt itself now
+                // it is safe to interrupt itself now 
                 this.interrupt();
             }
             this.join();
@@ -290,7 +310,7 @@ public class Bookie extends BookieThread {
     private void checkEnvironment(ZooKeeper zk) throws BookieException, IOException {
         if (zk == null) { // exists only for testing, just make sure directories are correct
             checkDirectoryStructure(journalDirectory);
-            for (File dir : ledgerDirectories) {
+            for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
                     checkDirectoryStructure(dir);
             }
             return;
@@ -318,7 +338,7 @@ public class Bookie extends BookieThread {
             } catch (FileNotFoundException fnf) {
                 missedCookieDirs.add(journalDirectory);
             }
-            for (File dir : ledgerDirectories) {
+            for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
                 checkDirectoryStructure(dir);
                 try {
                     Cookie c = Cookie.readFromDirectory(dir);
@@ -337,7 +357,7 @@ public class Bookie extends BookieThread {
                 if (missedCookieDirs.size() > 0) {
                     LOG.debug("Directories missing cookie file are {}", missedCookieDirs);
                     masterCookie.writeToDirectory(journalDirectory);
-                    for (File dir : ledgerDirectories) {
+                    for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
                         masterCookie.writeToDirectory(dir);
                     }
                 }
@@ -358,6 +378,15 @@ public class Bookie extends BookieThread {
         }
     }
 
+    /**
+     * Return the configured address of the bookie.
+     */
+    public static InetSocketAddress getBookieAddress(ServerConfiguration conf)
+            throws UnknownHostException {
+        return new InetSocketAddress(InetAddress.getLocalHost()
+                .getHostAddress(), conf.getBookiePort());
+    }
+
     private String getInstanceId(ZooKeeper zk) throws KeeperException,
             InterruptedException {
         String instanceId = null;
@@ -369,6 +398,10 @@ public class Bookie extends BookieThread {
             LOG.warn("INSTANCEID not exists in zookeeper. Not considering it for data verification");
         }
         return instanceId;
+    }
+
+    public LedgerDirsManager getLedgerDirsManager() {
+        return ledgerDirsManager;
     }
 
     public static File getCurrentDirectory(File dir) {
@@ -390,7 +423,7 @@ public class Bookie extends BookieThread {
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath() + "/";
         this.conf = conf;
         this.journalDirectory = getCurrentDirectory(conf.getJournalDir());
-        this.ledgerDirectories = getCurrentDirectories(conf.getLedgerDirs());
+        this.ledgerDirsManager = new LedgerDirsManager(conf);
 
         // instantiate zookeeper client to initialize ledger manager
         this.zk = instantiateZookeeperClient(conf);
@@ -400,10 +433,19 @@ public class Bookie extends BookieThread {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread);
+        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread,
+                ledgerDirsManager);
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
-        journal = new Journal(conf);
+        journal = new Journal(conf, ledgerDirsManager);
+
+        // ZK ephemeral node for this Bookie.
+        zkBookieRegPath = this.bookieRegistrationPath + getMyId();
+    }
+
+    private String getMyId() throws UnknownHostException {
+        return InetAddress.getLocalHost().getHostAddress() + ":"
+                + conf.getBookiePort();
     }
 
     void readJournal() throws IOException, BookieException {
@@ -457,12 +499,18 @@ public class Bookie extends BookieThread {
         } catch (IOException ioe) {
             LOG.error("Exception while replaying journals, shutting down", ioe);
             shutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
         } catch (BookieException be) {
             LOG.error("Exception while replaying journals, shutting down", be);
             shutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
         }
         // start bookie thread
         super.start();
+
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        //Start DiskChecker thread
+        ledgerDirsManager.start();
 
         ledgerStorage.start();
 
@@ -472,11 +520,43 @@ public class Bookie extends BookieThread {
         // if setting it in bookie thread, the watcher might run before bookie thread.
         running = true;
         try {
-            registerBookie(conf.getBookiePort());
+            registerBookie(conf);
         } catch (IOException e) {
             LOG.error("Couldn't register bookie with zookeeper, shutting down", e);
             shutdown(ExitCode.ZK_REG_FAIL);
         }
+    }
+
+    /*
+     * Get the DiskFailure listener for the bookie
+     */
+    private LedgerDirsListener getLedgerDirsListener() {
+
+        return new LedgerDirsListener() {
+
+            @Override
+            public void diskFull(File disk) {
+                // Nothing needs to be handled here.
+            }
+
+            @Override
+            public void diskFailed(File disk) {
+                // Shutdown the bookie on disk failure.
+                triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            }
+
+            @Override
+            public void allDisksFull() {
+                // Transition to readOnly mode on all disks full
+                transitionToReadOnlyMode();
+            }
+
+            @Override
+            public void fatalError() {
+                LOG.error("Fatal error reported by ledgerDirsManager");
+                triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            }
+        };
     }
 
     /**
@@ -528,10 +608,10 @@ public class Bookie extends BookieThread {
     /**
      * Instantiate the ZooKeeper client for the Bookie.
      */
-    private ZooKeeper instantiateZookeeperClient(ServerConfiguration conf) throws IOException {
+    private ZooKeeper instantiateZookeeperClient(ServerConfiguration conf)
+            throws IOException, InterruptedException, KeeperException {
         if (conf.getZkServers() == null) {
             LOG.warn("No ZK servers passed to Bookie constructor so BookKeeper clients won't know about this server!");
-            isZkExpired = false;
             return null;
         }
         // Create the ZooKeeper client instance
@@ -541,14 +621,15 @@ public class Bookie extends BookieThread {
     /**
      * Register as an available bookie
      */
-    protected void registerBookie(int port) throws IOException {
+    protected void registerBookie(ServerConfiguration conf) throws IOException {
         if (null == zk) {
             // zookeeper instance is null, means not register itself to zk
             return;
         }
+
         // ZK ephemeral node for this Bookie.
         String zkBookieRegPath = this.bookieRegistrationPath
-                + InetAddress.getLocalHost().getHostAddress() + ":" + port;
+            + StringUtils.addrToString(getBookieAddress(conf));
         final CountDownLatch prevNodeLatch = new CountDownLatch(1);
         try{
             Watcher zkPrevRegNodewatcher = new Watcher() {
@@ -585,13 +666,68 @@ public class Bookie extends BookieThread {
             // exit here as this is a fatal error.
             throw new IOException(ke);
         } catch (InterruptedException ie) {
-            LOG.error("ZK exception registering ephemeral Znode for Bookie!",
-                    ie);
+            LOG.error("ZK exception registering ephemeral Znode for Bookie!", ie);
             // Throw an IOException back up. This will cause the Bookie
             // constructor to error out. Alternatively, we could do a System
             // exit here as this is a fatal error.
             throw new IOException(ie);
         }
+    }
+
+    /*
+     * Transition the bookie to readOnly mode
+     */
+    void transitionToReadOnlyMode() {
+        if (!readOnly.compareAndSet(false, true)) {
+            return;
+        }
+        if (!conf.isReadOnlyModeEnabled()) {
+            LOG.warn("ReadOnly mode is not enabled. "
+                    + "Can be enabled by configuring "
+                    + "'readOnlyModeEnabled=true' in configuration."
+                    + "Shutting down bookie");
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
+        }
+        LOG.info("Transitioning Bookie to ReadOnly mode,"
+                + " and will serve only read requests from clients!");
+        try {
+            if (null == zk.exists(this.bookieRegistrationPath + READONLY, false)) {
+                try {
+                    zk.create(this.bookieRegistrationPath + READONLY,
+                            new byte[0], Ids.OPEN_ACL_UNSAFE,
+                            CreateMode.PERSISTENT);
+                } catch (NodeExistsException e) {
+                    // this node is just now created by someone.
+                }
+            }
+            // Clear the current registered node
+            zk.delete(zkBookieRegPath, -1);
+            // Create the readonly node
+            zk.create(this.bookieRegistrationPath + READONLY + "/" + getMyId(),
+                    new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+        } catch (IOException e) {
+            LOG.error("Error in transition to ReadOnly Mode."
+                    + " Shutting down", e);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
+        } catch (KeeperException e) {
+            LOG.error("Error in transition to ReadOnly Mode."
+                    + " Shutting down", e);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted Exception while transitioning to ReadOnly Mode.");
+            return;
+        }
+    }
+
+    /*
+     * Check whether Bookie is writable
+     */
+    public boolean isReadOnly() {
+        return readOnly.get();
     }
 
     /**
@@ -615,33 +751,21 @@ public class Bookie extends BookieThread {
      * @return zk client instance
      */
     private ZooKeeper newZookeeper(final String zkServers,
-                                   final int sessionTimeout) throws IOException {
-        ZooKeeper newZk = new ZooKeeper(zkServers, sessionTimeout,
-        new Watcher() {
+            final int sessionTimeout) throws IOException, InterruptedException,
+            KeeperException {
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout()) {
             @Override
             public void process(WatchedEvent event) {
-                // handle session disconnects and expires
-                if (event.getType()
-                .equals(Watcher.Event.EventType.None)) {
-                    if (event.getState().equals(
-                    Watcher.Event.KeeperState.Disconnected)) {
-                        LOG.warn("ZK client has been disconnected to the ZK server!");
-                    } else if (event.getState().equals(
-                    Watcher.Event.KeeperState.SyncConnected)) {
-                        LOG.info("ZK client has been reconnected to the ZK server!");
-                    }
-                }
                 // Check for expired connection.
-                if (event.getState().equals(
-                Watcher.Event.KeeperState.Expired)) {
+                if (event.getState().equals(Watcher.Event.KeeperState.Expired)) {
                     LOG.error("ZK client connection to the ZK server has expired!");
-                    isZkExpired = true;
                     shutdown(ExitCode.ZK_EXPIRED);
+                } else {
+                    super.process(event);
                 }
             }
-        });
-        isZkExpired = false;
-        return newZk;
+        };
+        return ZkUtils.createConnectedZookeeperClient(zkServers, w);
     }
 
     public boolean isRunning() {
@@ -664,7 +788,25 @@ public class Bookie extends BookieThread {
             // following add operations to it would hang unit client timeout
             // so we should let bookie server exists
             LOG.error("Journal manager quits unexpectedly.");
-            shutdown(ExitCode.BOOKIE_EXCEPTION);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+        }
+    }
+
+    // Triggering the Bookie shutdown in its own thread,
+    // because shutdown can be called from sync thread which would be
+    // interrupted by shutdown call.
+    void triggerBookieShutdown(final int exitCode) {
+        Thread shutdownThread = new Thread() {
+            public void run() {
+                Bookie.this.shutdown(exitCode);
+            }
+        };
+        shutdownThread.start();
+        try {
+            shutdownThread.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.debug("InterruptedException while waiting for shutdown. Not a problem!!");
         }
     }
 
@@ -697,6 +839,9 @@ public class Bookie extends BookieThread {
                 // Shutdown Sync thread
                 syncThread.shutdown();
 
+				//Shutdown disk checker
+                ledgerDirsManager.shutdown();
+
                 // Shutdown journal
                 journal.shutdown();
                 this.join();
@@ -720,14 +865,14 @@ public class Bookie extends BookieThread {
         return this.exitCode;
     }
 
-    /**
+    /** 
      * Retrieve the ledger descriptor for the ledger which entry should be added to.
-     * The LedgerDescriptor returned from this method should be eventually freed with
+     * The LedgerDescriptor returned from this method should be eventually freed with 
      * #putHandle().
      *
      * @throws BookieException if masterKey does not match the master key of the ledger
      */
-    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey)
+    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey) 
             throws IOException, BookieException {
         long ledgerId = entry.getLong();
         LedgerDescriptor l = handles.getHandle(ledgerId, masterKey);
@@ -755,7 +900,7 @@ public class Bookie extends BookieThread {
     }
 
     /**
-     * Add an entry to a ledger as specified by handle.
+     * Add an entry to a ledger as specified by handle. 
      */
     private void addEntryInternal(LedgerDescriptor handle, ByteBuffer entry, WriteCallback cb, Object ctx)
             throws IOException, BookieException {
@@ -765,38 +910,48 @@ public class Bookie extends BookieThread {
 
         entry.rewind();
         if (LOG.isTraceEnabled()) {
-            LOG.trace("Adding " + entryId + "@" + ledgerId);
+            LOG.trace("Adding {}@{}", entryId, ledgerId);
         }
         journal.logAddEntry(entry, cb, ctx);
     }
 
     /**
      * Add entry to a ledger, even if the ledger has previous been fenced. This should only
-     * happen in bookie recovery or ledger recovery cases, where entries are being replicates
+     * happen in bookie recovery or ledger recovery cases, where entries are being replicates 
      * so that they exist on a quorum of bookies. The corresponding client side call for this
      * is not exposed to users.
      */
-    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
+    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey) 
             throws IOException, BookieException {
-        LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
-        synchronized (handle) {
-            addEntryInternal(handle, entry, cb, ctx);
+        try {
+            LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
+            synchronized (handle) {
+                addEntryInternal(handle, entry, cb, ctx);
+            }
+        } catch (NoWritableLedgerDirException e) {
+            transitionToReadOnlyMode();
+            throw new IOException(e);
         }
     }
-
-    /**
+    
+    /** 
      * Add entry to a ledger.
      * @throws BookieException.LedgerFencedException if the ledger is fenced
      */
     public void addEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException {
-        LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
-        synchronized (handle) {
-            if (handle.isFenced()) {
-                throw BookieException.create(BookieException.Code.LedgerFencedException);
+        try {
+            LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
+            synchronized (handle) {
+                if (handle.isFenced()) {
+                    throw BookieException
+                            .create(BookieException.Code.LedgerFencedException);
+                }
+                addEntryInternal(handle, entry, cb, ctx);
             }
-
-            addEntryInternal(handle, entry, cb, ctx);
+        } catch (NoWritableLedgerDirException e) {
+            transitionToReadOnlyMode();
+            throw new IOException(e);
         }
     }
 
@@ -818,7 +973,7 @@ public class Bookie extends BookieThread {
             throws IOException, NoLedgerException {
         LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
         if (LOG.isTraceEnabled()) {
-            LOG.trace("Reading " + entryId + "@" + ledgerId);
+            LOG.trace("Reading {}@{}", entryId, ledgerId);
         }
         return handle.readEntry(entryId);
     }
@@ -847,7 +1002,7 @@ public class Bookie extends BookieThread {
 
     /**
      * Format the bookie server data
-     *
+     * 
      * @param conf
      *            ServerConfiguration
      * @param isInteractive
@@ -924,7 +1079,7 @@ public class Bookie extends BookieThread {
      * @throws IOException
      * @throws InterruptedException
      */
-    public static void main(String[] args)
+    public static void main(String[] args) 
             throws IOException, InterruptedException, BookieException, KeeperException {
         Bookie b = new Bookie(new ServerConfiguration());
         b.start();

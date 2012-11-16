@@ -64,6 +64,10 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Statistics Parameters
     protected final static String ENABLE_STATISTICS = "enableStatistics";
     protected final static String OPEN_LEDGER_REREPLICATION_GRACE_PERIOD = "openLedgerRereplicationGracePeriod";
+    //ReadOnly mode support on all disk full
+    protected final static String READ_ONLY_MODE_ENABLED = "readOnlyModeEnabled";
+    protected final static String DISK_USAGE_THRESHOLD = "diskUsageThreshold";
+    protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
 
     // Worker Thread parameters.
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
@@ -587,18 +591,18 @@ public class ServerConfiguration extends AbstractConfiguration {
         setProperty(MAJOR_COMPACTION_INTERVAL, interval);
         return this;
     }
-
+    
     /**
      * Set the grace period which the rereplication worker will wait before
      * fencing and rereplicating a ledger fragment which is still being written
      * to, on bookie failure.
-     *
+     * 
      * The grace period allows the writer to detect the bookie failure, and and
      * start writing to another ledger fragment. If the writer writes nothing
      * during the grace period, the rereplication worker assumes that it has
      * crashed and therefore fences the ledger, preventing any further writes to
      * that ledger.
-     *
+     * 
      * @see LedgerHandle#openLedger
      */
     public void setOpenLedgerRereplicationGracePeriod(String waitTime) {
@@ -742,5 +746,52 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public long getJournalBufferedWritesThreshold() {
         return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512 * 1024);
+    }
+
+
+    /**
+     * Set the ReadOnlyModeEnabled status
+     */
+    public ServerConfiguration setReadOnlyModeEnabled(boolean enabled) {
+        setProperty(READ_ONLY_MODE_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Get ReadOnlyModeEnabled status
+     */
+    public boolean isReadOnlyModeEnabled() {
+        return getBoolean(READ_ONLY_MODE_ENABLED, false);
+    }
+
+    /**
+     * Set the Disk free space threshold in Bytes after which disk will be
+     * considered as full during diskcheck.
+     */
+    public ServerConfiguration setDiskUsageThreshold(float threshold) {
+        setProperty(DISK_USAGE_THRESHOLD, threshold);
+        return this;
+    }
+
+    /**
+     * Returns disk free space threshold. By default 100MB
+     */
+    public float getDiskUsageThreshold() {
+        return getFloat(DISK_USAGE_THRESHOLD, 0.95f);
+    }
+
+    /**
+     * Set the disk checker interval to monitor ledger disk space
+     */
+    public ServerConfiguration setDiskCheckInterval(int interval) {
+        setProperty(DISK_CHECK_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get the disk checker interval
+     */
+    public int getDiskCheckInterval() {
+        return getInt(DISK_CHECK_INTERVAL, 10 * 1000);
     }
 }

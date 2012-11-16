@@ -40,13 +40,14 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException.Code;
+import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -118,8 +119,8 @@ public class BookKeeperAdmin {
      */
     public BookKeeperAdmin(ClientConfiguration conf) throws IOException, InterruptedException, KeeperException {
         // Create the ZooKeeper client instance
-        zk = ZkUtils.createConnectedZookeeperClient(conf.getZkServers(),
-                conf.getZkTimeout());
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
+        zk = ZkUtils.createConnectedZookeeperClient(conf.getZkServers(), w);
         // Create the bookie path
         bookiesPath = conf.getZkAvailableBookiesPath();
         // Create the BookKeeper client instance
@@ -635,7 +636,7 @@ public class BookKeeperAdmin {
      */
     private void asyncRecoverLedgerFragment(final LedgerHandle lh,
             final LedgerFragment ledgerFragment,
-            final LedgerFragmentReplicator.SingleFragmentCallback ledgerFragmentMcb,
+            final AsyncCallback.VoidCallback ledgerFragmentMcb,
             final InetSocketAddress newBookie) throws InterruptedException {
         lfr.replicate(lh, ledgerFragment, ledgerFragmentMcb, newBookie);
     }
@@ -652,15 +653,15 @@ public class BookKeeperAdmin {
      */
     public void replicateLedgerFragment(LedgerHandle lh,
             final LedgerFragment ledgerFragment,
-            InetSocketAddress targetBookieAddress) throws InterruptedException,
-            BKException {
-        final SyncCounter syncCounter = new SyncCounter();
+            final InetSocketAddress targetBookieAddress)
+            throws InterruptedException, BKException {
+        SyncCounter syncCounter = new SyncCounter();
         ResultCallBack resultCallBack = new ResultCallBack(syncCounter);
-        SingleFragmentCallback sfcb = new SingleFragmentCallback(
-                resultCallBack, lh, ledgerFragment.getFirstStoredEntryId(),
-                ledgerFragment.getAddress(), targetBookieAddress);
+        SingleFragmentCallback cb = new SingleFragmentCallback(resultCallBack,
+                lh, ledgerFragment.getFirstEntryId(), ledgerFragment
+                        .getAddress(), targetBookieAddress);
         syncCounter.inc();
-        lfr.replicate(lh, ledgerFragment, sfcb, targetBookieAddress);
+        asyncRecoverLedgerFragment(lh, ledgerFragment, cb, targetBookieAddress);
         syncCounter.block(0);
         if (syncCounter.getrc() != BKException.Code.OK) {
             throw BKException.create(syncCounter.getrc());
@@ -695,9 +696,9 @@ public class BookKeeperAdmin {
      */
     public static boolean format(ClientConfiguration conf,
             boolean isInteractive, boolean force) throws Exception {
-
-        ZooKeeper zkc = ZkUtils.createConnectedZookeeperClient(conf.getZkServers(),
-                conf.getZkTimeout());
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
+        ZooKeeper zkc = ZkUtils.createConnectedZookeeperClient(
+                conf.getZkServers(), w);
         BookKeeper bkc = null;
         try {
             boolean ledgerRootExists = null != zkc.exists(

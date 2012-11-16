@@ -36,7 +36,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BKException.BKBookieHandleNotAvailableException;
 import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
 import org.apache.bookkeeper.client.BKException.BKReadException;
-import org.apache.bookkeeper.conf.AbstractConfiguration;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -57,7 +56,7 @@ public class ReplicationWorker implements Runnable {
     private static Logger LOG = LoggerFactory
             .getLogger(ReplicationWorker.class);
     final private LedgerUnderreplicationManager underreplicationManager;
-    private AbstractConfiguration conf;
+    private ServerConfiguration conf;
     private ZooKeeper zkc;
     private volatile boolean workerRunning = false;
     final private BookKeeperAdmin admin;
@@ -284,6 +283,9 @@ public class ReplicationWorker implements Runnable {
      * Stop the replication worker service
      */
     public void shutdown() {
+        if (!workerRunning) {
+            return;
+        }
         workerRunning = false;
         try {
             underreplicationManager.close();
@@ -308,6 +310,13 @@ public class ReplicationWorker implements Runnable {
                     e);
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Gives the running status of ReplicationWorker
+     */
+    boolean isRunning() {
+        return workerRunning;
     }
 
     private boolean isTargetBookieExistsInFragmentEnsemble(LedgerHandle lh,

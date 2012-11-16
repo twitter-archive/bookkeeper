@@ -125,7 +125,7 @@ public class MessageBoundedPersistenceTest extends HedwigHubTestBase {
                 }
             });
         assertTrue("Timed out waiting for messages Y is " + Y
-                + " expected is currently " + expected.get(), latch.await(10, TimeUnit.SECONDS));
+                + " expected is currently " + expected.get(), latch.await(15, TimeUnit.SECONDS));
         assertEquals("Should be expected message with " + X, X, expected.get());
 
         sub.stopDelivery(topic, subid);

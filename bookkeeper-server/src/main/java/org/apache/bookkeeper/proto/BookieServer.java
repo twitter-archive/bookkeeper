@@ -71,7 +71,7 @@ public class BookieServer {
     final boolean isStatsEnabled;
     protected BookieServerBean jmxBkServerBean;
 
-    public BookieServer(ServerConfiguration conf)
+    public BookieServer(ServerConfiguration conf) 
             throws IOException, KeeperException, InterruptedException, BookieException {
         this.conf = conf;
         this.statsExporter = new HTTPStatsExporter(conf.getStatsHttpPort());
@@ -108,10 +108,15 @@ public class BookieServer {
 
     public InetSocketAddress getLocalAddress() {
         try {
-            return new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), conf.getBookiePort());
+            return Bookie.getBookieAddress(conf);
         } catch (UnknownHostException uhe) {
             return nioServerFactory.getLocalAddress();
         }
+    }
+
+    //VisibleForTesting
+    public Bookie getBookie() {
+        return bookie;
     }
 
     public synchronized void shutdown() {
