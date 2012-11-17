@@ -44,6 +44,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
+import org.apache.bookkeeper.bookie.SkipListLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
@@ -268,7 +270,7 @@ public class Bookie extends BookieThread {
                 syncRequests.offer(Boolean.FALSE);
             } else if (flushing.compareAndSet(false, true)) {
                 // if setting flushing flag succeed, means syncThread is not flushing now
-                // it is safe to interrupt itself now 
+                // it is safe to interrupt itself now
                 this.interrupt();
             }
             this.join();
@@ -433,8 +435,12 @@ public class Bookie extends BookieThread {
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         syncThread = new SyncThread(conf);
-        ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, syncThread,
-                ledgerDirsManager);
+        // Check the type of storage.
+        if (conf.getSkipListUsageEnabled()) {
+            ledgerStorage = new SkipListLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
+        } else {
+            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager);
+        }
         handles = new HandleFactoryImpl(ledgerStorage);
         // instantiate the journal
         journal = new Journal(conf, ledgerDirsManager);
@@ -865,14 +871,14 @@ public class Bookie extends BookieThread {
         return this.exitCode;
     }
 
-    /** 
+    /**
      * Retrieve the ledger descriptor for the ledger which entry should be added to.
-     * The LedgerDescriptor returned from this method should be eventually freed with 
+     * The LedgerDescriptor returned from this method should be eventually freed with
      * #putHandle().
      *
      * @throws BookieException if masterKey does not match the master key of the ledger
      */
-    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey) 
+    private LedgerDescriptor getLedgerForEntry(ByteBuffer entry, byte[] masterKey)
             throws IOException, BookieException {
         long ledgerId = entry.getLong();
         LedgerDescriptor l = handles.getHandle(ledgerId, masterKey);
@@ -900,7 +906,7 @@ public class Bookie extends BookieThread {
     }
 
     /**
-     * Add an entry to a ledger as specified by handle. 
+     * Add an entry to a ledger as specified by handle.
      */
     private void addEntryInternal(LedgerDescriptor handle, ByteBuffer entry, WriteCallback cb, Object ctx)
             throws IOException, BookieException {
@@ -917,11 +923,11 @@ public class Bookie extends BookieThread {
 
     /**
      * Add entry to a ledger, even if the ledger has previous been fenced. This should only
-     * happen in bookie recovery or ledger recovery cases, where entries are being replicates 
+     * happen in bookie recovery or ledger recovery cases, where entries are being replicates
      * so that they exist on a quorum of bookies. The corresponding client side call for this
      * is not exposed to users.
      */
-    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey) 
+    public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException {
         try {
             LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
@@ -933,8 +939,8 @@ public class Bookie extends BookieThread {
             throw new IOException(e);
         }
     }
-    
-    /** 
+
+    /**
      * Add entry to a ledger.
      * @throws BookieException.LedgerFencedException if the ledger is fenced
      */
@@ -1002,7 +1008,7 @@ public class Bookie extends BookieThread {
 
     /**
      * Format the bookie server data
-     * 
+     *
      * @param conf
      *            ServerConfiguration
      * @param isInteractive
@@ -1079,7 +1085,7 @@ public class Bookie extends BookieThread {
      * @throws IOException
      * @throws InterruptedException
      */
-    public static void main(String[] args) 
+    public static void main(String[] args)
             throws IOException, InterruptedException, BookieException, KeeperException {
         Bookie b = new Bookie(new ServerConfiguration());
         b.start();
