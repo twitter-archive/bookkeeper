@@ -44,6 +44,9 @@ import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.twitter.common.stats.SampledStat;
+import com.twitter.common.stats.Stats;
+
 /**
  * Provide journal related management.
  */
@@ -270,9 +273,9 @@ class Journal extends BookieThread {
             this.isMarker = isMarker;
         }
 
-        public void process(boolean shouldForceWrite) throws IOException {
+        public int process(boolean shouldForceWrite) throws IOException {
             if (isMarker) {
-                return;
+                return 0;
             }
 
             try {
@@ -292,7 +295,9 @@ class Journal extends BookieThread {
                             .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(e.enqueueTime));
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
-    }
+                }
+
+                return this.forceWriteWaiters.size();
             }
             finally {
                 closeFileIfNecessary();
@@ -327,17 +332,32 @@ class Journal extends BookieThread {
         Thread threadToNotifyOnEx;
         // should we group force writes
         private final boolean enableGroupForceWrites;
+        // Number of writes grouped by the previous write
+        private volatile int groupingFactor;
         // make flush interval as a parameter
         public ForceWriteThread(Thread threadToNotifyOnEx, boolean enableGroupForceWrites) {
             super("ForceWriteThread");
             this.threadToNotifyOnEx = threadToNotifyOnEx;
             this.enableGroupForceWrites = enableGroupForceWrites;
+            this.groupingFactor = 0;
+
+            // Export sampled stats for journal grouping efficiency.
+            Stats.export(new SampledStat<Integer>(ServerStatsProvider
+                .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
+                    .JOURNAL_FORCE_WRITE_GROUPING_COUNT), 0) {
+                @Override
+                public Integer doSample() {
+                    return new Integer(groupingFactor);
+                }
+            });
+
         }
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
             boolean shouldForceWrite = true;
             JournalChannel currLogFile = null;
+            int numReqInLastForceWrite = 0;
             while(running) {
                 ForceWriteRequest req = null;
                 try {
@@ -346,15 +366,23 @@ class Journal extends BookieThread {
                     // Force write the file and then notify the write completions
                     //
                     if (!req.isMarker) {
-                        if (enableGroupForceWrites) {
+                        if (shouldForceWrite) {
                             // if we are going to force write, any request that is already in the
                             // queue will benefit from this force write - post a marker prior to issuing
                             // the flush so until this marker is encountered we can skip the force write
-                            if (shouldForceWrite) {
+                            if (enableGroupForceWrites) {
                                 forceWriteRequests.put(new ForceWriteRequest(req.logFile, 0, 0, null, false, true));
                             }
+
+                            // If we are about to issue a write, record the number of requests in
+                            // the last force write and then reset the counter so we can accumulate
+                            // requests in the write we are about to issue
+                            if (numReqInLastForceWrite > 0) {
+                                groupingFactor = numReqInLastForceWrite;
+                                numReqInLastForceWrite = 0;
+                            }
                         }
-                        req.process(shouldForceWrite);
+                        numReqInLastForceWrite += req.process(shouldForceWrite);
                         currLogFile = req.logFile;
                     }
 
