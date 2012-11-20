@@ -181,7 +181,7 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
         bs.remove(indexOfDownBookie);
         bsConfs.remove(indexOfDownBookie);
         tmpDirs.remove(indexOfDownBookie);
-        startBookie(serverConfiguration);
+        bs.add(startBookie(serverConfiguration));
         // starting corresponding auditor elector
         String addr = StringUtils.addrToString(auditor.getLocalAddress());
         LOG.debug("Performing Auditor Election:" + addr);
