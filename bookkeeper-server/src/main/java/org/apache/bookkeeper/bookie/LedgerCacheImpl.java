@@ -61,36 +61,12 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public void putEntryOffset(long ledger, long entry, long offset) throws IOException {
-        int offsetInPage = (int) (entry % entriesPerPage);
-        // find the id of the first entry of the page that has the entry
-        // we are looking for
-        long pageEntry = entry-offsetInPage;
-        LedgerEntryPage lep = indexPageManager.getLedgerEntryPage(ledger, pageEntry, false);
-        if (lep == null) {
-            lep = indexPageManager.grabLedgerEntryPage(ledger, pageEntry);
-        }
-        assert lep != null;
-        lep.setOffset(offset, offsetInPage*8);
-        lep.releasePage();
-        }
+        indexPageManager.putEntryOffset(ledger, entry, offset);
+    }
 
     @Override
     public long getEntryOffset(long ledger, long entry) throws IOException {
-        int offsetInPage = (int) (entry%entriesPerPage);
-        // find the id of the first entry of the page that has the entry
-        // we are looking for
-        long pageEntry = entry-offsetInPage;
-        LedgerEntryPage lep = indexPageManager.getLedgerEntryPage(ledger, pageEntry, false);
-        try {
-            if (lep == null) {
-                lep = indexPageManager.grabLedgerEntryPage(ledger, pageEntry);
-            }
-            return lep.getOffset(offsetInPage*8);
-        } finally {
-            if (lep != null) {
-                lep.releasePage();
-            }
-        }
+        return indexPageManager.getEntryOffset(ledger, entry);
     }
 
     static final String getLedgerName(long ledgerId) {
@@ -177,16 +153,6 @@ public class LedgerCacheImpl implements LedgerCache {
             @Override
             public int getOpenFileLimit() {
                 return LedgerCacheImpl.this.indexPersistenceManager.getOpenFileLimit();
-            }
-
-            @Override
-            public int getNumCleanLedgers() {
-                return LedgerCacheImpl.this.indexPageManager.getNumCleanLedgers();
-            }
-
-            @Override
-            public int getNumDirtyLedgers() {
-                return LedgerCacheImpl.this.indexPageManager.getNumDirtyLedgers();
             }
 
             @Override

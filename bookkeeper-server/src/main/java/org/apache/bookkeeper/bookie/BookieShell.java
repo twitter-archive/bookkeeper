@@ -699,12 +699,11 @@ public class BookieShell implements Tool {
         System.out.println("size        : " + size);
         long curSize = 0;
         long curEntry = 0;
-        LedgerEntryPage lep = new LedgerEntryPage(pageSize, entriesPerPage);
+        LedgerEntryPage lep = new LedgerEntryPage(pageSize, entriesPerPage, null);
         lep.usePage();
         try {
             while (curSize < size) {
-                lep.setLedger(ledgerId);
-                lep.setFirstEntry(curEntry);
+                lep.setLedgerAndFirstEntry(ledgerId, curEntry);
                 lep.readPage(fi);
 
                 // process a page

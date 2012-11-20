@@ -42,15 +42,20 @@ public class LedgerEntryPage {
     volatile private boolean pinned = false;
     private final AtomicInteger useCount = new AtomicInteger();
     volatile private int version;
+    private final LEPStateChangeCallback callback;
 
     public static int getIndexEntrySize() {
         return indexEntrySize;
     }
 
-    public LedgerEntryPage(int pageSize, int entriesPerPage) {
+    public LedgerEntryPage(int pageSize, int entriesPerPage, LEPStateChangeCallback callback) {
         this.pageSize = pageSize;
         this.entriesPerPage = entriesPerPage;
         page = ByteBuffer.allocateDirect(pageSize);
+        this.callback = callback;
+        if (null != this.callback) {
+            callback.onResetInUse(this);
+        }
     }
 
     @Override
@@ -64,7 +69,10 @@ public class LedgerEntryPage {
         return sb.toString();
     }
     public void usePage() {
-        useCount.getAndIncrement();
+        int oldVal = useCount.getAndIncrement();
+        if ((0 == oldVal) && (null != callback)) {
+            callback.onSetInUse(this);
+        }
     }
     synchronized public void pin() {
         pinned = true;
@@ -76,8 +84,12 @@ public class LedgerEntryPage {
         return pinned;
     }
     public void releasePage() {
-        if (useCount.decrementAndGet() < 0) {
+        int newUseCount = useCount.decrementAndGet();
+        if (newUseCount < 0) {
             throw new IllegalStateException("Use count has gone below 0");
+        }
+        if ((null != callback) && (newUseCount == 0)) {
+            callback.onResetInUse(this);
         }
     }
     private void checkPage() {
@@ -100,16 +112,27 @@ public class LedgerEntryPage {
     }
     void setClean(int versionOfCleaning) {
         this.clean = (versionOfCleaning == version);
+
+        if ((null != callback) && clean) {
+            callback.onSetClean(this);
+        }
     }
+
     boolean isClean() {
         return clean;
     }
+
     public void setOffset(long offset, int position) {
         checkPage();
         page.putLong(position, offset);
         version++;
         this.clean = false;
+
+        if (null != callback) {
+            callback.onSetDirty(this);
+        }
     }
+
     public long getOffset(int position) {
         checkPage();
         return page.getLong(position);
@@ -136,21 +159,21 @@ public class LedgerEntryPage {
         page.clear();
         return page;
     }
-    void setLedger(long ledger) {
-        this.ledger = ledger;
-    }
     long getLedger() {
         return ledger;
     }
     int getVersion() {
         return version;
     }
-    void setFirstEntry(long firstEntry) {
+
+    void setLedgerAndFirstEntry(long ledgerId, long firstEntry) {
         if (firstEntry % entriesPerPage != 0) {
             throw new IllegalArgumentException(firstEntry + " is not a multiple of " + entriesPerPage);
         }
         this.firstEntry = firstEntry;
+        this.ledger = ledgerId;
     }
+
     long getFirstEntry() {
         return firstEntry;
     }
