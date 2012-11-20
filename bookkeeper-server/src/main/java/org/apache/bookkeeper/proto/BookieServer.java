@@ -74,7 +74,13 @@ public class BookieServer {
     public BookieServer(ServerConfiguration conf) 
             throws IOException, KeeperException, InterruptedException, BookieException {
         this.conf = conf;
-        this.statsExporter = new HTTPStatsExporter(conf.getStatsHttpPort());
+
+        if (conf.getStatsExport()) {
+            this.statsExporter = new HTTPStatsExporter(conf.getStatsHttpPort());
+        } else {
+            this.statsExporter = null;
+        }
+
         this.bookie = newBookie(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
     }
@@ -87,13 +93,15 @@ public class BookieServer {
     public void start() throws IOException {
         nioServerFactory = new NIOServerFactory(conf, new MultiPacketProcessor(this.conf, this.bookie));
 
-        this.bookie.start();
+        bookie.start();
 
         nioServerFactory.start();
 
         // Start stats exporter.
         try {
-            this.statsExporter.start();
+            if (null != statsExporter) {
+                statsExporter.start();
+            }
         } catch (Exception e) {
             LOG.error("Exception while starting stats exporter", e);
         }
@@ -124,12 +132,16 @@ public class BookieServer {
             return;
         }
         nioServerFactory.shutdown();
+
         // Stop stats exporter.
         try {
-            statsExporter.stop();
+            if (null != statsExporter) {
+                statsExporter.stop();
+            }
         } catch (Exception e) {
             LOG.error("Exception while shutting down stats exporter.");
         }
+
         exitCode = bookie.shutdown();
         running = false;
 
