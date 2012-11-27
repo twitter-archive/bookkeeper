@@ -63,6 +63,7 @@ enum OperationType {
 message BKPacketHeader {
     required ProtocolVersion version = 1;
     required OperationType operation = 2;
+    required uint64 txnId = 3;
 }
 
 message Request {
