@@ -32,12 +32,13 @@ public interface BookieProtocol {
     /**
      * Lowest protocol version which will work with the bookie.
      */
+    // TODO: Separate out compatibility for client and server.
     public static final byte LOWEST_COMPAT_PROTOCOL_VERSION = 0;
 
     /**
      * Current version of the protocol, which client will use. 
      */
-    public static final byte CURRENT_PROTOCOL_VERSION = 2;
+    public static final byte CURRENT_PROTOCOL_VERSION = 3;
 
     /**
      * Entry Entry ID. To be used when no valid entry id can be assigned.

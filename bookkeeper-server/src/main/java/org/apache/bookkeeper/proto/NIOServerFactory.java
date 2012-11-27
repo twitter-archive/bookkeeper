@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 /**
  * This class handles communication with clients using NIO. There is one Cnxn
  * per client, but only one thread doing the communication.
+ * TODO: Change this to use netty
  */
 public class NIOServerFactory extends Thread {
 

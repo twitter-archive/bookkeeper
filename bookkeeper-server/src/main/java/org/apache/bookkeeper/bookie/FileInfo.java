@@ -242,6 +242,10 @@ class FileInfo {
      */
     public synchronized void moveToNewLocation(File newFile, long size) throws IOException {
         checkOpen(false);
+        // If the channel is null, just return.
+        if (null == fc) {
+            return;
+        }
         if (size > fc.size()) {
             size = fc.size();
         }

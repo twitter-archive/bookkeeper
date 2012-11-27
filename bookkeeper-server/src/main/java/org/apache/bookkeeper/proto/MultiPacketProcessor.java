@@ -17,6 +17,8 @@
  */
 package org.apache.bookkeeper.proto;
 
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
@@ -29,6 +31,20 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.apache.bookkeeper.proto.WriteEntryProcessorV3;
+import org.apache.bookkeeper.proto.ReadEntryProcessorV3;
+
+import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 
 /**
  * This class is a packet processor implementation that processes multiple packets at
@@ -75,22 +91,47 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
      * @param srcConn
      */
     public void processPacket(ByteBuffer packet, Cnxn srcConn) {
-        PacketHeader header = PacketHeader.fromInt(packet.getInt());
-        packet.rewind();
-        // The ByteBuffer is already allocated by the NIOServerFactory, so we shouldn't
-        // copy it here. It's safe to pass it on as is.
-        switch (header.getOpCode()) {
-            case BookieProtocol.ADDENTRY:
-                writeThreadPool.submit(new WriteEntryProcessor(packet, srcConn, bookie));
-                break;
-            case BookieProtocol.READENTRY:
-                readThreadPool.submit(new ReadEntryProcessor(packet, srcConn, bookie));
-                break;
-            default:
-                // We don't know the request type and as a result, the ledgerId or entryId.
-                srcConn.sendResponse(PacketProcessorBase.buildResponse(BookieProtocol.EBADREQ,
-                        header.getVersion(), header.getOpCode(), -1, BookieProtocol.INVALID_ENTRY_ID));
-                break;
+        // If we can decode this packet as a Request protobuf packet, process
+        // it as a version 3 packet. Else, just use the old protocol.
+        try {
+            Request request = Request.parseFrom(ByteString.copyFrom(packet));
+            //logger.info("Packet received : " + request.toString());
+            BKPacketHeader header = request.getHeader();
+            switch (header.getOperation()) {
+                case ADD_ENTRY:
+                    writeThreadPool.submit(new WriteEntryProcessorV3(request, srcConn, bookie));
+                    break;
+                case READ_ENTRY:
+                    readThreadPool.submit(new ReadEntryProcessorV3(request, srcConn, bookie));
+                    break;
+                default:
+                    Response.Builder response = Response.newBuilder()
+                            .setHeader(request.getHeader())
+                            .setStatus(StatusCode.EBADREQ);
+                    srcConn.sendResponse(ByteBuffer.wrap(response.build().toByteArray()));
+                    break;
+            }
+        } catch (InvalidProtocolBufferException e) {
+            // process as a normal packet.
+            // Rewind the packet as ByteString.copyFrom consumes all remaining bytes.
+            packet.rewind();
+            PacketHeader header = PacketHeader.fromInt(packet.getInt());
+            packet.rewind();
+            // The ByteBuffer is already allocated by the NIOServerFactory, so we shouldn't
+            // copy it here. It's safe to pass it on as is.
+            switch (header.getOpCode()) {
+                case BookieProtocol.ADDENTRY:
+                    writeThreadPool.submit(new WriteEntryProcessor(packet, srcConn, bookie));
+                    break;
+                case BookieProtocol.READENTRY:
+                    readThreadPool.submit(new ReadEntryProcessor(packet, srcConn, bookie));
+                    break;
+                default:
+                    // We don't know the request type and as a result, the ledgerId or entryId.
+                    srcConn.sendResponse(PacketProcessorBase.buildResponse(BookieProtocol.EBADREQ,
+                            header.getVersion(), header.getOpCode(), -1, BookieProtocol.INVALID_ENTRY_ID));
+                    break;
+            }
         }
     }
 

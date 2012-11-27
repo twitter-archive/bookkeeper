@@ -104,8 +104,8 @@ public class TestProtoVersions {
         bc.close();
     }
 
-    @Test
-    public void testVersions() throws Exception {
+    // TODO: This test might have to be retired.
+    private void testVersions() throws Exception {
         testVersion(BookieProtocol.LOWEST_COMPAT_PROTOCOL_VERSION-1, BKException.Code.ProtocolVersionException);
         testVersion(BookieProtocol.LOWEST_COMPAT_PROTOCOL_VERSION, BKException.Code.NoSuchEntryException);
         testVersion(BookieProtocol.CURRENT_PROTOCOL_VERSION, BKException.Code.NoSuchEntryException);

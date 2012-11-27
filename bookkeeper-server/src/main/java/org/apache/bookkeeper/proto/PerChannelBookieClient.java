@@ -19,6 +19,7 @@ package org.apache.bookkeeper.proto;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +28,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
@@ -39,6 +41,7 @@ import org.apache.bookkeeper.stats.PCBookieClientStatsLogger.PCBookieClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
+import org.apache.zookeeper.AsyncCallback;
 import org.jboss.netty.bootstrap.ClientBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -57,13 +60,28 @@ import org.jboss.netty.channel.SimpleChannelHandler;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.handler.codec.frame.CorruptedFrameException;
 import org.jboss.netty.handler.codec.frame.LengthFieldBasedFrameDecoder;
+import org.jboss.netty.handler.codec.frame.LengthFieldPrepender;
 import org.jboss.netty.handler.codec.frame.TooLongFrameException;
+import org.jboss.netty.handler.codec.protobuf.ProtobufDecoder;
+import org.jboss.netty.handler.codec.protobuf.ProtobufEncoder;
 import org.jboss.netty.handler.timeout.ReadTimeoutException;
 import org.jboss.netty.handler.timeout.ReadTimeoutHandler;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+
+import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 
 /**
  * This class manages all details of connection to a particular bookie. It also
@@ -268,135 +286,143 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     /**
-     * This method should be called only after connection has been checked for
-     * {@link #connectIfNeededAndDoOp(GenericCallback)}
-     *
-     * @param ledgerId
-     * @param masterKey
-     * @param entryId
-     * @param lastConfirmed
-     * @param macCode
-     * @param data
+     * @param channel
+     * @param request
      * @param cb
-     * @param ctx
      */
-    void addEntry(final long ledgerId, byte[] masterKey, final long entryId, ChannelBuffer toSend, WriteCallback cb,
-                  Object ctx, final int options) {
-        final int entrySize = toSend.readableBytes();
-
-        final CompletionKey completionKey = new CompletionKey(ledgerId, entryId);
-
-        addCompletions.put(completionKey, new AddCompletion(statsLogger, cb, entrySize, ctx));
-
-        int totalHeaderSize = 4 // for the length of the packet
-                              + 4 // for the type of request
-                              + BookieProtocol.MASTER_KEY_LENGTH; // for the master key
-
-        try{
-            ChannelBuffer header = channel.getConfig().getBufferFactory().getBuffer(totalHeaderSize);
-
-            header.writeInt(totalHeaderSize - 4 + entrySize);
-            header.writeInt(new PacketHeader(BookieProtocol.CURRENT_PROTOCOL_VERSION,
-                                             BookieProtocol.ADDENTRY, (short)options).toInt());
-            header.writeBytes(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
-
-            ChannelBuffer wrappedBuffer = ChannelBuffers.wrappedBuffer(header, toSend);
-
-            ChannelFuture future = channel.write(wrappedBuffer);
-            future.addListener(new ChannelFutureListener() {
+    private void writeRequestToChannel(final Channel channel, final Request request,
+                                       final GenericCallback<Void> cb) {
+        try {
+            channel.write(request).addListener(new ChannelFutureListener() {
                 @Override
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    if (future.isSuccess()) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Successfully wrote request for adding entry: " + entryId + " ledger-id: " + ledgerId
-                                                            + " bookie: " + channel.getRemoteAddress() + " entry length: " + entrySize);
-                        }
-                        // totalBytesOutstanding.addAndGet(entrySize);
+                public void operationComplete(ChannelFuture channelFuture) throws Exception {
+                    if (!channelFuture.isSuccess()) {
+                        LOG.warn("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed",
+                                 channelFuture.getCause());
+                        cb.operationComplete(-1, null);
                     } else {
-                        errorOutAddKey(completionKey);
+                        cb.operationComplete(0, null);
                     }
                 }
             });
-        } catch (Throwable e) {
-            LOG.warn("Add entry operation failed", e);
-            errorOutAddKey(completionKey);
+        } catch (Throwable t) {
+            LOG.warn("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed.", t);
+            cb.operationComplete(-1, null);
         }
     }
 
-    public void readEntryAndFenceLedger(final long ledgerId, byte[] masterKey,
-                                        final long entryId,
-                                        ReadEntryCallback cb, Object ctx) {
-        final CompletionKey key = new CompletionKey(ledgerId, entryId);
-        readCompletions.put(key, new ReadCompletion(statsLogger, cb, ctx));
+    public void addEntry(final long ledgerId, byte[] masterKey, final long entryId, ChannelBuffer toSend,
+                    WriteCallback cb, Object ctx, final int options) {
+        final int entrySize = toSend.readableBytes();
+        final CompletionKey completionKey = new CompletionKey(ledgerId, entryId);
+        addCompletions.put(completionKey, new AddCompletion(statsLogger, cb, entrySize, ctx));
 
-        int totalHeaderSize = 4 // for the length of the packet
-                              + 4 // for request type
-                              + 8 // for ledgerId
-                              + 8 // for entryId
-                              + BookieProtocol.MASTER_KEY_LENGTH; // for masterKey
+        // Build the request and calculate the total size to be included in the packet.
+        BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
+                .setVersion(ProtocolVersion.VERSION_THREE)
+                .setOperation(OperationType.ADD_ENTRY);
 
-        ChannelBuffer tmpEntry = channel.getConfig().getBufferFactory().getBuffer(totalHeaderSize);
-        tmpEntry.writeInt(totalHeaderSize - 4);
+        AddRequest.Builder addBuilder = AddRequest.newBuilder()
+                .setLedgerId(ledgerId)
+                .setEntryId(entryId)
+                .setMasterKey(ByteString.copyFrom(masterKey))
+                .setBody(ByteString.copyFrom(toSend.toByteBuffer()));
 
-        tmpEntry.writeInt(new PacketHeader(BookieProtocol.CURRENT_PROTOCOL_VERSION,
-                                           BookieProtocol.READENTRY,
-                                           BookieProtocol.FLAG_DO_FENCING).toInt());
-        tmpEntry.writeLong(ledgerId);
-        tmpEntry.writeLong(entryId);
-        tmpEntry.writeBytes(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
+        if (((short)options & BookieProtocol.FLAG_RECOVERY_ADD) == BookieProtocol.FLAG_RECOVERY_ADD) {
+            addBuilder.setFlag(AddRequest.Flag.RECOVERY_ADD);
+        }
 
-        ChannelFuture future = channel.write(tmpEntry);
-        future.addListener(new ChannelFutureListener() {
+        final Request addRequest = Request.newBuilder()
+                .setHeader(headerBuilder)
+                .setAddRequest(addBuilder)
+                .build();
+        writeRequestToChannel(channel, addRequest, new GenericCallback<Void>() {
             @Override
-            public void operationComplete(ChannelFuture future) throws Exception {
-                if (future.isSuccess()) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Successfully wrote request for reading entry: " + entryId + " ledger-id: "
-                                  + ledgerId + " bookie: " + channel.getRemoteAddress());
-                    }
+            public void operationComplete(int rc, Void result) {
+                if (rc != 0) {
+                    LOG.warn("Add entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    errorOutAddKey(completionKey);
                 } else {
-                    errorOutReadKey(key);
+                    // Success
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Successfully wrote request for adding entry: " + entryId + " ledger-id: " + ledgerId
+                                + " bookie: " + channel.getRemoteAddress() + " entry length: " + entrySize);
+                    }
                 }
             }
         });
     }
 
     public void readEntry(final long ledgerId, final long entryId, ReadEntryCallback cb, Object ctx) {
-        final CompletionKey key = new CompletionKey(ledgerId, entryId);
-        readCompletions.put(key, new ReadCompletion(statsLogger, cb, ctx));
+        final CompletionKey completionKey = new CompletionKey(ledgerId, entryId);
+        readCompletions.put(completionKey, new ReadCompletion(statsLogger, cb, ctx));
 
-        int totalHeaderSize = 4 // for the length of the packet
-                              + 4 // for request type
-                              + 8 // for ledgerId
-                              + 8; // for entryId
+        // Build the request and calculate the total size to be included in the packet.
+        BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
+                .setVersion(ProtocolVersion.VERSION_THREE)
+                .setOperation(OperationType.READ_ENTRY);
 
-        try{
-            ChannelBuffer tmpEntry = channel.getConfig().getBufferFactory().getBuffer(totalHeaderSize);
-            tmpEntry.writeInt(totalHeaderSize - 4);
+        ReadRequest.Builder readBuilder = ReadRequest.newBuilder()
+                .setLedgerId(ledgerId)
+                .setEntryId(entryId);
 
-            tmpEntry.writeInt(new PacketHeader(BookieProtocol.CURRENT_PROTOCOL_VERSION,
-                                               BookieProtocol.READENTRY, BookieProtocol.FLAG_NONE).toInt());
-            tmpEntry.writeLong(ledgerId);
-            tmpEntry.writeLong(entryId);
+        final Request readRequest = Request.newBuilder()
+                .setHeader(headerBuilder)
+                .setReadRequest(readBuilder)
+                .build();
 
-            ChannelFuture future = channel.write(tmpEntry);
-            future.addListener(new ChannelFutureListener() {
-                @Override
-                public void operationComplete(ChannelFuture future) throws Exception {
-                    if (future.isSuccess()) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Successfully wrote request for reading entry: " + entryId + " ledger-id: "
-                                                            + ledgerId + " bookie: " + channel.getRemoteAddress());
-                        }
-                    } else {
-                        errorOutReadKey(key);
+        writeRequestToChannel(channel, readRequest, new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                if (rc != 0) {
+                    LOG.warn("Read entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    errorOutReadKey(completionKey);
+                } else {
+                    // Success
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Successfully wrote request for reading entry: " + entryId + " ledger-id: " + ledgerId
+                                + " bookie: " + channel.getRemoteAddress());
                     }
                 }
-            });
-        } catch(Throwable e) {
-            LOG.warn("Read entry operation failed", e);
-            errorOutReadKey(key);
-        }
+            }
+        });
+    }
+
+    public void readEntryAndFenceLedger(final long ledgerId, byte[] masterKey, final long entryId,
+                                          ReadEntryCallback cb, Object ctx) {
+        final CompletionKey completionKey = new CompletionKey(ledgerId, entryId);
+        readCompletions.put(completionKey, new ReadCompletion(statsLogger, cb, ctx));
+
+        BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
+                .setVersion(ProtocolVersion.VERSION_THREE)
+                .setOperation(OperationType.READ_ENTRY);
+
+        ReadRequest.Builder readBuilder = ReadRequest.newBuilder()
+                .setLedgerId(ledgerId)
+                .setEntryId(entryId)
+                .setMasterKey(ByteString.copyFrom(masterKey))
+                .setFlag(ReadRequest.Flag.FENCE_LEDGER);
+
+        final Request readRequest = Request.newBuilder()
+                .setHeader(headerBuilder)
+                .setReadRequest(readBuilder)
+                .build();
+
+        writeRequestToChannel(channel, readRequest, new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                if (rc != 0) {
+                    LOG.warn("Read entry and fence operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    errorOutReadKey(completionKey);
+                } else {
+                    // Success
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Successfully wrote request to fence ledger and read entry: " + entryId + " ledger-id: " + ledgerId
+                                + " bookie: " + channel.getRemoteAddress());
+                    }
+                }
+            }
+        });
     }
 
     public void close() {
@@ -498,6 +524,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         pipeline.addLast("readTimeout", new ReadTimeoutHandler(readTimeoutTimer,
                                                                conf.getReadTimeout()));
         pipeline.addLast("lengthbasedframedecoder", new LengthFieldBasedFrameDecoder(MAX_FRAME_LENGTH, 0, 4, 0, 4));
+        pipeline.addLast("lengthprepender", new LengthFieldPrepender(4));
+        pipeline.addLast("protobufdecoder", new ProtobufDecoder(Response.getDefaultInstance()));
+        pipeline.addLast("protobufencoder", new ProtobufEncoder());
         pipeline.addLast("mainhandler", this);
         return pipeline;
     }
@@ -551,45 +580,41 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     @Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
-        if (!(e.getMessage() instanceof ChannelBuffer)) {
+        if (!(e.getMessage() instanceof Response)) {
             ctx.sendUpstream(e);
             return;
         }
 
-        final ChannelBuffer buffer = (ChannelBuffer) e.getMessage();
-        final int rc;
-        final long ledgerId, entryId;
-        final PacketHeader header;
-
-        try {
-            header = PacketHeader.fromInt(buffer.readInt());
-            rc = buffer.readInt();
-            ledgerId = buffer.readLong();
-            entryId = buffer.readLong();
-        } catch (IndexOutOfBoundsException ex) {
-            LOG.error("Unparseable response from bookie: " + addr, ex);
-            return;
-        }
-
+        final Response response = (Response) e.getMessage();
+        final long ledgerId;
+        final BKPacketHeader header;
+        header = response.getHeader();
+        ledgerId = response.getReadResponse().getLedgerId();
         executor.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
-                switch (header.getOpCode()) {
-                case BookieProtocol.ADDENTRY:
-                    handleAddResponse(ledgerId, entryId, rc);
-                    break;
-                case BookieProtocol.READENTRY:
-                    handleReadResponse(ledgerId, entryId, rc, buffer);
-                    break;
-                default:
-                    LOG.error("Unexpected response, type: " + header.getOpCode()
-                              + " received from bookie: " + addr + " , ignoring");
+                OperationType type = header.getOperation();
+                switch (type) {
+                    case ADD_ENTRY:
+                        handleAddResponse(response.getAddResponse());
+                        break;
+                    case READ_ENTRY:
+                        handleReadResponse(response.getReadResponse());
+                        break;
+                    default:
+                        LOG.error("Unexpected response, type:" + type + " received from bookie:" +
+                                addr + ", ignoring");
+                        break;
                 }
             }
         });
     }
 
-    void handleAddResponse(long ledgerId, long entryId, int rc) {
+    void handleAddResponse(AddResponse response) {
+
+        long ledgerId = response.getLedgerId();
+        long entryId = response.getEntryId();
+        StatusCode rc = response.getStatus();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Got response for add request from bookie: " + addr + " for ledger: " + ledgerId + " entry: "
                       + entryId + " rc: " + rc);
@@ -598,24 +623,25 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         // convert to BKException code because thats what the uppper
         // layers expect. This is UGLY, there should just be one set of
         // error codes.
+        int rcToRet;
         switch (rc) {
-        case BookieProtocol.EOK:
-            rc = BKException.Code.OK;
-            break;
-        case BookieProtocol.EBADVERSION:
-            rc = BKException.Code.ProtocolVersionException;
-            break;
-        case BookieProtocol.EFENCED:
-            rc = BKException.Code.LedgerFencedException;
-            break;
-        case BookieProtocol.EUA:
-            rc = BKException.Code.UnauthorizedAccessException;
-            break;
-        default:
-            LOG.error("Add for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
-                      + " with code: " + rc);
-            rc = BKException.Code.WriteException;
-            break;
+            case EOK:
+                rcToRet = BKException.Code.OK;
+                break;
+            case EBADVERSION:
+                rcToRet = BKException.Code.ProtocolVersionException;
+                break;
+            case EFENCED:
+                rcToRet = BKException.Code.LedgerFencedException;
+                break;
+            case EUA:
+                rcToRet = BKException.Code.UnauthorizedAccessException;
+                break;
+            default:
+                LOG.error("Add for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
+                          + " with code: " + rc);
+                rcToRet = BKException.Code.WriteException;
+                break;
         }
 
         AddCompletion ac;
@@ -628,11 +654,19 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         // totalBytesOutstanding.addAndGet(-ac.size);
 
-        ac.cb.writeComplete(rc, ledgerId, entryId, addr, ac.ctx);
+        ac.cb.writeComplete(rcToRet, ledgerId, entryId, addr, ac.ctx);
 
     }
 
-    void handleReadResponse(long ledgerId, long entryId, int rc, ChannelBuffer buffer) {
+    void handleReadResponse(ReadResponse response) {
+
+        long ledgerId = response.getLedgerId();
+        long entryId = response.getEntryId();
+        StatusCode rc = response.getStatus();
+        ChannelBuffer buffer = ChannelBuffers.buffer(0);
+        if (response.hasBody()) {
+            buffer = ChannelBuffers.copiedBuffer(response.getBody().asReadOnlyByteBuffer());
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("Got response for read request from bookie: " + addr + " for ledger: " + ledgerId + " entry: "
                       + entryId + " rc: " + rc + "entry length: " + buffer.readableBytes());
@@ -641,18 +675,26 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         // convert to BKException code because thats what the uppper
         // layers expect. This is UGLY, there should just be one set of
         // error codes.
-        if (rc == BookieProtocol.EOK) {
-            rc = BKException.Code.OK;
-        } else if (rc == BookieProtocol.ENOENTRY || rc == BookieProtocol.ENOLEDGER) {
-            rc = BKException.Code.NoSuchEntryException;
-        } else if (rc == BookieProtocol.EBADVERSION) {
-            rc = BKException.Code.ProtocolVersionException;
-        } else if (rc == BookieProtocol.EUA) {
-            rc = BKException.Code.UnauthorizedAccessException;
-        } else {
-            LOG.error("Read for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
-                      + " with code: " + rc);
-            rc = BKException.Code.ReadException;
+        int rcToRet;
+        switch (rc) {
+            case EOK:
+                rcToRet = BKException.Code.OK;
+                break;
+            case ENOENTRY:
+            case ENOLEDGER:
+                rcToRet = BKException.Code.NoSuchEntryException;
+                break;
+            case EBADVERSION:
+                rcToRet = BKException.Code.ProtocolVersionException;
+                break;
+            case EUA:
+                rcToRet = BKException.Code.UnauthorizedAccessException;
+                break;
+            default:
+                LOG.error("Read for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
+                        + " with code: " + rc);
+                rcToRet = BKException.Code.ReadException;
+                break;
         }
 
         CompletionKey key = new CompletionKey(ledgerId, entryId);
@@ -674,7 +716,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             return;
         }
 
-        readCompletion.cb.readEntryComplete(rc, ledgerId, entryId, buffer.slice(), readCompletion.ctx);
+        readCompletion.cb.readEntryComplete(rcToRet, ledgerId, entryId, buffer.slice(), readCompletion.ctx);
     }
 
     /**
