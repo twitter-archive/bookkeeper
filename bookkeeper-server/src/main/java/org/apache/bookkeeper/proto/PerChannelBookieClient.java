@@ -428,9 +428,6 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             readTimeoutTimer.stop();
             readTimeoutTimer = null;
         }
-        if (null != timeoutExecutor) {
-            timeoutExecutor.shutdownNow();
-        }
     }
 
     void errorOutReadKey(final CompletionKey key) {
