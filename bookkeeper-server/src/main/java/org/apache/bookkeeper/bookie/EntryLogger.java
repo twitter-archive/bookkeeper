@@ -38,7 +38,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -46,7 +45,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.bookkeeper.bookie.BufferedReadChannel;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
@@ -267,6 +265,8 @@ public class EntryLogger {
      * Creates a new log file
      */
     void createNewLog() throws IOException {
+        List<File> list = ledgerDirsManager.getWritableLedgerDirs();
+        Collections.shuffle(list);
         if (logChannel != null) {
             logChannel.flush(true);
         }
@@ -274,22 +274,25 @@ public class EntryLogger {
         // It would better not to overwrite existing entry log files
         File newLogFile = null;
         do {
-            if (newLogFile != null) {
-                LOG.warn("Found existed entry log " + newLogFile
-                        + " when trying to create it as a new log.");
-            }
             String logFileName = Long.toHexString(++logId) + ".log";
-            File dir = ledgerDirsManager.pickRandomWritableDir();
-            newLogFile = new File(dir, logFileName);
-            currentDir = dir;
-        } while (newLogFile.exists());
+            for (File dir : list) {
+                newLogFile = new File(dir, logFileName);
+                currentDir = dir;
+                if (newLogFile.exists()) {
+                    LOG.warn("Found existed entry log " + newLogFile
+                           + " when trying to create it as a new log.");
+                    newLogFile = null;
+                    break;
+                }
+            }
+        } while (newLogFile == null);
 
         FileChannel channel = new RandomAccessFile(newLogFile, "rw").getChannel();
         logChannel = new BufferedChannel(channel,
                 serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes());
         logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
 
-        for (File f : ledgerDirsManager.getWritableLedgerDirs()) {
+        for (File f : list) {
             setLastLogId(f, logId);
         }
     }
