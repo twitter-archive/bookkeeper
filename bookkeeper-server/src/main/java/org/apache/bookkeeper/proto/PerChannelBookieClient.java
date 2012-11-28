@@ -19,7 +19,6 @@ package org.apache.bookkeeper.proto;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Queue;
 import java.util.concurrent.*;
@@ -28,7 +27,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -38,7 +36,6 @@ import org.apache.bookkeeper.stats.PCBookieClientStatsLogger.PCBookieClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.zookeeper.AsyncCallback;
 import org.jboss.netty.bootstrap.ClientBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -582,24 +579,25 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final Response response = (Response) e.getMessage();
         final BKPacketHeader header = response.getHeader();
 
-        // Get the completion key to pass to the response handler functions.
-        CompletionValue completionValue = completionObjects.remove(newCompletionKey(header.getTxnId(),
+        final CompletionValue completionValue = completionObjects.remove(newCompletionKey(header.getTxnId(),
                 header.getOperation()));
         if (null == completionValue) {
             // Unexpected response, so log it. The txnId should have been present.
+            LOG.error("Unexpected response received from bookie : " + addr + " for type : " + header.getOperation() +
+                    " and txnId : " + header.getTxnId());
 
         } else {
-            executor.submitOrdered(ledgerId, new SafeRunnable() {
+            long orderingKey = completionValue.ledgerId;
+            executor.submitOrdered(orderingKey, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     OperationType type = header.getOperation();
-                    long txnId = header.getTxnId();
                     switch (type) {
                         case ADD_ENTRY:
-                            handleAddResponse(response.getAddResponse());
+                            handleAddResponse(response.getAddResponse(), completionValue);
                             break;
                         case READ_ENTRY:
-                            handleReadResponse(response.getReadResponse());
+                            handleReadResponse(response.getReadResponse(), completionValue);
                             break;
                         default:
                             LOG.error("Unexpected response, type:" + type + " received from bookie:" +
@@ -615,55 +613,35 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * Note : Response handler functions for different types of responses follow. One function for each type of response.
      */
 
-    void handleAddResponse(AddResponse response) {
+    void handleAddResponse(AddResponse response, CompletionValue completionValue) {
+
+        // The completion value should always be an instance of an AddCompletion object when we reach here.
+        AddCompletion ac = (AddCompletion)completionValue;
 
         long ledgerId = response.getLedgerId();
         long entryId = response.getEntryId();
-        StatusCode rc = response.getStatus();
+        StatusCode status = response.getStatus();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("Got response for add request from bookie: " + addr + " for ledger: " + ledgerId + " entry: "
-                      + entryId + " rc: " + rc);
+                      + entryId + " rc: " + status);
         }
-
         // convert to BKException code because thats what the uppper
         // layers expect. This is UGLY, there should just be one set of
         // error codes.
-        int rcToRet;
-        switch (rc) {
-            case EOK:
-                rcToRet = BKException.Code.OK;
-                break;
-            case EBADVERSION:
-                rcToRet = BKException.Code.ProtocolVersionException;
-                break;
-            case EFENCED:
-                rcToRet = BKException.Code.LedgerFencedException;
-                break;
-            case EUA:
-                rcToRet = BKException.Code.UnauthorizedAccessException;
-                break;
-            default:
-                LOG.error("Add for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
-                          + " with code: " + rc);
-                rcToRet = BKException.Code.WriteException;
-                break;
+        Integer rcToRet = statusCodeToExceptionCode(status);
+        if (null == rcToRet) {
+            LOG.error("Add for ledger: " + ledgerId + ", entry: " + entryId + " failed on bookie: " + addr
+                    + " with code: " + status);
+            rcToRet = BKException.Code.WriteException;
         }
-
-        AddCompletion ac;
-        ac = addCompletions.remove(new CompletionKey(ledgerId, entryId));
-        if (ac == null) {
-            LOG.error("Unexpected add response received from bookie: " + addr + " for ledger: " + ledgerId
-                      + ", entry: " + entryId + " , ignoring");
-            return;
-        }
-
-        // totalBytesOutstanding.addAndGet(-ac.size);
-
         ac.cb.writeComplete(rcToRet, ledgerId, entryId, addr, ac.ctx);
-
     }
 
-    void handleReadResponse(ReadResponse response) {
+    void handleReadResponse(ReadResponse response, CompletionValue completionValue) {
+
+        // The completion value should always be an instance of a ReadCompletion object when we reach here.
+        ReadCompletion rc = (ReadCompletion)completionValue;
 
         long ledgerId = response.getLedgerId();
         long entryId = response.getEntryId();
@@ -682,7 +660,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         // convert to BKException code because thats what the uppper
         // layers expect. This is UGLY, there should just be one set of
         // error codes.
-        int rcToRet = statusCodeToExceptionCode(status);
+        Integer rcToRet = statusCodeToExceptionCode(status);
 
         CompletionKey key = new CompletionKey(ledgerId, entryId);
         ReadCompletion readCompletion = readCompletions.remove(key);
@@ -711,10 +689,16 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
 
     static abstract class CompletionValue {
-        protected final long orderingKey;
+        public final Object ctx;
+        // The ledgerId and entryId values are passed to the callbacks in case of a timeout.
+        // TODO: change the callback signatures to remove these.
+        protected final long ledgerId;
+        protected final long entryId;
 
-        public CompletionValue(long orderingKey) {
-            this.orderingKey = orderingKey;
+        public CompletionValue(Object ctx, long ledgerId, long entryId) {
+            this.ctx = ctx;
+            this.ledgerId = ledgerId;
+            this.entryId = entryId;
         }
     }
 
@@ -722,8 +706,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final ReadEntryCallback cb;
 
         public ReadCompletion(final PCBookieClientStatsLogger statsLogger, final ReadEntryCallback originalCallback,
-                              final Object originalCtx, final long orderingKey) {
-            super(orderingKey);
+                              final Object originalCtx, final long ledgerId, final long entryId) {
+            super(originalCtx, ledgerId, entryId);
             final long requestTimeMillis = MathUtils.now();
             this.cb = new ReadEntryCallback() {
                 @Override
@@ -744,8 +728,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final WriteCallback cb;
 
         public AddCompletion(final PCBookieClientStatsLogger statsLogger, final WriteCallback originalCallback,
-                             final Object originalCtx, final long orderingKey) {
-            super(orderingKey);
+                             final Object originalCtx, final long ledgerId, final long entryId) {
+            super(originalCtx, ledgerId, entryId);
             final long requestTimeMillis = MathUtils.now();
             this.cb = new WriteCallback() {
                 @Override
@@ -767,14 +751,13 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
 
     CompletionKey newCompletionKey(long txnId, OperationType operationType) {
-        // The ledgerId is the orderingKey in our case.
         return new CompletionKey(txnId, operationType);
     }
 
     class CompletionKey {
         public final long txnId;
-        public final long timeoutAt;
         public final OperationType operationType;
+        public final long timeoutAt;
 
         CompletionKey(long txnId, OperationType operationType) {
             this.txnId = txnId;
@@ -782,6 +765,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             this.timeoutAt = MathUtils.now() + (conf.getReadTimeout()*1000);
         }
 
+        /**
+         * Note : equals() uses only the txnId to calculate equality. We use this property while removing an object
+         */
         @Override
         public boolean equals(Object obj) {
             if (null == obj || !(obj instanceof CompletionKey)) {
@@ -809,6 +795,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * Note : Helper functions follow
      */
 
+    /**
+     * @param status
+     * @return null if the statuscode is unknown.
+     */
     private Integer statusCodeToExceptionCode(StatusCode status) {
         Integer rcToRet = null;
         switch (status) {
