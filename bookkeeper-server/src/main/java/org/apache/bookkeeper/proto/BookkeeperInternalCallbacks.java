@@ -30,6 +30,7 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadResponse;
 /**
  * Declaration of a callback interfaces used in bookkeeper client library but
  * not exposed to the client application.
@@ -62,6 +63,10 @@ public class BookkeeperInternalCallbacks {
 
     public interface ReadEntryCallback {
         void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx);
+    }
+
+    public interface RangeReadCallback {
+        void rangeReadComplete(int rc, InternalRangeReadResponse response, Object ctx);
     }
 
     /**

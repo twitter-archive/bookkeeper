@@ -71,8 +71,7 @@ message Request {
     // Requests
     optional ReadRequest readRequest = 100;
     optional AddRequest addRequest = 101;
-
-    // TODO: Range requests
+    optional RangeReadRequest rangeReadRequest = 102;
 }
 
 message ReadRequest {
@@ -85,6 +84,11 @@ message ReadRequest {
     required int64 entryId = 2;
     // Used while fencing a ledger. TODO: Move this to a separate request.
     optional bytes masterKey = 3;
+}
+
+message RangeReadRequest {
+    required uint32 numRequest = 1;
+    repeated ReadRequest requests = 2;
 }
 
 message AddRequest {
@@ -107,8 +111,7 @@ message Response {
     // Response
     optional ReadResponse readResponse = 100;
     optional AddResponse addResponse = 101;
-
-    // TODO: Range responses
+    optional RangeReadResponse rangeReadResponse = 102;
 }
 
 message ReadResponse {
@@ -116,6 +119,12 @@ message ReadResponse {
     required int64 ledgerId = 2;
     required int64 entryId = 3;
     optional bytes body = 4;
+}
+
+message RangeReadResponse {
+    required StatusCode status = 1;
+    required uint32 numResponses = 2;
+    repeated ReadResponse responses = 3;
 }
 
 message AddResponse {

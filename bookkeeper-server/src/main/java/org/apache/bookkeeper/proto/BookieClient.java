@@ -34,6 +34,11 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.RangeReadCallback;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadResponse;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadResponse;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 
@@ -152,6 +157,21 @@ public class BookieClient {
                     return;
                 }
                 client.readEntry(ledgerId, entryId, cb, ctx);
+            }
+        });
+    }
+
+    public void rangeReadEntry(final InetSocketAddress addr, final InternalRangeReadRequest request,
+                               final RangeReadCallback cb, final Object ctx) {
+        final PerChannelBookieClient client = lookupClient(addr);
+        client.connectIfNeededAndDoOp(new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                if (rc != BKException.Code.OK) {
+                    // Send an empty response because there is nothing to send.
+                    cb.rangeReadComplete(rc, new InternalRangeReadResponse(), ctx);
+                }
+                client.rangeReadEntry(request, cb, ctx);
             }
         });
     }

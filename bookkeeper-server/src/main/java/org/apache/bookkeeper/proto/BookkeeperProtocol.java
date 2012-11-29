@@ -756,6 +756,11 @@ public final class BookkeeperProtocol {
     boolean hasAddRequest();
     org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest getAddRequest();
     org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequestOrBuilder getAddRequestOrBuilder();
+    
+    // optional .RangeReadRequest rangeReadRequest = 102;
+    boolean hasRangeReadRequest();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest getRangeReadRequest();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder getRangeReadRequestOrBuilder();
   }
   public static final class Request extends
       com.google.protobuf.GeneratedMessage
@@ -825,10 +830,24 @@ public final class BookkeeperProtocol {
       return addRequest_;
     }
     
+    // optional .RangeReadRequest rangeReadRequest = 102;
+    public static final int RANGEREADREQUEST_FIELD_NUMBER = 102;
+    private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest rangeReadRequest_;
+    public boolean hasRangeReadRequest() {
+      return ((bitField0_ & 0x00000008) == 0x00000008);
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest getRangeReadRequest() {
+      return rangeReadRequest_;
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder getRangeReadRequestOrBuilder() {
+      return rangeReadRequest_;
+    }
+    
     private void initFields() {
       header_ = org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader.getDefaultInstance();
       readRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.getDefaultInstance();
       addRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest.getDefaultInstance();
+      rangeReadRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance();
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -855,6 +874,12 @@ public final class BookkeeperProtocol {
           return false;
         }
       }
+      if (hasRangeReadRequest()) {
+        if (!getRangeReadRequest().isInitialized()) {
+          memoizedIsInitialized = 0;
+          return false;
+        }
+      }
       memoizedIsInitialized = 1;
       return true;
     }
@@ -870,6 +895,9 @@ public final class BookkeeperProtocol {
       }
       if (((bitField0_ & 0x00000004) == 0x00000004)) {
         output.writeMessage(101, addRequest_);
+      }
+      if (((bitField0_ & 0x00000008) == 0x00000008)) {
+        output.writeMessage(102, rangeReadRequest_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -891,6 +919,10 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000004) == 0x00000004)) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(101, addRequest_);
+      }
+      if (((bitField0_ & 0x00000008) == 0x00000008)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(102, rangeReadRequest_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -1011,6 +1043,7 @@ public final class BookkeeperProtocol {
           getHeaderFieldBuilder();
           getReadRequestFieldBuilder();
           getAddRequestFieldBuilder();
+          getRangeReadRequestFieldBuilder();
         }
       }
       private static Builder create() {
@@ -1037,6 +1070,12 @@ public final class BookkeeperProtocol {
           addRequestBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000004);
+        if (rangeReadRequestBuilder_ == null) {
+          rangeReadRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance();
+        } else {
+          rangeReadRequestBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000008);
         return this;
       }
       
@@ -1099,6 +1138,14 @@ public final class BookkeeperProtocol {
         } else {
           result.addRequest_ = addRequestBuilder_.build();
         }
+        if (((from_bitField0_ & 0x00000008) == 0x00000008)) {
+          to_bitField0_ |= 0x00000008;
+        }
+        if (rangeReadRequestBuilder_ == null) {
+          result.rangeReadRequest_ = rangeReadRequest_;
+        } else {
+          result.rangeReadRequest_ = rangeReadRequestBuilder_.build();
+        }
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -1124,6 +1171,9 @@ public final class BookkeeperProtocol {
         if (other.hasAddRequest()) {
           mergeAddRequest(other.getAddRequest());
         }
+        if (other.hasRangeReadRequest()) {
+          mergeRangeReadRequest(other.getRangeReadRequest());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
       }
@@ -1145,6 +1195,12 @@ public final class BookkeeperProtocol {
         }
         if (hasAddRequest()) {
           if (!getAddRequest().isInitialized()) {
+            
+            return false;
+          }
+        }
+        if (hasRangeReadRequest()) {
+          if (!getRangeReadRequest().isInitialized()) {
             
             return false;
           }
@@ -1200,6 +1256,15 @@ public final class BookkeeperProtocol {
               }
               input.readMessage(subBuilder, extensionRegistry);
               setAddRequest(subBuilder.buildPartial());
+              break;
+            }
+            case 818: {
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder subBuilder = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.newBuilder();
+              if (hasRangeReadRequest()) {
+                subBuilder.mergeFrom(getRangeReadRequest());
+              }
+              input.readMessage(subBuilder, extensionRegistry);
+              setRangeReadRequest(subBuilder.buildPartial());
               break;
             }
           }
@@ -1476,6 +1541,96 @@ public final class BookkeeperProtocol {
           addRequest_ = null;
         }
         return addRequestBuilder_;
+      }
+      
+      // optional .RangeReadRequest rangeReadRequest = 102;
+      private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest rangeReadRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance();
+      private com.google.protobuf.SingleFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder> rangeReadRequestBuilder_;
+      public boolean hasRangeReadRequest() {
+        return ((bitField0_ & 0x00000008) == 0x00000008);
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest getRangeReadRequest() {
+        if (rangeReadRequestBuilder_ == null) {
+          return rangeReadRequest_;
+        } else {
+          return rangeReadRequestBuilder_.getMessage();
+        }
+      }
+      public Builder setRangeReadRequest(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest value) {
+        if (rangeReadRequestBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          rangeReadRequest_ = value;
+          onChanged();
+        } else {
+          rangeReadRequestBuilder_.setMessage(value);
+        }
+        bitField0_ |= 0x00000008;
+        return this;
+      }
+      public Builder setRangeReadRequest(
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder builderForValue) {
+        if (rangeReadRequestBuilder_ == null) {
+          rangeReadRequest_ = builderForValue.build();
+          onChanged();
+        } else {
+          rangeReadRequestBuilder_.setMessage(builderForValue.build());
+        }
+        bitField0_ |= 0x00000008;
+        return this;
+      }
+      public Builder mergeRangeReadRequest(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest value) {
+        if (rangeReadRequestBuilder_ == null) {
+          if (((bitField0_ & 0x00000008) == 0x00000008) &&
+              rangeReadRequest_ != org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance()) {
+            rangeReadRequest_ =
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.newBuilder(rangeReadRequest_).mergeFrom(value).buildPartial();
+          } else {
+            rangeReadRequest_ = value;
+          }
+          onChanged();
+        } else {
+          rangeReadRequestBuilder_.mergeFrom(value);
+        }
+        bitField0_ |= 0x00000008;
+        return this;
+      }
+      public Builder clearRangeReadRequest() {
+        if (rangeReadRequestBuilder_ == null) {
+          rangeReadRequest_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance();
+          onChanged();
+        } else {
+          rangeReadRequestBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000008);
+        return this;
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder getRangeReadRequestBuilder() {
+        bitField0_ |= 0x00000008;
+        onChanged();
+        return getRangeReadRequestFieldBuilder().getBuilder();
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder getRangeReadRequestOrBuilder() {
+        if (rangeReadRequestBuilder_ != null) {
+          return rangeReadRequestBuilder_.getMessageOrBuilder();
+        } else {
+          return rangeReadRequest_;
+        }
+      }
+      private com.google.protobuf.SingleFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder> 
+          getRangeReadRequestFieldBuilder() {
+        if (rangeReadRequestBuilder_ == null) {
+          rangeReadRequestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder>(
+                  rangeReadRequest_,
+                  getParentForChildren(),
+                  isClean());
+          rangeReadRequest_ = null;
+        }
+        return rangeReadRequestBuilder_;
       }
       
       // @@protoc_insertion_point(builder_scope:Request)
@@ -2090,6 +2245,637 @@ public final class BookkeeperProtocol {
     }
     
     // @@protoc_insertion_point(class_scope:ReadRequest)
+  }
+  
+  public interface RangeReadRequestOrBuilder
+      extends com.google.protobuf.MessageOrBuilder {
+    
+    // required uint32 numRequest = 1;
+    boolean hasNumRequest();
+    int getNumRequest();
+    
+    // repeated .ReadRequest requests = 2;
+    java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> 
+        getRequestsList();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest getRequests(int index);
+    int getRequestsCount();
+    java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder> 
+        getRequestsOrBuilderList();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder getRequestsOrBuilder(
+        int index);
+  }
+  public static final class RangeReadRequest extends
+      com.google.protobuf.GeneratedMessage
+      implements RangeReadRequestOrBuilder {
+    // Use RangeReadRequest.newBuilder() to construct.
+    private RangeReadRequest(Builder builder) {
+      super(builder);
+    }
+    private RangeReadRequest(boolean noInit) {}
+    
+    private static final RangeReadRequest defaultInstance;
+    public static RangeReadRequest getDefaultInstance() {
+      return defaultInstance;
+    }
+    
+    public RangeReadRequest getDefaultInstanceForType() {
+      return defaultInstance;
+    }
+    
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadRequest_descriptor;
+    }
+    
+    protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadRequest_fieldAccessorTable;
+    }
+    
+    private int bitField0_;
+    // required uint32 numRequest = 1;
+    public static final int NUMREQUEST_FIELD_NUMBER = 1;
+    private int numRequest_;
+    public boolean hasNumRequest() {
+      return ((bitField0_ & 0x00000001) == 0x00000001);
+    }
+    public int getNumRequest() {
+      return numRequest_;
+    }
+    
+    // repeated .ReadRequest requests = 2;
+    public static final int REQUESTS_FIELD_NUMBER = 2;
+    private java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> requests_;
+    public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> getRequestsList() {
+      return requests_;
+    }
+    public java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder> 
+        getRequestsOrBuilderList() {
+      return requests_;
+    }
+    public int getRequestsCount() {
+      return requests_.size();
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest getRequests(int index) {
+      return requests_.get(index);
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder getRequestsOrBuilder(
+        int index) {
+      return requests_.get(index);
+    }
+    
+    private void initFields() {
+      numRequest_ = 0;
+      requests_ = java.util.Collections.emptyList();
+    }
+    private byte memoizedIsInitialized = -1;
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized != -1) return isInitialized == 1;
+      
+      if (!hasNumRequest()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      for (int i = 0; i < getRequestsCount(); i++) {
+        if (!getRequests(i).isInitialized()) {
+          memoizedIsInitialized = 0;
+          return false;
+        }
+      }
+      memoizedIsInitialized = 1;
+      return true;
+    }
+    
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      getSerializedSize();
+      if (((bitField0_ & 0x00000001) == 0x00000001)) {
+        output.writeUInt32(1, numRequest_);
+      }
+      for (int i = 0; i < requests_.size(); i++) {
+        output.writeMessage(2, requests_.get(i));
+      }
+      getUnknownFields().writeTo(output);
+    }
+    
+    private int memoizedSerializedSize = -1;
+    public int getSerializedSize() {
+      int size = memoizedSerializedSize;
+      if (size != -1) return size;
+    
+      size = 0;
+      if (((bitField0_ & 0x00000001) == 0x00000001)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(1, numRequest_);
+      }
+      for (int i = 0; i < requests_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(2, requests_.get(i));
+      }
+      size += getUnknownFields().getSerializedSize();
+      memoizedSerializedSize = size;
+      return size;
+    }
+    
+    private static final long serialVersionUID = 0L;
+    @java.lang.Override
+    protected java.lang.Object writeReplace()
+        throws java.io.ObjectStreamException {
+      return super.writeReplace();
+    }
+    
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      Builder builder = newBuilder();
+      if (builder.mergeDelimitedFrom(input)) {
+        return builder.buildParsed();
+      } else {
+        return null;
+      }
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      Builder builder = newBuilder();
+      if (builder.mergeDelimitedFrom(input, extensionRegistry)) {
+        return builder.buildParsed();
+      } else {
+        return null;
+      }
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input, extensionRegistry)
+               .buildParsed();
+    }
+    
+    public static Builder newBuilder() { return Builder.create(); }
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest prototype) {
+      return newBuilder().mergeFrom(prototype);
+    }
+    public Builder toBuilder() { return newBuilder(this); }
+    
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessage.Builder<Builder>
+       implements org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequestOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadRequest_descriptor;
+      }
+      
+      protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadRequest_fieldAccessorTable;
+      }
+      
+      // Construct using org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.newBuilder()
+      private Builder() {
+        maybeForceBuilderInitialization();
+      }
+      
+      private Builder(BuilderParent parent) {
+        super(parent);
+        maybeForceBuilderInitialization();
+      }
+      private void maybeForceBuilderInitialization() {
+        if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+          getRequestsFieldBuilder();
+        }
+      }
+      private static Builder create() {
+        return new Builder();
+      }
+      
+      public Builder clear() {
+        super.clear();
+        numRequest_ = 0;
+        bitField0_ = (bitField0_ & ~0x00000001);
+        if (requestsBuilder_ == null) {
+          requests_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000002);
+        } else {
+          requestsBuilder_.clear();
+        }
+        return this;
+      }
+      
+      public Builder clone() {
+        return create().mergeFrom(buildPartial());
+      }
+      
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDescriptor();
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest getDefaultInstanceForType() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance();
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest build() {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+      
+      private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest buildParsed()
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(
+            result).asInvalidProtocolBufferException();
+        }
+        return result;
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest buildPartial() {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest result = new org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest(this);
+        int from_bitField0_ = bitField0_;
+        int to_bitField0_ = 0;
+        if (((from_bitField0_ & 0x00000001) == 0x00000001)) {
+          to_bitField0_ |= 0x00000001;
+        }
+        result.numRequest_ = numRequest_;
+        if (requestsBuilder_ == null) {
+          if (((bitField0_ & 0x00000002) == 0x00000002)) {
+            requests_ = java.util.Collections.unmodifiableList(requests_);
+            bitField0_ = (bitField0_ & ~0x00000002);
+          }
+          result.requests_ = requests_;
+        } else {
+          result.requests_ = requestsBuilder_.build();
+        }
+        result.bitField0_ = to_bitField0_;
+        onBuilt();
+        return result;
+      }
+      
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest) {
+          return mergeFrom((org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+      
+      public Builder mergeFrom(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest other) {
+        if (other == org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.getDefaultInstance()) return this;
+        if (other.hasNumRequest()) {
+          setNumRequest(other.getNumRequest());
+        }
+        if (requestsBuilder_ == null) {
+          if (!other.requests_.isEmpty()) {
+            if (requests_.isEmpty()) {
+              requests_ = other.requests_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+            } else {
+              ensureRequestsIsMutable();
+              requests_.addAll(other.requests_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.requests_.isEmpty()) {
+            if (requestsBuilder_.isEmpty()) {
+              requestsBuilder_.dispose();
+              requestsBuilder_ = null;
+              requests_ = other.requests_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+              requestsBuilder_ = 
+                com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                   getRequestsFieldBuilder() : null;
+            } else {
+              requestsBuilder_.addAllMessages(other.requests_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.getUnknownFields());
+        return this;
+      }
+      
+      public final boolean isInitialized() {
+        if (!hasNumRequest()) {
+          
+          return false;
+        }
+        for (int i = 0; i < getRequestsCount(); i++) {
+          if (!getRequests(i).isInitialized()) {
+            
+            return false;
+          }
+        }
+        return true;
+      }
+      
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        com.google.protobuf.UnknownFieldSet.Builder unknownFields =
+          com.google.protobuf.UnknownFieldSet.newBuilder(
+            this.getUnknownFields());
+        while (true) {
+          int tag = input.readTag();
+          switch (tag) {
+            case 0:
+              this.setUnknownFields(unknownFields.build());
+              onChanged();
+              return this;
+            default: {
+              if (!parseUnknownField(input, unknownFields,
+                                     extensionRegistry, tag)) {
+                this.setUnknownFields(unknownFields.build());
+                onChanged();
+                return this;
+              }
+              break;
+            }
+            case 8: {
+              bitField0_ |= 0x00000001;
+              numRequest_ = input.readUInt32();
+              break;
+            }
+            case 18: {
+              org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder subBuilder = org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.newBuilder();
+              input.readMessage(subBuilder, extensionRegistry);
+              addRequests(subBuilder.buildPartial());
+              break;
+            }
+          }
+        }
+      }
+      
+      private int bitField0_;
+      
+      // required uint32 numRequest = 1;
+      private int numRequest_ ;
+      public boolean hasNumRequest() {
+        return ((bitField0_ & 0x00000001) == 0x00000001);
+      }
+      public int getNumRequest() {
+        return numRequest_;
+      }
+      public Builder setNumRequest(int value) {
+        bitField0_ |= 0x00000001;
+        numRequest_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearNumRequest() {
+        bitField0_ = (bitField0_ & ~0x00000001);
+        numRequest_ = 0;
+        onChanged();
+        return this;
+      }
+      
+      // repeated .ReadRequest requests = 2;
+      private java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> requests_ =
+        java.util.Collections.emptyList();
+      private void ensureRequestsIsMutable() {
+        if (!((bitField0_ & 0x00000002) == 0x00000002)) {
+          requests_ = new java.util.ArrayList<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest>(requests_);
+          bitField0_ |= 0x00000002;
+         }
+      }
+      
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder> requestsBuilder_;
+      
+      public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> getRequestsList() {
+        if (requestsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(requests_);
+        } else {
+          return requestsBuilder_.getMessageList();
+        }
+      }
+      public int getRequestsCount() {
+        if (requestsBuilder_ == null) {
+          return requests_.size();
+        } else {
+          return requestsBuilder_.getCount();
+        }
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest getRequests(int index) {
+        if (requestsBuilder_ == null) {
+          return requests_.get(index);
+        } else {
+          return requestsBuilder_.getMessage(index);
+        }
+      }
+      public Builder setRequests(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest value) {
+        if (requestsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRequestsIsMutable();
+          requests_.set(index, value);
+          onChanged();
+        } else {
+          requestsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      public Builder setRequests(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder builderForValue) {
+        if (requestsBuilder_ == null) {
+          ensureRequestsIsMutable();
+          requests_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          requestsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addRequests(org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest value) {
+        if (requestsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRequestsIsMutable();
+          requests_.add(value);
+          onChanged();
+        } else {
+          requestsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      public Builder addRequests(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest value) {
+        if (requestsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRequestsIsMutable();
+          requests_.add(index, value);
+          onChanged();
+        } else {
+          requestsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      public Builder addRequests(
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder builderForValue) {
+        if (requestsBuilder_ == null) {
+          ensureRequestsIsMutable();
+          requests_.add(builderForValue.build());
+          onChanged();
+        } else {
+          requestsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addRequests(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder builderForValue) {
+        if (requestsBuilder_ == null) {
+          ensureRequestsIsMutable();
+          requests_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          requestsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addAllRequests(
+          java.lang.Iterable<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest> values) {
+        if (requestsBuilder_ == null) {
+          ensureRequestsIsMutable();
+          super.addAll(values, requests_);
+          onChanged();
+        } else {
+          requestsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      public Builder clearRequests() {
+        if (requestsBuilder_ == null) {
+          requests_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000002);
+          onChanged();
+        } else {
+          requestsBuilder_.clear();
+        }
+        return this;
+      }
+      public Builder removeRequests(int index) {
+        if (requestsBuilder_ == null) {
+          ensureRequestsIsMutable();
+          requests_.remove(index);
+          onChanged();
+        } else {
+          requestsBuilder_.remove(index);
+        }
+        return this;
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder getRequestsBuilder(
+          int index) {
+        return getRequestsFieldBuilder().getBuilder(index);
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder getRequestsOrBuilder(
+          int index) {
+        if (requestsBuilder_ == null) {
+          return requests_.get(index);  } else {
+          return requestsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      public java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder> 
+           getRequestsOrBuilderList() {
+        if (requestsBuilder_ != null) {
+          return requestsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(requests_);
+        }
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder addRequestsBuilder() {
+        return getRequestsFieldBuilder().addBuilder(
+            org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.getDefaultInstance());
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder addRequestsBuilder(
+          int index) {
+        return getRequestsFieldBuilder().addBuilder(
+            index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.getDefaultInstance());
+      }
+      public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder> 
+           getRequestsBuilderList() {
+        return getRequestsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder> 
+          getRequestsFieldBuilder() {
+        if (requestsBuilder_ == null) {
+          requestsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+              org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequestOrBuilder>(
+                  requests_,
+                  ((bitField0_ & 0x00000002) == 0x00000002),
+                  getParentForChildren(),
+                  isClean());
+          requests_ = null;
+        }
+        return requestsBuilder_;
+      }
+      
+      // @@protoc_insertion_point(builder_scope:RangeReadRequest)
+    }
+    
+    static {
+      defaultInstance = new RangeReadRequest(true);
+      defaultInstance.initFields();
+    }
+    
+    // @@protoc_insertion_point(class_scope:RangeReadRequest)
   }
   
   public interface AddRequestOrBuilder
@@ -2792,6 +3578,11 @@ public final class BookkeeperProtocol {
     boolean hasAddResponse();
     org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse getAddResponse();
     org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponseOrBuilder getAddResponseOrBuilder();
+    
+    // optional .RangeReadResponse rangeReadResponse = 102;
+    boolean hasRangeReadResponse();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse getRangeReadResponse();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder getRangeReadResponseOrBuilder();
   }
   public static final class Response extends
       com.google.protobuf.GeneratedMessage
@@ -2871,11 +3662,25 @@ public final class BookkeeperProtocol {
       return addResponse_;
     }
     
+    // optional .RangeReadResponse rangeReadResponse = 102;
+    public static final int RANGEREADRESPONSE_FIELD_NUMBER = 102;
+    private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse rangeReadResponse_;
+    public boolean hasRangeReadResponse() {
+      return ((bitField0_ & 0x00000010) == 0x00000010);
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse getRangeReadResponse() {
+      return rangeReadResponse_;
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder getRangeReadResponseOrBuilder() {
+      return rangeReadResponse_;
+    }
+    
     private void initFields() {
       header_ = org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader.getDefaultInstance();
       status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
       readResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.getDefaultInstance();
       addResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse.getDefaultInstance();
+      rangeReadResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance();
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -2906,6 +3711,12 @@ public final class BookkeeperProtocol {
           return false;
         }
       }
+      if (hasRangeReadResponse()) {
+        if (!getRangeReadResponse().isInitialized()) {
+          memoizedIsInitialized = 0;
+          return false;
+        }
+      }
       memoizedIsInitialized = 1;
       return true;
     }
@@ -2924,6 +3735,9 @@ public final class BookkeeperProtocol {
       }
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         output.writeMessage(101, addResponse_);
+      }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        output.writeMessage(102, rangeReadResponse_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -2949,6 +3763,10 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(101, addResponse_);
+      }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(102, rangeReadResponse_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -3069,6 +3887,7 @@ public final class BookkeeperProtocol {
           getHeaderFieldBuilder();
           getReadResponseFieldBuilder();
           getAddResponseFieldBuilder();
+          getRangeReadResponseFieldBuilder();
         }
       }
       private static Builder create() {
@@ -3097,6 +3916,12 @@ public final class BookkeeperProtocol {
           addResponseBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000008);
+        if (rangeReadResponseBuilder_ == null) {
+          rangeReadResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance();
+        } else {
+          rangeReadResponseBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000010);
         return this;
       }
       
@@ -3163,6 +3988,14 @@ public final class BookkeeperProtocol {
         } else {
           result.addResponse_ = addResponseBuilder_.build();
         }
+        if (((from_bitField0_ & 0x00000010) == 0x00000010)) {
+          to_bitField0_ |= 0x00000010;
+        }
+        if (rangeReadResponseBuilder_ == null) {
+          result.rangeReadResponse_ = rangeReadResponse_;
+        } else {
+          result.rangeReadResponse_ = rangeReadResponseBuilder_.build();
+        }
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -3191,6 +4024,9 @@ public final class BookkeeperProtocol {
         if (other.hasAddResponse()) {
           mergeAddResponse(other.getAddResponse());
         }
+        if (other.hasRangeReadResponse()) {
+          mergeRangeReadResponse(other.getRangeReadResponse());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
       }
@@ -3216,6 +4052,12 @@ public final class BookkeeperProtocol {
         }
         if (hasAddResponse()) {
           if (!getAddResponse().isInitialized()) {
+            
+            return false;
+          }
+        }
+        if (hasRangeReadResponse()) {
+          if (!getRangeReadResponse().isInitialized()) {
             
             return false;
           }
@@ -3282,6 +4124,15 @@ public final class BookkeeperProtocol {
               }
               input.readMessage(subBuilder, extensionRegistry);
               setAddResponse(subBuilder.buildPartial());
+              break;
+            }
+            case 818: {
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder subBuilder = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.newBuilder();
+              if (hasRangeReadResponse()) {
+                subBuilder.mergeFrom(getRangeReadResponse());
+              }
+              input.readMessage(subBuilder, extensionRegistry);
+              setRangeReadResponse(subBuilder.buildPartial());
               break;
             }
           }
@@ -3582,6 +4433,96 @@ public final class BookkeeperProtocol {
           addResponse_ = null;
         }
         return addResponseBuilder_;
+      }
+      
+      // optional .RangeReadResponse rangeReadResponse = 102;
+      private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse rangeReadResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance();
+      private com.google.protobuf.SingleFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder> rangeReadResponseBuilder_;
+      public boolean hasRangeReadResponse() {
+        return ((bitField0_ & 0x00000010) == 0x00000010);
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse getRangeReadResponse() {
+        if (rangeReadResponseBuilder_ == null) {
+          return rangeReadResponse_;
+        } else {
+          return rangeReadResponseBuilder_.getMessage();
+        }
+      }
+      public Builder setRangeReadResponse(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse value) {
+        if (rangeReadResponseBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          rangeReadResponse_ = value;
+          onChanged();
+        } else {
+          rangeReadResponseBuilder_.setMessage(value);
+        }
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      public Builder setRangeReadResponse(
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder builderForValue) {
+        if (rangeReadResponseBuilder_ == null) {
+          rangeReadResponse_ = builderForValue.build();
+          onChanged();
+        } else {
+          rangeReadResponseBuilder_.setMessage(builderForValue.build());
+        }
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      public Builder mergeRangeReadResponse(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse value) {
+        if (rangeReadResponseBuilder_ == null) {
+          if (((bitField0_ & 0x00000010) == 0x00000010) &&
+              rangeReadResponse_ != org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance()) {
+            rangeReadResponse_ =
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.newBuilder(rangeReadResponse_).mergeFrom(value).buildPartial();
+          } else {
+            rangeReadResponse_ = value;
+          }
+          onChanged();
+        } else {
+          rangeReadResponseBuilder_.mergeFrom(value);
+        }
+        bitField0_ |= 0x00000010;
+        return this;
+      }
+      public Builder clearRangeReadResponse() {
+        if (rangeReadResponseBuilder_ == null) {
+          rangeReadResponse_ = org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance();
+          onChanged();
+        } else {
+          rangeReadResponseBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000010);
+        return this;
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder getRangeReadResponseBuilder() {
+        bitField0_ |= 0x00000010;
+        onChanged();
+        return getRangeReadResponseFieldBuilder().getBuilder();
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder getRangeReadResponseOrBuilder() {
+        if (rangeReadResponseBuilder_ != null) {
+          return rangeReadResponseBuilder_.getMessageOrBuilder();
+        } else {
+          return rangeReadResponse_;
+        }
+      }
+      private com.google.protobuf.SingleFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder> 
+          getRangeReadResponseFieldBuilder() {
+        if (rangeReadResponseBuilder_ == null) {
+          rangeReadResponseBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder>(
+                  rangeReadResponse_,
+                  getParentForChildren(),
+                  isClean());
+          rangeReadResponse_ = null;
+        }
+        return rangeReadResponseBuilder_;
       }
       
       // @@protoc_insertion_point(builder_scope:Response)
@@ -4140,6 +5081,711 @@ public final class BookkeeperProtocol {
     // @@protoc_insertion_point(class_scope:ReadResponse)
   }
   
+  public interface RangeReadResponseOrBuilder
+      extends com.google.protobuf.MessageOrBuilder {
+    
+    // required .StatusCode status = 1;
+    boolean hasStatus();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode getStatus();
+    
+    // required uint32 numResponses = 2;
+    boolean hasNumResponses();
+    int getNumResponses();
+    
+    // repeated .ReadResponse responses = 3;
+    java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> 
+        getResponsesList();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse getResponses(int index);
+    int getResponsesCount();
+    java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder> 
+        getResponsesOrBuilderList();
+    org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder getResponsesOrBuilder(
+        int index);
+  }
+  public static final class RangeReadResponse extends
+      com.google.protobuf.GeneratedMessage
+      implements RangeReadResponseOrBuilder {
+    // Use RangeReadResponse.newBuilder() to construct.
+    private RangeReadResponse(Builder builder) {
+      super(builder);
+    }
+    private RangeReadResponse(boolean noInit) {}
+    
+    private static final RangeReadResponse defaultInstance;
+    public static RangeReadResponse getDefaultInstance() {
+      return defaultInstance;
+    }
+    
+    public RangeReadResponse getDefaultInstanceForType() {
+      return defaultInstance;
+    }
+    
+    public static final com.google.protobuf.Descriptors.Descriptor
+        getDescriptor() {
+      return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadResponse_descriptor;
+    }
+    
+    protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
+        internalGetFieldAccessorTable() {
+      return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadResponse_fieldAccessorTable;
+    }
+    
+    private int bitField0_;
+    // required .StatusCode status = 1;
+    public static final int STATUS_FIELD_NUMBER = 1;
+    private org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode status_;
+    public boolean hasStatus() {
+      return ((bitField0_ & 0x00000001) == 0x00000001);
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode getStatus() {
+      return status_;
+    }
+    
+    // required uint32 numResponses = 2;
+    public static final int NUMRESPONSES_FIELD_NUMBER = 2;
+    private int numResponses_;
+    public boolean hasNumResponses() {
+      return ((bitField0_ & 0x00000002) == 0x00000002);
+    }
+    public int getNumResponses() {
+      return numResponses_;
+    }
+    
+    // repeated .ReadResponse responses = 3;
+    public static final int RESPONSES_FIELD_NUMBER = 3;
+    private java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> responses_;
+    public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> getResponsesList() {
+      return responses_;
+    }
+    public java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder> 
+        getResponsesOrBuilderList() {
+      return responses_;
+    }
+    public int getResponsesCount() {
+      return responses_.size();
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse getResponses(int index) {
+      return responses_.get(index);
+    }
+    public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder getResponsesOrBuilder(
+        int index) {
+      return responses_.get(index);
+    }
+    
+    private void initFields() {
+      status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
+      numResponses_ = 0;
+      responses_ = java.util.Collections.emptyList();
+    }
+    private byte memoizedIsInitialized = -1;
+    public final boolean isInitialized() {
+      byte isInitialized = memoizedIsInitialized;
+      if (isInitialized != -1) return isInitialized == 1;
+      
+      if (!hasStatus()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      if (!hasNumResponses()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      for (int i = 0; i < getResponsesCount(); i++) {
+        if (!getResponses(i).isInitialized()) {
+          memoizedIsInitialized = 0;
+          return false;
+        }
+      }
+      memoizedIsInitialized = 1;
+      return true;
+    }
+    
+    public void writeTo(com.google.protobuf.CodedOutputStream output)
+                        throws java.io.IOException {
+      getSerializedSize();
+      if (((bitField0_ & 0x00000001) == 0x00000001)) {
+        output.writeEnum(1, status_.getNumber());
+      }
+      if (((bitField0_ & 0x00000002) == 0x00000002)) {
+        output.writeUInt32(2, numResponses_);
+      }
+      for (int i = 0; i < responses_.size(); i++) {
+        output.writeMessage(3, responses_.get(i));
+      }
+      getUnknownFields().writeTo(output);
+    }
+    
+    private int memoizedSerializedSize = -1;
+    public int getSerializedSize() {
+      int size = memoizedSerializedSize;
+      if (size != -1) return size;
+    
+      size = 0;
+      if (((bitField0_ & 0x00000001) == 0x00000001)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeEnumSize(1, status_.getNumber());
+      }
+      if (((bitField0_ & 0x00000002) == 0x00000002)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt32Size(2, numResponses_);
+      }
+      for (int i = 0; i < responses_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, responses_.get(i));
+      }
+      size += getUnknownFields().getSerializedSize();
+      memoizedSerializedSize = size;
+      return size;
+    }
+    
+    private static final long serialVersionUID = 0L;
+    @java.lang.Override
+    protected java.lang.Object writeReplace()
+        throws java.io.ObjectStreamException {
+      return super.writeReplace();
+    }
+    
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        com.google.protobuf.ByteString data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        com.google.protobuf.ByteString data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(byte[] data)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        byte[] data,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws com.google.protobuf.InvalidProtocolBufferException {
+      return newBuilder().mergeFrom(data, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input, extensionRegistry)
+               .buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseDelimitedFrom(java.io.InputStream input)
+        throws java.io.IOException {
+      Builder builder = newBuilder();
+      if (builder.mergeDelimitedFrom(input)) {
+        return builder.buildParsed();
+      } else {
+        return null;
+      }
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseDelimitedFrom(
+        java.io.InputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      Builder builder = newBuilder();
+      if (builder.mergeDelimitedFrom(input, extensionRegistry)) {
+        return builder.buildParsed();
+      } else {
+        return null;
+      }
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        com.google.protobuf.CodedInputStream input)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input).buildParsed();
+    }
+    public static org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse parseFrom(
+        com.google.protobuf.CodedInputStream input,
+        com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+        throws java.io.IOException {
+      return newBuilder().mergeFrom(input, extensionRegistry)
+               .buildParsed();
+    }
+    
+    public static Builder newBuilder() { return Builder.create(); }
+    public Builder newBuilderForType() { return newBuilder(); }
+    public static Builder newBuilder(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse prototype) {
+      return newBuilder().mergeFrom(prototype);
+    }
+    public Builder toBuilder() { return newBuilder(this); }
+    
+    @java.lang.Override
+    protected Builder newBuilderForType(
+        com.google.protobuf.GeneratedMessage.BuilderParent parent) {
+      Builder builder = new Builder(parent);
+      return builder;
+    }
+    public static final class Builder extends
+        com.google.protobuf.GeneratedMessage.Builder<Builder>
+       implements org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponseOrBuilder {
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadResponse_descriptor;
+      }
+      
+      protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.internal_static_RangeReadResponse_fieldAccessorTable;
+      }
+      
+      // Construct using org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.newBuilder()
+      private Builder() {
+        maybeForceBuilderInitialization();
+      }
+      
+      private Builder(BuilderParent parent) {
+        super(parent);
+        maybeForceBuilderInitialization();
+      }
+      private void maybeForceBuilderInitialization() {
+        if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
+          getResponsesFieldBuilder();
+        }
+      }
+      private static Builder create() {
+        return new Builder();
+      }
+      
+      public Builder clear() {
+        super.clear();
+        status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
+        bitField0_ = (bitField0_ & ~0x00000001);
+        numResponses_ = 0;
+        bitField0_ = (bitField0_ & ~0x00000002);
+        if (responsesBuilder_ == null) {
+          responses_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000004);
+        } else {
+          responsesBuilder_.clear();
+        }
+        return this;
+      }
+      
+      public Builder clone() {
+        return create().mergeFrom(buildPartial());
+      }
+      
+      public com.google.protobuf.Descriptors.Descriptor
+          getDescriptorForType() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDescriptor();
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse getDefaultInstanceForType() {
+        return org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance();
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse build() {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(result);
+        }
+        return result;
+      }
+      
+      private org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse buildParsed()
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse result = buildPartial();
+        if (!result.isInitialized()) {
+          throw newUninitializedMessageException(
+            result).asInvalidProtocolBufferException();
+        }
+        return result;
+      }
+      
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse buildPartial() {
+        org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse result = new org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse(this);
+        int from_bitField0_ = bitField0_;
+        int to_bitField0_ = 0;
+        if (((from_bitField0_ & 0x00000001) == 0x00000001)) {
+          to_bitField0_ |= 0x00000001;
+        }
+        result.status_ = status_;
+        if (((from_bitField0_ & 0x00000002) == 0x00000002)) {
+          to_bitField0_ |= 0x00000002;
+        }
+        result.numResponses_ = numResponses_;
+        if (responsesBuilder_ == null) {
+          if (((bitField0_ & 0x00000004) == 0x00000004)) {
+            responses_ = java.util.Collections.unmodifiableList(responses_);
+            bitField0_ = (bitField0_ & ~0x00000004);
+          }
+          result.responses_ = responses_;
+        } else {
+          result.responses_ = responsesBuilder_.build();
+        }
+        result.bitField0_ = to_bitField0_;
+        onBuilt();
+        return result;
+      }
+      
+      public Builder mergeFrom(com.google.protobuf.Message other) {
+        if (other instanceof org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse) {
+          return mergeFrom((org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse)other);
+        } else {
+          super.mergeFrom(other);
+          return this;
+        }
+      }
+      
+      public Builder mergeFrom(org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse other) {
+        if (other == org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.getDefaultInstance()) return this;
+        if (other.hasStatus()) {
+          setStatus(other.getStatus());
+        }
+        if (other.hasNumResponses()) {
+          setNumResponses(other.getNumResponses());
+        }
+        if (responsesBuilder_ == null) {
+          if (!other.responses_.isEmpty()) {
+            if (responses_.isEmpty()) {
+              responses_ = other.responses_;
+              bitField0_ = (bitField0_ & ~0x00000004);
+            } else {
+              ensureResponsesIsMutable();
+              responses_.addAll(other.responses_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.responses_.isEmpty()) {
+            if (responsesBuilder_.isEmpty()) {
+              responsesBuilder_.dispose();
+              responsesBuilder_ = null;
+              responses_ = other.responses_;
+              bitField0_ = (bitField0_ & ~0x00000004);
+              responsesBuilder_ = 
+                com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                   getResponsesFieldBuilder() : null;
+            } else {
+              responsesBuilder_.addAllMessages(other.responses_);
+            }
+          }
+        }
+        this.mergeUnknownFields(other.getUnknownFields());
+        return this;
+      }
+      
+      public final boolean isInitialized() {
+        if (!hasStatus()) {
+          
+          return false;
+        }
+        if (!hasNumResponses()) {
+          
+          return false;
+        }
+        for (int i = 0; i < getResponsesCount(); i++) {
+          if (!getResponses(i).isInitialized()) {
+            
+            return false;
+          }
+        }
+        return true;
+      }
+      
+      public Builder mergeFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        com.google.protobuf.UnknownFieldSet.Builder unknownFields =
+          com.google.protobuf.UnknownFieldSet.newBuilder(
+            this.getUnknownFields());
+        while (true) {
+          int tag = input.readTag();
+          switch (tag) {
+            case 0:
+              this.setUnknownFields(unknownFields.build());
+              onChanged();
+              return this;
+            default: {
+              if (!parseUnknownField(input, unknownFields,
+                                     extensionRegistry, tag)) {
+                this.setUnknownFields(unknownFields.build());
+                onChanged();
+                return this;
+              }
+              break;
+            }
+            case 8: {
+              int rawValue = input.readEnum();
+              org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode value = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.valueOf(rawValue);
+              if (value == null) {
+                unknownFields.mergeVarintField(1, rawValue);
+              } else {
+                bitField0_ |= 0x00000001;
+                status_ = value;
+              }
+              break;
+            }
+            case 16: {
+              bitField0_ |= 0x00000002;
+              numResponses_ = input.readUInt32();
+              break;
+            }
+            case 26: {
+              org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder subBuilder = org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.newBuilder();
+              input.readMessage(subBuilder, extensionRegistry);
+              addResponses(subBuilder.buildPartial());
+              break;
+            }
+          }
+        }
+      }
+      
+      private int bitField0_;
+      
+      // required .StatusCode status = 1;
+      private org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
+      public boolean hasStatus() {
+        return ((bitField0_ & 0x00000001) == 0x00000001);
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode getStatus() {
+        return status_;
+      }
+      public Builder setStatus(org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode value) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        bitField0_ |= 0x00000001;
+        status_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearStatus() {
+        bitField0_ = (bitField0_ & ~0x00000001);
+        status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
+        onChanged();
+        return this;
+      }
+      
+      // required uint32 numResponses = 2;
+      private int numResponses_ ;
+      public boolean hasNumResponses() {
+        return ((bitField0_ & 0x00000002) == 0x00000002);
+      }
+      public int getNumResponses() {
+        return numResponses_;
+      }
+      public Builder setNumResponses(int value) {
+        bitField0_ |= 0x00000002;
+        numResponses_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearNumResponses() {
+        bitField0_ = (bitField0_ & ~0x00000002);
+        numResponses_ = 0;
+        onChanged();
+        return this;
+      }
+      
+      // repeated .ReadResponse responses = 3;
+      private java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> responses_ =
+        java.util.Collections.emptyList();
+      private void ensureResponsesIsMutable() {
+        if (!((bitField0_ & 0x00000004) == 0x00000004)) {
+          responses_ = new java.util.ArrayList<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse>(responses_);
+          bitField0_ |= 0x00000004;
+         }
+      }
+      
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder> responsesBuilder_;
+      
+      public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> getResponsesList() {
+        if (responsesBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(responses_);
+        } else {
+          return responsesBuilder_.getMessageList();
+        }
+      }
+      public int getResponsesCount() {
+        if (responsesBuilder_ == null) {
+          return responses_.size();
+        } else {
+          return responsesBuilder_.getCount();
+        }
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse getResponses(int index) {
+        if (responsesBuilder_ == null) {
+          return responses_.get(index);
+        } else {
+          return responsesBuilder_.getMessage(index);
+        }
+      }
+      public Builder setResponses(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse value) {
+        if (responsesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureResponsesIsMutable();
+          responses_.set(index, value);
+          onChanged();
+        } else {
+          responsesBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      public Builder setResponses(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder builderForValue) {
+        if (responsesBuilder_ == null) {
+          ensureResponsesIsMutable();
+          responses_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          responsesBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addResponses(org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse value) {
+        if (responsesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureResponsesIsMutable();
+          responses_.add(value);
+          onChanged();
+        } else {
+          responsesBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      public Builder addResponses(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse value) {
+        if (responsesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureResponsesIsMutable();
+          responses_.add(index, value);
+          onChanged();
+        } else {
+          responsesBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      public Builder addResponses(
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder builderForValue) {
+        if (responsesBuilder_ == null) {
+          ensureResponsesIsMutable();
+          responses_.add(builderForValue.build());
+          onChanged();
+        } else {
+          responsesBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addResponses(
+          int index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder builderForValue) {
+        if (responsesBuilder_ == null) {
+          ensureResponsesIsMutable();
+          responses_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          responsesBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addAllResponses(
+          java.lang.Iterable<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse> values) {
+        if (responsesBuilder_ == null) {
+          ensureResponsesIsMutable();
+          super.addAll(values, responses_);
+          onChanged();
+        } else {
+          responsesBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      public Builder clearResponses() {
+        if (responsesBuilder_ == null) {
+          responses_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000004);
+          onChanged();
+        } else {
+          responsesBuilder_.clear();
+        }
+        return this;
+      }
+      public Builder removeResponses(int index) {
+        if (responsesBuilder_ == null) {
+          ensureResponsesIsMutable();
+          responses_.remove(index);
+          onChanged();
+        } else {
+          responsesBuilder_.remove(index);
+        }
+        return this;
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder getResponsesBuilder(
+          int index) {
+        return getResponsesFieldBuilder().getBuilder(index);
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder getResponsesOrBuilder(
+          int index) {
+        if (responsesBuilder_ == null) {
+          return responses_.get(index);  } else {
+          return responsesBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      public java.util.List<? extends org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder> 
+           getResponsesOrBuilderList() {
+        if (responsesBuilder_ != null) {
+          return responsesBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(responses_);
+        }
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder addResponsesBuilder() {
+        return getResponsesFieldBuilder().addBuilder(
+            org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.getDefaultInstance());
+      }
+      public org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder addResponsesBuilder(
+          int index) {
+        return getResponsesFieldBuilder().addBuilder(
+            index, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.getDefaultInstance());
+      }
+      public java.util.List<org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder> 
+           getResponsesBuilderList() {
+        return getResponsesFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder> 
+          getResponsesFieldBuilder() {
+        if (responsesBuilder_ == null) {
+          responsesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+              org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder, org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponseOrBuilder>(
+                  responses_,
+                  ((bitField0_ & 0x00000004) == 0x00000004),
+                  getParentForChildren(),
+                  isClean());
+          responses_ = null;
+        }
+        return responsesBuilder_;
+      }
+      
+      // @@protoc_insertion_point(builder_scope:RangeReadResponse)
+    }
+    
+    static {
+      defaultInstance = new RangeReadResponse(true);
+      defaultInstance.initFields();
+    }
+    
+    // @@protoc_insertion_point(class_scope:RangeReadResponse)
+  }
+  
   public interface AddResponseOrBuilder
       extends com.google.protobuf.MessageOrBuilder {
     
@@ -4641,6 +6287,11 @@ public final class BookkeeperProtocol {
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_ReadRequest_fieldAccessorTable;
   private static com.google.protobuf.Descriptors.Descriptor
+    internal_static_RangeReadRequest_descriptor;
+  private static
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_RangeReadRequest_fieldAccessorTable;
+  private static com.google.protobuf.Descriptors.Descriptor
     internal_static_AddRequest_descriptor;
   private static
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
@@ -4655,6 +6306,11 @@ public final class BookkeeperProtocol {
   private static
     com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internal_static_ReadResponse_fieldAccessorTable;
+  private static com.google.protobuf.Descriptors.Descriptor
+    internal_static_RangeReadResponse_descriptor;
+  private static
+    com.google.protobuf.GeneratedMessage.FieldAccessorTable
+      internal_static_RangeReadResponse_fieldAccessorTable;
   private static com.google.protobuf.Descriptors.Descriptor
     internal_static_AddResponse_descriptor;
   private static
@@ -4672,33 +6328,40 @@ public final class BookkeeperProtocol {
       "\n\'src/main/proto/BookkeeperProtocol.prot" +
       "o\"e\n\016BKPacketHeader\022!\n\007version\030\001 \002(\0162\020.P" +
       "rotocolVersion\022!\n\toperation\030\002 \002(\0162\016.Oper" +
-      "ationType\022\r\n\005txnId\030\003 \002(\004\"n\n\007Request\022\037\n\006h" +
-      "eader\030\001 \002(\0132\017.BKPacketHeader\022!\n\013readRequ" +
-      "est\030d \001(\0132\014.ReadRequest\022\037\n\naddRequest\030e " +
-      "\001(\0132\013.AddRequest\"~\n\013ReadRequest\022\037\n\004flag\030" +
-      "d \001(\0162\021.ReadRequest.Flag\022\020\n\010ledgerId\030\001 \002" +
-      "(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 \001(\014\"\030" +
-      "\n\004Flag\022\020\n\014FENCE_LEDGER\020\001\"\212\001\n\nAddRequest\022",
-      "\036\n\004flag\030d \001(\0162\020.AddRequest.Flag\022\020\n\010ledge" +
-      "rId\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030" +
-      "\003 \002(\014\022\014\n\004body\030\004 \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_" +
-      "ADD\020\001\"\220\001\n\010Response\022\037\n\006header\030\001 \002(\0132\017.BKP" +
-      "acketHeader\022\033\n\006status\030\002 \002(\0162\013.StatusCode" +
-      "\022#\n\014readResponse\030d \001(\0132\r.ReadResponse\022!\n" +
-      "\013addResponse\030e \001(\0132\014.AddResponse\"\\\n\014Read" +
-      "Response\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n" +
-      "\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003\022\014\n\004body" +
-      "\030\004 \001(\014\"M\n\013AddResponse\022\033\n\006status\030\001 \002(\0162\013.",
-      "StatusCode\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030" +
-      "\003 \002(\003*F\n\017ProtocolVersion\022\017\n\013VERSION_ONE\020" +
-      "\001\022\017\n\013VERSION_TWO\020\002\022\021\n\rVERSION_THREE\020\003*\206\001" +
-      "\n\nStatusCode\022\007\n\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n" +
-      "\010ENOENTRY\020\223\003\022\014\n\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003" +
-      "EUA\020\366\003\022\020\n\013EBADVERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016" +
-      "\n\tEREADONLY\020\371\003*Y\n\rOperationType\022\016\n\nREAD_" +
-      "ENTRY\020\001\022\r\n\tADD_ENTRY\020\002\022\024\n\020RANGE_READ_ENT" +
-      "RY\020\003\022\023\n\017RANGE_ADD_ENTRY\020\004B\037\n\033org.apache." +
-      "bookkeeper.protoH\001"
+      "ationType\022\r\n\005txnId\030\003 \002(\004\"\233\001\n\007Request\022\037\n\006" +
+      "header\030\001 \002(\0132\017.BKPacketHeader\022!\n\013readReq" +
+      "uest\030d \001(\0132\014.ReadRequest\022\037\n\naddRequest\030e" +
+      " \001(\0132\013.AddRequest\022+\n\020rangeReadRequest\030f " +
+      "\001(\0132\021.RangeReadRequest\"~\n\013ReadRequest\022\037\n" +
+      "\004flag\030d \001(\0162\021.ReadRequest.Flag\022\020\n\010ledger" +
+      "Id\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003",
+      " \001(\014\"\030\n\004Flag\022\020\n\014FENCE_LEDGER\020\001\"F\n\020RangeR" +
+      "eadRequest\022\022\n\nnumRequest\030\001 \002(\r\022\036\n\010reques" +
+      "ts\030\002 \003(\0132\014.ReadRequest\"\212\001\n\nAddRequest\022\036\n" +
+      "\004flag\030d \001(\0162\020.AddRequest.Flag\022\020\n\010ledgerI" +
+      "d\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 " +
+      "\002(\014\022\014\n\004body\030\004 \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_AD" +
+      "D\020\001\"\277\001\n\010Response\022\037\n\006header\030\001 \002(\0132\017.BKPac" +
+      "ketHeader\022\033\n\006status\030\002 \002(\0162\013.StatusCode\022#" +
+      "\n\014readResponse\030d \001(\0132\r.ReadResponse\022!\n\013a" +
+      "ddResponse\030e \001(\0132\014.AddResponse\022-\n\021rangeR",
+      "eadResponse\030f \001(\0132\022.RangeReadResponse\"\\\n" +
+      "\014ReadResponse\022\033\n\006status\030\001 \002(\0162\013.StatusCo" +
+      "de\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003\022\014\n" +
+      "\004body\030\004 \001(\014\"h\n\021RangeReadResponse\022\033\n\006stat" +
+      "us\030\001 \002(\0162\013.StatusCode\022\024\n\014numResponses\030\002 " +
+      "\002(\r\022 \n\tresponses\030\003 \003(\0132\r.ReadResponse\"M\n" +
+      "\013AddResponse\022\033\n\006status\030\001 \002(\0162\013.StatusCod" +
+      "e\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003*F\n\017" +
+      "ProtocolVersion\022\017\n\013VERSION_ONE\020\001\022\017\n\013VERS" +
+      "ION_TWO\020\002\022\021\n\rVERSION_THREE\020\003*\206\001\n\nStatusC",
+      "ode\022\007\n\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n\010ENOENTRY" +
+      "\020\223\003\022\014\n\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020\366\003\022\020\n" +
+      "\013EBADVERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016\n\tEREADON" +
+      "LY\020\371\003*Y\n\rOperationType\022\016\n\nREAD_ENTRY\020\001\022\r" +
+      "\n\tADD_ENTRY\020\002\022\024\n\020RANGE_READ_ENTRY\020\003\022\023\n\017R" +
+      "ANGE_ADD_ENTRY\020\004B\037\n\033org.apache.bookkeepe" +
+      "r.protoH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -4718,7 +6381,7 @@ public final class BookkeeperProtocol {
           internal_static_Request_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_Request_descriptor,
-              new java.lang.String[] { "Header", "ReadRequest", "AddRequest", },
+              new java.lang.String[] { "Header", "ReadRequest", "AddRequest", "RangeReadRequest", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.Request.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.Request.Builder.class);
           internal_static_ReadRequest_descriptor =
@@ -4729,8 +6392,16 @@ public final class BookkeeperProtocol {
               new java.lang.String[] { "Flag", "LedgerId", "EntryId", "MasterKey", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder.class);
-          internal_static_AddRequest_descriptor =
+          internal_static_RangeReadRequest_descriptor =
             getDescriptor().getMessageTypes().get(3);
+          internal_static_RangeReadRequest_fieldAccessorTable = new
+            com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+              internal_static_RangeReadRequest_descriptor,
+              new java.lang.String[] { "NumRequest", "Requests", },
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.class,
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest.Builder.class);
+          internal_static_AddRequest_descriptor =
+            getDescriptor().getMessageTypes().get(4);
           internal_static_AddRequest_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_AddRequest_descriptor,
@@ -4738,23 +6409,31 @@ public final class BookkeeperProtocol {
               org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest.Builder.class);
           internal_static_Response_descriptor =
-            getDescriptor().getMessageTypes().get(4);
+            getDescriptor().getMessageTypes().get(5);
           internal_static_Response_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_Response_descriptor,
-              new java.lang.String[] { "Header", "Status", "ReadResponse", "AddResponse", },
+              new java.lang.String[] { "Header", "Status", "ReadResponse", "AddResponse", "RangeReadResponse", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.Response.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.Response.Builder.class);
           internal_static_ReadResponse_descriptor =
-            getDescriptor().getMessageTypes().get(5);
+            getDescriptor().getMessageTypes().get(6);
           internal_static_ReadResponse_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_ReadResponse_descriptor,
               new java.lang.String[] { "Status", "LedgerId", "EntryId", "Body", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder.class);
+          internal_static_RangeReadResponse_descriptor =
+            getDescriptor().getMessageTypes().get(7);
+          internal_static_RangeReadResponse_fieldAccessorTable = new
+            com.google.protobuf.GeneratedMessage.FieldAccessorTable(
+              internal_static_RangeReadResponse_descriptor,
+              new java.lang.String[] { "Status", "NumResponses", "Responses", },
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.class,
+              org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse.Builder.class);
           internal_static_AddResponse_descriptor =
-            getDescriptor().getMessageTypes().get(6);
+            getDescriptor().getMessageTypes().get(8);
           internal_static_AddResponse_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_AddResponse_descriptor,

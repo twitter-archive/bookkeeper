@@ -26,9 +26,11 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.RangeReadCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.PCBookieClientStatsLogger;
@@ -71,11 +73,18 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.RangeReadResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
+
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadResponse;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadResponse;
 
 /**
  * This class manages all details of connection to a particular bookie. It also
@@ -420,6 +429,49 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         });
     }
 
+    public void rangeReadEntry(final InternalRangeReadRequest request, final RangeReadCallback cb,
+                               final Object ctx) {
+        final long txnId = getTxnId();
+        final CompletionKey completionKey = new CompletionKey(txnId, OperationType.RANGE_READ_ENTRY);
+        completionObjects.put(completionKey, new RangeReadCompletion(statsLogger, cb, ctx, request.ledgerId));
+
+        BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
+                .setVersion(ProtocolVersion.VERSION_THREE)
+                .setOperation(OperationType.RANGE_READ_ENTRY)
+                .setTxnId(txnId);
+
+        RangeReadRequest.Builder rangeReadBuilder = RangeReadRequest.newBuilder()
+                .setNumRequest(request.numRequests);
+        for (InternalReadRequest req : request.requests) {
+            ReadRequest.Builder readBuilder = ReadRequest.newBuilder()
+                    .setLedgerId(req.ledgerId)
+                    .setEntryId(req.entryId);
+            rangeReadBuilder.addRequests(readBuilder.build());
+        }
+
+        final Request rangeReadRequest = Request.newBuilder()
+                .setHeader(headerBuilder)
+                .setRangeReadRequest(rangeReadBuilder)
+                .build();
+
+        writeRequestToChannel(channel, rangeReadRequest, new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                if (rc != 0) {
+                    LOG.warn("Range read for ledger:" + request.ledgerId + " with numRequests:" + request.numRequests
+                             + " failed.");
+                    errorOutRangeReadKey(completionKey);
+                } else {
+                    // Success
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Successfully wrote range read request to read " + request.numRequests + " entries from ledger:" +
+                                  request.ledgerId + " to bookie:" + channel.getRemoteAddress());
+                    }
+                }
+            }
+        });
+    }
+
     public void close() {
         if (channel != null) {
             channel.close().awaitUninterruptibly();
@@ -442,10 +494,31 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 if (null != channel) {
                     bAddress = channel.getRemoteAddress().toString();
                 }
-                LOG.error("Could not write request for reading entry: " + rc.entryId + " ledger-id: "
+                LOG.error("Could not write request with txnId:" + key.txnId + " for reading entry: " + rc.entryId + " ledger-id: "
                           + rc.ledgerId + " bookie: " + bAddress);
                 rc.cb.readEntryComplete(BKException.Code.BookieHandleNotAvailableException,
                                         rc.ledgerId, rc.entryId, null, rc.ctx);
+            }
+        });
+    }
+
+    void errorOutRangeReadKey(final CompletionKey key) {
+        final RangeReadCompletion rrc = (RangeReadCompletion)completionObjects.remove(key);
+        if (null == rrc) {
+            return;
+        }
+        executor.submitOrdered(rrc.ledgerId, new SafeRunnable() {
+            @Override
+            public void safeRun() {
+                String bAddress = "null";
+                if(channel != null) {
+                    bAddress = channel.getRemoteAddress().toString();
+                }
+                LOG.error("Could not write range read request with txnId:" + key.txnId +" for reading ledger:"
+                          + rrc.ledgerId + " to bookie: " + bAddress);
+                // No response to send, so send an empty response.
+                rrc.cb.rangeReadComplete(BKException.Code.BookieHandleNotAvailableException, new InternalRangeReadResponse(),
+                        rrc.ctx);
             }
         });
     }
@@ -463,7 +536,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 if(channel != null) {
                     bAddress = channel.getRemoteAddress().toString();
                 }
-                LOG.error("Could not write request for adding entry: " + ac.entryId + " ledger-id: "
+                LOG.error("Could not write request with txnId:" + key.txnId + " for adding entry: " + ac.entryId + " ledger-id: "
                           + ac.ledgerId + " bookie: " + bAddress);
                 ac.cb.writeComplete(BKException.Code.BookieHandleNotAvailableException, ac.ledgerId,
                                     ac.entryId, addr, ac.ctx);
@@ -492,6 +565,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                     break;
                 case READ_ENTRY:
                     errorOutReadKey(key);
+                    break;
+                case RANGE_READ_ENTRY:
+                    errorOutRangeReadKey(key);
                     break;
             }
         }
@@ -577,7 +653,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         final Response response = (Response) e.getMessage();
         final BKPacketHeader header = response.getHeader();
-
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Received response for request with txnId:" + header.getTxnId());
+        }
         final CompletionValue completionValue = completionObjects.remove(newCompletionKey(header.getTxnId(),
                 header.getOperation()));
         if (null == completionValue) {
@@ -597,6 +675,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                             break;
                         case READ_ENTRY:
                             handleReadResponse(response.getReadResponse(), completionValue);
+                            break;
+                        case RANGE_READ_ENTRY:
+                            handleRangeReadResponse(response.getRangeReadResponse(), completionValue);
                             break;
                         default:
                             LOG.error("Unexpected response, type:" + type + " received from bookie:" +
@@ -653,7 +734,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("Got response for read request from bookie: " + addr + " for ledger: " + ledgerId + " entry: "
-                      + entryId + " rc: " + rc + "entry length: " + buffer.readableBytes());
+                      + entryId + " rc: " + status + "entry length: " + buffer.readableBytes());
         }
 
         // convert to BKException code because thats what the uppper
@@ -667,6 +748,32 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         }
 
         rc.cb.readEntryComplete(rcToRet, ledgerId, entryId, buffer.slice(), rc.ctx);
+    }
+
+    void handleRangeReadResponse(RangeReadResponse response, CompletionValue completionValue) {
+        // The completion value should always be an instance of a RangeReadCompletion object when we reach here
+        RangeReadCompletion rrc = (RangeReadCompletion) completionValue;
+        int numResponse = response.getNumResponses();
+        StatusCode status = response.getStatus();
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Got response for range read request from bookie:" + addr + " for ledger:" +
+                    completionValue.ledgerId + " with return code:" + status);
+        }
+
+        Integer rcToRet = statusCodeToExceptionCode(status);
+        if (null == rcToRet) {
+            LOG.error("Range read entry for ledger:" + completionValue.ledgerId + " failed on bookie:" + addr
+                    + " with code:" + status);
+            rcToRet = BKException.Code.RangeReadException;
+        }
+        InternalRangeReadResponse rangeReadResponse = new InternalRangeReadResponse();
+        rangeReadResponse.numResponses = response.getNumResponses();
+        for (ReadResponse protocolReadResponse : response.getResponsesList()) {
+            InternalReadResponse readResponse = new InternalReadResponse(
+                    protocolReadResponse.getStatus()
+            );
+        }
     }
 
     /**
@@ -704,6 +811,29 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY).registerSuccessfulEvent(latencyMillis);
                     }
                     originalCallback.readEntryComplete(rc, ledgerId, entryId, buffer, originalCtx);
+                }
+            };
+        }
+    }
+
+    static class RangeReadCompletion extends CompletionValue {
+        final RangeReadCallback cb;
+        public RangeReadCompletion(final PCBookieClientStatsLogger statsLogger, final RangeReadCallback originalCallback,
+                              final Object originalCtx, final long ledgerId) {
+            super(originalCtx, ledgerId, LedgerHandle.INVALID_ENTRY_ID);
+            final long requestTimeMillis = MathUtils.now();
+            this.cb = new RangeReadCallback() {
+                @Override
+                public void rangeReadComplete(int rc, InternalRangeReadResponse response, Object ctx) {
+                    long latencyMillis = MathUtils.now() - requestTimeMillis;
+                    if (rc != BKException.Code.OK) {
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.RANGE_READ_ENTRY).registerFailedEvent(
+                                latencyMillis);
+                    } else {
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.RANGE_READ_ENTRY).registerSuccessfulEvent(
+                                latencyMillis);
+                    }
+                    originalCallback.rangeReadComplete(rc, response, originalCtx);
                 }
             };
         }

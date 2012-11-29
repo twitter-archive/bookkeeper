@@ -5,7 +5,7 @@ package org.apache.bookkeeper.stats;
  */
 public interface PCBookieClientStatsLogger extends StatsLogger {
     public static enum PCBookieClientOp {
-        ADD_ENTRY, READ_ENTRY
+        ADD_ENTRY, READ_ENTRY, RANGE_READ_ENTRY
     }
 
     public static enum PCBookieSimpleStatType {

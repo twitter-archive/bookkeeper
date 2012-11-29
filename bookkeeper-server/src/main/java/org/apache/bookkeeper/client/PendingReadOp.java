@@ -21,15 +21,15 @@ package org.apache.bookkeeper.client;
  *
  */
 import java.net.InetSocketAddress;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.NoSuchElementException;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadResponse;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadRequest;
+import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadResponse;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
@@ -49,6 +49,7 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
 class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
+    Map<InetSocketAddress, InternalRangeReadRequest> rangeRequestMap;
     Queue<LedgerEntryRequest> seq;
     ReadCallback cb;
     Object ctx;
@@ -90,6 +91,15 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 Thread.currentThread().interrupt();
                 submitCallback(BKException.Code.ReadException);
             }
+        }
+
+        /**
+         * The first time we send a request to any bookie, we try to batch them together.
+         */
+        void sendFirstRead() {
+            int bookieIndex = lh.distributionSchedule.getWriteSet(entryId).get(nextReplicaIndexToReadFrom);
+            nextReplicaIndexToReadFrom++;
+            sendReadBuffered(ensemble.get(bookieIndex), this);
         }
 
         void logErrorAndReattemptRead(String errMsg, int rc) {
@@ -145,6 +155,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         this.lh = lh;
         this.startEntryId = startEntryId;
         this.endEntryId = endEntryId;
+        this.rangeRequestMap = new HashMap<InetSocketAddress, InternalRangeReadRequest>();
         numPendingEntries = endEntryId - startEntryId + 1;
     }
 
@@ -162,8 +173,10 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             seq.add(entry);
             i++;
 
-            entry.sendNextRead();
+            entry.sendFirstRead();
         } while (i <= endEntryId);
+        // Flush any pending range reads.
+
     }
 
     void sendReadTo(InetSocketAddress to, LedgerEntryRequest entry) throws InterruptedException {
@@ -172,6 +185,29 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
         lh.bk.bookieClient.readEntry(to, lh.ledgerId, entry.entryId, 
                                      this, entry);
+    }
+
+    void sendRangeReadTo(InetSocketAddress to, InternalRangeReadRequest request) {
+        // Don't acquire any semaphores as we will remove them anyway.
+        lh.bk.bookieClient.rangeReadEntry(to, request, this, request);
+    }
+
+    void sendReadBuffered(InetSocketAddress to, LedgerEntryRequest entry) {
+        InternalRangeReadRequest request;
+        if ((request = rangeRequestMap.get(to)) == null) {
+            request = new InternalRangeReadRequest();
+            request.ledgerId = lh.ledgerId;
+            rangeRequestMap.put(to, request);
+        }
+        request.numRequests++;
+        request.requests.add(new InternalReadRequest(lh.ledgerId, entry.entryId));
+
+        // If we have exceeded the threshold, send the request.
+        // TODO: Make the size configurable!!.
+        if (request.numRequests == 10) {
+            request = rangeRequestMap.remove(to);
+            sendRangeReadTo(to, request);
+        }
     }
 
     @Override

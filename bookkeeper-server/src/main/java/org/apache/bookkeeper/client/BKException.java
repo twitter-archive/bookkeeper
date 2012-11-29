@@ -112,6 +112,7 @@ public abstract class BKException extends Exception {
         int InterruptedException = -15;
         int ProtocolVersionException = -16;
         int MetadataVersionException = -17;
+        int RangeReadException = -18;
 
         int IllegalOpException = -100;
         int LedgerFencedException = -101;
@@ -133,6 +134,8 @@ public abstract class BKException extends Exception {
             return "No problem";
         case Code.ReadException:
             return "Error while reading ledger";
+        case Code.RangeReadException:
+            return "Error while reading a range of entries from ledger";
         case Code.QuorumException:
             return "Invalid quorum size on ensemble size";
         case Code.NoBookieAvailableException:
