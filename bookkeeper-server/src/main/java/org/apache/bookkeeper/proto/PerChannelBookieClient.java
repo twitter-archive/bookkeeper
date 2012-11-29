@@ -436,6 +436,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
     public void rangeReadEntry(final InternalRangeReadRequest request, final RangeReadCallback cb,
                                final Object ctx) {
+        LOG.info("Received range read request for numEntries:" + request.numRequests);
         final long txnId = getTxnId();
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.RANGE_READ_ENTRY);
         completionObjects.put(completionKey, new RangeReadCompletion(statsLogger, cb, ctx, request.ledgerId));
