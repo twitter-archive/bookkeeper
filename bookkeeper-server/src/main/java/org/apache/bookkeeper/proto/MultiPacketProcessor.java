@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.proto.WriteEntryProcessorV3;
 import org.apache.bookkeeper.proto.ReadEntryProcessorV3;
+import org.apache.bookkeeper.proto.RangeReadEntryProcessorV3;
 
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
@@ -103,6 +104,9 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
                     break;
                 case READ_ENTRY:
                     readThreadPool.submit(new ReadEntryProcessorV3(request, srcConn, bookie));
+                    break;
+                case RANGE_READ_ENTRY:
+                    readThreadPool.submit(new RangeReadEntryProcessorV3(request, srcConn, bookie));
                     break;
                 default:
                     Response.Builder response = Response.newBuilder()

@@ -33,18 +33,28 @@ public class BookKeeperInternalProtocol {
             InternalReadRequest that = (InternalReadRequest)_that;
             return this.ledgerId == that.ledgerId && this.entryId == that.entryId;
         }
+
+        @Override
+        public int hashCode() {
+            return (int)this.ledgerId << 16 + (int)this.entryId;
+        }
     }
 
     public static class InternalReadResponse {
         public int returnCode;
-        public long ledgerId;
-        public long entryId;
+        public long ledgerId = -1;
+        public long entryId = -1;
         public ChannelBuffer responseBody;
         public InternalReadResponse(int rc, long ledgerId, long entryId, ChannelBuffer responseBody) {
             this.returnCode = rc;
             this.ledgerId = ledgerId;
             this.entryId = entryId;
             this.responseBody = responseBody;
+        }
+
+        @Override
+        public int hashCode() {
+            return (int)this.ledgerId << 16 + (int)this.entryId;
         }
     }
 

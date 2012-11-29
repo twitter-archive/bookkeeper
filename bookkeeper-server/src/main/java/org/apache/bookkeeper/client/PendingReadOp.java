@@ -178,6 +178,12 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
             entry.sendFirstRead();
         } while (i <= endEntryId);
         // Flush any pending range reads.
+        for (Map.Entry<InetSocketAddress, InternalRangeReadRequest> mapEntry : rangeRequestMap.entrySet()) {
+            InternalRangeReadRequest request = mapEntry.getValue();
+            InetSocketAddress to = mapEntry.getKey();
+            sendRangeReadTo(to, request);
+        }
+        rangeRequestMap.clear();
 
     }
 
@@ -218,8 +224,7 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
         // We passed the original request as the ctx object so we should be getting it back
         // here.
         InternalRangeReadRequest originalRequest = (InternalRangeReadRequest)ctx;
-        // TODO: Probably make the List<> in the Internal structure a Set<>
-        boolean invalidResponse = false;
+        // TODO: Make the List<> in the Internal structure a Set<>
         for (InternalReadResponse readResponse : response.responses) {
             LedgerEntryRequest entry;
             if (null == (entry = originalRequest.requests.remove(new InternalReadRequest(
@@ -238,7 +243,7 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
             long ledgerId = mapEntry.getKey().ledgerId;
             long entryId = mapEntry.getValue().entryId;
             LOG.error("During a range read operation, we did not get a response for ledger:" + ledgerId
-                    + " and entry:" + entryId);
+                    + " and entry:" + entryId + " and return code:" + rc);
             readEntryComplete(rc, ledgerId, entryId, null, mapEntry.getValue());
         }
     }

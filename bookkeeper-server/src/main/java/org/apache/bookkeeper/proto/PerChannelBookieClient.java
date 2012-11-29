@@ -136,7 +136,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * Error out any entries that have timed out.
      */
     private void errorOutTimedOutEntries() {
-        int numAdd = 0, numRead = 0;
+        int numAdd = 0, numRead = 0, numRangeRead = 0;
         int total = 0;
         for (CompletionKey key : PerChannelBookieClient.this.completionObjects.keySet()) {
             total++;
@@ -153,15 +153,20 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         errorOutReadKey(key);
                         numRead++;
                         break;
+                    case RANGE_READ_ENTRY:
+                        errorOutRangeReadKey(key);
+                        numRangeRead++;
+                        break;
                 }
             } catch (RuntimeException e) {
                 LOG.error("Caught RuntimeException while erroring out key:" + key.toString());
             }
         }
-        if (numAdd + numRead > 0) {
+        if (numAdd + numRead + numRangeRead > 0) {
             LOG.warn("Timeout task iterated through a total of " + total + " keys.");
             LOG.warn("Timeout Task errored out " + numAdd + " add entry requests");
             LOG.warn("Timeout Task errored out " + numRead + " read entry requests");
+            LOG.warn("Timeout Task errored out " + numRangeRead + " range read entry requests");
         }
     }
 
