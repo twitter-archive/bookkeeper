@@ -35,7 +35,7 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
     }
 
     // Returns null if there is no exception thrown
-    private AddResponse getAddResponse() {
+    public AddResponse getAddResponse() {
         // TODO: Move all these common operations into a function in the base class.
         final long startTimeMillis = MathUtils.now();
         AddRequest addRequest = request.getAddRequest();

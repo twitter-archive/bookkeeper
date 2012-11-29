@@ -19,7 +19,7 @@ package org.apache.bookkeeper.stats;
 
 public interface BookkeeperServerStatsLogger extends StatsLogger {
     public static enum BookkeeperServerOp {
-        ADD_ENTRY, READ_ENTRY, JOURNAL_ADD_ENTRY, JOURNAL_FORCE_WRITE_LATENCY,
+        ADD_ENTRY, READ_ENTRY, RANGE_READ_ENTRY, JOURNAL_ADD_ENTRY, JOURNAL_FORCE_WRITE_LATENCY,
         STORAGE_GET_OFFSET, STORAGE_GET_ENTRY, SKIP_LIST_GET_ENTRY, SKIP_LIST_PUT_ENTRY
     }
 

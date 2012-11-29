@@ -50,6 +50,7 @@ enum StatusCode {
  * Supported operations by this protocol.
  */
 enum OperationType {
+    // TODO: Remove this and support a single read by issuing a range read with only one request?
     READ_ENTRY = 1;
     ADD_ENTRY = 2;
     // Not supported yet.
@@ -87,6 +88,7 @@ message ReadRequest {
 }
 
 message RangeReadRequest {
+    // TODO: We probably don't need this number.
     required uint32 numRequest = 1;
     repeated ReadRequest requests = 2;
 }

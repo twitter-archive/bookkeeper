@@ -28,7 +28,7 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
         super(request, srcConn, bookie);
     }
 
-    private ReadResponse getReadResponse() {
+    public ReadResponse getReadResponse() {
         final long startTimeMillis = MathUtils.now();
         ReadRequest readRequest = request.getReadRequest();
         long ledgerId = readRequest.getLedgerId();
@@ -92,7 +92,6 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
         // a read went through.
         readResponse.setStatus(status);
         return readResponse.build();
-
     }
 
     @Override
