@@ -170,6 +170,7 @@ public class BookieClient {
                 if (rc != BKException.Code.OK) {
                     // Send an empty response because there is nothing to send.
                     cb.rangeReadComplete(rc, new InternalRangeReadResponse(), ctx);
+                    return;
                 }
                 client.rangeReadEntry(request, cb, ctx);
             }

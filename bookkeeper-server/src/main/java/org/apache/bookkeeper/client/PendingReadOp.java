@@ -162,8 +162,6 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
     }
 
     public void initiate() throws InterruptedException {
-        LOG.info("Initiated read: ledger:" + lh.ledgerId + " start:" + startEntryId +
-                " end:" + endEntryId);
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeMillis = MathUtils.now();
         ArrayList<InetSocketAddress> ensemble = null;
@@ -199,8 +197,6 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
 
     void sendRangeReadTo(InetSocketAddress to, InternalRangeReadRequest request) {
         // Don't acquire any semaphores as we will remove them anyway.
-        LOG.info("Sending range read for ledger:" + lh.ledgerId + " with numEntries:" + request.numRequests+
-                " to bookie:" + to);
         lh.bk.bookieClient.rangeReadEntry(to, request, this, request);
     }
 
@@ -231,7 +227,6 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
         // TODO: Make the List<> in the Internal structure a Set<>
         for (InternalReadResponse readResponse : response.responses) {
             LedgerEntryRequest entry;
-            LOG.info("Received readResponse for ledger:" + readResponse.ledgerId + " entry:" + readResponse.entryId);
             if (null == (entry = originalRequest.requests.remove(new InternalReadRequest(
                     readResponse.ledgerId, readResponse.entryId)))) {
                 // We got a response for something we did not make a request for.

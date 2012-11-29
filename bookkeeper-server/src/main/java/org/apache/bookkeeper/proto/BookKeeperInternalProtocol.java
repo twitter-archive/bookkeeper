@@ -53,6 +53,15 @@ public class BookKeeperInternalProtocol {
         }
 
         @Override
+        public boolean equals(Object _that) {
+            if (!(_that instanceof InternalReadResponse)) {
+                return false;
+            }
+            InternalReadResponse that = (InternalReadResponse)_that;
+            return this.ledgerId == that.ledgerId && this.entryId == that.entryId;
+        }
+
+        @Override
         public int hashCode() {
             return (int)this.ledgerId << 16 + (int)this.entryId;
         }
