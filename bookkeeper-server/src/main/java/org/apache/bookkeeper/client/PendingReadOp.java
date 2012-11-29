@@ -25,7 +25,9 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.RangeReadCallback;
 import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadRequest;
 import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalReadResponse;
 import org.apache.bookkeeper.proto.BookKeeperInternalProtocol.InternalRangeReadRequest;
@@ -46,7 +48,8 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
  * application as soon as it arrives rather than waiting for the whole thing.
  *
  */
-class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
+public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback,
+        RangeReadCallback {
     Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
     Map<InetSocketAddress, InternalRangeReadRequest> rangeRequestMap;
@@ -58,8 +61,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long startEntryId;
     long endEntryId;
     long requestTimeMillis;
-
-    private class LedgerEntryRequest extends LedgerEntry {
+    public class LedgerEntryRequest extends LedgerEntry {
         int nextReplicaIndexToReadFrom = 0;
         AtomicBoolean complete = new AtomicBoolean(false);
 
@@ -200,13 +202,44 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             rangeRequestMap.put(to, request);
         }
         request.numRequests++;
-        request.requests.add(new InternalReadRequest(lh.ledgerId, entry.entryId));
-
+        InternalReadRequest readRequest = new InternalReadRequest(lh.ledgerId, entry.entryId);
+        request.requests.put(readRequest, entry);
         // If we have exceeded the threshold, send the request.
         // TODO: Make the size configurable!!.
         if (request.numRequests == 10) {
             request = rangeRequestMap.remove(to);
             sendRangeReadTo(to, request);
+        }
+    }
+
+    // Uses readEntryComplete to signal completion of each individual entry.
+    @Override
+    public void rangeReadComplete(int rc, InternalRangeReadResponse response, Object ctx) {
+        // We passed the original request as the ctx object so we should be getting it back
+        // here.
+        InternalRangeReadRequest originalRequest = (InternalRangeReadRequest)ctx;
+        // TODO: Probably make the List<> in the Internal structure a Set<>
+        boolean invalidResponse = false;
+        for (InternalReadResponse readResponse : response.responses) {
+            LedgerEntryRequest entry;
+            if (null == (entry = originalRequest.requests.remove(new InternalReadRequest(
+                    readResponse.ledgerId, readResponse.entryId)))) {
+                // We got a response for something we did not make a request for.
+                LOG.warn("Received a response for ledger:" + readResponse.ledgerId +
+                        " and entry:" + readResponse.entryId + " but we did not make this request.");
+                continue;
+            }
+            readEntryComplete(readResponse.returnCode, readResponse.ledgerId, readResponse.entryId,
+                    readResponse.responseBody, entry);
+        }
+        // If there are some entries for which we did not get a response, error them out
+        // with the error code for the range request which should reflect the highest priority error.
+        for (Map.Entry<InternalReadRequest, LedgerEntryRequest> mapEntry : originalRequest.requests.entrySet()) {
+            long ledgerId = mapEntry.getKey().ledgerId;
+            long entryId = mapEntry.getValue().entryId;
+            LOG.error("During a range read operation, we did not get a response for ledger:" + ledgerId
+                    + " and entry:" + entryId);
+            readEntryComplete(rc, ledgerId, entryId, null, mapEntry.getValue());
         }
     }
 

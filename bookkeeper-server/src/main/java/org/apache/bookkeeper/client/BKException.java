@@ -113,6 +113,7 @@ public abstract class BKException extends Exception {
         int ProtocolVersionException = -16;
         int MetadataVersionException = -17;
         int RangeReadException = -18;
+        int RangeReadPartialFailureException = -19;
 
         int IllegalOpException = -100;
         int LedgerFencedException = -101;

@@ -1,9 +1,12 @@
 package org.apache.bookkeeper.proto;
 
+import org.apache.bookkeeper.client.PendingReadOp;
 import org.jboss.netty.buffer.ChannelBuffer;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Internal representation of the protobuf generated objects.
@@ -21,6 +24,15 @@ public class BookKeeperInternalProtocol {
             this.ledgerId = ledgerId;
             this.entryId = entryId;
         }
+
+        @Override
+        public boolean equals(Object _that) {
+            if (!(_that instanceof InternalReadRequest)) {
+                return false;
+            }
+            InternalReadRequest that = (InternalReadRequest)_that;
+            return this.ledgerId == that.ledgerId && this.entryId == that.entryId;
+        }
     }
 
     public static class InternalReadResponse {
@@ -37,15 +49,16 @@ public class BookKeeperInternalProtocol {
     }
 
     public static class InternalRangeReadRequest {
+        public Map<InternalReadRequest, PendingReadOp.LedgerEntryRequest>
+                requests;
         // Just for consistency. Could use requests.size()
         public int numRequests;
         // ledgerIds in the InternalReadRequests will be equal to this value.
         // TODO: Clean this to remove the redundancy if needed.
         public long ledgerId;
-        public List<InternalReadRequest> requests;
         public InternalRangeReadRequest() {
             this.numRequests = 0;
-            this.requests = new ArrayList<InternalReadRequest>();
+            this.requests = new HashMap<InternalReadRequest, PendingReadOp.LedgerEntryRequest>();
         }
     }
 

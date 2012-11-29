@@ -442,7 +442,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         RangeReadRequest.Builder rangeReadBuilder = RangeReadRequest.newBuilder()
                 .setNumRequest(request.numRequests);
-        for (InternalReadRequest req : request.requests) {
+        for (InternalReadRequest req : request.requests.keySet()) {
             ReadRequest.Builder readBuilder = ReadRequest.newBuilder()
                     .setLedgerId(req.ledgerId)
                     .setEntryId(req.entryId);
@@ -770,10 +770,29 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         InternalRangeReadResponse rangeReadResponse = new InternalRangeReadResponse();
         rangeReadResponse.numResponses = response.getNumResponses();
         for (ReadResponse protocolReadResponse : response.getResponsesList()) {
-            InternalReadResponse readResponse = new InternalReadResponse(
-                    protocolReadResponse.getStatus()
-            );
+            Integer readRc = statusCodeToExceptionCode(protocolReadResponse.getStatus());
+            if (null == readRc) {
+                readRc = BKException.Code.ReadException;
+            }
+            ChannelBuffer buffer = ChannelBuffers.buffer(0);
+
+            if (protocolReadResponse.hasBody()) {
+                buffer = ChannelBuffers.copiedBuffer(protocolReadResponse
+                        .getBody().asReadOnlyByteBuffer());
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Got response for read request from bookie: " + addr + " for ledger: " +
+                        protocolReadResponse.getLedgerId() + " entry: " + protocolReadResponse.getEntryId()
+                        + " rc: " + readRc + "entry length: " + buffer.readableBytes());
+            }
+
+            InternalReadResponse readResponse = new InternalReadResponse(readRc,
+                    protocolReadResponse.getLedgerId(),
+                    protocolReadResponse.getEntryId(),
+                    buffer);
+            rangeReadResponse.responses.add(readResponse);
         }
+        rrc.cb.rangeReadComplete(rcToRet, rangeReadResponse, rrc.ctx);
     }
 
     /**
