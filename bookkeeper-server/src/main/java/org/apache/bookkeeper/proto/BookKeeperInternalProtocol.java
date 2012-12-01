@@ -14,8 +14,8 @@ import java.util.Map;
  */
 public class BookKeeperInternalProtocol {
     public static class InternalReadRequest {
-        public long ledgerId;
-        public long entryId;
+        public volatile long ledgerId;
+        public volatile long entryId;
         public InternalReadRequest() {
             this.ledgerId = -1;
             this.entryId = -1;
@@ -41,9 +41,9 @@ public class BookKeeperInternalProtocol {
     }
 
     public static class InternalReadResponse {
-        public int returnCode;
-        public long ledgerId = -1;
-        public long entryId = -1;
+        public volatile int returnCode;
+        public volatile long ledgerId = -1;
+        public volatile long entryId = -1;
         public ChannelBuffer responseBody;
         public InternalReadResponse(int rc, long ledgerId, long entryId, ChannelBuffer responseBody) {
             this.returnCode = rc;
@@ -71,10 +71,10 @@ public class BookKeeperInternalProtocol {
         public Map<InternalReadRequest, PendingReadOp.LedgerEntryRequest>
                 requests;
         // Just for consistency. Could use requests.size()
-        public int numRequests;
+        public volatile int numRequests;
         // ledgerIds in the InternalReadRequests will be equal to this value.
         // TODO: Clean this to remove the redundancy if needed.
-        public long ledgerId;
+        public volatile long ledgerId;
         public InternalRangeReadRequest() {
             this.numRequests = 0;
             this.requests = new HashMap<InternalReadRequest, PendingReadOp.LedgerEntryRequest>();
@@ -83,8 +83,8 @@ public class BookKeeperInternalProtocol {
 
     public static class InternalRangeReadResponse {
         // Just for consistency. Could use responses.size()
-        public int numResponses;
-        public int returnCode;
+        public volatile int numResponses;
+        public volatile int returnCode;
         public List<InternalReadResponse> responses = new ArrayList<InternalReadResponse>();
     }
 }

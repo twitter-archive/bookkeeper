@@ -42,10 +42,10 @@ public class RangeReadEntryProcessorV3 extends PacketProcessorBaseV3 implements 
         StatusCode statusCode = StatusCode.EOK;
         long ledgerid = -1;
         for (ReadRequest readRequest : rangeReadRequest.getRequestsList()) {
-            //if (logger.isDebugEnabled()) {
-                logger.info("Range read issued request for ledger:" + readRequest.getLedgerId() +
+            if (logger.isDebugEnabled()) {
+                logger.debug("Range read issued request for ledger:" + readRequest.getLedgerId() +
                         " and entry:" + readRequest.getEntryId());
-            //}
+            }
             ledgerid = readRequest.getLedgerId();
             // Create a modified Request and use it to create a new ReadEntryProcessorV3. We just
             // use this to read each individual entry.
@@ -74,8 +74,10 @@ public class RangeReadEntryProcessorV3 extends PacketProcessorBaseV3 implements 
         }
         rangeReadResponse.setStatus(statusCode)
                 .setNumResponses(numResponses);
-        logger.info("Returning response for ledger:" +ledgerid + " nument:" + rangeReadRequest.getNumRequest()
-        + " status:" + statusCode);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Returning response for ledger:" +ledgerid + " nument:" + rangeReadRequest.getNumRequest()
+            + " status:" + statusCode);
+        }
         return rangeReadResponse.build();
     }
 
