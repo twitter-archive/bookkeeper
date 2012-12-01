@@ -108,10 +108,11 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
             if (firstError == BKException.Code.OK) {
                 firstError = rc;
             }
-
-            int bookieIndex = lh.distributionSchedule.getWriteSet(entryId).get(nextReplicaIndexToReadFrom - 1);
-            LOG.error(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
-                      + ensemble.get(bookieIndex));
+            if (nextReplicaIndexToReadFrom > 0) {
+                int bookieIndex = lh.distributionSchedule.getWriteSet(entryId).get(nextReplicaIndexToReadFrom - 1);
+                LOG.error(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
+                          + ensemble.get(bookieIndex));
+            }
 
             sendNextRead();
         }
@@ -251,10 +252,9 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
     @Override
     public void readEntryComplete(int rc, long ledgerId, final long entryId, final ChannelBuffer buffer, Object ctx) {
         final LedgerEntryRequest entry = (LedgerEntryRequest) ctx;
-
         lh.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
         lh.bkSharedSem.release(BKSharedOp.READ_OP);
-
+        //LOG.info("foobar: " + rc);
         // if we just read only one entry, and this entry is not existed (in recoveryRead case)
         // we don't need to do ReattemptRead, otherwise we could not handle following case:
         //
@@ -268,7 +268,6 @@ public class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallbac
                 return;
             }
         }
-
         if (rc != BKException.Code.OK) {
             entry.logErrorAndReattemptRead("Error: " + BKException.getMessage(rc), rc);
             return;
