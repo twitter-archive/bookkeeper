@@ -60,10 +60,13 @@ public class RangeReadEntryProcessorV3 extends PacketProcessorBaseV3 implements 
             numResponses++;
             rangeReadResponse.addResponses(readResponse);
 
+            if (statusCode.equals(StatusCode.EOK)) {
+                continue;
+            }
+
             statusCode = readResponse.getStatus();
 
-            if (statusCode.equals(StatusCode.EOK) ||
-                statusCode.equals(StatusCode.ENOENTRY)) {
+            if (statusCode.equals(StatusCode.ENOENTRY)) {
                 continue;
             }
 
