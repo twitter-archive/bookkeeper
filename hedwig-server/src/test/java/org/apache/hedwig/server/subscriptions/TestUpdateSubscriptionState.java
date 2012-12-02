@@ -122,6 +122,10 @@ public class TestUpdateSubscriptionState extends HedwigHubTestBase {
             return RETENTION_SECS_VALUE;
         }
 
+        @Override
+        public int getNumReadAheadCacheThreads() {
+            return 1;
+        }
     }
 
     @Override

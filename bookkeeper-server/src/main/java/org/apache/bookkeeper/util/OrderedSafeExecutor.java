@@ -19,8 +19,10 @@ package org.apache.bookkeeper.util;
  */
 
 import java.util.Random;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 
@@ -44,13 +46,17 @@ public class OrderedSafeExecutor {
     Random rand = new Random();
 
     public OrderedSafeExecutor(int numThreads) {
+        this(numThreads, Executors.defaultThreadFactory());
+    }
+
+    public OrderedSafeExecutor(int numThreads, ThreadFactory threadFactory) {
         if (numThreads <= 0) {
             throw new IllegalArgumentException();
         }
 
         threads = new ExecutorService[numThreads];
         for (int i = 0; i < numThreads; i++) {
-            threads[i] = Executors.newSingleThreadExecutor();
+            threads[i] = Executors.newSingleThreadExecutor(threadFactory);
         }
     }
 
@@ -93,6 +99,24 @@ public class OrderedSafeExecutor {
     public void shutdown() {
         for (int i = 0; i < threads.length; i++) {
             threads[i].shutdown();
+        }
+    }
+
+    /**
+     * Force threads shutdown (cancel active requests) after specified delay,
+     * to be used after shutdown() rejects new requests.
+     */
+    public void forceShutdown(long timeout, TimeUnit unit) {
+        for (int i = 0; i < threads.length; i++) {
+            try {
+                if (!threads[i].awaitTermination(timeout, unit)) {
+                    threads[i].shutdownNow();
+                }
+            }
+            catch (InterruptedException exception) {
+                threads[i].shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

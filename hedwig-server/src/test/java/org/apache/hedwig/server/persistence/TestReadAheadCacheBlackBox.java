@@ -21,9 +21,6 @@ import junit.framework.Test;
 import junit.framework.TestSuite;
 
 import org.apache.hedwig.server.common.ServerConfiguration;
-import org.apache.hedwig.server.persistence.LocalDBPersistenceManager;
-import org.apache.hedwig.server.persistence.PersistenceManager;
-import org.apache.hedwig.server.persistence.ReadAheadCache;
 
 public class TestReadAheadCacheBlackBox extends TestPersistenceManagerBlackBox {
 

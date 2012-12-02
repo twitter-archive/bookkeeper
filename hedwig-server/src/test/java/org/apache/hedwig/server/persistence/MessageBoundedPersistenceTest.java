@@ -62,6 +62,10 @@ public class MessageBoundedPersistenceTest extends HedwigHubTestBase {
             return 1;
         }
 
+        public int getNumReadAheadCacheThreads() {
+            return 1;
+        }
+
         public int getMessagesConsumedThreadRunInterval() {
             return 1000; // run every second
         }
@@ -125,7 +129,7 @@ public class MessageBoundedPersistenceTest extends HedwigHubTestBase {
                 }
             });
         assertTrue("Timed out waiting for messages Y is " + Y
-                + " expected is currently " + expected.get(), latch.await(15, TimeUnit.SECONDS));
+                + " expected is currently " + expected.get(), latch.await(20, TimeUnit.SECONDS));
         assertEquals("Should be expected message with " + X, X, expected.get());
 
         sub.stopDelivery(topic, subid);

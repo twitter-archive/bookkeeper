@@ -170,8 +170,7 @@ public abstract class TestPersistenceManagerBlackBox extends TestCase {
                 } else {
 
                     ScanCallback listener = new PointScanVerifierListener(pubMsgs, topic);
-                    persistenceManager
-                    .scanSingleMessage(new ScanRequest(topic, getLowestSeqId(), listener, statusQueue));
+                    persistenceManager.scanSingleMessage(new ScanRequest(topic, getLowestSeqId(), listener, statusQueue));
 
                 }
                 // now listen for it to finish

@@ -28,14 +28,13 @@ public interface ScanCallback {
     /**
      * This method is called when a message is read from the persistence layer
      * as part of a scan. The message just read is handed to this listener which
-     * can then take the desired action on it. The return value from the method
-     * indicates whether the scan should continue or not.
+     * can then take the desired action on it.
      *
      * @param ctx
      *            The context for the callback
      * @param message
      *            The message just scanned from the log
-     * @return true if the scan should continue, false otherwise
+     * @return
      */
     public void messageScanned(Object ctx, Message message);
 
@@ -46,7 +45,6 @@ public interface ScanCallback {
      * @param ctx
      * @param reason
      */
-
     public abstract void scanFinished(Object ctx, ReasonForFinish reason);
 
     /**

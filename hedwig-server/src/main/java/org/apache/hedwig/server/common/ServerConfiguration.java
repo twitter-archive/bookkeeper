@@ -68,6 +68,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String REBALANCE_TOLERANCE_PERCENTAGE = "rebalance_tolerance";
     protected final static String REBALANCE_MAX_SHED = "rebalance_max_shed";
     protected final static String REBALANCE_INTERVAL_SEC = "rebalance_interval_sec";
+    protected final static String NUM_READAHEAD_CACHE_THREADS = "num_readahead_cache_threads";
 
     // manager related settings
     protected final static String METADATA_MANAGER_BASED_TOPIC_MANAGER_ENABLED = "metadata_manager_based_topic_manager_enabled";
@@ -386,6 +387,15 @@ public class ServerConfiguration extends AbstractConfiguration {
             throw new ConfigurationException("The maximum load to shed during a rebalance cannot be negative.");
         }
         // add other checks here
+    }
+
+    /**
+     * Get number of read ahead cache threads.
+     *
+     * @return number of read ahead cache threads.
+     */
+    public int getNumReadAheadCacheThreads() {
+        return conf.getInt(NUM_READAHEAD_CACHE_THREADS, Runtime.getRuntime().availableProcessors());
     }
 
     /**

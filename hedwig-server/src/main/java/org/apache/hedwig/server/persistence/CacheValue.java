@@ -20,11 +20,7 @@ package org.apache.hedwig.server.persistence;
 import java.util.LinkedList;
 import java.util.Queue;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
-import org.apache.hedwig.server.common.UnexpectedError;
 
 /**
  * This class is NOT thread safe. It need not be thread-safe because our
@@ -33,38 +29,33 @@ import org.apache.hedwig.server.common.UnexpectedError;
  */
 public class CacheValue {
 
-    static Logger logger = LoggerFactory.getLogger(ReadAheadCache.class);
-
-    Queue<ScanCallbackWithContext> callbacks = new LinkedList<ScanCallbackWithContext>();
+    Queue<ScanCallbackWithContext> callbacks;
     Message message;
-    long timeOfAddition = 0;
 
     public CacheValue() {
+        this.callbacks = new LinkedList<ScanCallbackWithContext>();
+    }
+
+    public CacheValue(Message message) {
+        this.message = message;
     }
 
     public boolean isStub() {
         return message == null;
     }
 
-    public long getTimeOfAddition() {
-        if (message == null) {
-            throw new UnexpectedError("Time of add requested from a stub");
-        }
-        return timeOfAddition;
+    // Cache weight static (loading cache)
+    public int getCacheWeight() {
+        return (callbacks != null)? 0 : message.getBody().size();
     }
 
-    public void setMessageAndInvokeCallbacks(Message message, long currTime) {
+    public void setMessageAndInvokeCallbacks(Message message) {
         if (this.message != null) {
-            // Duplicate read for the same message coming back
             return;
         }
 
         this.message = message;
-        this.timeOfAddition = currTime;
         ScanCallbackWithContext callbackWithCtx;
-        if (logger.isDebugEnabled()) {
-            logger.debug("Invoking " + callbacks.size() + " callbacks for " + " message added to cache");
-        }
         while ((callbackWithCtx = callbacks.poll()) != null) {
             callbackWithCtx.getScanCallback().messageScanned(callbackWithCtx.getCtx(), message);
         }
@@ -85,10 +76,13 @@ public class CacheValue {
     }
 
     public void setErrorAndInvokeCallbacks(Exception exception) {
+        if (this.message != null) {
+            return;
+        }
+
         ScanCallbackWithContext callbackWithCtx;
         while ((callbackWithCtx = callbacks.poll()) != null) {
             callbackWithCtx.getScanCallback().scanFailed(callbackWithCtx.getCtx(), exception);
         }
     }
-
 }
