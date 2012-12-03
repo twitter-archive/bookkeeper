@@ -945,7 +945,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 rcToRet = BKException.Code.NoSuchEntryException;
                 break;
             case ENOLEDGER:
-                rcToRet = BKException.Code.NoSuchLedgerExistsException;
+                rcToRet = BKException.Code.NoSuchEntryException;
                 break;
             case EBADVERSION:
                 rcToRet = BKException.Code.ProtocolVersionException;
