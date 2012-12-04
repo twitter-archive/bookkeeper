@@ -46,7 +46,8 @@ public class CacheValue {
 
     // Cache weight static (loading cache)
     public int getCacheWeight() {
-        return (callbacks != null)? 0 : message.getBody().size();
+        // Add message body size by 1 to handle zero-sized message
+        return (callbacks != null)? 0 : message.getBody().size() + 1;
     }
 
     public void setMessageAndInvokeCallbacks(Message message) {

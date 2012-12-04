@@ -156,9 +156,15 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
     private class CacheRemovalListener implements RemovalListener<CacheKey, CacheValue> {
         public void onRemoval(final RemovalNotification<CacheKey, CacheValue> removal) {
+            CacheKey cacheKey = removal.getKey();
             logger.debug("Removing key {} from cache, causal : {}",
-                    removal.getKey(), removal.getCause().name());
-            removal.getValue().setErrorAndInvokeCallbacks(stubEvictedInstance);
+                    cacheKey, removal.getCause().name());
+
+            CacheValue cacheValue = removal.getValue();
+            if (cacheValue.isStub()) {
+                enqueueWithoutFailure(cacheKey.getTopic(),
+                        new ExceptionOnCacheKey(cacheKey, cacheValue, stubEvictedInstance));
+            }
             onCacheRemoval(removal.getValue());
         }
     }
@@ -215,6 +221,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 .initialCapacity(INITIAL_CAPACITY)
                 .maximumWeight(cfg.getMaximumCacheSize())
                 .weigher(new EntryWeigher())
+                .softValues()
                 .removalListener(new CacheRemovalListener())
                 .build();
         this.cacheWorkers = new OrderedSafeExecutor(numThreads, new DaemonThreadFactory());
@@ -258,15 +265,17 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 HedwigServerSimpleStatType.NUM_CACHED_ENTRIES).dec();
     }
 
-    // Only scan callback will call this (single-threaded per topic))
     void addMessageToCache(CacheKey cacheKey, Message message) {
         CacheValueLoader loader = new CacheValueLoader(message);
         CacheValue cacheValue = getCacheValue(cacheKey, loader);
-        if (cacheValue.isStub()) {
-            cacheValue.setMessageAndInvokeCallbacks(message);
-            // Replace cache entry to reflect new weight
-            cache.put(cacheKey, loader.getCacheValue());
-            onCacheInsert(loader.getCacheValue());
+        // Sync on cache value to replace stub if not already
+        synchronized (cacheValue) {
+            if (cacheValue.isStub()) {
+                cacheValue.setMessageAndInvokeCallbacks(message);
+                // Replace cache entry to reflect new weight
+                cache.put(cacheKey, loader.getCacheValue());
+                onCacheInsert(loader.getCacheValue());
+            }
         }
     }
 
@@ -370,7 +379,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
      * message-ids older than the one specified
      */
     public void deliveredUntil(ByteString topic, Long seqId) {
-        enqueueWithoutFailure(topic, new DeliveredUntil(topic, seqId));
+        realPersistenceManager.deliveredUntil(topic, seqId);
     }
 
     /**
@@ -421,11 +430,17 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
     protected class ExceptionOnCacheKey extends CacheRequest {
         CacheKey cacheKey;
+        CacheValue cacheValue;
         Exception exception;
 
         public ExceptionOnCacheKey(CacheKey cacheKey, Exception exception) {
             this.cacheKey = cacheKey;
             this.exception = exception;
+        }
+
+        public ExceptionOnCacheKey(CacheKey cacheKey, CacheValue cacheValue, Exception exception) {
+            this(cacheKey, exception);
+            this.cacheValue = cacheValue;
         }
 
         /**
@@ -435,10 +450,15 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
          */
         @Override
         public void safeRun() {
-            CacheValue cacheValue = getCacheValueIfPresent(cacheKey);
-            if (cacheValue != null && cacheValue.isStub()) {
+            if (null != cacheValue) {
                 cacheValue.setErrorAndInvokeCallbacks(exception);
-                removeMessageFromCache(cacheKey);
+            }
+            else {
+                cacheValue = getCacheValueIfPresent(cacheKey);
+                if (cacheValue != null && cacheValue.isStub()) {
+                    cacheValue.setErrorAndInvokeCallbacks(exception);
+                    removeMessageFromCache(cacheKey);
+                }
             }
             super.safeRun();
         }
@@ -478,23 +498,6 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         @Override
         public void safeRun() {
             addMessageToCache(cacheKey, message);
-            super.safeRun();
-        }
-    }
-
-    protected class DeliveredUntil extends CacheRequest {
-        ByteString topic;
-        Long seqId;
-
-        public DeliveredUntil(ByteString topic, Long seqId) {
-            this.topic = topic;
-            this.seqId = seqId;
-        }
-
-        @Override
-        public void safeRun() {
-            // Let the real persistence manager know about this.
-            realPersistenceManager.deliveredUntil(topic, seqId);
             super.safeRun();
         }
     }
