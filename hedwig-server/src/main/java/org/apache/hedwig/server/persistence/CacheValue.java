@@ -44,10 +44,13 @@ public class CacheValue {
         return message == null;
     }
 
+    public boolean wasStub() {
+        return callbacks != null;
+    }
+
     // Cache weight static (loading cache)
     public int getCacheWeight() {
-        // Add message body size by 1 to handle zero-sized message
-        return (callbacks != null)? 0 : message.getBody().size() + 1;
+        return wasStub()? 0 : message.getBody().size();
     }
 
     public void setMessageAndInvokeCallbacks(Message message) {

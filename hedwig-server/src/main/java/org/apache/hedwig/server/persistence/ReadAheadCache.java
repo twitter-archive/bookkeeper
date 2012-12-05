@@ -234,13 +234,13 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
     }
 
     private void onCacheInsert(CacheValue cacheValue) {
-        // Update the cache size
-        int size = cacheValue.getCacheWeight();
-        if (0 == size) {
+        if (cacheValue.isStub()) {
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                     HedwigServerSimpleStatType.NUM_CACHE_STUBS).inc();
         }
         else {
+            // Update the cache size
+            int size = cacheValue.getCacheWeight();
             presentCacheSize.addAndGet(size);
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                     HedwigServerSimpleStatType.CACHE_ENTRY_SIZE).add(size);
@@ -250,13 +250,13 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
     }
 
     private void onCacheRemoval(CacheValue cacheValue) {
-        // Update the cache size
-        int size = cacheValue.getCacheWeight();
-        if (0 == size) {
+        if (cacheValue.wasStub()) {
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                     HedwigServerSimpleStatType.NUM_CACHE_STUBS).dec();
         }
         else {
+            // Update the cache size
+            int size = cacheValue.getCacheWeight();
             presentCacheSize.addAndGet(-size);
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                     HedwigServerSimpleStatType.CACHE_ENTRY_SIZE).add(-size);
