@@ -101,14 +101,14 @@ public class IndexPersistenceMgr {
                         throw new Bookie.NoLedgerException(ledger);
                     }
                     // We don't have a ledger index file on disk, so create it.
-                    lf = getNewLedgerIndexFile(ledger);
+                    lf = getNewLedgerIndexFile(ledger, null);
                     createdNewFile = true;
                 }
             }
             fi = new FileInfo(lf, masterKey);
-            if (ledgerDirsManager.isDirFull(lf.getParentFile()
-                    .getParentFile().getParentFile())) {
-                moveLedgerIndexFile(ledger, fi);
+            File dir = lf.getParentFile().getParentFile().getParentFile();
+            if (ledgerDirsManager.isDirFull(dir)) {
+                moveLedgerIndexFile(ledger, fi, dir);
             }
             FileInfo oldFi = fileInfoCache.putIfAbsent(ledger, fi);
             if (null != oldFi) {
@@ -130,14 +130,14 @@ public class IndexPersistenceMgr {
                 }
             }
         }
-        if (null != fi) {
-            fi.use();
-        }
+
+        assert null != fi;
+        fi.use();
         return fi;
     }
 
-    private File getNewLedgerIndexFile(Long ledger) throws NoWritableLedgerDirException {
-        File dir = ledgerDirsManager.pickRandomWritableDir();
+    private File getNewLedgerIndexFile(Long ledger, File dirExcl) throws NoWritableLedgerDirException {
+        File dir = ledgerDirsManager.pickRandomWritableDir(dirExcl);
         String ledgerName = LedgerCacheImpl.getLedgerName(ledger);
         return new File(dir, ledgerName);
     }
@@ -331,15 +331,15 @@ public class IndexPersistenceMgr {
                 FileInfo fi = getFileInfo(l, null);
                 File currentDir = fi.getLf().getParentFile().getParentFile().getParentFile();
                 if (ledgerDirsManager.isDirFull(currentDir)) {
-                    moveLedgerIndexFile(l, fi);
+                    moveLedgerIndexFile(l, fi, currentDir);
                 }
             }
             shouldRelocateIndexFile.set(false);
         }
     }
 
-    private void moveLedgerIndexFile(Long l, FileInfo fi) throws NoWritableLedgerDirException, IOException {
-        File newLedgerIndexFile = getNewLedgerIndexFile(l);
+    private void moveLedgerIndexFile(Long l, FileInfo fi, File dirExcl) throws NoWritableLedgerDirException, IOException {
+        File newLedgerIndexFile = getNewLedgerIndexFile(l, dirExcl);
         fi.moveToNewLocation(newLedgerIndexFile, fi.getSizeSinceLastwrite());
     }
 

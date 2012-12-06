@@ -72,11 +72,7 @@ public class LedgerDirsManager {
     public List<File> getWritableLedgerDirs()
             throws NoWritableLedgerDirException {
         if (writableLedgerDirectories.isEmpty()) {
-            String errMsg = "All ledger directories are non writable";
-            NoWritableLedgerDirException e = new NoWritableLedgerDirException(
-                    errMsg);
-            LOG.error(errMsg, e);
-            throw e;
+            NoWritableLedgerDirException.logAndThrow(LOG, "All ledger directories are non writable");
         }
         return writableLedgerDirectories;
     }
@@ -113,10 +109,19 @@ public class LedgerDirsManager {
 
     /**
      * Returns one of the ledger dir from writable dirs list randomly.
+     * Issue warning if the directory w/ given path is picked up.
      */
-    File pickRandomWritableDir() throws NoWritableLedgerDirException {
+    File pickRandomWritableDir(File dirExcl) throws NoWritableLedgerDirException {
         List<File> writableDirs = getWritableLedgerDirs();
-        return writableDirs.get(rand.nextInt(writableDirs.size()));
+        assert writableDirs.size() > 0;
+        File dir = writableDirs.get(rand.nextInt(writableDirs.size()));
+        if (dirExcl != null) {
+            if (dir.equals(dirExcl)) {
+                // Just issue warning as some tests use identical dirs
+                LOG.warn("The same file path is picked up to move index file");
+            }
+        }
+        return dir;
     }
 
     public void addLedgerDirsListener(LedgerDirsListener listener) {
@@ -201,8 +206,14 @@ public class LedgerDirsManager {
     public static class NoWritableLedgerDirException extends IOException {
         private static final long serialVersionUID = -8696901285061448421L;
 
-        public NoWritableLedgerDirException(String errMsg) {
-            super(errMsg);
+        public NoWritableLedgerDirException(String message) {
+            super(message);
+        }
+
+        public static void logAndThrow(Logger logger, String message) throws NoWritableLedgerDirException {
+            NoWritableLedgerDirException exception = new NoWritableLedgerDirException(message);
+            logger.error(message, exception);
+            throw exception;
         }
     }
 

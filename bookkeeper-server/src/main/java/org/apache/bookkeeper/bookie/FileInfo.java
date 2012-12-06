@@ -182,11 +182,14 @@ class FileInfo {
         return readAbsolute(bb, position + START_OF_DATA);
     }
 
-    private int readAbsolute(ByteBuffer bb, long start) throws IOException {
+     private int readAbsolute(ByteBuffer bb, long start) throws IOException {
         checkOpen(false);
         int total = 0;
+        int rc = 0;
         while(bb.remaining() > 0) {
-            int rc = fc.read(bb, start);
+            synchronized (this) {
+                rc = fc.read(bb, start);
+            }
             if (rc <= 0) {
                 throw new IOException("Short read");
             }
@@ -242,8 +245,8 @@ class FileInfo {
      */
     public synchronized void moveToNewLocation(File newFile, long size) throws IOException {
         checkOpen(false);
-        // If the channel is null, just return.
-        if (null == fc) {
+        // If the channel is null, or same file path, just return.
+        if (null == fc || isSameFile(newFile)) {
             return;
         }
         if (size > fc.size()) {
