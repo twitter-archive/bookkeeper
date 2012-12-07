@@ -64,10 +64,8 @@ public class TestTopicBasedLoadShedder {
                 Boolean status = false;
                 status = (aBoolean == shouldRelease);
                 if (shouldRelease) {
-                    status &= (ls.targetLoad != null);
-                    //Assert.assertNotNull(ls.targetLoad);
-                    status &= (expected.numTopics == ls.targetLoad.numTopics);
-                    //Assert.assertEquals(expected.toHubLoadData().getNumTopics(), ls.targetLoad.toHubLoadData().getNumTopics());
+                    status = status && (ls.targetLoad != null);
+                    status = status && (expected.numTopics.get() == ls.targetLoad.numTopics.get());
                 }
                 final Boolean statusToPut = status;
                 new Thread(new Runnable() {
@@ -118,43 +116,47 @@ public class TestTopicBasedLoadShedder {
 
     @Test
     public synchronized  void testAllHubsSameTopics() throws Exception {
+        int myNumTopics = 10;
         // All hubs have the same number of topics. We should not release any topics even with a
         // tolerance of 0.0.
-        initialize(10, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
+        initialize(myNumTopics, 10, getEqualLoadDistributionArray(9, 10));
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
 
     @Test
     public synchronized void testOneHubUnequalTopics() throws Exception {
+        int myNumTopics = 20;
         // The hub has 20 topics while the average is 11. Should reduce the load to 11.
-        initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
+        initialize(myNumTopics, 10, getEqualLoadDistributionArray(9, 10));
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
     }
 
     @Test
     public synchronized void testOneHubUnequalTopicsWithTolerance() throws Exception {
+        int myNumTopics = 20;
         // The hub has 20 topics and average is 11. Should still release as tolerance level of 50.0 is
         // breached. Should get down to average.
-        initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 50.0, infiniteMaxLoad);
+        initialize(myNumTopics, 10, getEqualLoadDistributionArray(9, 10));
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 50.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
 
         // A tolerance level of 100.0 should result in the hub not releasing topics.
-        tbls = new MockTopicBasedLoadShedder(null, 10, 100.0, infiniteMaxLoad);
+        tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 100.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
 
     @Test
     public synchronized void testMaxLoadShed() throws Exception {
+        int myNumTopics = 20;
         // The hub should not shed more than maxLoadShed topics.
-        initialize(20, 10, getEqualLoadDistributionArray(9, 10));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, PubSubProtocol
+        initialize(myNumTopics, 10, getEqualLoadDistributionArray(9, 10));
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, PubSubProtocol
                 .HubLoadData.newBuilder().setNumTopics(5).build());
         // Our load should reduce to 15.
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(15), true, false), null);
@@ -162,7 +164,7 @@ public class TestTopicBasedLoadShedder {
 
         // We should reduce to 11 even when maxLoadShed and average result in the same
         // values
-        tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, PubSubProtocol
+        tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, PubSubProtocol
                 .HubLoadData.newBuilder().setNumTopics(9).build());
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(11), true, false), null);
         Assert.assertTrue(statusQueue.take());
@@ -170,18 +172,20 @@ public class TestTopicBasedLoadShedder {
 
     @Test
     public synchronized void testSingleHubLoadShed() throws Exception {
+        int myNumTopics = 20;
         // If this is the only hub in the cluster, it should not release any topics.
-        initialize(20, 1, null);
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
+        initialize(myNumTopics, 1, null);
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, null, false, false), null);
         Assert.assertTrue(statusQueue.take());
     }
 
     @Test
     public synchronized void testUnderloadedClusterLoadShed() throws Exception {
+        int myNumTopics = 5;
         // Hold on to at least one topic while shedding load (if cluster is underloaded)
-        initialize(5, 10, getEqualLoadDistributionArray(9, 0));
-        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, 10, 0.0, infiniteMaxLoad);
+        initialize(myNumTopics, 10, getEqualLoadDistributionArray(9, 0));
+        MockTopicBasedLoadShedder tbls = new MockTopicBasedLoadShedder(null, myNumTopics, 0.0, infiniteMaxLoad);
         tbls.shedLoad(mockLoadMap, getShedLoadCallback(tbls, new HubLoad(1), true, false), null);
         Assert.assertTrue(statusQueue.take());
     }
