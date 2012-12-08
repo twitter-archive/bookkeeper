@@ -41,6 +41,7 @@ import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.common.TopicOpQueuer;
+import org.apache.hedwig.server.delivery.DeliveryManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.server.topics.TopicOwnershipChangeListener;
@@ -61,6 +62,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     private final ArrayList<SubscriptionEventListener> listeners = new ArrayList<SubscriptionEventListener>();
 
+    // Handle to the DeliveryManager for the server so we can stop serving subscribers
+    // when losing topics
+    private final DeliveryManager dm;
     // Handle to the PersistenceManager for the server so we can pass along the
     // message consume pointers for each topic.
     private final PersistenceManager pm;
@@ -85,13 +89,15 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         };
     }
 
-    public AbstractSubscriptionManager(ServerConfiguration cfg, TopicManager tm, PersistenceManager pm,
+    public AbstractSubscriptionManager(ServerConfiguration cfg, TopicManager tm,
+                                       PersistenceManager pm, DeliveryManager dm,
                                        ScheduledExecutorService scheduler) {
         this.cfg = cfg;
         localQueuer = new TopicOpQueuer(scheduler);
         remoteQueuer = new TopicOpQueuer(scheduler);
         tm.addTopicOwnershipChangeListener(this);
         this.pm = pm;
+        this.dm = dm;
         // Schedule the recurring MessagesConsumedTask only if a
         // PersistenceManager is passed.
         if (pm != null) {
@@ -258,6 +264,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
             updateSubscriptionStates(states, topic, new Callback<Void>() {
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
+                    logger.info("Finished update subscription states when losting topic "
+                              + topic.toStringUtf8());
                     finish();
                 }
 
@@ -271,11 +279,26 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     if (states != null) {
                         notifyUnsubcribe(topic, !hasLocalSubscriptions(states));
                     }
+                    // no subscriptions now, it may be removed by other release ops
+                    if (null != states) {
+                        for (ByteString subId : states.keySet()) {
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Stop serving subscriber (" + topic.toStringUtf8() + ", "
+                                           + subId.toStringUtf8() + ") when losing topic");
+                            }
+                            if (null != dm) {
+                                dm.stopServingSubscriber(topic, subId);
+                            }
+                        }
+                    }
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Stop serving topic " + topic.toStringUtf8());
+                    }
                     cb.operationFinished(ctx, null);
                 }
             }, ctx);
-            }
         }
+    }
 
     void updateSubscriptionStates(ByteString topic, Callback<Void> finalCb, Object ctx) {
         final Map<ByteString, InMemorySubscriptionState> states = top2sub2seq.get(topic);
@@ -394,7 +417,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
             if (createOrAttach.equals(CreateOrAttach.ATTACH)) {
                 String msg = "Topic: " + topic.toStringUtf8() + " subscriberId: " + subscriberId.toStringUtf8()
                              + " requested attaching to an existing subscription but it is not subscribed";
-                logger.info(msg);
+                logger.error(msg);
                 cb.operationFailed(ctx, new PubSubException.ClientNotSubscribedException(msg));
                 return;
             }

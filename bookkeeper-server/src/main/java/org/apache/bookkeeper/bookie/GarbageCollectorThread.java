@@ -304,10 +304,7 @@ public class GarbageCollectorThread extends Thread {
             if (meta.getUsage() >= threshold) {
                 break;
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Compacting entry log " + meta.entryLogId + " below threshold "
-                        + threshold + ".");
-            }
+            LOG.debug("Compacting entry log {} below threshold {}.", meta.entryLogId, threshold);
             if (compactEntryLog(meta.entryLogId)) {
                 // schedule entry log to be removed after moving entries
                 logsToRemove.add(meta);

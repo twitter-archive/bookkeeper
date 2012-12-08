@@ -633,9 +633,9 @@ public class BookKeeper {
         public void openComplete(int rc, LedgerHandle lh, Object ctx) {
             SyncCounter counter = (SyncCounter) ctx;
             counter.setLh(lh);
-
-            LOG.debug("Open complete: " + rc);
-
+            
+            LOG.debug("Open complete: {}", rc);
+            
             counter.setrc(rc);
             counter.dec();
         }

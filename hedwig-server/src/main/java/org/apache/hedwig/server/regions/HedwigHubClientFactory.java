@@ -59,7 +59,7 @@ public class HedwigHubClientFactory {
 
             @Override
             public boolean isSSLEnabled() {
-                return cfg.isInterRegionSSLEnabled();
+                return cfg.isInterRegionSSLEnabled() || clientConfiguration.isSSLEnabled();
             }
         };
         try {

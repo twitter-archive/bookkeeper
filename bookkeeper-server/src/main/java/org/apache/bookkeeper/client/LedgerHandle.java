@@ -37,6 +37,8 @@ import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
+
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
@@ -203,9 +205,7 @@ public class LedgerHandle {
     }
 
     void writeLedgerConfig(GenericCallback<Void> writeCb) {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Writing metadata to ledger manager: " + this.ledgerId + ", " + metadata.getVersion());
-        }
+        LOG.debug("Writing metadata to ledger manager: {}, {}", this.ledgerId, metadata.getVersion());
 
         bk.getLedgerManager().writeLedgerMetadata(ledgerId, metadata, writeCb);
     }
@@ -288,13 +288,18 @@ public class LedgerHandle {
                               + metadata.getLastEntryId() + " with this many bytes: " + metadata.getLength());
                 }
 
-                final class CloseCb implements GenericCallback<Void> {
+                final class CloseCb extends OrderedSafeGenericCallback<Void> {
+                    CloseCb() {
+                        super(bk.mainWorkerPool, ledgerId);
+                    }
+
                     @Override
-                    public void operationComplete(final int rc, Void result) {
+                    public void safeOperationComplete(final int rc, Void result) {
                         if (rc == BKException.Code.MetadataVersionException) {
-                            rereadMetadata(new GenericCallback<LedgerMetadata>() {
+                            rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(bk.mainWorkerPool,
+                                                                                          ledgerId) {
                                 @Override
-                                public void operationComplete(int newrc, LedgerMetadata newMeta) {
+                                public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
                                     if (newrc != BKException.Code.OK) {
                                         LOG.error("Error reading new metadata from ledger " + ledgerId
                                                   + " when closing, code=" + newrc);
@@ -673,10 +678,7 @@ public class LedgerHandle {
     void handleBookieFailure(final InetSocketAddress addr, final int bookieIndex) {
         InetSocketAddress newBookie;
 
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Handling failure of bookie: " + addr + " index: "
-                      + bookieIndex);
-        }
+        LOG.debug("Handling failure of bookie: {} index: {}", addr, bookieIndex);
         final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
         blockAddCompletions.incrementAndGet();
         final long newEnsembleStartEntry = lastAddConfirmed + 1;
@@ -729,43 +731,39 @@ public class LedgerHandle {
      * reformed ensemble. On MetadataVersionException, will reread latest
      * ledgerMetadata and act upon.
      */
-    private final class ChangeEnsembleCb implements GenericCallback<Void> {
+    private final class ChangeEnsembleCb extends OrderedSafeGenericCallback<Void> {
         private final EnsembleInfo ensembleInfo;
 
         ChangeEnsembleCb(EnsembleInfo ensembleInfo) {
+            super(bk.mainWorkerPool, ledgerId);
             this.ensembleInfo = ensembleInfo;
         }
 
         @Override
-        public void operationComplete(final int rc, Void result) {
-            bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
-                @Override
-                public void safeRun() {
-                    if (rc == BKException.Code.MetadataVersionException) {
-                        // We changed the ensemble, but got a version exception. We
-                        // should still consider this as an ensemble change
-                        bk.getStatsLogger().getSimpleStatLogger(
-                                BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
-                        rereadMetadata(new ReReadLedgerMetadataCb(rc,
-                                ensembleInfo));
-                        return;
-                    } else if (rc != BKException.Code.OK) {
-                        LOG.error("Could not persist ledger metadata while "
-                                + "changing ensemble to: "
-                                + ensembleInfo.newEnsemble
-                                + " , closing ledger");
-                        handleUnrecoverableErrorDuringAdd(rc);
-                        return;
-                    }
-                    blockAddCompletions.decrementAndGet();
+        public void safeOperationComplete(final int rc, Void result) {
+            if (rc == BKException.Code.MetadataVersionException) {
+                // We changed the ensemble, but got a version exception. We
+                // should still consider this as an ensemble change
+                bk.getStatsLogger().getSimpleStatLogger(
+                        BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
+                rereadMetadata(new ReReadLedgerMetadataCb(rc,
+                                       ensembleInfo));
+                return;
+            } else if (rc != BKException.Code.OK) {
+                LOG.error("Could not persist ledger metadata while "
+                          + "changing ensemble to: "
+                          + ensembleInfo.newEnsemble
+                          + " , closing ledger");
+                handleUnrecoverableErrorDuringAdd(rc);
+                return;
+            }
+            blockAddCompletions.decrementAndGet();
 
-                    // We've successfully changed an ensemble
-                    bk.getStatsLogger().getSimpleStatLogger(
-                            BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
-                    // the failed bookie has been replaced
-                    unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
-                }
-            });
+            // We've successfully changed an ensemble
+            bk.getStatsLogger().getSimpleStatLogger(
+                    BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
+            // the failed bookie has been replaced
+            unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
         }
     };
 
@@ -773,40 +771,35 @@ public class LedgerHandle {
      * Callback which is reading the ledgerMetadata present in zk. This will try
      * to resolve the version conflicts.
      */
-    private final class ReReadLedgerMetadataCb implements
-            GenericCallback<LedgerMetadata> {
+    private final class ReReadLedgerMetadataCb extends OrderedSafeGenericCallback<LedgerMetadata> {
         private final int rc;
         private final EnsembleInfo ensembleInfo;
 
         ReReadLedgerMetadataCb(int rc, EnsembleInfo ensembleInfo) {
+            super(bk.mainWorkerPool, ledgerId);
             this.rc = rc;
             this.ensembleInfo = ensembleInfo;
         }
 
         @Override
-        public void operationComplete(final int newrc, final LedgerMetadata newMeta) {
-            bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
-                @Override
-                public void safeRun() {
-                    if (newrc != BKException.Code.OK) {
-                        LOG.error("Error reading new metadata from ledger "
-                                + "after changing ensemble, code=" + newrc);
-                        handleUnrecoverableErrorDuringAdd(rc);
-                    } else {
-                        if (!resolveConflict(newMeta)) {
-                            LOG.error("Could not resolve ledger metadata conflict "
-                                    + "while changing ensemble to: "
-                                    + ensembleInfo.newEnsemble
-                                    + ", old meta data is \n"
-                                    + new String(metadata.serialize())
-                                    + "\n, new meta data is \n"
-                                    + new String(newMeta.serialize())
-                                    + "\n ,closing ledger");
-                            handleUnrecoverableErrorDuringAdd(rc);
-                        }
-                    }
+        public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
+            if (newrc != BKException.Code.OK) {
+                LOG.error("Error reading new metadata from ledger "
+                        + "after changing ensemble, code=" + newrc);
+                handleUnrecoverableErrorDuringAdd(rc);
+            } else {
+                if (!resolveConflict(newMeta)) {
+                    LOG.error("Could not resolve ledger metadata conflict "
+                            + "while changing ensemble to: "
+                            + ensembleInfo.newEnsemble
+                            + ", old meta data is \n"
+                            + new String(metadata.serialize())
+                            + "\n, new meta data is \n"
+                            + new String(newMeta.serialize())
+                            + "\n ,closing ledger");
+                    handleUnrecoverableErrorDuringAdd(rc);
                 }
-            });
+            };
         }
 
         /**
@@ -887,13 +880,14 @@ public class LedgerHandle {
 
         metadata.markLedgerInRecovery();
 
-        writeLedgerConfig(new GenericCallback<Void>() {
+        writeLedgerConfig(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
             @Override
-            public void operationComplete(final int rc, Void result) {
+            public void safeOperationComplete(final int rc, Void result) {
                 if (rc == BKException.Code.MetadataVersionException) {
-                    rereadMetadata(new GenericCallback<LedgerMetadata>() {
+                    rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(bk.mainWorkerPool,
+                                                                                  ledgerId) {
                         @Override
-                        public void operationComplete(int rc, LedgerMetadata newMeta) {
+                        public void safeOperationComplete(int rc, LedgerMetadata newMeta) {
                             if (rc != BKException.Code.OK) {
                                 cb.operationComplete(rc, null);
                             } else {

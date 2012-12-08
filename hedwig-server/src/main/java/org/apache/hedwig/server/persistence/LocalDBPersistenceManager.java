@@ -426,11 +426,14 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
                                          + " <= ?");
             stmt.setLong(1, seqId);
             int rowCount = stmt.executeUpdate();
-            logger.debug("Deleted " + rowCount + " records for topic: " + topic.toStringUtf8() + ", seqId: " + seqId);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Deleted {} records for topic: {}, seqId: {}",
+                             new Object[] { rowCount, topic.toStringUtf8(), seqId });
+            }
         } catch (SQLException sqle) {
             String theError = (sqle).getSQLState();
             if (theError.equals("42X05")) {
-                logger.warn("Table for topic (" + topic + ") does not exist so no consumed messages to delete!");
+                logger.warn("Table for topic ({}) does not exist so no consumed messages to delete!", topic);
             } else
                 logger.error("Error while executing derby delete for consumed messages", sqle);
         } finally {

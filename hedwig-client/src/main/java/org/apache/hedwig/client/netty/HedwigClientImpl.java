@@ -21,6 +21,7 @@ import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -178,8 +179,7 @@ public class HedwigClientImpl implements Client {
     class PubSubRequestTimeoutTask implements Runnable {
         @Override
         public void run() {
-            if (logger.isDebugEnabled())
-                logger.debug("Running the PubSubRequest Timeout Task");
+            logger.debug("Running the PubSubRequest Timeout Task");
             // Loop through all outstanding PubSubData requests and check if
             // the requestWriteTime has timed out compared to the current time.
             long curTime = MathUtils.now();
@@ -323,7 +323,7 @@ public class HedwigClientImpl implements Client {
                     logger.debug("Storing info for topic: " + topic.toStringUtf8()
                             + ", old host: " + oldHost + ", new host: " + host);
                 }
-                clearTopicForHost(topic, oldHost);
+                clearHostForTopic(topic, oldHost);
             } else {
                 logger.warn("Ownership of topic: " + topic.toStringUtf8()
                          + " has been changed from " + oldHost + " to "
@@ -397,8 +397,7 @@ public class HedwigClientImpl implements Client {
     // need to remove all of the topic mappings that the host was
     // responsible for.
     public void clearAllTopicsForHost(InetSocketAddress host) {
-        if (logger.isDebugEnabled())
-            logger.debug("Clearing all topics for host: " + host);
+        logger.debug("Clearing all topics for host: {}", host);
         // For each of the topics that the host was responsible for,
         // remove it from the topic2Host mapping.
         Set<ByteString> topicsForHost = host2Topics.get(host);
@@ -419,9 +418,9 @@ public class HedwigClientImpl implements Client {
 
     // If a subscribe channel goes down, the topic might have moved. We only clear out that
     // topic for the host and not all cached information.
-    public void clearTopicForHost(ByteString topic, InetSocketAddress host) {
+    public void clearHostForTopic(ByteString topic, InetSocketAddress host) {
         if (logger.isDebugEnabled()) {
-            logger.debug("Clearing topic: {} for host: {}",
+            logger.debug("Clearing topic: {} from host: {}",
                          topic.toStringUtf8(), host);
         }
         if (topic2Host.remove(topic, host)) {

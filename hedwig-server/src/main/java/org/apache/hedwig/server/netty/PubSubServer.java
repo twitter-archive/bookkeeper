@@ -165,11 +165,12 @@ public class PubSubServer {
         return pm;
     }
 
-    protected SubscriptionManager instantiateSubscriptionManager(TopicManager tm, PersistenceManager pm) {
+    protected SubscriptionManager instantiateSubscriptionManager(TopicManager tm, PersistenceManager pm,
+                                                                 DeliveryManager dm) {
         if (conf.isStandalone()) {
-            return new InMemorySubscriptionManager(tm, pm, conf, scheduler);
+            return new InMemorySubscriptionManager(conf, tm, pm, dm, scheduler);
         } else {
-            return new MMSubscriptionManager(mm, tm, pm, conf, scheduler);
+            return new MMSubscriptionManager(conf, mm, tm, pm, dm, scheduler);
         }
 
     }
@@ -531,7 +532,7 @@ public class PubSubServer {
                     dm = new FIFODeliveryManager(pm, conf);
                     dm.start();
 
-                    sm = instantiateSubscriptionManager(tm, pm);
+                    sm = instantiateSubscriptionManager(tm, pm, dm);
                     rm = instantiateRegionManager(pm, scheduler);
                     sm.addListener(rm);
 
@@ -601,7 +602,7 @@ public class PubSubServer {
         logger.info("Attempting to start Hedwig");
         ServerConfiguration serverConfiguration = new ServerConfiguration();
         // The client configuration for the hedwig client in the region manager.
-        org.apache.hedwig.client.conf.ClientConfiguration clientConfiguration
+        org.apache.hedwig.client.conf.ClientConfiguration regionMgrClientConfiguration
                 = new org.apache.hedwig.client.conf.ClientConfiguration();
         if (args.length > 0) {
             String confFile = args[0];
@@ -620,7 +621,7 @@ public class PubSubServer {
             // args[1] is the client configuration file.
             String confFile = args[1];
             try {
-                clientConfiguration.loadConf(new File(confFile).toURI().toURL());
+                regionMgrClientConfiguration.loadConf(new File(confFile).toURI().toURL());
             } catch (MalformedURLException e) {
                 String msg = "Could not open client configuration file: " + confFile;
                 errorMsgAndExit(msg, e, RC_INVALID_CONF_FILE);
@@ -630,7 +631,7 @@ public class PubSubServer {
             }
         }
         try {
-            new PubSubServer(serverConfiguration, clientConfiguration).start();
+            new PubSubServer(serverConfiguration, regionMgrClientConfiguration).start();
         } catch (Throwable t) {
             errorMsgAndExit("Error during startup", t, RC_OTHER);
         }

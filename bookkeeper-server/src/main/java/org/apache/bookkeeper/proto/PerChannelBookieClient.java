@@ -198,8 +198,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     private void connect() {
-        if (LOG.isDebugEnabled())
-            LOG.debug("Connecting to bookie: " + addr);
+        LOG.debug("Connecting to bookie: {}", addr);
 
         // Set up the ClientBootStrap so we can create a new Channel connection
         // to the bookie.
@@ -669,7 +668,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("Got response for read request from bookie: " + addr + " for ledger: " + ledgerId + " entry: "
-                      + entryId + " rc: " + rc + "entry length: " + buffer.readableBytes());
+                      + entryId + " rc: " + rc + " entry length: " + buffer.readableBytes());
         }
 
         // convert to BKException code because thats what the uppper

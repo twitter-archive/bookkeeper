@@ -278,9 +278,7 @@ class ZkHubServerManager implements HubServerManager {
     }
 
     public void uploadSelfLoadData() {
-        if (logger.isDebugEnabled()) {
-            logger.debug("Reporting hub load of {} : {}", myHubInfo, myHubLoad);
-        }
+        logger.debug("Reporting hub load of {} : {}", myHubInfo, myHubLoad);
         byte[] loadDataBytes = myHubLoad.toString().getBytes();
         zk.setData(ephemeralNodePath, loadDataBytes, -1,
                    loadReportingStatCallback, null);
@@ -352,9 +350,7 @@ class ZkHubServerManager implements HubServerManager {
                     if (rc == KeeperException.Code.OK.intValue()) {
                         try {
                             HubLoad load = HubLoad.parse(new String(data));
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Found server " + ctx + " with load: " + load);
-                            }
+                            logger.debug("Found server {} with load: {}", ctx, load);
                             int compareRes = load.compareTo(minLoad);
                             if (compareRes < 0 || (compareRes == 0 && rand.nextBoolean())) {
                                 minLoad = load;

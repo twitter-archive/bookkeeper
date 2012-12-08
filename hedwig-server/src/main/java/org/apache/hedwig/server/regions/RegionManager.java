@@ -59,7 +59,7 @@ public class RegionManager implements SubscriptionEventListener {
     private final TopicManager tm;
     private final ArrayList<HedwigHubClient> clients = new ArrayList<HedwigHubClient>();
     private final TopicOpQueuer queue;
-    private final ByteString myRegion;
+    private final String myRegion;
     // Timer for running a retry thread task to retry remote-subscription in asynchronous mode.
     private final Timer timer = new Timer(true);  // TODO: use ScheduledExecutorService
     private final HashMap<HedwigHubClient, Set<ByteString>> retryMap =
@@ -81,7 +81,7 @@ public class RegionManager implements SubscriptionEventListener {
             }
             if (hubClients.isEmpty()) {
                 if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("[" + myRegion.toStringUtf8() + "] There is no hub client needs to retry subscriptions.");
+                    LOGGER.debug("[" + myRegion + "] There is no hub client needs to retry subscriptions.");
                 }
                 return;
             }
@@ -138,7 +138,7 @@ public class RegionManager implements SubscriptionEventListener {
         for (final String hub : cfg.getRegions()) {
             clients.add(hubClientFactory.create(new HedwigSocketAddress(hub)));
         }
-        myRegion = cfg.getMyRegionByteString();
+        myRegion = cfg.getMyRegionByteString().toStringUtf8();
         if (cfg.getRetryRemoteSubscribeThreadRunInterval() > 0) {
             timer.schedule(new RetrySubscribeTask(), 0, cfg.getRetryRemoteSubscribeThreadRunInterval());
         }
@@ -146,7 +146,7 @@ public class RegionManager implements SubscriptionEventListener {
 
     private void putTopicInRetryMap(HedwigHubClient client, ByteString topic) {
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("[" + myRegion.toStringUtf8() + "] Put topic in retry map : " + topic.toStringUtf8());
+            LOGGER.debug("[" + myRegion + "] Put topic in retry map : " + topic.toStringUtf8());
         }
         synchronized (retryMap) {
             Set<ByteString> topics = retryMap.get(client);
@@ -172,17 +172,18 @@ public class RegionManager implements SubscriptionEventListener {
      */
     protected void doRemoteSubscribe(final HedwigHubClient client, final ByteString topic,
                                    final Callback<Void> mcb, final Object context) {
-        LOGGER.info("[" + myRegion.toStringUtf8() + "] attempting cross-region subscription for topic " + topic.toStringUtf8());
+        LOGGER.info("[{}] attempting cross-region subscription for topic {}",
+                    myRegion, topic.toStringUtf8());
         final HedwigHubSubscriber sub = client.getHubSubscriber();
         try {
             if (sub.hasSubscription(topic, mySubId)) {
-                LOGGER.info("[" + myRegion.toStringUtf8() + "] cross-region subscription for topic "
-                             + topic.toStringUtf8() + " has existed before.");
+                LOGGER.info("[{}] cross-region subscription for topic {} has existed before.",
+                            myRegion, topic.toStringUtf8());
                 mcb.operationFinished(null, null);
                 return;
             }
         } catch (PubSubException e) {
-            LOGGER.error("[" + myRegion.toStringUtf8() + "] checking cross-region subscription for topic "
+            LOGGER.error("[" + myRegion + "] checking cross-region subscription for topic "
                          + topic.toStringUtf8() + " failed (this is should not happen): ", e);
             mcb.operationFailed(context, e);
             return;
@@ -190,7 +191,8 @@ public class RegionManager implements SubscriptionEventListener {
         sub.asyncSubscribe(topic, mySubId, CreateOrAttach.CREATE_OR_ATTACH, new Callback<Void>() {
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
-                LOGGER.info("[" + myRegion.toStringUtf8() + "] cross-region subscription done for topic " + topic.toStringUtf8());
+                LOGGER.info("[{}] cross-region subscription done for topic {}",
+                            myRegion, topic.toStringUtf8());
                 try {
                     if (client.getHubSubscriber().getMessageHandler(topic, mySubId) == null) {
                         // Start delivery only if we don't have an existing message handler.
@@ -203,25 +205,24 @@ public class RegionManager implements SubscriptionEventListener {
                                     @Override
                                     public void operationFinished(Object ctx, MessageSeqId resultOfOperation) {
                                         if (LOGGER.isDebugEnabled())
-                                            LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd succeeded for topic "
-                                                         + topic.toStringUtf8());
+                                            LOGGER.debug("[{}] cross-region recv-fwd succeeded for topic {}",
+                                                         myRegion, topic.toStringUtf8());
 
                                         callback.operationFinished(context, null);
                                     }
 
                                     @Override
                                     public void operationFailed(Object ctx, PubSubException exception) {
-                                        if (LOGGER.isDebugEnabled())
-                                            LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region recv-fwd failed for topic "
-                                                         + topic.toStringUtf8(), exception);
+                                        LOGGER.error("[" + myRegion + "] cross-region recv-fwd failed for topic "
+                                                     + topic.toStringUtf8(), exception);
                                         callback.operationFailed(context, exception);
                                     }
                                 }, null));
                             }
                         });
                         if (LOGGER.isDebugEnabled())
-                            LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region start-delivery succeeded for topic "
-                                    + topic.toStringUtf8());
+                            LOGGER.debug("[{}] cross-region start-delivery succeeded for topic {}",
+                                         myRegion, topic.toStringUtf8());
                     } else {
                         LOGGER.warn("We already have an existing message handler, so we will let the client subscriber" +
                                 " retry and restart delivery for topic: " + topic.toStringUtf8() + ", sub: " + mySubId.toStringUtf8());
@@ -239,18 +240,17 @@ public class RegionManager implements SubscriptionEventListener {
                         }
                     }, ctx);
                 } catch (PubSubException ex) {
-                    LOGGER.error(
-                            "[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
+                    LOGGER.error("[" + myRegion + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
                     mcb.operationFailed(ctx, ex);
                 } catch (AlreadyStartDeliveryException ex) {
-                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
+                    LOGGER.error("[" + myRegion + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
                     mcb.operationFailed(ctx, new PubSubException.UnexpectedConditionException("cross-region start-delivery failed : " + ex.getMessage()));
                 }
             }
 
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
-                LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region subscribe failed for topic " + topic.toStringUtf8() +
+                LOGGER.error("[" + myRegion + "] cross-region subscribe failed for topic " + topic.toStringUtf8() +
                         " Putting in retry map.", exception);
                 putTopicInRetryMap(client, topic);
                 // Check if topic has been subscribed from remote region, return success if so to
@@ -262,7 +262,7 @@ public class RegionManager implements SubscriptionEventListener {
 
     private void retrySubscribe(final HedwigHubClient client, final ByteString topic, final Callback<Void> cb) {
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("[" + myRegion.toStringUtf8() + "] Retry remote subscribe topic : " + topic.toStringUtf8());
+            LOGGER.debug("[" + myRegion + "] Retry remote subscribe topic : " + topic.toStringUtf8());
         }
         queue.pushAndMaybeRun(topic, queue.new AsynchronousOp<Void>(topic, cb, null) {
             @Override
@@ -287,10 +287,11 @@ public class RegionManager implements SubscriptionEventListener {
         queue.pushAndMaybeRun(topic, queue.new AsynchronousOp<Void>(topic, cb, null) {
             @Override
             public void run() {
-                LOGGER.info("Handling first subscription to topic:" + topic.toStringUtf8() + " with synchronous mode:" + synchronous);
-                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER,
-                        "[" + myRegion.toStringUtf8() + "] all cross-region subscriptions succeeded",
-                        "[" + myRegion.toStringUtf8() + "] at least one cross-region subscription failed");
+                LOGGER.info("Handling first subscription to topic:{} with synchronous mode:{}",
+                            topic.toStringUtf8(), synchronous);
+                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER, 
+                        "[" + myRegion + "] all cross-region subscriptions succeeded", 
+                        "[" + myRegion + "] at least one cross-region subscription failed");
                 final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), postCb, ctx);
                 for (final HedwigHubClient client : clients) {
                     doRemoteSubscribe(client, topic, mcb, ctx);
@@ -308,13 +309,13 @@ public class RegionManager implements SubscriptionEventListener {
             @Override
             public void operationFinished(Object ctx, Void result) {
                 if (LOGGER.isDebugEnabled())
-                    LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region unsubscribes succeeded for topic " + topic.toStringUtf8());
+                    LOGGER.debug("[" + myRegion + "] cross-region unsubscribes succeeded for topic " + topic.toStringUtf8());
             }
 
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
                 if (LOGGER.isDebugEnabled())
-                    LOGGER.error("[" + myRegion.toStringUtf8() + "] cross-region unsubscribes failed for topic " + topic.toStringUtf8(), exception);
+                    LOGGER.error("[" + myRegion + "] cross-region unsubscribes failed for topic " + topic.toStringUtf8(), exception);
             }
         }, null) {
             @Override
@@ -325,8 +326,8 @@ public class RegionManager implements SubscriptionEventListener {
                     try {
                         if (!sub.hasSubscription(topic, mySubId)) {
                             if (LOGGER.isDebugEnabled()) {
-                                LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region subscription for topic "
-                                             + topic.toStringUtf8() + " did not exist.");
+                                LOGGER.debug("[{}] cross-region subscription for topic {} did not exist.",
+                                             myRegion, topic.toStringUtf8());
                             }
                             tm.setTopicUnsubscribedFromRegion(topic, sub.getHubHostName(), mcb, ctx);
                             continue;
@@ -360,7 +361,7 @@ public class RegionManager implements SubscriptionEventListener {
                             }
                         }, ctx);
                     } catch (PubSubException e) {
-                        LOGGER.error("[" + myRegion.toStringUtf8() + "] checking cross-region subscription for topic "
+                        LOGGER.error("[" + myRegion + "] checking cross-region subscription for topic "
                                      + topic.toStringUtf8() + " failed (this is should not happen): ", e);
                         mcb.operationFailed(ctx, e);
                         continue;
@@ -391,8 +392,8 @@ public class RegionManager implements SubscriptionEventListener {
               try {
                 if (!sub.hasSubscription(topic, mySubId)) {
                   if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("[" + myRegion.toStringUtf8() + "] cross-region subscription for topic "
-                        + topic.toStringUtf8() + " did not exist.");
+                    LOGGER.debug("[{}] cross-region subscription for topic {} did not exist.",
+                                 myRegion, topic.toStringUtf8());
                   }
                   cb.operationFinished(ctx, null);
                   continue;
@@ -413,7 +414,7 @@ public class RegionManager implements SubscriptionEventListener {
                   }
                 }, null);
               } catch (PubSubException e) {
-                LOGGER.error("[" + myRegion.toStringUtf8() + "] closing cross-region subscription for topic "
+                LOGGER.error("[" + myRegion + "] closing cross-region subscription for topic "
                         + topic.toStringUtf8() + " failed (this is should not happen): ", e);
                 cb.operationFailed(ctx, e);
                 continue;

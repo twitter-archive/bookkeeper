@@ -26,6 +26,8 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+
 /**
  * This class provides 2 things over the java {@link ScheduledExecutorService}.
  *
@@ -151,4 +153,4 @@ public class OrderedSafeExecutor {
 
         public abstract void safeOperationComplete(int rc, T result);
     }
- }
+}

@@ -116,6 +116,8 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-371: NPE in hedwig hub client causes hedwig hub to shut down. (Aniruddha via sijie)
 
+        BOOKKEEPER-392: Racey ConcurrentMap usage in java hedwig-client (Stu Hood via sijie)
+
       hedwig-server:
 
         BOOKKEEPER-302: No more messages delivered when hub server scans messages over two ledgers. (sijie via ivank)
@@ -185,6 +187,10 @@ Trunk (unreleased changes)
         BOOKKEEPER-332: Add SubscriptionPreferences to record all preferences for a subscription (sijie via ivank)
 
         BOOKKEEPER-333: server-side message filter (sijie via ivank)
+
+        BOOKKEEPER-252: Hedwig: provide a subscription mode to kill other subscription channel when hedwig client is used as a proxy-style server. (sijie via ivank)
+
+        BOOKKEEPER-397: Make the hedwig client in RegionManager configurable. (Aniruddha via sijie)
 
         BOOKKEEPER-441: InMemorySubscriptionManager should back up top2sub2seq before change it (Yixue via ivank)
 

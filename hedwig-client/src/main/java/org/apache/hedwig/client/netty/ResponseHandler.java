@@ -48,7 +48,9 @@ import org.apache.hedwig.exceptions.PubSubException.UncertainStateException;
 import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
 import org.apache.hedwig.protocol.PubSubProtocol.StatusCode;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.util.HedwigSocketAddress;
+import org.apache.hedwig.util.SubscriptionListener;
 
 @ChannelPipelineCoverage("all")
 public class ResponseHandler extends SimpleChannelHandler {
@@ -196,8 +198,7 @@ public class ResponseHandler extends SimpleChannelHandler {
             // We've already exceeded the maximum number of server redirects
             // so consider this as an error condition for the client.
             // Invoke the operationFailed callback and just return.
-            if (logger.isDebugEnabled())
-                logger.debug("Exceeded the number of server redirects (" + curNumServerRedirects + ") so error out.");
+            logger.debug("Exceeded the maximum number of redirects ({}): erroring out.", curNumServerRedirects);
             pubSubData.getCallback().operationFailed(pubSubData.context, new ServiceDownException(
                                                     new TooManyServerRedirectsException("Already reached max number of redirects: "
                                                             + curNumServerRedirects)));
@@ -300,9 +301,8 @@ public class ResponseHandler extends SimpleChannelHandler {
             // and unsubscribe requests.
             Channel channel = pub.host2Channel.get(host);
             if (channel != null && channel.equals(ctx.getChannel())) {
-                if (logger.isDebugEnabled())
-                    logger.debug("Disconnected channel for host: " + host
-                                 + " was for Publish/Unsubscribe requests so remove all references to it.");
+                logger.debug("Disconnected channel for host: {} was for Publish/Unsubscribe requests" +
+                    " so remove all references to it.", host);
                 if (pub.host2Channel.remove(host, channel)) {
                     client.clearAllTopicsForHost(host);
                 }
@@ -316,7 +316,7 @@ public class ResponseHandler extends SimpleChannelHandler {
             sub.closeSubscription(origSubData.topic, origSubData.subscriberId);
             // If the subscribe channel is lost, the topic might have moved.
             // We only clear the entry for that topic.
-            client.clearTopicForHost(origSubData.topic, host);
+            client.clearHostForTopic(origSubData.topic, host);
             // Since the connection to the server host that was responsible
             // for the topic died, we are not sure about the state of that
             // server. Resend the original subscribe request data to the default
@@ -324,25 +324,32 @@ public class ResponseHandler extends SimpleChannelHandler {
             // contacted or attempted to from this request as we are starting a
             // "fresh" subscribe request.
             origSubData.clearServersList();
-            // Clear the shouldClaim flag
-            origSubData.shouldClaim = false;
-            // If we don't have a message handler set, we don't reconnect.
-            if (null == existingMessageHandler) {
-                // This has happened because startDelivery was not called on this earlier. We just log this
-                // and continue with the subscription. We pass a null message handler and as a result
-                // we don't restart delivery.
-                logger.warn("No message handler found for the subscription channel for topic: " + origSubData.topic.toStringUtf8()
-                        + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not restart delivery.");
+            // do resubscribe if the subscription enables it
+            if (origSubData.options.getEnableResubscribe()) {
+                // If we don't have a message handler set, we don't reconnect.
+                if (null == existingMessageHandler) {
+                    // This has happened because startDelivery was not called on this earlier. We just log this
+                    // and continue with the subscription. We pass a null message handler and as a result
+                    // we don't restart delivery.
+                    logger.warn("No message handler found for the subscription channel for topic: " + origSubData.topic.toStringUtf8()
+                            + " and subscriber: " + origSubData.subscriberId.toStringUtf8() + " We will not restart delivery.");
+                }
+                // Set a new type of VoidCallback for this async call. We need this
+                // hook so after the subscribe reconnect has completed, delivery for
+                // that topic subscriber should also be restarted (if it was that
+                // case before the channel disconnect).
+                origSubData.setCallback(new SubscribeReconnectCallback(origSubData, client, existingMessageHandler));
+                origSubData.context = null;
+                // Clear the shouldClaim flag
+                origSubData.shouldClaim = false;
+                logger.debug("Disconnected subscribe channel so reconnect with origSubData: {}", origSubData);
+                client.doConnect(origSubData, cfg.getDefaultServerHost());
+            } else {
+                logger.info("Subscription channel for (topic:{}, subscriber:{}) is disconnected.",
+                            origSubData.topic.toStringUtf8(), origSubData.subscriberId.toStringUtf8());
+                sub.emitSubscriptionEvent(origSubData.topic, origSubData.subscriberId,
+                                          SubscriptionEvent.TOPIC_MOVED);
             }
-            // Set a new type of VoidCallback for this async call. We need this
-            // hook so after the subscribe reconnect has completed, delivery for
-            // that topic subscriber should also be restarted (if it was that
-            // case before the channel disconnect).
-            origSubData.setCallback(new SubscribeReconnectCallback(origSubData, client, existingMessageHandler));
-            origSubData.context = null;
-            if (logger.isDebugEnabled())
-                logger.debug("Disconnected subscribe channel so reconnect with origSubData: " + origSubData);
-            client.doConnect(origSubData, cfg.getDefaultServerHost());
         }
 
         // Finally, all of the PubSubRequests that are still waiting for an ack
@@ -352,9 +359,8 @@ public class ResponseHandler extends SimpleChannelHandler {
         // we're not sure of the state of the request since the ack response was
         // never received.
         for (PubSubData pubSubData : txn2PubSubData.values()) {
-            if (logger.isDebugEnabled())
-                logger.debug("Channel disconnected so invoking the operationFailed callback for pubSubData: "
-                             + pubSubData);
+            logger.debug("Channel disconnected so invoking the operationFailed callback for pubSubData: {}",
+                pubSubData);
             pubSubData.getCallback().operationFailed(pubSubData.context, new UncertainStateException(
                                                     "Server ack response never received before server connection disconnected!"));
         }
@@ -370,9 +376,7 @@ public class ResponseHandler extends SimpleChannelHandler {
         // No need to initiate the SSL handshake if we are closing this channel
         // explicitly or the client has been stopped.
         if (cfg.isSSLEnabled() && !channelClosedExplicitly && !client.hasStopped()) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Initiating the SSL handshake");
-            }
+            logger.debug("Initiating the SSL handshake");
             ctx.getPipeline().get(SslHandler.class).handshake(e.getChannel());
         }
     }
