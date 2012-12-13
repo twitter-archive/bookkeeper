@@ -21,12 +21,11 @@ package org.apache.hedwig.admin.console;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.SortedMap;
-import java.util.TreeMap;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
@@ -71,21 +70,8 @@ public class ReadTopic {
     
     static final int NUM_MESSAGES_TO_PRINT = 15;
 
-    SortedMap<Long, InMemoryLedgerRange> ledgers = new TreeMap<Long, InMemoryLedgerRange>();
-    
-    static class InMemoryLedgerRange {
-        LedgerRange range;
+    List<LedgerRange> ledgers = new ArrayList<LedgerRange>();
 
-        public InMemoryLedgerRange(LedgerRange range) {
-            this.range = range;
-        }
-
-        public long getStartSeqIdIncluded() {
-            assert range.getStartSeqIdIncluded() > 0;
-            return range.getStartSeqIdIncluded();
-        }
-    }
-    
     /**
      * Constructor
      */
@@ -124,21 +110,7 @@ public class ReadTopic {
         if (null == ranges || ranges.isEmpty()) {
             return RC_NOLEDGERS;
         }
-        Iterator<LedgerRange> lrIterator = ranges.iterator();
-        while (lrIterator.hasNext()) {
-            LedgerRange range = lrIterator.next();
-            if (range.hasEndSeqIdIncluded()) {
-                long endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
-                ledgers.put(endOfLedger, new InMemoryLedgerRange(range));
-                continue;
-            }
-            if (lrIterator.hasNext()) {
-                throw new IOException("Ledger-id: " + range.getLedgerId() + " for topic: " + topic
-                        + " is not the last one but still does not have an end seq-id");
-            }
-            // admin has read last confirmed entry of last ledger
-            // so we don't need to handle here
-        }
+        ledgers.addAll(ranges);
         return RC_OK;
     }
     
@@ -202,13 +174,13 @@ public class ReadTopic {
         } else {
             return rc;
         }
-        
-        for (Map.Entry<Long, InMemoryLedgerRange> entry : ledgers.entrySet()) {
-            long endSeqId = entry.getKey();
+
+        for (LedgerRange range : ledgers) {
+            long endSeqId = range.getEndSeqIdIncluded().getLocalComponent();
             if (endSeqId < startSeqId) {
                 continue;
             }
-            boolean toContinue = readLedger(entry.getValue(), endSeqId);
+            boolean toContinue = readLedger(range);
             startSeqId = endSeqId + 1;
             if (!toContinue) {
                 break;
@@ -228,15 +200,16 @@ public class ReadTopic {
      * @throws IOException
      * @throws InterruptedException
      */
-    protected boolean readLedger(InMemoryLedgerRange ledger, long endSeqId) throws BKException, IOException, InterruptedException {
-        long tEndSeqId = endSeqId;
-        
+    protected boolean readLedger(LedgerRange ledger)
+    throws BKException, IOException, InterruptedException {
+        long tEndSeqId = ledger.getEndSeqIdIncluded().getLocalComponent();
+
         if (tEndSeqId < this.startSeqId) {
             return true;
         }
         // Open Ledger Handle
-        long ledgerId = ledger.range.getLedgerId();
-        System.out.println("\n>>>>> Ledger " + ledgerId + " [ " + ledger.getStartSeqIdIncluded() + " ~ " + (endSeqId == Long.MAX_VALUE ? "" : endSeqId) + "] <<<<<\n");
+        long ledgerId = ledger.getLedgerId();
+        System.out.println("\n>>>>> " + ledger + " <<<<<\n");
         LedgerHandle lh = null;
         try {
             lh = admin.getBkHandle().openLedgerNoRecovery(ledgerId, admin.getBkDigestType(), admin.getBkPasswd());
@@ -254,7 +227,9 @@ public class ReadTopic {
                 correctedEndSeqId = Math.min(startSeqId + NUM_MESSAGES_TO_PRINT - 1, tEndSeqId);
                 
                 try {
-                    Enumeration<LedgerEntry> seq = lh.readEntries(startSeqId - ledger.getStartSeqIdIncluded(), correctedEndSeqId - ledger.getStartSeqIdIncluded());
+                    Enumeration<LedgerEntry> seq =
+                        lh.readEntries(startSeqId - ledger.getStartSeqIdIncluded(),
+                                       correctedEndSeqId - ledger.getStartSeqIdIncluded());
                     LedgerEntry entry = null;
                     while (seq.hasMoreElements()) {
                         entry = seq.nextElement();

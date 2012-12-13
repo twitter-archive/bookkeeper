@@ -24,7 +24,13 @@ import org.jboss.netty.channel.Channel;
 import org.joor.Reflect;
 
 import java.lang.reflect.Field;
-import java.util.*;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -32,17 +38,28 @@ import org.apache.hedwig.server.netty.PubSubServer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
 
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.client.HedwigClient;
 import org.apache.hedwig.client.api.Publisher;
+import org.apache.hedwig.client.conf.ClientConfiguration;
+import org.apache.hedwig.client.netty.CleanupChannelMap;
+import org.apache.hedwig.client.netty.HChannel;
+import org.apache.hedwig.client.netty.HChannelManager;
+import org.apache.hedwig.client.netty.impl.multiplex.MultiplexHChannelManager;
+import org.apache.hedwig.client.netty.impl.simple.SimpleHChannelManager;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
 import org.apache.hedwig.server.HedwigRegionTestBase;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.integration.TestHedwigHub.TestCallback;
 import org.apache.hedwig.server.integration.TestHedwigHub.TestMessageHandler;
+import org.apache.hedwig.util.HedwigSocketAddress;
 
+@RunWith(Parameterized.class)
 public class TestHedwigRegion extends HedwigRegionTestBase {
 
     // SynchronousQueues to verify async calls
@@ -62,10 +79,37 @@ public class TestHedwigRegion extends HedwigRegionTestBase {
         public int getRetryRemoteSubscribeThreadRunInterval() {
             return TEST_RETRY_REMOTE_SUBSCRIBE_INTERVAL_VALUE;
         }
+
+    }
+
+    protected class NewRegionClientConfiguration extends ClientConfiguration {
+        @Override
+        public boolean isSubscriptionChannelSharingEnabled() {
+            return isSubscriptionChannelSharingEnabled;
+        }
+        @Override
+        public HedwigSocketAddress getDefaultServerHedwigSocketAddress() {
+            return regionHubAddresses.get(0).get(0);
+        }
     }
 
     protected ServerConfiguration getServerConfiguration(int serverPort, int sslServerPort, String regionName) {
         return new NewRegionServerConfiguration(serverPort, sslServerPort, regionName);
+    }
+
+    protected ClientConfiguration getRegionClientConfiguration() {
+        return new NewRegionClientConfiguration();
+    }
+
+    @Parameters
+    public static Collection<Object[]> configs() {
+        return Arrays.asList(new Object[][] { { false }, { true } });
+    }
+
+    protected boolean isSubscriptionChannelSharingEnabled;
+
+    public TestHedwigRegion(boolean isSubscriptionChannelSharingEnabled) {
+        this.isSubscriptionChannelSharingEnabled = isSubscriptionChannelSharingEnabled;
     }
 
     @Override
@@ -100,22 +144,33 @@ public class TestHedwigRegion extends HedwigRegionTestBase {
                 if (md++ % 2 == 1){
                     continue;
                 }
-                // JOOR doesn't let you access private members of a superclass. Use
-                // good ol' reflection instead
-                Field f = client.getClass().getSuperclass().getDeclaredField("sub");
-                f.setAccessible(true);
-                HedwigHubSubscriber sub = (HedwigHubSubscriber)f.get(client);
-                Field tf = sub.getClass().getSuperclass().getDeclaredField("topicSubscriber2Channel");
-                tf.setAccessible(true);
-                Map<TopicSubscriber, Channel> sub2channel = (Map<TopicSubscriber, Channel>)tf.get(sub);
+                HChannelManager channelManager = client.getHChannelManager();
+                if (channelManager instanceof SimpleHChannelManager) {
+                    // JOOR doesn't let you access private members of a superclass. Use
+                    // good ol' reflection instead
+                    Field f = channelManager.getClass().getDeclaredField("topicSubscriber2Channel");
+                    f.setAccessible(true);
+                    CleanupChannelMap<TopicSubscriber> sub2channel = (CleanupChannelMap<TopicSubscriber>)f.get(channelManager);
 
-                for (Channel c : sub2channel.values()) {
-                    c.setReadable(setReadable);
+                    for (HChannel c : sub2channel.getChannels()) {
+                        c.getChannel().setReadable(setReadable);
+                    }
+                } else if (channelManager instanceof MultiplexHChannelManager) {
+                    Field f = channelManager.getClass().getDeclaredField("subscriptionChannels");
+                    f.setAccessible(true);
+                    CleanupChannelMap<InetSocketAddress> subscriptionChannels =
+                        (CleanupChannelMap<InetSocketAddress>)f.get(channelManager);
+
+                    for (HChannel c : subscriptionChannels.getChannels()) {
+                        c.getChannel().setReadable(setReadable);
+                    }
+                } else {
+                    fail("Unknown channel manager : " + channelManager.getClass().getName());
                 }
             }
         } catch (Exception e) {
             logger.error("Error while using reflections", e);
-            assertTrue(1 == 0);
+            fail("Failed to operate on subscription channels");
         }
     }
 

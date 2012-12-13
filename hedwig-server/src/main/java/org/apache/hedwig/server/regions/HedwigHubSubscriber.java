@@ -93,8 +93,4 @@ public class HedwigHubSubscriber extends HedwigSubscriber {
         asyncUnsubscribe(topic, subscriberId, callback, context, true);
     }
 
-    public MessageHandler getMessageHandler(ByteString topic, ByteString subscriberId) {
-        return this.topicSubscriber2MessageHandler.get(new TopicSubscriber(topic, subscriberId));
-    }
-
 }

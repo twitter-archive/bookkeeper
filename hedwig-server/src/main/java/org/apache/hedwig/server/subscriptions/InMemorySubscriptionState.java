@@ -22,6 +22,7 @@ import java.util.Map;
 
 import com.google.protobuf.ByteString;
 
+import org.apache.bookkeeper.versioning.Version;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
@@ -33,8 +34,10 @@ public class InMemorySubscriptionState {
     SubscriptionState subscriptionState;
     SubscriptionPreferences subscriptionPreferences;
     MessageSeqId lastConsumeSeqId;
+    Version version;
+    long lastPersistedSeqId;
 
-    public InMemorySubscriptionState(SubscriptionData subscriptionData, MessageSeqId lastConsumeSeqId) {
+    public InMemorySubscriptionState(SubscriptionData subscriptionData, Version version, MessageSeqId lastConsumeSeqId) {
         this.subscriptionState = subscriptionData.getState();
         if (subscriptionData.hasPreferences()) {
             this.subscriptionPreferences = subscriptionData.getPreferences();
@@ -47,10 +50,12 @@ public class InMemorySubscriptionState {
 
         }
         this.lastConsumeSeqId = lastConsumeSeqId;
+        this.version = version;
+        this.lastPersistedSeqId = subscriptionState.getMsgId().getLocalComponent();
     }
 
-    public InMemorySubscriptionState(SubscriptionData subscriptionData) {
-        this(subscriptionData, subscriptionData.getState().getMsgId());
+    public InMemorySubscriptionState(SubscriptionData subscriptionData, Version version) {
+        this(subscriptionData, version, subscriptionData.getState().getMsgId());
     }
 
     public SubscriptionData toSubscriptionData() {
@@ -71,6 +76,14 @@ public class InMemorySubscriptionState {
 
     public MessageSeqId getLastConsumeSeqId() {
         return lastConsumeSeqId;
+    }
+     
+    public Version getVersion() {
+        return version;
+    }
+    
+    public void setVersion(Version version) {
+        this.version = version;
     }
 
     /**
@@ -114,6 +127,14 @@ public class InMemorySubscriptionState {
         return true;
     }
 
+    public long getLastPersistedSeqId() {
+        return lastPersistedSeqId;
+    }
+
+    public void setLastPersistedSeqId(long lastPersistedSeqId) {
+        this.lastPersistedSeqId = lastPersistedSeqId;
+    }
+
     /**
      * Update preferences.
      *
@@ -133,6 +154,14 @@ public class InMemorySubscriptionState {
             if (!subscriptionPreferences.hasMessageFilter() ||
                 !subscriptionPreferences.getMessageFilter().equals(preferences.getMessageFilter())) {
                 newPreferencesBuilder.setMessageFilter(preferences.getMessageFilter());
+                changed = true;
+            }
+        }
+        if (preferences.hasMessageWindowSize()) {
+            if (!subscriptionPreferences.hasMessageWindowSize() ||
+                subscriptionPreferences.getMessageWindowSize() !=
+                preferences.getMessageWindowSize()) {
+                newPreferencesBuilder.setMessageWindowSize(preferences.getMessageWindowSize());
                 changed = true;
             }
         }

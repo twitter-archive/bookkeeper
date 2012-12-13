@@ -60,8 +60,6 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     protected List<File> tmpDirs = new LinkedList<File>();
     protected List<BookieServer> bs = new LinkedList<BookieServer>();
     protected List<ServerConfiguration> bsConfs = new LinkedList<ServerConfiguration>();
-    protected Integer initialPort = 5000;
-    private Integer nextPort = initialPort;
     protected int numBookies;
     protected BookKeeperTestClient bkc;
 
@@ -75,6 +73,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     @Before
     @Override
     public void setUp() throws Exception {
+        LOG.info("Setting up test {}", getName());
         try {
             // start zookeeper service
             startZKCluster();
@@ -94,6 +93,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         stopBKCluster();
         // stop zookeeper service
         stopZKCluster();
+        LOG.info("Tearing down test {}", getName());
     }
 
     /**
@@ -353,7 +353,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         f.delete();
         f.mkdir();
 
-        int port = nextPort++;
+        int port = PortManager.nextFreePort();
         ServerConfiguration conf = newServerConfiguration(port, zkUtil.getZooKeeperConnectString(),
                                                           f, new File[] { f });
         bsConfs.add(conf);

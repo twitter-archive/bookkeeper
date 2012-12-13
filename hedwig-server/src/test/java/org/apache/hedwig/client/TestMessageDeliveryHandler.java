@@ -22,6 +22,7 @@ import junit.framework.TestCase;
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.client.data.MessageConsumeData;
 import org.apache.hedwig.client.data.PubSubData;
+import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.client.handlers.MessageConsumeCallback;
 import org.apache.hedwig.client.handlers.MessageDeliveryHandler;
 import org.apache.hedwig.client.handlers.MessageDeliveryHandler.MessageDeliveryException;
@@ -54,7 +55,8 @@ public class TestMessageDeliveryHandler extends TestCase {
     }
 
     private MessageConsumeData getMessageData(int n, MessageConsumeCallback cb) {
-        return new MessageConsumeData(getTopic(n), getSubscriber(n), getMessage(n), cb);
+        return new MessageConsumeData(new TopicSubscriber(getTopic(n), getSubscriber(n)),
+                                      getMessage(n), cb);
     }
 
     private Message getMessage(int n) {

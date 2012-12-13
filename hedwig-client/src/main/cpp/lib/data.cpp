@@ -23,10 +23,23 @@
 #include "data.h"
 
 #include <log4cxx/logger.h>
+#include <iostream>
+
+#define stringify( name ) #name
 
 static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("hedwig."__FILE__));
 
 using namespace Hedwig;
+
+const char* OPERATION_TYPE_NAMES[] = {
+  stringify( PUBLISH ),
+  stringify( SUBSCRIBE ),
+  stringify( CONSUME ),
+  stringify( UNSUBSCRIBE ),
+  stringify( START_DELIVERY ),
+  stringify( STOP_DELIVERY ),
+  stringify( CLOSESUBSCRIPTION )
+};
 
 PubSubDataPtr PubSubData::forPublishRequest(long txnid, const std::string& topic, const Message& body,
                                             const ResponseCallbackPtr& callback) {
@@ -55,6 +68,18 @@ PubSubDataPtr PubSubData::forUnsubscribeRequest(long txnid, const std::string& s
                                                 const ResponseCallbackPtr& callback) {
   PubSubDataPtr ptr(new PubSubData());
   ptr->type = UNSUBSCRIBE;
+  ptr->txnid = txnid;
+  ptr->subscriberid = subscriberid;
+  ptr->topic = topic;
+  ptr->callback = callback;
+  return ptr;  
+}
+
+PubSubDataPtr PubSubData::forCloseSubscriptionRequest(
+  long txnid, const std::string& subscriberid, const std::string& topic,
+  const ResponseCallbackPtr& callback) {
+  PubSubDataPtr ptr(new PubSubData());
+  ptr->type = CLOSESUBSCRIPTION;
   ptr->txnid = txnid;
   ptr->subscriberid = subscriberid;
   ptr->topic = topic;
@@ -110,6 +135,9 @@ void PubSubData::setPreferencesForSubRequest(SubscribeRequest * subreq,
   if (options.has_options()) {
     preferences->mutable_options()->CopyFrom(options.options());
   }
+  if (options.has_messagewindowsize()) {
+    preferences->set_messagewindowsize(options.messagewindowsize());
+  }
 }
 
 const PubSubRequestPtr PubSubData::getRequest() {
@@ -147,6 +175,11 @@ const PubSubRequestPtr PubSubData::getRequest() {
     
     Hedwig::UnsubscribeRequest* unsubreq = request->mutable_unsubscriberequest();
     unsubreq->set_subscriberid(subscriberid);    
+  } else if (type == CLOSESUBSCRIPTION) {
+    LOG4CXX_DEBUG(logger, "Creating closeSubscription request");
+    
+    Hedwig::CloseSubscriptionRequest* closesubreq = request->mutable_closesubscriptionrequest();
+    closesubreq->set_subscriberid(subscriberid);    
   } else {
     LOG4CXX_ERROR(logger, "Tried to create a request message for the wrong type [" << type << "]");
     throw UnknownRequestException();
@@ -185,4 +218,59 @@ const std::string& PubSubData::getSubscriberId() const {
 
 const SubscriptionOptions& PubSubData::getSubscriptionOptions() const {
   return options;
+}
+
+void PubSubData::setOrigChannelForResubscribe(
+  boost::shared_ptr<DuplexChannel>& channel) {
+  this->origChannel = channel;
+}
+
+boost::shared_ptr<DuplexChannel>& PubSubData::getOrigChannelForResubscribe() {
+  return this->origChannel;
+}
+
+bool PubSubData::isResubscribeRequest() {
+  return 0 != this->origChannel.get();
+}
+
+ClientTxnCounter::ClientTxnCounter() : counter(0) 
+{
+}
+
+ClientTxnCounter::~ClientTxnCounter() {
+}
+
+/**
+Increment the transaction counter and return the new value.
+
+@returns the next transaction id
+*/
+long ClientTxnCounter::next() {  // would be nice to remove lock from here, look more into it
+  boost::lock_guard<boost::mutex> lock(mutex);
+
+  long next= ++counter; 
+
+  return next;
+}
+
+std::ostream& Hedwig::operator<<(std::ostream& os, const PubSubData& data) {
+  OperationType type = data.getType();
+  os << "[" << OPERATION_TYPE_NAMES[type] << " request (txn:" << data.getTxnId()
+     << ") for (topic:" << data.getTopic();
+  switch (type) {
+  case SUBSCRIBE:
+  case UNSUBSCRIBE:
+  case CLOSESUBSCRIPTION:
+    os << ", subscriber:" << data.getSubscriberId() << ")";
+    break;
+  case CONSUME:
+    os << ", subscriber:" << data.getSubscriberId() << ", seq:"
+    << data.getMessageSeqId().localcomponent() << ")";
+    break;
+  case PUBLISH:
+  default:
+    os << ")";
+    break;
+  }
+  return os;
 }

@@ -30,13 +30,23 @@ static log4cxx::LoggerPtr utillogger(log4cxx::Logger::getLogger("hedwig."__FILE_
 class SimpleWaitCondition {
 public:
  SimpleWaitCondition() : flag(false), success(false) {};
-  ~SimpleWaitCondition() { wait(); }
+  ~SimpleWaitCondition() {}
 
   void wait() {
     boost::unique_lock<boost::mutex> lock(mut);
     while(!flag)
     {
         cond.wait(lock);
+    }
+  }
+
+  void timed_wait(uint64_t milliseconds) {
+    boost::mutex::scoped_lock lock(mut);
+    if (!flag) {
+      LOG4CXX_DEBUG(utillogger, "wait for " << milliseconds << " ms.");
+      if (!cond.timed_wait(lock, boost::posix_time::milliseconds(milliseconds))) {
+        LOG4CXX_DEBUG(utillogger, "Timeout wait for " << milliseconds << " ms.");
+      }
     }
   }
 
@@ -115,14 +125,19 @@ private:
 
 class TestSubscriptionListener : public Hedwig::SubscriptionListener {
 public:
-  TestSubscriptionListener(SimpleWaitCondition* cond) : cond(cond) {
+  TestSubscriptionListener(SimpleWaitCondition* cond,
+                           const Hedwig::SubscriptionEvent event)
+    : cond(cond), expectedEvent(event) {
+    LOG4CXX_DEBUG(utillogger, "Created TestSubscriptionListener " << this);
   }
 
   virtual ~TestSubscriptionListener() {}
 
   virtual void processEvent(const std::string& topic, const std::string& subscriberId,
                             const Hedwig::SubscriptionEvent event) {
-    if (Hedwig::TOPIC_MOVED == event) {
+    LOG4CXX_DEBUG(utillogger, "Received event " << event << " for (topic:" << topic
+                              << ", subscriber:" << subscriberId << ") from listener " << this);
+    if (expectedEvent == event) {
       if (cond) {
         cond->setSuccess(true);
         cond->notify();
@@ -132,13 +147,19 @@ public:
 
 private:
   SimpleWaitCondition *cond;
+  const Hedwig::SubscriptionEvent expectedEvent;
 };
 
 class TestServerConfiguration : public Hedwig::Configuration {
 public:
-  TestServerConfiguration() : address("localhost:4081"), syncTimeout(10000), numThreads(2) {}
+  TestServerConfiguration() : address("localhost:4081:9877"),
+                              syncTimeout(10000), numThreads(2) {}
 
-  TestServerConfiguration(int syncTimeout, int numThreads = 2) : address("localhost:4081"), syncTimeout(syncTimeout), numThreads(numThreads) {}
+  TestServerConfiguration(std::string& defaultServer) :
+    address(defaultServer), syncTimeout(10000), numThreads(2) {}
+
+  TestServerConfiguration(int syncTimeout, int numThreads = 2)
+    : address("localhost:4081:9877"), syncTimeout(syncTimeout), numThreads(numThreads) {}
   
   virtual int getInt(const std::string& key, int defaultVal) const {
     if (key == Configuration::SYNC_REQUEST_TIMEOUT) {
@@ -152,15 +173,26 @@ public:
   virtual const std::string get(const std::string& key, const std::string& defaultVal) const {
     if (key == Configuration::DEFAULT_SERVER) {
       return address;
+    } else if (key == Configuration::SSL_PEM_FILE) {
+      return certFile;
     } else {
       return defaultVal;
     }
   }
 
-  virtual bool getBool(const std::string& /*key*/, bool defaultVal) const {
+  virtual bool getBool(const std::string& key, bool defaultVal) const {
+    if (key == Configuration::SSL_ENABLED) {
+      return isSSL;
+    } else if (key == Configuration::SUBSCRIPTION_CHANNEL_SHARING_ENABLED) {    
+      return multiplexing;
+    }
     return defaultVal;
   }
-  
+public:
+  // for testing
+  static bool isSSL;
+  static std::string certFile;
+  static bool multiplexing;
 private:
   const std::string address;
   const int syncTimeout;

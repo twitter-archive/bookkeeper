@@ -45,7 +45,6 @@ public class TestBackwardCompat {
     static Logger LOG = LoggerFactory.getLogger(TestBackwardCompat.class);
 
     private static ZooKeeperUtil zkUtil = new ZooKeeperUtil();;
-    private static int nextPort = 3181;
     private static byte[] ENTRY_DATA = "ThisIsAnEntry".getBytes();
 
     static void waitUp(int port) throws Exception {
@@ -368,7 +367,7 @@ public class TestBackwardCompat {
         ledgerDir.delete();
         ledgerDir.mkdir();
 
-        int port = nextPort++;
+        int port = PortManager.nextFreePort();
 
         // start old server
         Server410 s410 = new Server410(journalDir, ledgerDir, port);
@@ -426,7 +425,7 @@ public class TestBackwardCompat {
         ledgerDir.delete();
         ledgerDir.mkdir();
 
-        int port = nextPort++;
+        int port = PortManager.nextFreePort();
         // start server, upgrade
         Server400 s400 = new Server400(journalDir, ledgerDir, port);
         s400.start();
@@ -514,7 +513,7 @@ public class TestBackwardCompat {
         ledgerDir.delete();
         ledgerDir.mkdir();
 
-        int port = nextPort++;
+        int port = PortManager.nextFreePort();
         // start server, upgrade
         Server410 s410 = new Server410(journalDir, ledgerDir, port);
         s410.start();

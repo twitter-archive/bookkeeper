@@ -251,9 +251,9 @@
             <id>createbuilddir</id>
             <phase>generate-test-resources</phase>
             <configuration>
-              <tasks>
+              <target>
                 <mkdir dir="target/zk_clientbase_build" />
-              </tasks>
+              </target>
             </configuration>
             <goals>
               <goal>run</goal>
@@ -281,7 +281,7 @@
         <version>2.9</version>
         <configuration>
           <redirectTestOutputToFile>true</redirectTestOutputToFile>
-          <argLine>-Xmx1G -Djava.net.preferIPv4Stack=true</argLine>
+          <argLine>-Xmx3G -Djava.net.preferIPv4Stack=true -XX:MaxDirectMemorySize=2G</argLine>
           <systemPropertyVariables>
             <derby.stream.error.file>target/derby.log</derby.stream.error.file>
             <build.test.dir>target/zk_clientbase_build</build.test.dir>

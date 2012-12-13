@@ -110,6 +110,10 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
             // Expected
         }
 
+        // wait for up to 10 seconds for bookie to shut down
+        for (int i = 0; i < 10 && bookie.isAlive(); i++) {
+            Thread.sleep(1000);
+        }
         assertFalse("Bookie should shutdown if readOnlyMode not enabled",
                 bookie.isAlive());
     }
@@ -163,5 +167,22 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
                 ledgerDirs[0], ledgerDirs);
         bsConfs.add(newConf);
         bs.add(startBookie(newConf));
+    }
+
+    /**
+     * Test ledger creation with readonly bookies
+     */
+    public void testLedgerCreationShouldFailWithReadonlyBookie() throws Exception {
+        killBookie(1);
+        baseConf.setReadOnlyModeEnabled(true);
+        startNewBookie();
+        bs.get(1).getBookie().transitionToReadOnlyMode();
+        try {
+            bkc.readBookiesBlocking();
+            bkc.createLedger(2, 2, DigestType.CRC32, "".getBytes());
+            fail("Must throw exception, as there is one readonly bookie");
+        } catch (BKException e) {
+            // Expected
+        }
     }
 }

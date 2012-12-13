@@ -194,9 +194,8 @@ public class RegionManager implements SubscriptionEventListener {
                 LOGGER.info("[{}] cross-region subscription done for topic {}",
                             myRegion, topic.toStringUtf8());
                 try {
-                    if (client.getHubSubscriber().getMessageHandler(topic, mySubId) == null) {
-                        // Start delivery only if we don't have an existing message handler.
-
+                    // Start delivery only if we don't have an existing message handler.
+                    try {
                         sub.startDelivery(topic, mySubId, new MessageHandler() {
                             @Override
                             public void deliver(final ByteString topic, ByteString subscriberId, Message msg,
@@ -223,7 +222,7 @@ public class RegionManager implements SubscriptionEventListener {
                         if (LOGGER.isDebugEnabled())
                             LOGGER.debug("[{}] cross-region start-delivery succeeded for topic {}",
                                          myRegion, topic.toStringUtf8());
-                    } else {
+                    } catch (AlreadyStartDeliveryException e) {
                         LOGGER.warn("We already have an existing message handler, so we will let the client subscriber" +
                                 " retry and restart delivery for topic: " + topic.toStringUtf8() + ", sub: " + mySubId.toStringUtf8());
                     }
@@ -242,9 +241,6 @@ public class RegionManager implements SubscriptionEventListener {
                 } catch (PubSubException ex) {
                     LOGGER.error("[" + myRegion + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
                     mcb.operationFailed(ctx, ex);
-                } catch (AlreadyStartDeliveryException ex) {
-                    LOGGER.error("[" + myRegion + "] cross-region start-delivery failed for topic " + topic.toStringUtf8(), ex);
-                    mcb.operationFailed(ctx, new PubSubException.UnexpectedConditionException("cross-region start-delivery failed : " + ex.getMessage()));
                 }
             }
 

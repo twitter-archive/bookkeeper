@@ -64,6 +64,7 @@
         <version>2.9</version>
         <configuration>
           <argLine>-Djava.net.preferIPv4Stack=true</argLine>
+	  <redirectTestOutputToFile>true</redirectTestOutputToFile>
         </configuration>
       </plugin>
       <plugin>
@@ -115,6 +116,7 @@
             <exclude>CHANGES.txt</exclude>
             <exclude>**/README</exclude>
             <exclude>**/apidocs/*</exclude>
+	    <exclude>test-patch/**/*</exclude>
           </excludes>
         </configuration>
       </plugin>

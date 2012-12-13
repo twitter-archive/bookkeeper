@@ -170,4 +170,5 @@ public class MessageDeliveryHandler {
     public MessageHandler getMessageHandler() {
         return messageHandler.get();
     }
+
 }

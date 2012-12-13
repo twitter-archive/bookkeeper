@@ -34,6 +34,10 @@
 
 #include "gtest/gtest.h"
 
+bool TestServerConfiguration::isSSL = false;
+std::string TestServerConfiguration::certFile = "";
+bool TestServerConfiguration::multiplexing = false;
+
 int main( int argc, char **argv)
 {
   try {
@@ -48,6 +52,33 @@ int main( int argc, char **argv)
   } catch (...) {
     std::cerr << "unknown exception while configuring log4cpp vi'." << std::endl;
   }
+
+  // Enable SSL for testing
+  int opt;
+  while((opt = getopt(argc,argv,"s:c:m:")) > 0) {
+    switch(opt) {
+    case 's':
+      if (std::string(optarg) == "true") {
+        std::cout << "run in ssl mode...." << std::endl;
+        TestServerConfiguration::isSSL = true;
+      } else {
+        TestServerConfiguration::isSSL = false;
+      }
+      break;
+    case 'm':
+      if (std::string(optarg) == "true") {
+        std::cout << "run in multiplexing mode ..." << std::endl;
+        TestServerConfiguration::multiplexing = true;
+      } else {
+        TestServerConfiguration::multiplexing = false;
+      }
+      break;
+    case 'c':
+      std::cout << "use cert file :" << optarg << std::endl;
+      TestServerConfiguration::certFile = std::string(optarg);
+      break;
+    }//switch
+  }//while
   
   ::testing::InitGoogleTest(&argc, argv);
   int ret = RUN_ALL_TESTS();

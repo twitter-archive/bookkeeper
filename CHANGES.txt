@@ -32,6 +32,8 @@ Trunk (unreleased changes)
 
       BOOKKEEPER-32: Clean up LOG.debug statements (Stu Hood via sijie)
 
+      BOOKKEEPER-484: Misc fixes for test scripts (ivank via fpj)
+
       bookkeeper-server:
 
         BOOKKEEPER-183: Provide tools to read/check data files in bookie server (sijie via ivank)
@@ -104,9 +106,29 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-430: Remove manual bookie registration from overview (fpj via ivank)
 
+        BOOKKEEPER-466: ZooKeeper test utility sets the port number as the tickTime (ivank)
+
+        BOOKKEEPER-460: LedgerDeleteTest checks wrong place for log file (Fangmin Lv via ivank)
+
+	BOOKKEEPER-477: In ReadOnlyBookieTest, we should wait for the bookie to die before asserting on it (ivank via fpj)
+
+	BOOKKEEPER-485: TestFencing hung (ivank via fpj)
+
+        BOOKKEEPER-351: asyncAddEntry should not throw an exception (Matteo Merli via sijie)
+
+        BOOKKEEPER-291: BKMBeanRegistry uses log4j directly (fpj via ivank)
+
+        BOOKKEEPER-459: Rename metastore mock implementation to InMemory implementation (jiannan via ivank)
+
+        BOOKKEEPER-347: Provide mechanism to detect r-o bookie by the bookie clients (Vinay via ivank)
+
+	BOOKKEEPER-475: BookieRecoveryTest#testSyncBookieRecoveryToRandomBookiesCheckForDupes() iterates too much (ivank via fpj)
+
       hedwig-protocol:
 
         BOOKKEEPER-394: CompositeException message is not useful (Stu Hood via sijie)
+
+        BOOKKEEPER-468: Remove <echo> from protobuf generation in hedwig (ivank)
 
       hedwig-client:
 
@@ -117,6 +139,16 @@ Trunk (unreleased changes)
         BOOKKEEPER-371: NPE in hedwig hub client causes hedwig hub to shut down. (Aniruddha via sijie)
 
         BOOKKEEPER-392: Racey ConcurrentMap usage in java hedwig-client (Stu Hood via sijie)
+
+        BOOKKEEPER-427: TestConcurrentTopicAcquisition hangs every so often (ivank)
+
+        BOOKKEEPER-434: [Hedwig CPP Client] Delay resolving default host until necessary. (sijie via ivank)
+
+        BOOKKEEPER-452: Rename ClientConfiguration multiplexing_enabled to subscription_connection_sharing_enabled (sijie via ivank)
+
+        BOOKKEEPER-454: hedwig c++ tester script assumes sh is bash (ivank)
+
+        BOOKKEEPER-470: Possible infinite loop in simple.SubscribeReconnectCallback (sijie via ivank)
 
       hedwig-server:
 
@@ -130,7 +162,23 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-191: Hub server should change ledger to write, so consumed messages have chance to be garbage collected. (sijie via ivank)
 
+        BOOKKEEPER-439: No more messages delivered after deleted consumed ledgers. (sijie via ivank)
+
+        BOOKKEEPER-440: Make Write/Delete SubscriptionData Restricted to Version (Fangmin Lv via ivank)
+
+        BOOKKEEPER-482: Precommit is reporting findbugs errors in trunk (ivank via sijie)
+
+        BOOKKEEPER-442: Failed to deliver messages due to inconsistency between SubscriptionState and LedgerRanges. (jiannan via ivank)
+
+        BOOKKEEPER-461: Delivery throughput degrades when there are lots of publishers w/ high traffic. (sijie via ivank)
+
     IMPROVEMENTS:
+
+      BOOKKEEPER-467: Allocate ports for testing dynamically (ivank)
+
+      BOOKKEEPER-471: Add scripts for preCommit testing (ivank)
+
+      BOOKKEEPER-476: Log to file during tests (ivank via fpj)
 
       bookkeeper-server:
 
@@ -172,6 +220,8 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-444: Refactor pending read op to make speculative reads possible (ivank)
 
+        BOOKKEEPER-204: Provide a MetaStore interface, and a mock implementation. (Jiannan Wang via ivank)
+
       hedwig-server:
 
         BOOKKEEPER-250: Need a ledger manager like interface to manage metadata operations in Hedwig (sijie via ivank)
@@ -192,7 +242,27 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-397: Make the hedwig client in RegionManager configurable. (Aniruddha via sijie)
 
+        BOOKKEEPER-367: Server-Side Message Delivery Flow Control (sijie via ivank)
+
+        BOOKKEEPER-415: Rename DeliveryThrottle to MessageWindowSize (ivank via sijie)
+
+	BOOKKEEPER-422: Simplify AbstractSubscriptionManager (stu via fpj)
+
+        BOOKKEEPER-435: Create SubscriptionChannelManager to manage all subscription channel (sijie via ivank)
+
+        BOOKKEEPER-411: Add CloseSubscription Request for multiplexing support (sijie via ivank)
+
         BOOKKEEPER-441: InMemorySubscriptionManager should back up top2sub2seq before change it (Yixue via ivank)
+
+	BOOKKEEPER-479: Fix apache-rat issues in tree (ivank via fpj)
+
+        BOOKKEEPER-457: Create a format command for Hedwig to cleanup its metadata. (sijie via ivank)
+
+        BOOKKEEPER-487: Add existed hub server settings to configuration template file (sijie via ivank)
+
+        BOOKKEEPER-389: add documentation for message filter. (sijie via ivank)
+
+	BOOKKEEPER-399: Let hub server configure write quorum from ack quorum. (sijie via fpj)
 
       hedwig-client:
 
@@ -201,6 +271,18 @@ Trunk (unreleased changes)
         BOOKKEEPER-334: client-side message filter for java client. (sijie via ivank)
 
         BOOKKEEPER-335: client-side message filter for cpp client. (sijie via ivank)
+
+        BOOKKEEPER-364: re-factor hedwig java client to support both one-subscription-per-channel and multiplex-subscriptions-per-channel. (sijie via ivank)
+
+        BOOKKEEPER-143: Add SSL support for hedwig cpp client (sijie via ivank)
+
+        BOOKKEEPER-413: Hedwig C++ client: Rename RUN_AS_SSL_MODE to SSL_ENABLED (ivank via sijie)
+
+        BOOKKEEPER-369: re-factor hedwig cpp client to provide better interface to support both one-subscription-per-channel and multiple-subscriptions-per-channel. (sijie via ivank)
+
+        BOOKKEEPER-368: Implementing multiplexing java client. (sijie via ivank)
+
+        BOOKKEEPER-370: implement multiplexing cpp client. (sijie via ivank)
 
 Release 4.1.0 - 2012-06-07
 

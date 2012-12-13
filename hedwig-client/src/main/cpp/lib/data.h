@@ -23,6 +23,7 @@
 #include <hedwig/callback.h>
 
 #include <pthread.h>
+#include <iostream>
 
 #ifdef USE_BOOST_TR1
 #include <boost/tr1/unordered_set.hpp>
@@ -57,6 +58,8 @@ namespace Hedwig {
   typedef boost::shared_ptr<PubSubRequest> PubSubRequestPtr;
   typedef boost::shared_ptr<PubSubResponse> PubSubResponsePtr;
 
+  class DuplexChannel;
+
   /**
      Data structure to hold information about requests and build request messages.
      Used to store requests which may need to be resent to another server. 
@@ -71,6 +74,10 @@ namespace Hedwig {
     static PubSubDataPtr forUnsubscribeRequest(long txnid, const std::string& subscriberid, const std::string& topic,
                                                const ResponseCallbackPtr& callback);
     static PubSubDataPtr forConsumeRequest(long txnid, const std::string& subscriberid, const std::string& topic, const MessageSeqId msgid);
+
+    static PubSubDataPtr forCloseSubscriptionRequest(long txnid, const std::string& subscriberid,
+                                                     const std::string& topic,
+                                                     const ResponseCallbackPtr& callback);
 
     ~PubSubData();
 
@@ -92,6 +99,12 @@ namespace Hedwig {
     void addTriedServer(HostAddress& h);
     bool hasTriedServer(HostAddress& h);
     void clearTriedServers();
+
+    void setOrigChannelForResubscribe(boost::shared_ptr<DuplexChannel>& channel);
+    bool isResubscribeRequest();
+    boost::shared_ptr<DuplexChannel>& getOrigChannelForResubscribe();
+
+    friend std::ostream& operator<<(std::ostream& os, const PubSubData& data);
   private:
 
     PubSubData();
@@ -110,7 +123,9 @@ namespace Hedwig {
     SubscriptionOptions options;
     MessageSeqId msgid;
     std::tr1::unordered_set<HostAddress, HostAddressHash > triedservers;
+    // record the origChannel for a resubscribe request
+    boost::shared_ptr<DuplexChannel> origChannel;
   };
-  
+
 };
 #endif

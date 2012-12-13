@@ -22,9 +22,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import org.apache.bookkeeper.stats.OpStatsLogger;
-import org.apache.hedwig.server.stats.ServerStatsProvider;
-import org.apache.hedwig.server.subscriptions.SubscriptionEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -33,6 +30,7 @@ import org.jboss.netty.channel.ChannelFutureListener;
 
 import com.google.protobuf.ByteString;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.hedwig.client.data.TopicSubscriber;
@@ -52,71 +50,39 @@ import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.ChannelEndPoint;
 import org.apache.hedwig.server.delivery.DeliveryManager;
-import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.persistence.PersistenceManager;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
+import org.apache.hedwig.server.subscriptions.SubscriptionEventListener;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.subscriptions.AllToAllTopologyFilter;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
+import static org.apache.hedwig.util.VarArgs.va;
 
-public class SubscribeHandler extends BaseHandler implements ChannelDisconnectListener {
+public class SubscribeHandler extends BaseHandler {
     static Logger logger = LoggerFactory.getLogger(SubscribeHandler.class);
 
     private final DeliveryManager deliveryMgr;
     private final PersistenceManager persistenceMgr;
     private final SubscriptionManager subMgr;
-    ConcurrentHashMap<TopicSubscriber, Channel> sub2Channel;
-    ConcurrentHashMap<Channel, TopicSubscriber> channel2sub;
+    private final SubscriptionChannelManager subChannelMgr;
+
     // op stats
     private final OpStatsLogger subStatsLogger;
 
-    private static ChannelFutureListener CLOSE_OLD_CHANNEL_LISTENER = new ChannelFutureListener() {
-        @Override
-        public void operationComplete(ChannelFuture future) throws Exception {
-            if (!future.isSuccess()) {
-                logger.warn("Failed to close old subscription channel.");
-            } else {
-                logger.debug("Close old subscription channel succeed.");
-            }
-        }
-    };
-
-    public SubscribeHandler(TopicManager topicMgr, DeliveryManager deliveryManager, PersistenceManager persistenceMgr,
-                            SubscriptionManager subMgr, ServerConfiguration cfg) {
+    public SubscribeHandler(ServerConfiguration cfg, TopicManager topicMgr,
+                            DeliveryManager deliveryManager,
+                            PersistenceManager persistenceMgr,
+                            SubscriptionManager subMgr,
+                            SubscriptionChannelManager subChannelMgr) {
         super(topicMgr, cfg);
         this.deliveryMgr = deliveryManager;
         this.persistenceMgr = persistenceMgr;
         this.subMgr = subMgr;
-        sub2Channel = new ConcurrentHashMap<TopicSubscriber, Channel>();
-        channel2sub = new ConcurrentHashMap<Channel, TopicSubscriber>();
+        this.subChannelMgr = subChannelMgr;
         subStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.SUBSCRIBE);
-    }
-
-    public void channelDisconnected(Channel channel) {
-        // Evils of synchronized programming: there is a race between a channel
-        // getting disconnected, and us adding it to the maps when a subscribe
-        // succeeds
-        final TopicSubscriber topicSub;
-        synchronized (channel) {
-            topicSub = channel2sub.remove(channel);
-            if (topicSub != null) {
-                // remove entry only currently mapped to given value.
-                if (sub2Channel.remove(topicSub, channel)) {
-                    ServerStatsProvider.getStatsLoggerInstance()
-                            .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).dec();
-                    if (SubscriptionStateUtils.isHubSubscriber(topicSub.getSubscriberId()))
-                        ServerStatsProvider.getStatsLoggerInstance()
-                                .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_REMOTE_SUBSCRIPTIONS).dec();
-                }
-            }
-        }
-        if (topicSub == null) {
-            logger.info("Channel for a unknown subscription was disconnected from host: {}", channel.getRemoteAddress());
-        } else {
-            logger.info("Channel for the subscription [{}] was disconnected from host: {}",
-                        topicSub, channel.getRemoteAddress());
-        }
     }
 
     @Override
@@ -201,8 +167,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                     logger.error(errMsg, re);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, re);
                     subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
-                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
-                    .addListener(ChannelFutureListener.CLOSE);
+                    // we should not close the subscription channel, just response error
+                    // client decide to close it or not.
+                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
                     return;
                 } catch (Throwable t) {
                     String errMsg = "Failed to instantiate message filter for (topic:" + topic.toStringUtf8()
@@ -214,62 +181,20 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                     .addListener(ChannelFutureListener.CLOSE);
                     return;
                 }
-                // race with channel getting disconnected while we are adding it
-                // to the 2 maps
-                synchronized (channel) {
-                    boolean forceAttach = false;
-                    if (subRequest.hasForceAttach()) {
-                        forceAttach = subRequest.getForceAttach();
-                    }
-
-                    Channel oldChannel = sub2Channel.putIfAbsent(topicSub, channel);
-                    if (null != oldChannel) {
-                        boolean subSuccess = false;
-                        if (forceAttach) {
-                            // it is safe to close old channel here since new channel will be put
-                            // in sub2Channel / channel2Sub so there is no race between channel
-                            // getting disconnected and it.
-                            ChannelFuture future = oldChannel.close();
-                            future.addListener(CLOSE_OLD_CHANNEL_LISTENER);
-                            logger.info("New subscribe request (" + request.getTxnId() + ") for (topic: " + topic.toStringUtf8()
-                                      + ", subscriber: " + subscriberId.toStringUtf8() + ") from channel " + channel.getRemoteAddress()
-                                      + " kills old channel " + oldChannel.getRemoteAddress());
-                            // try replace the oldChannel
-                            // if replace failure, it migth caused because channelDisconnect callback
-                            // has removed the old channel.
-                            if (!sub2Channel.replace(topicSub, oldChannel, channel)) {
-                                // try to add it now.
-                                // if add failure, it means other one has obtained the channel
-                                oldChannel = sub2Channel.putIfAbsent(topicSub, channel);
-                                if (null == oldChannel) {
-                                    subSuccess = true;
-                                }
-                            } else {
-                                subSuccess = true;
-                            }
-                        }
-                        if (!subSuccess) {
-                            PubSubException pse = new PubSubException.TopicBusyException(
-                                "Subscriber " + subscriberId.toStringUtf8() + " for topic " + topic.toStringUtf8()
-                                + " is already being served on a different channel " + oldChannel.getRemoteAddress());
-                            logger.error("Error serving subscribe request (" + request.getTxnId() + ") for (topic: " + topic.toStringUtf8()
-                                       + ", subscriber: " + subscriberId.toStringUtf8() + ") from channel " + channel.getRemoteAddress()
-                                       + " since it already being served on a different channel " + oldChannel.getRemoteAddress());
-                            channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
-                            .addListener(ChannelFutureListener.CLOSE);
-                            subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
-                            return;
-                        }
-                    }
-                    // channel2sub is just a cache, so we can add to it
-                    // without synchronization
-                    if (null == channel2sub.put(channel, topicSub)) {
-                        ServerStatsProvider.getStatsLoggerInstance()
-                                .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_SUBSCRIPTIONS).inc();
-                        if (SubscriptionStateUtils.isHubSubscriber(subscriberId))
-                            ServerStatsProvider.getStatsLoggerInstance()
-                                    .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_REMOTE_SUBSCRIPTIONS).inc();
-                    }
+                boolean forceAttach = false;
+                if (subRequest.hasForceAttach()) {
+                    forceAttach = subRequest.getForceAttach();
+                }
+                // Try to store the subscription channel for the topic subscriber
+                Channel oldChannel = subChannelMgr.put(topicSub, channel, forceAttach);
+                if (null != oldChannel) {
+                    PubSubException pse = new PubSubException.TopicBusyException(
+                        "Subscriber " + subscriberId.toStringUtf8() + " for topic " + topic.toStringUtf8()
+                        + " is already being served on a different channel " + oldChannel + ".");
+                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
+                    .addListener(ChannelFutureListener.CLOSE);
+                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                    return;
                 }
                 // First write success and then tell the delivery manager,
                 // otherwise the first message might go out before the response
@@ -288,7 +213,9 @@ public class SubscribeHandler extends BaseHandler implements ChannelDisconnectLi
                 MessageSeqId lastConsumedSeqId = subData.getState().getMsgId();
                 MessageSeqId seqIdToStartFrom = MessageSeqId.newBuilder(lastConsumedSeqId).setLocalComponent(
                                                     lastConsumedSeqId.getLocalComponent() + 1).build();
-                deliveryMgr.startServingSubscription(topic, subscriberId, seqIdToStartFrom,
+                deliveryMgr.startServingSubscription(topic, subscriberId,
+                                                     subData.getPreferences(),
+                                                     seqIdToStartFrom,
                                                      new ChannelEndPoint(channel), filter);
             }
         }, null);

@@ -384,17 +384,19 @@ public class LedgerFragmentReplicator {
                 lh.rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(
                                 lh.bk.mainWorkerPool, lh.getId()) {
                             @Override
-                        public void safeOperationComplete(int rc, LedgerMetadata newMeta) {
+                            public void safeOperationComplete(int rc,
+                                    LedgerMetadata newMeta) {
                                 if (rc != BKException.Code.OK) {
-                                LOG.error("Error reading updated ledger metadata for ledger "
+                                    LOG
+                                            .error("Error reading updated ledger metadata for ledger "
                                                     + lh.getId());
-                                ensembleUpdatedCb.processResult(rc, null,
-                                        null);
+                                    ensembleUpdatedCb.processResult(rc, null,
+                                            null);
                                 } else {
                                     lh.metadata = newMeta;
-                                updateEnsembleInfo(ensembleUpdatedCb,
-                                        fragmentStartId, lh, oldBookie,
-                                        newBookie);
+                                    updateEnsembleInfo(ensembleUpdatedCb,
+                                            fragmentStartId, lh, oldBookie,
+                                            newBookie);
                                 }
                             }
                         });

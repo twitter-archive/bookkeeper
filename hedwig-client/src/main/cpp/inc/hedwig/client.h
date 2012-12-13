@@ -47,6 +47,9 @@ namespace Hedwig {
     static const std::string SYNC_REQUEST_TIMEOUT;
     static const std::string SUBSCRIBER_AUTOCONSUME;
     static const std::string NUM_DISPATCH_THREADS;
+    static const std::string SSL_ENABLED;
+    static const std::string SSL_PEM_FILE;
+    static const std::string SUBSCRIPTION_CHANNEL_SHARING_ENABLED;
     /**
      * The maximum number of messages the hub will queue for subscriptions
      * created using this configuration. The hub will always queue the most

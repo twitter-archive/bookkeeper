@@ -69,6 +69,12 @@ public class BookKeeperSharedSemaphore {
         }*/
     }
 
+    public void acquire(BKSharedOp op, int permits) throws InterruptedException {
+        // (sijie) : add the method to let TestSpeculativeRead (BOOKKEEPER-336) could be compiled
+        // since acquire is commentted out, nothing is required to added here.
+        // TODO: added it if required to.
+    }
+
     public void release(BKSharedOp op) {
         /*switch (op) {
             case READ_OP:

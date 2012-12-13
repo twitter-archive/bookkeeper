@@ -603,7 +603,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      * crashed and therefore fences the ledger, preventing any further writes to
      * that ledger.
      * 
-     * @see LedgerHandle#openLedger
+     * @see org.apache.bookkeeper.client.BookKeeper#openLedger
      */
     public void setOpenLedgerRereplicationGracePeriod(String waitTime) {
         setProperty(OPEN_LEDGER_REREPLICATION_GRACE_PERIOD, waitTime);
@@ -692,13 +692,36 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Set skip list size limit.
+     *
+     * @param size skip list size limit.
+     * @return server configuration object.
+     */
+    public ServerConfiguration setSkipListSizeLimit(int size) {
+        setProperty(SKIP_LIST_SIZE_LIMIT, size);
+        return this;
+    }
+
+    /**
      * Get the number of bytes we should use as chunk allocation for the {@link
      * org.apache.bookkeeper.bookie.SkipListArena}
      * Default is 2 MB
      * @return
      */
     public int getSkipListArenaChunkSize() {
-        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 2096 * 1024);
+        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 2048 * 1024);
+    }
+
+    /**
+     * Set the number of bytes w used as chunk allocation for {@link
+     * org.apache.bookkeeper.bookie.SkipListArena}.
+     *
+     * @param size chunk size.
+     * @return server configuration object.
+     */
+    public ServerConfiguration setSkipListArenaChunkSize(int size) {
+        setProperty(SKIP_LIST_CHUNK_SIZE_ENTRY, size);
+        return this;
     }
 
     /**

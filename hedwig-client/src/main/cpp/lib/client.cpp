@@ -39,6 +39,9 @@ const std::string Configuration::SYNC_REQUEST_TIMEOUT = "hedwig.cpp.sync_request
 const std::string Configuration::SUBSCRIBER_AUTOCONSUME = "hedwig.cpp.subscriber_autoconsume";
 const std::string Configuration::NUM_DISPATCH_THREADS = "hedwig.cpp.num_dispatch_threads";
 const std::string Configuration::SUBSCRIPTION_MESSAGE_BOUND = "hedwig.cpp.subscription_message_bound";
+const std::string Configuration::SSL_ENABLED = "hedwig.cpp.ssl_enabled";
+const std::string Configuration::SSL_PEM_FILE = "hedwig.cpp.ssl_pem";
+const std::string Configuration::SUBSCRIPTION_CHANNEL_SHARING_ENABLED = "hedwig.cpp.subscription_channel_sharing_enabled";
 
 Client::Client(const Configuration& conf) {
   LOG4CXX_DEBUG(logger, "Client::Client (" << this << ")");

@@ -153,6 +153,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         this.requestTimeMillis = MathUtils.now();
         ArrayList<InetSocketAddress> ensemble = null;
         do {
+            LOG.debug("Acquiring lock: {}", i);
 
             if (i == nextEnsembleChange) {
                 ensemble = lh.metadata.getEnsemble(i);

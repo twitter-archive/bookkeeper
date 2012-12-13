@@ -36,6 +36,41 @@
 
 static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("hedwig."__FILE__));
 
+class StartStopDeliveryMsgHandler : public Hedwig::MessageHandlerCallback {
+public:
+  StartStopDeliveryMsgHandler(Hedwig::Subscriber& subscriber, const int nextValue)
+    : subscriber(subscriber), nextValue(nextValue) {}
+
+  virtual void consume(const std::string& topic, const std::string& subscriberId,
+                       const Hedwig::Message& msg,
+                       Hedwig::OperationCallbackPtr& callback) {
+    {
+      boost::lock_guard<boost::mutex> lock(mutex);
+
+      int curVal = atoi(msg.body().c_str());
+      LOG4CXX_DEBUG(logger, "received message " << curVal);
+      if (curVal == nextValue) {
+        ++nextValue;
+      }
+      callback->operationComplete();
+    }
+    ASSERT_THROW(subscriber.startDelivery(topic, subscriberId,
+                                          Hedwig::MessageHandlerCallbackPtr()),
+                 Hedwig::StartingDeliveryException);
+    ASSERT_THROW(subscriber.stopDelivery(topic, subscriberId),
+                 Hedwig::StartingDeliveryException);
+  }
+
+  int getNextValue() {
+    return nextValue;
+  }
+
+private:
+  Hedwig::Subscriber& subscriber;
+  boost::mutex mutex;
+  int nextValue;
+};
+
 class PubSubMessageHandlerCallback : public Hedwig::MessageHandlerCallback {
 public:
   PubSubMessageHandlerCallback(const std::string& topic, const std::string& subscriberId) : messagesReceived(0), topic(topic), subscriberId(subscriberId) {
@@ -75,23 +110,29 @@ protected:
 class PubSubOrderCheckingMessageHandlerCallback : public Hedwig::MessageHandlerCallback {
 public:
   PubSubOrderCheckingMessageHandlerCallback(const std::string& topic, const std::string& subscriberId, const int startMsgId, const int sleepTimeInConsume)
-    : messagesReceived(0), topic(topic), subscriberId(subscriberId), startMsgId(startMsgId), 
-      isInOrder(true), sleepTimeInConsume(sleepTimeInConsume) {
+    : topic(topic), subscriberId(subscriberId), startMsgId(startMsgId),
+      nextMsgId(startMsgId), isInOrder(true), sleepTimeInConsume(sleepTimeInConsume) {
   }
 
   virtual void consume(const std::string& topic, const std::string& subscriberId,
 		       const Hedwig::Message& msg, Hedwig::OperationCallbackPtr& callback) {
     if (topic == this->topic && subscriberId == this->subscriberId) {
       boost::lock_guard<boost::mutex> lock(mutex);
-            
-      messagesReceived++;
 
       int newMsgId = atoi(msg.body().c_str());
+      if (newMsgId == nextMsgId + 1) {
+        // only calculate unduplicated entries
+        ++nextMsgId;
+      }
+
       // checking msgId
       LOG4CXX_DEBUG(logger, "received message " << newMsgId);
       if (startMsgId >= 0) { // need to check ordering if start msg id is larger than 0
 	if (isInOrder) {
-	  if (newMsgId != startMsgId + 1) {
+          // in some environments, ssl channel encountering error like Bad File Descriptor.
+          // the channel would disconnect and reconnect. A duplicated message would be received.
+          // so just checking we received a larger out-of-order message.
+	  if (newMsgId > startMsgId + 1) {
 	    LOG4CXX_ERROR(logger, "received out-of-order message : expected " << (startMsgId + 1) << ", actual " << newMsgId);
 	    isInOrder = false;
 	  } else {
@@ -106,10 +147,9 @@ public:
     }
   }
     
-  int numMessagesReceived() {
+  int nextExpectedMsgId() {
     boost::lock_guard<boost::mutex> lock(mutex);
-    int i = messagesReceived;
-    return i;
+    return nextMsgId;
   }    
 
   bool inOrder() {
@@ -119,10 +159,10 @@ public:
     
 protected:
   boost::mutex mutex;
-  int messagesReceived;
   std::string topic;
   std::string subscriberId;
   int startMsgId;
+  int nextMsgId;
   bool isInOrder;
   int sleepTimeInConsume;
 };
@@ -179,6 +219,127 @@ private:
   bool running;
   long runTime;
 };
+
+TEST(PubSubTest, testStartDeliveryWithoutSub) {
+  Hedwig::Configuration* conf = new TestServerConfiguration();
+  std::auto_ptr<Hedwig::Configuration> confptr(conf);
+  
+  Hedwig::Client* client = new Hedwig::Client(*conf);
+  std::auto_ptr<Hedwig::Client> clientptr(client);
+
+  Hedwig::Subscriber& sub = client->getSubscriber();
+
+  std::string topic = "testStartDeliveryWithoutSub";
+  std::string sid = "mysub";
+
+  PubSubMessageHandlerCallback* cb = new PubSubMessageHandlerCallback(topic, sid);
+  Hedwig::MessageHandlerCallbackPtr handler(cb);
+  ASSERT_THROW(sub.startDelivery(topic, sid, handler),
+               Hedwig::NotSubscribedException);
+}
+
+TEST(PubSubTest, testAlreadyStartDelivery) {
+  Hedwig::Configuration* conf = new TestServerConfiguration();
+  std::auto_ptr<Hedwig::Configuration> confptr(conf);
+  
+  Hedwig::Client* client = new Hedwig::Client(*conf);
+  std::auto_ptr<Hedwig::Client> clientptr(client);
+
+  Hedwig::Subscriber& sub = client->getSubscriber();
+
+  std::string topic = "testAlreadyStartDelivery";
+  std::string sid = "mysub";
+
+  sub.subscribe(topic, sid, Hedwig::SubscribeRequest::CREATE_OR_ATTACH);
+
+  PubSubMessageHandlerCallback* cb = new PubSubMessageHandlerCallback(topic, sid);
+  Hedwig::MessageHandlerCallbackPtr handler(cb);
+  sub.startDelivery(topic, sid, handler);
+  ASSERT_THROW(sub.startDelivery(topic, sid, handler),
+               Hedwig::AlreadyStartDeliveryException);
+}
+
+TEST(PubSubTest, testStopDeliveryWithoutSub) {
+  Hedwig::Configuration* conf = new TestServerConfiguration();
+  std::auto_ptr<Hedwig::Configuration> confptr(conf);
+  
+  Hedwig::Client* client = new Hedwig::Client(*conf);
+  std::auto_ptr<Hedwig::Client> clientptr(client);
+
+  Hedwig::Subscriber& sub = client->getSubscriber();
+  ASSERT_THROW(sub.stopDelivery("testStopDeliveryWithoutSub", "mysub"),
+               Hedwig::NotSubscribedException);
+}
+
+TEST(PubSubTest, testStopDeliveryTwice) {
+  Hedwig::Configuration* conf = new TestServerConfiguration();
+  std::auto_ptr<Hedwig::Configuration> confptr(conf);
+  
+  Hedwig::Client* client = new Hedwig::Client(*conf);
+  std::auto_ptr<Hedwig::Client> clientptr(client);
+
+  Hedwig::Subscriber& sub = client->getSubscriber();
+
+  std::string topic = "testStopDeliveryTwice";
+  std::string subid = "mysub";
+
+  sub.subscribe(topic, subid, Hedwig::SubscribeRequest::CREATE_OR_ATTACH);
+
+  // it is ok to stop delivery without start delivery
+  sub.stopDelivery(topic, subid);
+
+  PubSubMessageHandlerCallback* cb = new PubSubMessageHandlerCallback(topic, subid);
+  Hedwig::MessageHandlerCallbackPtr handler(cb);
+  sub.startDelivery(topic, subid, handler);
+  sub.stopDelivery(topic, subid);
+  // stop again
+  sub.stopDelivery(topic, subid);
+}
+
+// test startDelivery / stopDelivery in msg handler
+TEST(PubSubTest, testStartStopDeliveryInMsgHandler) {
+  std::string topic("startStopDeliveryInMsgHandler");
+  std::string subscriber("mysubid");
+
+  Hedwig::Configuration* conf = new TestServerConfiguration();
+  std::auto_ptr<Hedwig::Configuration> confptr(conf);
+
+  Hedwig::Client* client = new Hedwig::Client(*conf);
+  std::auto_ptr<Hedwig::Client> clientptr(client);
+
+  Hedwig::Subscriber& sub = client->getSubscriber();
+  Hedwig::Publisher& pub = client->getPublisher();
+
+  // subscribe topic
+  sub.subscribe(topic, subscriber, Hedwig::SubscribeRequest::CREATE_OR_ATTACH);
+
+  int numMsgs = 5;
+
+  for (int i=0; i<numMsgs; i++) {
+    std::stringstream oss;
+    oss << i;
+    pub.publish(topic, oss.str());
+  }
+
+  // sleep for a while to wait all messages are sent to subscribe and queue them
+  sleep(1);
+
+  StartStopDeliveryMsgHandler* cb = new StartStopDeliveryMsgHandler(sub, 0);
+  Hedwig::MessageHandlerCallbackPtr handler(cb);
+  sub.startDelivery(topic, subscriber, handler);
+
+  for (int i=0 ; i<10; i++) {
+    if (cb->getNextValue() == numMsgs) {
+      break;
+    } else {
+      sleep(1);
+    }
+  }
+  ASSERT_TRUE(cb->getNextValue() == numMsgs);
+
+  sub.stopDelivery(topic, subscriber);
+  sub.closeSubscription(topic, subscriber);
+}
 
 // test startDelivery / stopDelivery randomly
 TEST(PubSubTest, testRandomDelivery) {
@@ -271,7 +432,7 @@ TEST(PubSubTest, testRandomDelivery) {
 
    for (int i = 0; i < 10; i++) {
      sleep(3);
-     if (cb->numMessagesReceived() == 2 * numMessages) {
+     if (cb->nextExpectedMsgId() == 2 * numMessages) {
        break;
      }
    }
@@ -329,7 +490,7 @@ TEST(PubSubTest, testRandomDelivery) {
      PubSubOrderCheckingMessageHandlerCallback *cb =
        (PubSubOrderCheckingMessageHandlerCallback *)(callbacks[j].get());
      for (int i = 0; i < 10; i++) {
-       if (cb->numMessagesReceived() == numMessages) {
+       if (cb->nextExpectedMsgId() == numMessages) {
 	 break;
        }
        sleep(3);
@@ -338,7 +499,6 @@ TEST(PubSubTest, testRandomDelivery) {
    }
    callbacks.clear();
  }
-
 
  TEST(PubSubTest, testPubSubContinuousOverClose) {
    std::string topic = "pubSubTopic";

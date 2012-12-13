@@ -46,6 +46,7 @@ import org.apache.hedwig.client.api.Subscriber;
 import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.apache.hedwig.client.HedwigClient;
 import org.apache.hedwig.protocol.PubSubProtocol.LedgerRange;
+import org.apache.hedwig.protocol.PubSubProtocol.LedgerRanges;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
@@ -638,25 +639,20 @@ public class HedwigConsole {
             return true;
         }
 
-        private void printTopicLedgers(List<LedgerRange> lrs) {
+        private void printTopicLedgers(List<LedgerRange> ranges) {
             System.out.println(">>> Persistence Info <<<");
-            if (null == lrs) {
+            if (null == ranges) {
                 System.out.println("N/A");
                 return;
             }
-            if (lrs.isEmpty()) {
+            if (ranges.isEmpty()) {
                 System.out.println("No Ledger used.");
                 return;
             }
-            Iterator<LedgerRange> lrIterator = lrs.iterator();
-            while (lrIterator.hasNext()) {
-                LedgerRange range = lrIterator.next();
-                long startOfLedger = range.getStartSeqIdIncluded();
-                long endOfLedger = Long.MAX_VALUE;
-                if (range.hasEndSeqIdIncluded()) {
-                    endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
-                }
-                System.out.println("Ledger " + range.getLedgerId() + " [ " + startOfLedger + " ~ " + (endOfLedger == Long.MAX_VALUE ? "" : endOfLedger) + " ]");
+            for (LedgerRange range : ranges) {
+                System.out.println("Ledger " + range.getLedgerId() + " [ "
+                                   + range.getStartSeqIdIncluded() + " ~ "
+                                   + range.getEndSeqIdIncluded().getLocalComponent() + " ]");
             }
             System.out.println();
         }
@@ -672,6 +668,31 @@ public class HedwigConsole {
                                  + SubscriptionStateUtils.toString(entry.getValue()));
             }
             System.out.println();
+        }
+
+    }
+
+    class FormatCmd implements MyCommand {
+
+        @Override
+        public boolean runCmd(String[] args) throws Exception {
+            boolean force = false;
+            if (args.length >= 2 && "-force".equals(args[1])) {
+                force = true;
+            }
+            boolean doFormat = true;
+            System.out.println("You ask to format hedwig metadata stored in "
+                               + admin.getMetadataManagerFactory().getClass().getName() + ".");
+            if (!force) {
+                doFormat = continueOrQuit();
+            }
+            if (doFormat) {
+                admin.format();
+                System.out.println("Formatted hedwig metadata successfully.");
+            } else {
+                System.out.println("Given up formatting hedwig metadata.");
+            }
+            return true;
         }
 
     }
@@ -698,6 +719,7 @@ public class HedwigConsole {
         cmds.put(SHOW, new ShowCmd());
         cmds.put(DESCRIBE, new DescribeCmd());
         cmds.put(READTOPIC, new ReadTopicCmd());
+        cmds.put(FORMAT, new FormatCmd());
 
         return cmds;
     }
@@ -883,7 +905,7 @@ public class HedwigConsole {
     }
 
     protected boolean continueOrQuit() throws IOException {
-        System.out.println("Press <Return> for more, or Q to cancel ...");
+        System.out.println("Press <Return> to continue, or Q to cancel ...");
         int ch;
         if (null != console) {
             ch = console.readCharacter(CONTINUE_OR_QUIT);

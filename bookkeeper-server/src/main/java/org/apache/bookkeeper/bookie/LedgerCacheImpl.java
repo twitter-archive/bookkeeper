@@ -23,6 +23,8 @@ package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

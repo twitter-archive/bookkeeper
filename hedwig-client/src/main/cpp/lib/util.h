@@ -53,9 +53,15 @@ namespace Hedwig {
     const std::string& getAddressString() const;
     uint32_t ip() const;
     uint16_t port() const;
+    uint16_t sslPort() const;
+
+    // the real ip address is different from default server
+    // if default server is a VIP
+    void updateIP(uint32_t ip);
 
     static HostAddress fromString(std::string host);
 
+    friend std::ostream& operator<<(std::ostream& os, const HostAddress& host);
   private:
 
     void parse_string();
@@ -64,6 +70,7 @@ namespace Hedwig {
     std::string address_str;
     uint32_t host_ip;
     uint16_t host_port;
+    uint16_t ssl_host_port;
   };
 
   /**
@@ -100,6 +107,22 @@ namespace Hedwig {
       return std::tr1::hash<std::string>()(fullstr);
     }
   };
+
+  /**
+   * Operation Type Hash
+   */
+  struct OperationTypeHash : public std::unary_function<Hedwig::OperationType, size_t> {
+    size_t operator()(const Hedwig::OperationType& type) const {
+      return type;
+    }
+  };
+};
+
+// Since TopicSubscriber is an typedef of std::pair. so log4cxx would lookup 'operator<<'
+// in std namespace.
+namespace std {
+  // Help Function to print topicSubscriber
+  std::ostream& operator<<(std::ostream& os, const Hedwig::TopicSubscriber& ts);
 };
 
 #endif

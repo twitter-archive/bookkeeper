@@ -43,6 +43,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected static final String TIMEOUT_THREAD_RUN_INTERVAL = "timeout_thread_run_interval";
     protected static final String SSL_ENABLED = "ssl_enabled";
     protected static final String SUBSCRIPTION_MESSAGE_BOUND = "subscription_message_bound";
+    protected static final String SUBSCRIPTION_CHANNEL_SHARING_ENABLED = "subscription_channel_sharing_enabled";
 
     // Singletons we want to instantiate only once per ClientConfiguration
     protected HedwigSocketAddress myDefaultServerAddress = null;
@@ -146,6 +147,14 @@ public class ClientConfiguration extends AbstractConfiguration {
     // cross-colo hub clients listening to non-local servers.
     public boolean isSSLEnabled() {
         return conf.getBoolean(SSL_ENABLED, false);
+    }
+
+    /**
+     * This parameter is a boolean flag indicating if multiplexing subscription
+     * channels.
+     */
+    public boolean isSubscriptionChannelSharingEnabled() {
+        return conf.getBoolean(SUBSCRIPTION_CHANNEL_SHARING_ENABLED, false);
     }
 
     /**

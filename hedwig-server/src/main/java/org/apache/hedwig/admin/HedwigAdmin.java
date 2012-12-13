@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -41,9 +42,11 @@ import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
+import org.apache.hedwig.server.meta.FactoryLayout;
 import org.apache.hedwig.server.meta.SubscriptionDataManager;
 import org.apache.hedwig.server.meta.TopicOwnershipManager;
 import org.apache.hedwig.server.meta.TopicPersistenceManager;
+import org.apache.hedwig.server.subscriptions.InMemorySubscriptionState;
 import org.apache.hedwig.server.topics.HubInfo;
 import org.apache.hedwig.server.topics.HubLoad;
 import org.apache.hedwig.util.Callback;
@@ -222,6 +225,15 @@ public class HedwigAdmin {
     }
 
     /**
+     * Return metadata manager factory.
+     *
+     * @return metadata manager factory instance.
+     */
+    public MetadataManagerFactory getMetadataManagerFactory() {
+        return mmFactory;
+    }
+
+    /**
      * Return bookeeper passwd used in hedwig admin
      *
      * @return bookeeper passwd
@@ -352,6 +364,13 @@ public class HedwigAdmin {
         return syncObj.value;
     }
 
+    private static LedgerRange buildLedgerRange(long ledgerId, long startOfLedger, MessageSeqId endOfLedger) {
+        LedgerRange.Builder builder =
+            LedgerRange.newBuilder().setLedgerId(ledgerId).setStartSeqIdIncluded(startOfLedger)
+                       .setEndSeqIdIncluded(endOfLedger);
+        return builder.build();
+    }
+
     /**
      * Return the ledger range forming the topic
      *
@@ -387,54 +406,54 @@ public class HedwigAdmin {
         if (null == ranges) {
             return null;
         }
+        List<LedgerRange> results = new ArrayList<LedgerRange>();
         List<LedgerRange> lrs = ranges.getRangesList();
-        if (lrs.isEmpty()) {
-            return lrs;
-        }
-        // try to check last ledger (it may still open)
-        LedgerRange lastRange = lrs.get(lrs.size() - 1);
-        if (lastRange.hasEndSeqIdIncluded()) {
-            return lrs;
-        }
-        // read last confirmed of the opened ledger
-        try {
-            List<LedgerRange> newLrs = new ArrayList<LedgerRange>();
-            newLrs.addAll(lrs);
-            lrs = newLrs;
-            MessageSeqId lastSeqId;
-            if (lrs.size() == 1) {
-                long endSeqId = lrs.get(0).getStartSeqIdIncluded() - 1;
-                lastSeqId = MessageSeqId.newBuilder().setLocalComponent(endSeqId).build();
-            } else {
-                lastSeqId = lrs.get(lrs.size() - 2).getEndSeqIdIncluded();
+        long startSeqId = 1L;
+        if (!lrs.isEmpty()) {
+            LedgerRange range = lrs.get(0);
+            if (!range.hasStartSeqIdIncluded() && range.hasEndSeqIdIncluded()) {
+                long ledgerId = range.getLedgerId();
+                try {
+                    LedgerHandle lh = bk.openLedgerNoRecovery(ledgerId, DigestType.CRC32, passwd);
+                    long numEntries = lh.readLastConfirmed() + 1;
+                    long endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
+                    startSeqId = endOfLedger - numEntries + 1;
+                } catch (BKException.BKNoSuchLedgerExistsException be) {
+                    // ignore it
+                }
             }
-            LedgerRange newLastRange = refreshLastLedgerRange(lastSeqId, lastRange);
-            lrs.set(lrs.size() - 1, newLastRange);
-        } catch (Exception e) {
-            e.printStackTrace();
         }
-        return lrs;
-    }
+        Iterator<LedgerRange> lrIter = lrs.iterator();
+        while (lrIter.hasNext()) {
+            LedgerRange range = lrIter.next();
+            if (range.hasEndSeqIdIncluded()) {
+                long endOfLedger = range.getEndSeqIdIncluded().getLocalComponent();
+                if (range.hasStartSeqIdIncluded()) {
+                    startSeqId = range.getStartSeqIdIncluded();
+                } else {
+                    range = buildLedgerRange(range.getLedgerId(), startSeqId, range.getEndSeqIdIncluded());
+                }
+                results.add(range);
+                if (startSeqId < endOfLedger + 1) {
+                    startSeqId = endOfLedger + 1;
+                }
+                continue;
+            }
+            if (lrIter.hasNext()) {
+                throw new IllegalStateException("Ledger " + range.getLedgerId() + " for topic " + topic.toString()
+                                                + " is not the last one but still does not have an end seq-id");
+            }
 
-    /**
-     * Refresh last ledger range to get lastConfirmed entry, which make it available to read
-     *
-     * @param lastSeqId
-     *            Last sequence id of previous ledger
-     * @param oldRange
-     *            Ledger range to set lastConfirmed entry
-     */
-    LedgerRange refreshLastLedgerRange(MessageSeqId lastSeqId, LedgerRange oldRange)
-        throws BKException, KeeperException, InterruptedException {
-        LedgerHandle lh = bk.openLedgerNoRecovery(oldRange.getLedgerId(), DigestType.CRC32, passwd);
-        LedgerRange.Builder builder = LedgerRange.newBuilder().mergeFrom(oldRange);
-        long lastConfirmed = lh.readLastConfirmed();
-        if (lastConfirmed != -1) {
-            MessageSeqId newSeqId = MessageSeqId.newBuilder().mergeFrom(lastSeqId)
-                                .setLocalComponent(lastSeqId.getLocalComponent() + lastConfirmed).build();
-            builder.setEndSeqIdIncluded(newSeqId);
+            if (range.hasStartSeqIdIncluded()) {
+                startSeqId = range.getStartSeqIdIncluded();
+            }
+
+            LedgerHandle lh = bk.openLedgerNoRecovery(range.getLedgerId(), DigestType.CRC32, passwd);
+            long endOfLedger = startSeqId + lh.readLastConfirmed();
+            MessageSeqId endSeqId = MessageSeqId.newBuilder().setLocalComponent(endOfLedger).build();
+            results.add(buildLedgerRange(range.getLedgerId(), startSeqId, endSeqId));
         }
-        return builder.build();
+        return results;
     }
 
     /**
@@ -450,10 +469,16 @@ public class HedwigAdmin {
 
         final SyncObj<Map<ByteString, SubscriptionData>> syncObj =
             new SyncObj<Map<ByteString, SubscriptionData>>();
-        sdm.readSubscriptions(topic, new Callback<Map<ByteString, SubscriptionData>>() {
+        sdm.readSubscriptions(topic, new Callback<Map<ByteString, Versioned<SubscriptionData>>>() {
             @Override
-            public void operationFinished(Object ctx, Map<ByteString, SubscriptionData> result) {
-                syncObj.success(result);
+            public void operationFinished(Object ctx, Map<ByteString, Versioned<SubscriptionData>> result) {
+                // It was just used to console tool to print some information, so don't need to return version for it
+                // just keep the getTopicSubscriptions interface as before
+                Map<ByteString, SubscriptionData> subs = new ConcurrentHashMap<ByteString, SubscriptionData>();
+                for (Map.Entry<ByteString, Versioned<SubscriptionData>> subEntry : result.entrySet()) {
+                    subs.put(subEntry.getKey(), subEntry.getValue().getValue());
+                }
+                syncObj.success(subs);
             }
             @Override
             public void operationFailed(Object ctx, PubSubException pse) {
@@ -482,10 +507,14 @@ public class HedwigAdmin {
      */
     public SubscriptionData getSubscription(ByteString topic, ByteString subscriber) throws Exception {
         final SyncObj<SubscriptionData> syncObj = new SyncObj<SubscriptionData>();
-        sdm.readSubscriptionData(topic, subscriber, new Callback<SubscriptionData>() {
+        sdm.readSubscriptionData(topic, subscriber, new Callback<Versioned<SubscriptionData>>() {
             @Override
-            public void operationFinished(Object ctx, SubscriptionData result) {
-                syncObj.success(result);
+            public void operationFinished(Object ctx, Versioned<SubscriptionData> result) {
+                if (null == result) {
+                    syncObj.success(null);
+                } else {
+                    syncObj.success(result.getValue());
+                }
             }
             @Override
             public void operationFailed(Object ctx, PubSubException pse) {
@@ -500,5 +529,21 @@ public class HedwigAdmin {
         }
 
         return syncObj.value;
+    }
+
+    /**
+     * Format metadata for Hedwig.
+     */
+    public void format() throws Exception {
+        // format metadata first
+        mmFactory.format(serverConf, zk);
+        LOG.info("Formatted Hedwig metadata successfully.");
+        // remove metadata layout
+        FactoryLayout.deleteLayout(zk, serverConf);
+        LOG.info("Removed old factory layout.");
+        // create new metadata manager factory and write new metadata layout
+        MetadataManagerFactory.createMetadataManagerFactory(serverConf, zk,
+            serverConf.getMetadataManagerFactoryClass());
+        LOG.info("Created new factory layout.");
     }
 }

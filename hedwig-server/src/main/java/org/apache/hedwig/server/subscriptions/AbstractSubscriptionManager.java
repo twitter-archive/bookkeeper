@@ -30,6 +30,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
+
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
@@ -37,6 +41,7 @@ import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionState;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
@@ -127,24 +132,24 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 long minConsumedMessage = Long.MAX_VALUE;
                 boolean hasBound = true;
-                // Loop through all subscribers to the current topic to find the
-                // minimum consumed message id. The consume pointers are
-                // persisted lazily so we'll use the stale in-memory value
-                // instead. This keeps things consistent in case of a server
-                // crash.
+                // Loop through all subscribers on the current topic to find the
+                // minimum persisted message id. The reason not using in-memory
+                // consumed message id is LedgerRangs and InMemorySubscriptionState
+                // may be inconsistent in case of a server crash.
                 for (InMemorySubscriptionState curSubscription : topicSubscriptions.values()) {
-                    if (curSubscription.getSubscriptionState().getMsgId().getLocalComponent() < minConsumedMessage)
-                        minConsumedMessage = curSubscription.getSubscriptionState().getMsgId().getLocalComponent();
+                    if (curSubscription.getLastPersistedSeqId() < minConsumedMessage) {
+                        minConsumedMessage = curSubscription.getLastPersistedSeqId();
+                    }
                     hasBound = hasBound && curSubscription.getSubscriptionPreferences().hasMessageBound();
                 }
                 boolean callPersistenceManager = true;
-                // Don't call the PersistenceManager if nobody is subscribed to
-                // the topic yet, or the consume pointer has not changed since
-                // the last time, or if this is the initial subscription.
+                // Call the PersistenceManager if nobody subscribes to the topic
+                // yet, or the consume pointer has moved ahead since the last
+                // time, or if this is the initial subscription.
                 Long minConsumedFromMap = topic2MinConsumedMessagesMap.get(topic);
                 if (topicSubscriptions.isEmpty()
-                    || (minConsumedFromMap != null && minConsumedFromMap.equals(minConsumedMessage))
-                    || minConsumedMessage == 0) {
+                    || (minConsumedFromMap != null && minConsumedFromMap < minConsumedMessage)
+                    || (minConsumedFromMap == null && minConsumedMessage != 0)) {
                     topic2MinConsumedMessagesMap.put(topic, minConsumedMessage);
                     pm.consumedUntil(topic, minConsumedMessage);
                 } else if (hasBound) {
@@ -287,7 +292,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                                            + subId.toStringUtf8() + ") when losing topic");
                             }
                             if (null != dm) {
-                                dm.stopServingSubscriber(topic, subId);
+                                dm.stopServingSubscriber(topic, subId, SubscriptionEvent.TOPIC_MOVED,
+                                                         noopCallback, null);
                             }
                         }
                     }
@@ -338,7 +344,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     protected abstract void readSubscriptions(final ByteString topic,
             final Callback<Map<ByteString, InMemorySubscriptionState>> cb, final Object ctx);
-
+    
+    protected abstract void readSubscriptionData(final ByteString topic, final ByteString subscriberId, 
+            final Callback<InMemorySubscriptionState> cb, Object ctx);
+    
     private class SubscribeOp extends TopicOpQueuer.AsynchronousOp<SubscriptionData> {
         SubscribeRequest subRequest;
         MessageSeqId consumeSeqId;
@@ -441,21 +450,21 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 SubscriptionData.newBuilder().setState(stateBuilder).setPreferences(preferencesBuilder);
             final SubscriptionData subData = subDataBuilder.build();
 
-            createSubscriptionData(topic, subscriberId, subData, new Callback<Void>() {
+            createSubscriptionData(topic, subscriberId, subData, new Callback<Version>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
                     cb.operationFailed(ctx, exception);
                 }
 
                 @Override
-                public void operationFinished(Object ctx, Void resultOfOperation) {
+                public void operationFinished(Object ctx, final Version version) {
                     Callback<Void> cb2 = new Callback<Void>() {
                         @Override
                         public void operationFailed(final Object ctx, final PubSubException exception) {
                             logger.error("subscription for subscriber " + subscriberId.toStringUtf8() + " to topic "
                                          + topic.toStringUtf8() + " failed due to failed listener callback", exception);
                             // should remove subscription when synchronized cross-region subscription failed
-                            deleteSubscriptionData(topic, subscriberId, new Callback<Void>() {
+                            deleteSubscriptionData(topic, subscriberId, version, new Callback<Void>() {
                                 @Override
                                 public void operationFinished(Object context,
                                         Void resultOfOperation) {
@@ -476,7 +485,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                         @Override
                         public void operationFinished(Object ctx, Void resultOfOperation) {
-                            topicSubscriptions.put(subscriberId, new InMemorySubscriptionState(subData));
+                            topicSubscriptions.put(subscriberId, new InMemorySubscriptionState(subData, version));
 
                             updateMessageBound(topic);
                             cb.operationFinished(ctx, subData);
@@ -492,7 +501,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                         notifySubscribe(topic, subRequest.getSynchronous(), cb2, ctx);
                     }
                     else
-                        cb2.operationFinished(ctx, resultOfOperation);
+                        cb2.operationFinished(ctx, null);
                 }
             }, ctx);
         }
@@ -557,14 +566,25 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 return;
             }
 
-            InMemorySubscriptionState subState = topicSubs.get(subscriberId);
+            final InMemorySubscriptionState subState = topicSubs.get(subscriberId);
             if (subState == null) {
                 cb.operationFinished(ctx, null);
                 return;
             }
 
             if (subState.setLastConsumeSeqId(consumeSeqId, cfg.getConsumeInterval())) {
-                updateSubscriptionState(topic, subscriberId, subState, cb, ctx);
+                updateSubscriptionState(topic, subscriberId, subState, new Callback<Void>() {
+                    @Override
+                    public void operationFinished(Object ctx, Void resultOfOperation) {
+                        subState.setLastPersistedSeqId(consumeSeqId.getLocalComponent());
+                        cb.operationFinished(ctx, resultOfOperation);
+                    }
+
+                    @Override
+                    public void operationFailed(Object ctx, PubSubException exception) {
+                        cb.operationFailed(ctx, exception);
+                    }
+                }, ctx);
             } else {
                 if (logger.isDebugEnabled()) {
                     logger.debug("Only advanced consume pointer in memory, will persist later, topic: "
@@ -576,13 +596,42 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 cb.operationFinished(ctx, null);
             }
 
+            // tell delivery manage about the consume event
+            if (null != dm) {
+                dm.messageConsumed(topic, subscriberId, consumeSeqId);
             }
         }
+    }
 
     @Override
     public void setConsumeSeqIdForSubscriber(ByteString topic, ByteString subscriberId, MessageSeqId consumeSeqId,
             Callback<Void> callback, Object ctx) {
         ConsumeOp op = new ConsumeOp(getOpQueuer(subscriberId), topic, subscriberId, consumeSeqId, callback, ctx);
+        subSpecificPushAndMaybeRun(topic, subscriberId, op);
+    }
+
+    private class CloseSubscriptionOp extends TopicOpQueuer.AsynchronousOp<Void> {
+
+        public CloseSubscriptionOp(TopicOpQueuer enclosingInstance,
+                                   ByteString topic, ByteString subscriberId,
+                                   Callback<Void> callback, Object ctx) {
+            enclosingInstance.super(topic, callback, ctx);
+        }
+
+        @Override
+        public void run() {
+            // TODO: BOOKKEEPER-412: we might need to move the loaded subscription
+            //                       to reclaim memory
+            // But for now we do nothing
+            cb.operationFinished(ctx, null);
+        }
+    }
+
+    @Override
+    public void closeSubscription(ByteString topic, ByteString subscriberId,
+                                  Callback<Void> callback, Object ctx) {
+        CloseSubscriptionOp op = new CloseSubscriptionOp(getOpQueuer(subscriberId), topic, subscriberId,
+                                                         callback, ctx);
         subSpecificPushAndMaybeRun(topic, subscriberId, op);
     }
 
@@ -607,8 +656,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 cb.operationFailed(ctx, new PubSubException.ClientNotSubscribedException(""));
                 return;
             }
-
-            deleteSubscriptionData(topic, subscriberId, new Callback<Void>() {
+            
+            deleteSubscriptionData(topic, subscriberId, topicSubscriptions.get(subscriberId).getVersion(),
+                    new Callback<Void>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
                     cb.operationFailed(ctx, exception);
@@ -674,44 +724,100 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         }
     }
 
-    private void updateSubscriptionState(ByteString topic, ByteString subscriberId,
-                                         InMemorySubscriptionState state,
-                                         Callback<Void> callback, Object ctx) {
+    private void updateSubscriptionState(final ByteString topic, final ByteString subscriberId,
+                                         final InMemorySubscriptionState state,
+                                         final Callback<Void> callback, Object ctx) {
         SubscriptionData subData;
+        Callback<Version> cb = new Callback<Version>() {
+            @Override
+            public void operationFinished(Object ctx, Version version) {
+                state.setVersion(version);
+                callback.operationFinished(ctx, null);
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                if (exception instanceof PubSubException.BadVersionException) {
+                    readSubscriptionData(topic, subscriberId, new Callback<InMemorySubscriptionState>() {
+                        @Override
+                        public void operationFinished(Object ctx,
+                                InMemorySubscriptionState resultOfOperation) {
+                            state.setVersion(resultOfOperation.getVersion());
+                            updateSubscriptionState(topic, subscriberId, state, callback, ctx);
+                        }
+                        @Override
+                        public void operationFailed(Object ctx,
+                                PubSubException exception) {
+                            callback.operationFailed(ctx, exception);
+                        }
+                    }, ctx);
+                    
+                    return;
+                } 
+                callback.operationFailed(ctx, exception);
+            }
+        };
         if (isPartialUpdateSupported()) {
             subData = SubscriptionData.newBuilder().setState(state.getSubscriptionState()).build();
-            updateSubscriptionData(topic, subscriberId, subData, callback, ctx);
+            updateSubscriptionData(topic, subscriberId, subData, state.getVersion(), cb, ctx);
         } else {
             subData = state.toSubscriptionData();
-            replaceSubscriptionData(topic, subscriberId, subData, callback, ctx);
+            replaceSubscriptionData(topic, subscriberId, subData, state.getVersion(), cb, ctx);
         }
     }
 
-    private void updateSubscriptionPreferences(ByteString topic, ByteString subscriberId,
-                                               InMemorySubscriptionState state,
-                                               Callback<Void> callback, Object ctx) {
+    private void updateSubscriptionPreferences(final ByteString topic, final ByteString subscriberId,
+                                               final InMemorySubscriptionState state,
+                                               final Callback<Void> callback, Object ctx) {
         SubscriptionData subData;
+        Callback<Version> cb = new Callback<Version>() {
+            @Override
+            public void operationFinished(Object ctx, Version version) {
+                state.setVersion(version);
+                callback.operationFinished(ctx, null);
+            }
+            @Override
+            public void operationFailed(Object ctx, PubSubException exception) {
+                if (exception instanceof PubSubException.BadVersionException) {
+                    readSubscriptionData(topic, subscriberId, new Callback<InMemorySubscriptionState>() {
+                        @Override
+                        public void operationFinished(Object ctx,
+                                InMemorySubscriptionState resultOfOperation) {
+                            state.setVersion(resultOfOperation.getVersion());
+                            updateSubscriptionPreferences(topic, subscriberId, state, callback, ctx);
+                        }
+                        @Override
+                        public void operationFailed(Object ctx,
+                                PubSubException exception) {
+                            callback.operationFailed(ctx, exception);
+                        }
+                    }, ctx);
+                    
+                    return;
+                } 
+                callback.operationFailed(ctx, exception);
+            }
+        };
         if (isPartialUpdateSupported()) {
             subData = SubscriptionData.newBuilder().setPreferences(state.getSubscriptionPreferences()).build();
-            updateSubscriptionData(topic, subscriberId, subData, callback, ctx);
+            updateSubscriptionData(topic, subscriberId, subData, state.getVersion(), cb, ctx);
         } else {
             subData = state.toSubscriptionData();
-            replaceSubscriptionData(topic, subscriberId, subData, callback, ctx);
+            replaceSubscriptionData(topic, subscriberId, subData, state.getVersion(), cb, ctx);
         }
     }
 
     protected abstract boolean isPartialUpdateSupported();
 
     protected abstract void createSubscriptionData(final ByteString topic, ByteString subscriberId,
-            SubscriptionData data, Callback<Void> callback, Object ctx);
+            SubscriptionData data, Callback<Version> callback, Object ctx);
 
     protected abstract void updateSubscriptionData(ByteString topic, ByteString subscriberId, SubscriptionData data,
-            Callback<Void> callback, Object ctx);
+            Version version, Callback<Version> callback, Object ctx);
 
     protected abstract void replaceSubscriptionData(ByteString topic, ByteString subscriberId, SubscriptionData data,
-            Callback<Void> callback, Object ctx);
+            Version version, Callback<Version> callback, Object ctx);
 
-    protected abstract void deleteSubscriptionData(ByteString topic, ByteString subscriberId, Callback<Void> callback,
+    protected abstract void deleteSubscriptionData(ByteString topic, ByteString subscriberId, Version version, Callback<Void> callback,
             Object ctx);
 
 }

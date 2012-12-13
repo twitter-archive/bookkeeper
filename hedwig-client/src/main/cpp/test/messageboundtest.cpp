@@ -33,32 +33,16 @@
 
 static log4cxx::LoggerPtr logger(log4cxx::Logger::getLogger("hedwig."__FILE__));
 
-
-class MessageBoundConfiguration : public Hedwig::Configuration {
+class MessageBoundConfiguration : public TestServerConfiguration {
 public:
-  MessageBoundConfiguration() : address("localhost:4081") {}
+  MessageBoundConfiguration() : TestServerConfiguration() {}
     
   virtual int getInt(const std::string& key, int defaultVal) const {
     if (key == Configuration::SUBSCRIPTION_MESSAGE_BOUND) {
       return 5;
     }
-    return defaultVal;
+    return TestServerConfiguration::getInt(key, defaultVal);
   }
-
-  virtual const std::string get(const std::string& key, const std::string& defaultVal) const {
-    if (key == Configuration::DEFAULT_SERVER) {
-      return address;
-    } else {
-      return defaultVal;
-    }
-  }
-    
-  virtual bool getBool(const std::string& /*key*/, bool defaultVal) const {
-    return defaultVal;
-  }
-
-protected:
-  const std::string address;
 };
     
 class MessageBoundOrderCheckingMessageHandlerCallback : public Hedwig::MessageHandlerCallback {
@@ -68,7 +52,7 @@ public:
   }
 
   virtual void consume(const std::string& topic, const std::string& subscriberId,
-		       const Hedwig::Message& msg, Hedwig::OperationCallbackPtr& callback) {
+                       const Hedwig::Message& msg, Hedwig::OperationCallbackPtr& callback) {
     boost::lock_guard<boost::mutex> lock(mutex);
       
     int thisMsg = atoi(msg.body().c_str());
@@ -90,11 +74,17 @@ protected:
 };
 
 void sendXExpectLastY(Hedwig::Publisher& pub, Hedwig::Subscriber& sub, const std::string& topic, 
-		      const std::string& subid, int X, int Y) {
-  for (int i = 0; i < X; i++) {
+                      const std::string& subid, int X, int Y) {
+  for (int i = 0; i < X;) {
     std::stringstream oss;
     oss << i;
-    pub.publish(topic, oss.str());
+    try {
+      pub.publish(topic, oss.str());
+      ++i;
+    } catch (std::exception &e) {
+      LOG4CXX_WARN(logger, "Exception when publishing message " << i << " : "
+                           << e.what());
+    }
   }
 
   sub.subscribe(topic, subid, Hedwig::SubscribeRequest::ATTACH);
@@ -128,7 +118,7 @@ TEST(MessageBoundTest, testMessageBound) {
   Hedwig::Subscriber& sub = client->getSubscriber();
   Hedwig::Publisher& pub = client->getPublisher();
 
-  std::string topic = "testTopic";
+  std::string topic = "testMessageBound";
   std::string subid = "testSubId";
   sub.subscribe(topic, subid, Hedwig::SubscribeRequest::CREATE_OR_ATTACH);
   sub.closeSubscription(topic, subid);
@@ -155,7 +145,7 @@ TEST(MessageBoundTest, testMultipleSubscribers) {
   Hedwig::SubscriptionOptions optionsUnlimited;
   optionsUnlimited.set_createorattach(Hedwig::SubscribeRequest::CREATE_OR_ATTACH);
 
-  std::string topic = "testTopic";
+  std::string topic = "testMultipleSubscribers";
   std::string subid5 = "testSubId5";
   std::string subid20 = "testSubId20";
   std::string subidUnlimited = "testSubIdUnlimited";

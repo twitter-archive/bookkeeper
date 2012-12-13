@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -25,7 +25,7 @@ ZKCLIENT=org.apache.zookeeper.ZooKeeperMain
 check_bk_down() {
     NUM_UP=100
     for i in 0 1 2 3 4 5 6 7 8 9; do
-	NUM_UP=`sh $BKSCRIPT $ZKCLIENT ls /ledgers/available 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
+	NUM_UP=`$BKSCRIPT $ZKCLIENT ls /ledgers/available 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
 	if [ $NUM_UP == 0 ]; then
 	    break;
 	fi
@@ -42,7 +42,7 @@ check_bk_up() {
     NUM_BOOKIES=$1
     NUM_UP=0
     for i in 0 1 2 3 4 5 6 7 8 9; do
-	NUM_UP=`sh $BKSCRIPT $ZKCLIENT ls /ledgers/available 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
+	NUM_UP=`$BKSCRIPT $ZKCLIENT ls /ledgers/available 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
 	if [ $NUM_UP == $NUM_BOOKIES ]; then
 	    break;
 	fi
@@ -59,7 +59,7 @@ check_hw_down() {
     REGION=$1
     NUM_UP=100
     for i in 0 1 2 3 4 5 6 7 8 9; do
-	NUM_UP=`sh $BKSCRIPT $ZKCLIENT ls /hedwig/$REGION/hosts 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
+	NUM_UP=`$BKSCRIPT $ZKCLIENT ls /hedwig/$REGION/hosts 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
 	if [ $NUM_UP == 0 ]; then
 	    break;
 	fi
@@ -77,7 +77,7 @@ check_hw_up() {
     NUM_SERVERS=$2
     NUM_UP=0
     for i in 0 1 2 3 4 5 6 7 8 9; do
-	NUM_UP=`sh $BKSCRIPT $ZKCLIENT ls /hedwig/$REGION/hosts 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
+	NUM_UP=`$BKSCRIPT $ZKCLIENT ls /hedwig/$REGION/hosts 2> /dev/null | awk 'BEGIN{SERVERS=0} /^\[/ { gsub(/[,\[\]]/, ""); SERVERS=NF} END{ print SERVERS }'`
 	if [ $NUM_UP == $NUM_SERVERS ]; then
 	    break;
 	fi
@@ -94,6 +94,7 @@ start_hw_server () {
     REGION=$1
     COUNT=$2
     PORT=$((4080+$COUNT))
+    SSL_PORT=$((9876+$COUNT))
 
     export HEDWIG_LOG_CONF=/tmp/hw-log4j-$COUNT.properties
     cat > $HEDWIG_LOG_CONF <<EOF
@@ -112,6 +113,8 @@ log4j.appender.ROLLINGFILE.MaxFileSize=10MB
 #log4j.appender.ROLLINGFILE.MaxBackupIndex=10
 log4j.appender.ROLLINGFILE.layout=org.apache.log4j.PatternLayout
 log4j.appender.ROLLINGFILE.layout.ConversionPattern=%d{ISO8601} - %-5p [%t:%C{1}@%L] - %m%n
+log4j.logger.org.apache.zookeeper=OFF,ROLLINGFILE
+log4j.logger.org.apache.hedwig.zookeeper=OFF,ROLLINGFILE
 EOF
 
     export HEDWIG_SERVER_CONF=/tmp/hw-server-$COUNT.conf
@@ -122,12 +125,14 @@ zk_timeout=2000
 # The port at which the clients will connect.
 server_port=$PORT
 # The SSL port at which the clients will connect (only if SSL is enabled).
-ssl_server_port=9876
+ssl_server_port=$SSL_PORT
 # Flag indicating if the server should also operate in SSL mode.
-ssl_enabled=false
+ssl_enabled=true
+cert_path=$PWD/../../../../../hedwig-server/src/main/resources/server.p12
+password=eUySvp2phM2Wk
 region=$REGION
 EOF
-    sh $HWSCRIPT server 2>&1 > hwoutput.$COUNT.log &
+    $HWSCRIPT server 2>&1 > hwoutput.$COUNT.log &
     echo $! > hwprocess.$COUNT.pid
 }
 
@@ -136,7 +141,7 @@ start_cluster() {
 	stop_cluster;
     fi
 
-    sh $BKSCRIPT localbookie 3 2>&1 > bkoutput.log &
+    $BKSCRIPT localbookie 3 2>&1 > bkoutput.log &
     echo $! > bkprocess.pid
     check_bk_up 3
 
