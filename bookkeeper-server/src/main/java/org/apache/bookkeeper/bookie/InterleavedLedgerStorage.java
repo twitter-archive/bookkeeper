@@ -148,6 +148,8 @@ class InterleavedLedgerStorage implements LedgerStorage {
         boolean flushFailed = false;
         try {
             ledgerCache.flushLedger(force);
+        } catch (LedgerDirsManager.NoWritableLedgerDirException e) {
+            throw e;
         } catch (IOException ioe) {
             LOG.error("Exception flushing Ledger cache", ioe);
             flushFailed = true;
@@ -155,6 +157,8 @@ class InterleavedLedgerStorage implements LedgerStorage {
 
         try {
             entryLogger.flush();
+        } catch (LedgerDirsManager.NoWritableLedgerDirException e) {
+            throw e;
         } catch (IOException ioe) {
             LOG.error("Exception flushing Ledger", ioe);
             flushFailed = true;

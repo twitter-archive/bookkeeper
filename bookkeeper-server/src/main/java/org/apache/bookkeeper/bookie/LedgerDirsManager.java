@@ -72,7 +72,8 @@ public class LedgerDirsManager {
     public List<File> getWritableLedgerDirs()
             throws NoWritableLedgerDirException {
         if (writableLedgerDirectories.isEmpty()) {
-            NoWritableLedgerDirException.logAndThrow(LOG, "All ledger directories are non writable");
+            NoWritableLedgerDirException.logAndThrow(LOG, "Out of " + ledgerDirectories.size() + " directories none are writable "
+                + filledDirs.size() + " are full");
         }
         return writableLedgerDirectories;
     }

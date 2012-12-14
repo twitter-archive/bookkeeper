@@ -236,6 +236,7 @@ public class Bookie extends BookieThread {
                 try {
                     ledgerStorage.flush();
                 } catch (NoWritableLedgerDirException e) {
+                    LOG.error("No writeable ledger directories");
                     flushFailed = true;
                     flushing.set(false);
                     transitionToReadOnlyMode();
