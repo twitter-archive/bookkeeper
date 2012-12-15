@@ -132,6 +132,10 @@ fi
 COMMAND=$1
 shift
 
+if [ $COMMAND == "shell" ]; then
+    DEFAULT_LOG_CONF=$BK_HOME/conf/log4j.shell.properties
+fi
+
 if [ -z "$BOOKIE_CONF" ]; then
     BOOKIE_CONF=$DEFAULT_CONF
 fi

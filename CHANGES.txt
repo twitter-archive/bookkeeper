@@ -424,6 +424,8 @@ Release 4.2.0 - 2013-01-14
 
 	BOOKKEEPER-428: Expose command options in bookie scripts to disable/enable auto recovery temporarily (rakesh,ivank via fpj)
 
+        BOOKKEEPER-511: BookieShell is very noisy (ivank via sijie)
+
       hedwig-server:
 
         BOOKKEEPER-250: Need a ledger manager like interface to manage metadata operations in Hedwig (sijie via ivank)

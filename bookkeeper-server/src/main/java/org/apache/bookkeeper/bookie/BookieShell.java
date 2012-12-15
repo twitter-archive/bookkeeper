@@ -686,7 +686,7 @@ public class BookieShell implements Tool {
             }
             ZooKeeper zk = null;
             try {
-                zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout());
+                zk = ZooKeeperClient.createConnectedZooKeeperClient(bkConf.getZkServers(), bkConf.getZkTimeout());
                 LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bkConf, zk);
                 LedgerUnderreplicationManager underreplicationManager = mFactory.newLedgerUnderreplicationManager();
                 if (enable) {
