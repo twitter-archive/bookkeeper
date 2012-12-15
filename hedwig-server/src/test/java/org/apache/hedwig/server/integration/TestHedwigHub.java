@@ -181,10 +181,10 @@ public class TestHedwigHub extends HedwigHubTestBase {
                 if (lastConsumedMessageId != null) {
                     // Map of region sequence ids from the last consumed message
                     Map<ByteString, PubSubProtocol.RegionSpecificSeqId> remoteComponents = new HashMap<ByteString, PubSubProtocol.RegionSpecificSeqId>();
-                    for (PubSubProtocol.RegionSpecificSeqId rssid : lastConsumedMessageId.getRemoteComponentsList()) {
+                    for (PubSubProtocol.RegionSpecificSeqId rssid : lastConsumedMessageId.getRegionComponentsList()) {
                         remoteComponents.put(rssid.getRegion(), rssid);
                     }
-                    for (PubSubProtocol.RegionSpecificSeqId rssid : msg.getMsgId().getRemoteComponentsList()) {
+                    for (PubSubProtocol.RegionSpecificSeqId rssid : msg.getMsgId().getRegionComponentsList()) {
                         long lastId = (remoteComponents.containsKey(rssid.getRegion()) ? remoteComponents.get(rssid.getRegion()).getSeqId() : -1);
                         long newId = rssid.getSeqId();
 

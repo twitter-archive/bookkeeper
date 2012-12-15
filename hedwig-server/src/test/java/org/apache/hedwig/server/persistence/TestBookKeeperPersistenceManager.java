@@ -47,6 +47,7 @@ import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
+import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.meta.SubscriptionDataManager;
@@ -354,6 +355,82 @@ public class TestBookKeeperPersistenceManager extends TestCase {
             result.add(msgs.get(i));
         }
         return result;
+    }
+
+    private MessageSeqId getNewSeqIdPushed(MessageSeqId lastSeqIdPushed, Message request) {
+        MessageSeqId.Builder builder = MessageSeqId.newBuilder();
+        if (request.hasMsgId()) {
+            MessageIdUtils.buildMessageReceived(builder, lastSeqIdPushed, request);
+        } else {
+            MessageIdUtils.buildMessageGenerated(builder, lastSeqIdPushed, request);
+        }
+        builder.setLocalComponent(lastSeqIdPushed.getLocalComponent() + 1);
+        return builder.build();
+    }
+
+    @Test
+    public void testPersistMessageSequence() throws Exception {
+        final ByteString region0 = ByteString.copyFromUtf8("Region0");
+        final ByteString region1 = ByteString.copyFromUtf8("Region1");
+        final ByteString region2 = ByteString.copyFromUtf8("Region2");
+        final ByteString body = ByteString.copyFromUtf8("testPersistMessageReceived");
+
+        MessageSeqId lastSeqIdPushed0 = MessageSeqId.newBuilder().setLocalComponent(0).build();
+        MessageSeqId lastSeqIdPushed1 = lastSeqIdPushed0;
+        MessageSeqId lastSeqIdPushed2 = lastSeqIdPushed0;
+
+        // region0 Generate message
+        Message request = Message.newBuilder().setSrcRegion(region0).setBody(body).build();
+        lastSeqIdPushed0 = getNewSeqIdPushed(lastSeqIdPushed0, request);
+        assertTrue(lastSeqIdPushed0.getLocalComponent() == 1);
+        assertTrue(lastSeqIdPushed0.getRemoteComponentsList().isEmpty());
+        assertTrue(lastSeqIdPushed0.getRegionComponentsList().size() == 1);
+        assertTrue(lastSeqIdPushed0.getRegionComponents(0).getRegion().equals(region0));
+        assertTrue(lastSeqIdPushed0.getRegionComponents(0).getSeqId() == lastSeqIdPushed0.getLocalComponent());
+
+        // Region1 received message generated from region0
+        request = Message.newBuilder(request).setMsgId(lastSeqIdPushed0).build();
+        lastSeqIdPushed1 = getNewSeqIdPushed(lastSeqIdPushed1, request);
+        assertTrue(lastSeqIdPushed1.getLocalComponent() == 1);
+        assertTrue(lastSeqIdPushed1.getRemoteComponentsList().isEmpty());
+        assertTrue(lastSeqIdPushed1.getRegionComponentsList().size() == 1);
+        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRegionComponents(0),
+                lastSeqIdPushed0.getRegionComponents(0)));
+
+        // Region1 generated message
+        request = Message.newBuilder().setSrcRegion(region1).setBody(body).build();
+        lastSeqIdPushed1 = getNewSeqIdPushed(lastSeqIdPushed1, request);
+        assertTrue(lastSeqIdPushed1.getLocalComponent() == 2);
+        assertTrue(lastSeqIdPushed1.getRemoteComponentsList().size() == 1);
+        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRemoteComponents(0),
+                lastSeqIdPushed0.getRegionComponents(0)));
+        assertTrue(lastSeqIdPushed1.getRegionComponentsList().size() == 2);
+        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRegionComponents(0),
+                lastSeqIdPushed0.getRegionComponents(0)));
+        assertTrue(lastSeqIdPushed1.getRegionComponents(1).getRegion().equals(region1));
+        assertTrue(lastSeqIdPushed1.getRegionComponents(1).getSeqId() == lastSeqIdPushed1.getLocalComponent());
+
+        // Region2 received message generated from region1
+        request = Message.newBuilder(request).setMsgId(lastSeqIdPushed1).build();
+        lastSeqIdPushed2 = getNewSeqIdPushed(lastSeqIdPushed2, request);
+        assertTrue(lastSeqIdPushed2.getLocalComponent() == 1);
+        assertTrue(lastSeqIdPushed2.getRemoteComponentsList().size() == 1);
+        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 1);
+
+        // Region2 generated message
+        request = Message.newBuilder().setSrcRegion(region2).setBody(body).build();
+        lastSeqIdPushed2 = getNewSeqIdPushed(lastSeqIdPushed2, request);
+        assertTrue(lastSeqIdPushed2.getLocalComponent() == 2);
+        assertTrue(lastSeqIdPushed2.getRemoteComponentsList().size() == 2);
+        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 2);
+
+        // Region2 received message generated from region0
+        request = Message.newBuilder().setSrcRegion(region0).setBody(body)
+                .setMsgId(lastSeqIdPushed0).build();
+        lastSeqIdPushed2 = getNewSeqIdPushed(lastSeqIdPushed2, request);
+        assertTrue(lastSeqIdPushed2.getLocalComponent() == 3);
+        assertTrue(lastSeqIdPushed2.getRemoteComponentsList().isEmpty());
+        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 3);
     }
 
     @Test

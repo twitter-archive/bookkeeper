@@ -2994,6 +2994,16 @@ public final class PubSubProtocol {
         getRemoteComponentsOrBuilderList();
     org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder getRemoteComponentsOrBuilder(
         int index);
+    
+    // repeated .Hedwig.RegionSpecificSeqId regionComponents = 3;
+    java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> 
+        getRegionComponentsList();
+    org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId getRegionComponents(int index);
+    int getRegionComponentsCount();
+    java.util.List<? extends org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder> 
+        getRegionComponentsOrBuilderList();
+    org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder getRegionComponentsOrBuilder(
+        int index);
   }
   public static final class MessageSeqId extends
       com.google.protobuf.GeneratedMessage
@@ -3055,9 +3065,31 @@ public final class PubSubProtocol {
       return remoteComponents_.get(index);
     }
     
+    // repeated .Hedwig.RegionSpecificSeqId regionComponents = 3;
+    public static final int REGIONCOMPONENTS_FIELD_NUMBER = 3;
+    private java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> regionComponents_;
+    public java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> getRegionComponentsList() {
+      return regionComponents_;
+    }
+    public java.util.List<? extends org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder> 
+        getRegionComponentsOrBuilderList() {
+      return regionComponents_;
+    }
+    public int getRegionComponentsCount() {
+      return regionComponents_.size();
+    }
+    public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId getRegionComponents(int index) {
+      return regionComponents_.get(index);
+    }
+    public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder getRegionComponentsOrBuilder(
+        int index) {
+      return regionComponents_.get(index);
+    }
+    
     private void initFields() {
       localComponent_ = 0L;
       remoteComponents_ = java.util.Collections.emptyList();
+      regionComponents_ = java.util.Collections.emptyList();
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -3066,6 +3098,12 @@ public final class PubSubProtocol {
       
       for (int i = 0; i < getRemoteComponentsCount(); i++) {
         if (!getRemoteComponents(i).isInitialized()) {
+          memoizedIsInitialized = 0;
+          return false;
+        }
+      }
+      for (int i = 0; i < getRegionComponentsCount(); i++) {
+        if (!getRegionComponents(i).isInitialized()) {
           memoizedIsInitialized = 0;
           return false;
         }
@@ -3083,6 +3121,9 @@ public final class PubSubProtocol {
       for (int i = 0; i < remoteComponents_.size(); i++) {
         output.writeMessage(2, remoteComponents_.get(i));
       }
+      for (int i = 0; i < regionComponents_.size(); i++) {
+        output.writeMessage(3, regionComponents_.get(i));
+      }
       getUnknownFields().writeTo(output);
     }
     
@@ -3099,6 +3140,10 @@ public final class PubSubProtocol {
       for (int i = 0; i < remoteComponents_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
           .computeMessageSize(2, remoteComponents_.get(i));
+      }
+      for (int i = 0; i < regionComponents_.size(); i++) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeMessageSize(3, regionComponents_.get(i));
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -3217,6 +3262,7 @@ public final class PubSubProtocol {
       private void maybeForceBuilderInitialization() {
         if (com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders) {
           getRemoteComponentsFieldBuilder();
+          getRegionComponentsFieldBuilder();
         }
       }
       private static Builder create() {
@@ -3232,6 +3278,12 @@ public final class PubSubProtocol {
           bitField0_ = (bitField0_ & ~0x00000002);
         } else {
           remoteComponentsBuilder_.clear();
+        }
+        if (regionComponentsBuilder_ == null) {
+          regionComponents_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000004);
+        } else {
+          regionComponentsBuilder_.clear();
         }
         return this;
       }
@@ -3284,6 +3336,15 @@ public final class PubSubProtocol {
         } else {
           result.remoteComponents_ = remoteComponentsBuilder_.build();
         }
+        if (regionComponentsBuilder_ == null) {
+          if (((bitField0_ & 0x00000004) == 0x00000004)) {
+            regionComponents_ = java.util.Collections.unmodifiableList(regionComponents_);
+            bitField0_ = (bitField0_ & ~0x00000004);
+          }
+          result.regionComponents_ = regionComponents_;
+        } else {
+          result.regionComponents_ = regionComponentsBuilder_.build();
+        }
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -3329,6 +3390,32 @@ public final class PubSubProtocol {
             }
           }
         }
+        if (regionComponentsBuilder_ == null) {
+          if (!other.regionComponents_.isEmpty()) {
+            if (regionComponents_.isEmpty()) {
+              regionComponents_ = other.regionComponents_;
+              bitField0_ = (bitField0_ & ~0x00000004);
+            } else {
+              ensureRegionComponentsIsMutable();
+              regionComponents_.addAll(other.regionComponents_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.regionComponents_.isEmpty()) {
+            if (regionComponentsBuilder_.isEmpty()) {
+              regionComponentsBuilder_.dispose();
+              regionComponentsBuilder_ = null;
+              regionComponents_ = other.regionComponents_;
+              bitField0_ = (bitField0_ & ~0x00000004);
+              regionComponentsBuilder_ = 
+                com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                   getRegionComponentsFieldBuilder() : null;
+            } else {
+              regionComponentsBuilder_.addAllMessages(other.regionComponents_);
+            }
+          }
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
       }
@@ -3336,6 +3423,12 @@ public final class PubSubProtocol {
       public final boolean isInitialized() {
         for (int i = 0; i < getRemoteComponentsCount(); i++) {
           if (!getRemoteComponents(i).isInitialized()) {
+            
+            return false;
+          }
+        }
+        for (int i = 0; i < getRegionComponentsCount(); i++) {
+          if (!getRegionComponents(i).isInitialized()) {
             
             return false;
           }
@@ -3375,6 +3468,12 @@ public final class PubSubProtocol {
               org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder subBuilder = org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.newBuilder();
               input.readMessage(subBuilder, extensionRegistry);
               addRemoteComponents(subBuilder.buildPartial());
+              break;
+            }
+            case 26: {
+              org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder subBuilder = org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.newBuilder();
+              input.readMessage(subBuilder, extensionRegistry);
+              addRegionComponents(subBuilder.buildPartial());
               break;
             }
           }
@@ -3588,6 +3687,192 @@ public final class PubSubProtocol {
           remoteComponents_ = null;
         }
         return remoteComponentsBuilder_;
+      }
+      
+      // repeated .Hedwig.RegionSpecificSeqId regionComponents = 3;
+      private java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> regionComponents_ =
+        java.util.Collections.emptyList();
+      private void ensureRegionComponentsIsMutable() {
+        if (!((bitField0_ & 0x00000004) == 0x00000004)) {
+          regionComponents_ = new java.util.ArrayList<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId>(regionComponents_);
+          bitField0_ |= 0x00000004;
+         }
+      }
+      
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder> regionComponentsBuilder_;
+      
+      public java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> getRegionComponentsList() {
+        if (regionComponentsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(regionComponents_);
+        } else {
+          return regionComponentsBuilder_.getMessageList();
+        }
+      }
+      public int getRegionComponentsCount() {
+        if (regionComponentsBuilder_ == null) {
+          return regionComponents_.size();
+        } else {
+          return regionComponentsBuilder_.getCount();
+        }
+      }
+      public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId getRegionComponents(int index) {
+        if (regionComponentsBuilder_ == null) {
+          return regionComponents_.get(index);
+        } else {
+          return regionComponentsBuilder_.getMessage(index);
+        }
+      }
+      public Builder setRegionComponents(
+          int index, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId value) {
+        if (regionComponentsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRegionComponentsIsMutable();
+          regionComponents_.set(index, value);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.setMessage(index, value);
+        }
+        return this;
+      }
+      public Builder setRegionComponents(
+          int index, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder builderForValue) {
+        if (regionComponentsBuilder_ == null) {
+          ensureRegionComponentsIsMutable();
+          regionComponents_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          regionComponentsBuilder_.setMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addRegionComponents(org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId value) {
+        if (regionComponentsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRegionComponentsIsMutable();
+          regionComponents_.add(value);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      public Builder addRegionComponents(
+          int index, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId value) {
+        if (regionComponentsBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRegionComponentsIsMutable();
+          regionComponents_.add(index, value);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      public Builder addRegionComponents(
+          org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder builderForValue) {
+        if (regionComponentsBuilder_ == null) {
+          ensureRegionComponentsIsMutable();
+          regionComponents_.add(builderForValue.build());
+          onChanged();
+        } else {
+          regionComponentsBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addRegionComponents(
+          int index, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder builderForValue) {
+        if (regionComponentsBuilder_ == null) {
+          ensureRegionComponentsIsMutable();
+          regionComponents_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          regionComponentsBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      public Builder addAllRegionComponents(
+          java.lang.Iterable<? extends org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId> values) {
+        if (regionComponentsBuilder_ == null) {
+          ensureRegionComponentsIsMutable();
+          super.addAll(values, regionComponents_);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      public Builder clearRegionComponents() {
+        if (regionComponentsBuilder_ == null) {
+          regionComponents_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000004);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.clear();
+        }
+        return this;
+      }
+      public Builder removeRegionComponents(int index) {
+        if (regionComponentsBuilder_ == null) {
+          ensureRegionComponentsIsMutable();
+          regionComponents_.remove(index);
+          onChanged();
+        } else {
+          regionComponentsBuilder_.remove(index);
+        }
+        return this;
+      }
+      public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder getRegionComponentsBuilder(
+          int index) {
+        return getRegionComponentsFieldBuilder().getBuilder(index);
+      }
+      public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder getRegionComponentsOrBuilder(
+          int index) {
+        if (regionComponentsBuilder_ == null) {
+          return regionComponents_.get(index);  } else {
+          return regionComponentsBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      public java.util.List<? extends org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder> 
+           getRegionComponentsOrBuilderList() {
+        if (regionComponentsBuilder_ != null) {
+          return regionComponentsBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(regionComponents_);
+        }
+      }
+      public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder addRegionComponentsBuilder() {
+        return getRegionComponentsFieldBuilder().addBuilder(
+            org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.getDefaultInstance());
+      }
+      public org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder addRegionComponentsBuilder(
+          int index) {
+        return getRegionComponentsFieldBuilder().addBuilder(
+            index, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.getDefaultInstance());
+      }
+      public java.util.List<org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder> 
+           getRegionComponentsBuilderList() {
+        return getRegionComponentsFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilder<
+          org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder> 
+          getRegionComponentsFieldBuilder() {
+        if (regionComponentsBuilder_ == null) {
+          regionComponentsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+              org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId.Builder, org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqIdOrBuilder>(
+                  regionComponents_,
+                  ((bitField0_ & 0x00000004) == 0x00000004),
+                  getParentForChildren(),
+                  isClean());
+          regionComponents_ = null;
+        }
+        return regionComponentsBuilder_;
       }
       
       // @@protoc_insertion_point(builder_scope:Hedwig.MessageSeqId)
@@ -16547,99 +16832,100 @@ public final class PubSubProtocol {
       "\001(\014\022#\n\005msgId\030\003 \001(\0132\024.Hedwig.MessageSeqId" +
       "\022%\n\006header\030\004 \001(\0132\025.Hedwig.MessageHeader\"" +
       "4\n\023RegionSpecificSeqId\022\016\n\006region\030\001 \002(\014\022\r" +
-      "\n\005seqId\030\002 \002(\004\"]\n\014MessageSeqId\022\026\n\016localCo",
-      "mponent\030\001 \001(\004\0225\n\020remoteComponents\030\002 \003(\0132" +
-      "\033.Hedwig.RegionSpecificSeqId\"\265\004\n\rPubSubR" +
-      "equest\0220\n\017protocolVersion\030\001 \002(\0162\027.Hedwig" +
-      ".ProtocolVersion\022#\n\004type\030\002 \002(\0162\025.Hedwig." +
-      "OperationType\022\024\n\014triedServers\030\003 \003(\014\022\r\n\005t" +
-      "xnId\030\004 \002(\004\022\023\n\013shouldClaim\030\005 \001(\010\022\r\n\005topic" +
-      "\030\006 \002(\014\022.\n\016publishRequest\0304 \001(\0132\026.Hedwig." +
-      "PublishRequest\0222\n\020subscribeRequest\0305 \001(\013" +
-      "2\030.Hedwig.SubscribeRequest\022.\n\016consumeReq" +
-      "uest\0306 \001(\0132\026.Hedwig.ConsumeRequest\0226\n\022un",
-      "subscribeRequest\0307 \001(\0132\032.Hedwig.Unsubscr" +
-      "ibeRequest\0228\n\023stopDeliveryRequest\0308 \001(\0132" +
-      "\033.Hedwig.StopDeliveryRequest\022:\n\024startDel" +
-      "iveryRequest\0309 \001(\0132\034.Hedwig.StartDeliver" +
-      "yRequest\022B\n\030closeSubscriptionRequest\030: \001" +
-      "(\0132 .Hedwig.CloseSubscriptionRequest\".\n\016" +
-      "PublishRequest\022\034\n\003msg\030\002 \002(\0132\017.Hedwig.Mes" +
-      "sage\"\177\n\027SubscriptionPreferences\022\034\n\007optio" +
-      "ns\030\001 \001(\0132\013.Hedwig.Map\022\024\n\014messageBound\030\002 " +
-      "\001(\r\022\025\n\rmessageFilter\030\003 \001(\t\022\031\n\021messageWin",
-      "dowSize\030\004 \001(\r\"\277\002\n\020SubscribeRequest\022\024\n\014su" +
-      "bscriberId\030\002 \002(\014\022Q\n\016createOrAttach\030\003 \001(\016" +
-      "2\'.Hedwig.SubscribeRequest.CreateOrAttac" +
-      "h:\020CREATE_OR_ATTACH\022\032\n\013synchronous\030\004 \001(\010" +
-      ":\005false\022\024\n\014messageBound\030\005 \001(\r\0224\n\013prefere" +
-      "nces\030\006 \001(\0132\037.Hedwig.SubscriptionPreferen" +
-      "ces\022\032\n\013forceAttach\030\007 \001(\010:\005false\">\n\016Creat" +
-      "eOrAttach\022\n\n\006CREATE\020\000\022\n\n\006ATTACH\020\001\022\024\n\020CRE" +
-      "ATE_OR_ATTACH\020\002\"\216\002\n\023SubscriptionOptions\022" +
-      "\032\n\013forceAttach\030\001 \001(\010:\005false\022Q\n\016createOrA",
-      "ttach\030\002 \001(\0162\'.Hedwig.SubscribeRequest.Cr" +
-      "eateOrAttach:\020CREATE_OR_ATTACH\022\027\n\014messag" +
-      "eBound\030\003 \001(\r:\0010\022\034\n\007options\030\004 \001(\0132\013.Hedwi" +
-      "g.Map\022\025\n\rmessageFilter\030\005 \001(\t\022\031\n\021messageW" +
-      "indowSize\030\006 \001(\r\022\037\n\021enableResubscribe\030\007 \001" +
-      "(\010:\004true\"K\n\016ConsumeRequest\022\024\n\014subscriber" +
-      "Id\030\002 \002(\014\022#\n\005msgId\030\003 \002(\0132\024.Hedwig.Message" +
-      "SeqId\"*\n\022UnsubscribeRequest\022\024\n\014subscribe" +
-      "rId\030\002 \002(\014\"0\n\030CloseSubscriptionRequest\022\024\n" +
-      "\014subscriberId\030\002 \002(\014\"+\n\023StopDeliveryReque",
-      "st\022\024\n\014subscriberId\030\002 \002(\014\",\n\024StartDeliver" +
-      "yRequest\022\024\n\014subscriberId\030\002 \002(\014\"E\n\031Subscr" +
-      "iptionEventResponse\022(\n\005event\030\001 \001(\0162\031.Hed" +
-      "wig.SubscriptionEvent\"\377\001\n\016PubSubResponse" +
-      "\0220\n\017protocolVersion\030\001 \002(\0162\027.Hedwig.Proto" +
-      "colVersion\022&\n\nstatusCode\030\002 \002(\0162\022.Hedwig." +
-      "StatusCode\022\r\n\005txnId\030\003 \002(\004\022\021\n\tstatusMsg\030\004" +
-      " \001(\t\022 \n\007message\030\005 \001(\0132\017.Hedwig.Message\022\r" +
-      "\n\005topic\030\006 \001(\014\022\024\n\014subscriberId\030\007 \001(\014\022*\n\014r" +
-      "esponseBody\030\010 \001(\0132\024.Hedwig.ResponseBody\"",
-      "?\n\017PublishResponse\022,\n\016publishedMsgId\030\001 \002" +
-      "(\0132\024.Hedwig.MessageSeqId\"I\n\021SubscribeRes" +
-      "ponse\0224\n\013preferences\030\002 \001(\0132\037.Hedwig.Subs" +
-      "criptionPreferences\"\264\001\n\014ResponseBody\0220\n\017" +
-      "publishResponse\030\001 \001(\0132\027.Hedwig.PublishRe" +
-      "sponse\0224\n\021subscribeResponse\030\002 \001(\0132\031.Hedw" +
-      "ig.SubscribeResponse\022<\n\021subscriptionEven" +
-      "t\030\003 \001(\0132!.Hedwig.SubscriptionEventRespon" +
-      "se\"N\n\021SubscriptionState\022#\n\005msgId\030\001 \002(\0132\024" +
-      ".Hedwig.MessageSeqId\022\024\n\014messageBound\030\002 \001",
-      "(\r\"r\n\020SubscriptionData\022(\n\005state\030\001 \001(\0132\031." +
-      "Hedwig.SubscriptionState\0224\n\013preferences\030" +
-      "\002 \001(\0132\037.Hedwig.SubscriptionPreferences\"k" +
-      "\n\013LedgerRange\022\020\n\010ledgerId\030\001 \002(\004\022.\n\020endSe" +
-      "qIdIncluded\030\002 \001(\0132\024.Hedwig.MessageSeqId\022" +
-      "\032\n\022startSeqIdIncluded\030\003 \001(\004\"3\n\014LedgerRan" +
-      "ges\022#\n\006ranges\030\001 \003(\0132\023.Hedwig.LedgerRange" +
-      "\":\n\013ManagerMeta\022\023\n\013managerImpl\030\002 \002(\t\022\026\n\016" +
-      "managerVersion\030\003 \002(\r\".\n\013HubInfoData\022\020\n\010h" +
-      "ostname\030\002 \002(\t\022\r\n\005czxid\030\003 \002(\004\" \n\013HubLoadD",
-      "ata\022\021\n\tnumTopics\030\002 \002(\004*\"\n\017ProtocolVersio" +
-      "n\022\017\n\013VERSION_ONE\020\001*\207\001\n\rOperationType\022\013\n\007" +
-      "PUBLISH\020\000\022\r\n\tSUBSCRIBE\020\001\022\013\n\007CONSUME\020\002\022\017\n" +
-      "\013UNSUBSCRIBE\020\003\022\022\n\016START_DELIVERY\020\004\022\021\n\rST" +
-      "OP_DELIVERY\020\005\022\025\n\021CLOSESUBSCRIPTION\020\006*D\n\021" +
-      "SubscriptionEvent\022\017\n\013TOPIC_MOVED\020\001\022\036\n\032SU" +
-      "BSCRIPTION_FORCED_CLOSED\020\002*\242\004\n\nStatusCod" +
-      "e\022\013\n\007SUCCESS\020\000\022\026\n\021MALFORMED_REQUEST\020\221\003\022\022" +
-      "\n\rNO_SUCH_TOPIC\020\222\003\022\036\n\031CLIENT_ALREADY_SUB" +
-      "SCRIBED\020\223\003\022\032\n\025CLIENT_NOT_SUBSCRIBED\020\224\003\022\026",
-      "\n\021COULD_NOT_CONNECT\020\225\003\022\017\n\nTOPIC_BUSY\020\226\003\022" +
-      "\036\n\031NOT_RESPONSIBLE_FOR_TOPIC\020\365\003\022\021\n\014SERVI" +
-      "CE_DOWN\020\366\003\022\024\n\017UNCERTAIN_STATE\020\367\003\022\033\n\026INVA" +
-      "LID_MESSAGE_FILTER\020\370\003\022\033\n\026ZOOKEEPER_SERVI" +
-      "CE_DOWN\020\371\003\022\020\n\013BAD_VERSION\020\210\004\022\036\n\031NO_TOPIC" +
-      "_PERSISTENCE_INFO\020\211\004\022\"\n\035TOPIC_PERSISTENC" +
-      "E_INFO_EXISTS\020\212\004\022\032\n\025NO_SUBSCRIPTION_STAT" +
-      "E\020\213\004\022\036\n\031SUBSCRIPTION_STATE_EXISTS\020\214\004\022\030\n\023" +
-      "NO_TOPIC_OWNER_INFO\020\215\004\022\034\n\027TOPIC_OWNER_IN" +
-      "FO_EXISTS\020\216\004\022\031\n\024UNEXPECTED_CONDITION\020\330\004\022",
-      "\016\n\tCOMPOSITE\020\274\005B\036\n\032org.apache.hedwig.pro" +
-      "tocolH\001"
+      "\n\005seqId\030\002 \002(\004\"\224\001\n\014MessageSeqId\022\026\n\016localC",
+      "omponent\030\001 \001(\004\0225\n\020remoteComponents\030\002 \003(\013" +
+      "2\033.Hedwig.RegionSpecificSeqId\0225\n\020regionC" +
+      "omponents\030\003 \003(\0132\033.Hedwig.RegionSpecificS" +
+      "eqId\"\265\004\n\rPubSubRequest\0220\n\017protocolVersio" +
+      "n\030\001 \002(\0162\027.Hedwig.ProtocolVersion\022#\n\004type" +
+      "\030\002 \002(\0162\025.Hedwig.OperationType\022\024\n\014triedSe" +
+      "rvers\030\003 \003(\014\022\r\n\005txnId\030\004 \002(\004\022\023\n\013shouldClai" +
+      "m\030\005 \001(\010\022\r\n\005topic\030\006 \002(\014\022.\n\016publishRequest" +
+      "\0304 \001(\0132\026.Hedwig.PublishRequest\0222\n\020subscr" +
+      "ibeRequest\0305 \001(\0132\030.Hedwig.SubscribeReque",
+      "st\022.\n\016consumeRequest\0306 \001(\0132\026.Hedwig.Cons" +
+      "umeRequest\0226\n\022unsubscribeRequest\0307 \001(\0132\032" +
+      ".Hedwig.UnsubscribeRequest\0228\n\023stopDelive" +
+      "ryRequest\0308 \001(\0132\033.Hedwig.StopDeliveryReq" +
+      "uest\022:\n\024startDeliveryRequest\0309 \001(\0132\034.Hed" +
+      "wig.StartDeliveryRequest\022B\n\030closeSubscri" +
+      "ptionRequest\030: \001(\0132 .Hedwig.CloseSubscri" +
+      "ptionRequest\".\n\016PublishRequest\022\034\n\003msg\030\002 " +
+      "\002(\0132\017.Hedwig.Message\"\177\n\027SubscriptionPref" +
+      "erences\022\034\n\007options\030\001 \001(\0132\013.Hedwig.Map\022\024\n",
+      "\014messageBound\030\002 \001(\r\022\025\n\rmessageFilter\030\003 \001" +
+      "(\t\022\031\n\021messageWindowSize\030\004 \001(\r\"\277\002\n\020Subscr" +
+      "ibeRequest\022\024\n\014subscriberId\030\002 \002(\014\022Q\n\016crea" +
+      "teOrAttach\030\003 \001(\0162\'.Hedwig.SubscribeReque" +
+      "st.CreateOrAttach:\020CREATE_OR_ATTACH\022\032\n\013s" +
+      "ynchronous\030\004 \001(\010:\005false\022\024\n\014messageBound\030" +
+      "\005 \001(\r\0224\n\013preferences\030\006 \001(\0132\037.Hedwig.Subs" +
+      "criptionPreferences\022\032\n\013forceAttach\030\007 \001(\010" +
+      ":\005false\">\n\016CreateOrAttach\022\n\n\006CREATE\020\000\022\n\n" +
+      "\006ATTACH\020\001\022\024\n\020CREATE_OR_ATTACH\020\002\"\216\002\n\023Subs",
+      "criptionOptions\022\032\n\013forceAttach\030\001 \001(\010:\005fa" +
+      "lse\022Q\n\016createOrAttach\030\002 \001(\0162\'.Hedwig.Sub" +
+      "scribeRequest.CreateOrAttach:\020CREATE_OR_" +
+      "ATTACH\022\027\n\014messageBound\030\003 \001(\r:\0010\022\034\n\007optio" +
+      "ns\030\004 \001(\0132\013.Hedwig.Map\022\025\n\rmessageFilter\030\005" +
+      " \001(\t\022\031\n\021messageWindowSize\030\006 \001(\r\022\037\n\021enabl" +
+      "eResubscribe\030\007 \001(\010:\004true\"K\n\016ConsumeReque" +
+      "st\022\024\n\014subscriberId\030\002 \002(\014\022#\n\005msgId\030\003 \002(\0132" +
+      "\024.Hedwig.MessageSeqId\"*\n\022UnsubscribeRequ" +
+      "est\022\024\n\014subscriberId\030\002 \002(\014\"0\n\030CloseSubscr",
+      "iptionRequest\022\024\n\014subscriberId\030\002 \002(\014\"+\n\023S" +
+      "topDeliveryRequest\022\024\n\014subscriberId\030\002 \002(\014" +
+      "\",\n\024StartDeliveryRequest\022\024\n\014subscriberId" +
+      "\030\002 \002(\014\"E\n\031SubscriptionEventResponse\022(\n\005e" +
+      "vent\030\001 \001(\0162\031.Hedwig.SubscriptionEvent\"\377\001" +
+      "\n\016PubSubResponse\0220\n\017protocolVersion\030\001 \002(" +
+      "\0162\027.Hedwig.ProtocolVersion\022&\n\nstatusCode" +
+      "\030\002 \002(\0162\022.Hedwig.StatusCode\022\r\n\005txnId\030\003 \002(" +
+      "\004\022\021\n\tstatusMsg\030\004 \001(\t\022 \n\007message\030\005 \001(\0132\017." +
+      "Hedwig.Message\022\r\n\005topic\030\006 \001(\014\022\024\n\014subscri",
+      "berId\030\007 \001(\014\022*\n\014responseBody\030\010 \001(\0132\024.Hedw" +
+      "ig.ResponseBody\"?\n\017PublishResponse\022,\n\016pu" +
+      "blishedMsgId\030\001 \002(\0132\024.Hedwig.MessageSeqId" +
+      "\"I\n\021SubscribeResponse\0224\n\013preferences\030\002 \001" +
+      "(\0132\037.Hedwig.SubscriptionPreferences\"\264\001\n\014" +
+      "ResponseBody\0220\n\017publishResponse\030\001 \001(\0132\027." +
+      "Hedwig.PublishResponse\0224\n\021subscribeRespo" +
+      "nse\030\002 \001(\0132\031.Hedwig.SubscribeResponse\022<\n\021" +
+      "subscriptionEvent\030\003 \001(\0132!.Hedwig.Subscri" +
+      "ptionEventResponse\"N\n\021SubscriptionState\022",
+      "#\n\005msgId\030\001 \002(\0132\024.Hedwig.MessageSeqId\022\024\n\014" +
+      "messageBound\030\002 \001(\r\"r\n\020SubscriptionData\022(" +
+      "\n\005state\030\001 \001(\0132\031.Hedwig.SubscriptionState" +
+      "\0224\n\013preferences\030\002 \001(\0132\037.Hedwig.Subscript" +
+      "ionPreferences\"k\n\013LedgerRange\022\020\n\010ledgerI" +
+      "d\030\001 \002(\004\022.\n\020endSeqIdIncluded\030\002 \001(\0132\024.Hedw" +
+      "ig.MessageSeqId\022\032\n\022startSeqIdIncluded\030\003 " +
+      "\001(\004\"3\n\014LedgerRanges\022#\n\006ranges\030\001 \003(\0132\023.He" +
+      "dwig.LedgerRange\":\n\013ManagerMeta\022\023\n\013manag" +
+      "erImpl\030\002 \002(\t\022\026\n\016managerVersion\030\003 \002(\r\".\n\013",
+      "HubInfoData\022\020\n\010hostname\030\002 \002(\t\022\r\n\005czxid\030\003" +
+      " \002(\004\" \n\013HubLoadData\022\021\n\tnumTopics\030\002 \002(\004*\"" +
+      "\n\017ProtocolVersion\022\017\n\013VERSION_ONE\020\001*\207\001\n\rO" +
+      "perationType\022\013\n\007PUBLISH\020\000\022\r\n\tSUBSCRIBE\020\001" +
+      "\022\013\n\007CONSUME\020\002\022\017\n\013UNSUBSCRIBE\020\003\022\022\n\016START_" +
+      "DELIVERY\020\004\022\021\n\rSTOP_DELIVERY\020\005\022\025\n\021CLOSESU" +
+      "BSCRIPTION\020\006*D\n\021SubscriptionEvent\022\017\n\013TOP" +
+      "IC_MOVED\020\001\022\036\n\032SUBSCRIPTION_FORCED_CLOSED" +
+      "\020\002*\242\004\n\nStatusCode\022\013\n\007SUCCESS\020\000\022\026\n\021MALFOR" +
+      "MED_REQUEST\020\221\003\022\022\n\rNO_SUCH_TOPIC\020\222\003\022\036\n\031CL",
+      "IENT_ALREADY_SUBSCRIBED\020\223\003\022\032\n\025CLIENT_NOT" +
+      "_SUBSCRIBED\020\224\003\022\026\n\021COULD_NOT_CONNECT\020\225\003\022\017" +
+      "\n\nTOPIC_BUSY\020\226\003\022\036\n\031NOT_RESPONSIBLE_FOR_T" +
+      "OPIC\020\365\003\022\021\n\014SERVICE_DOWN\020\366\003\022\024\n\017UNCERTAIN_" +
+      "STATE\020\367\003\022\033\n\026INVALID_MESSAGE_FILTER\020\370\003\022\033\n" +
+      "\026ZOOKEEPER_SERVICE_DOWN\020\371\003\022\020\n\013BAD_VERSIO" +
+      "N\020\210\004\022\036\n\031NO_TOPIC_PERSISTENCE_INFO\020\211\004\022\"\n\035" +
+      "TOPIC_PERSISTENCE_INFO_EXISTS\020\212\004\022\032\n\025NO_S" +
+      "UBSCRIPTION_STATE\020\213\004\022\036\n\031SUBSCRIPTION_STA" +
+      "TE_EXISTS\020\214\004\022\030\n\023NO_TOPIC_OWNER_INFO\020\215\004\022\034",
+      "\n\027TOPIC_OWNER_INFO_EXISTS\020\216\004\022\031\n\024UNEXPECT" +
+      "ED_CONDITION\020\330\004\022\016\n\tCOMPOSITE\020\274\005B\036\n\032org.a" +
+      "pache.hedwig.protocolH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -16691,7 +16977,7 @@ public final class PubSubProtocol {
           internal_static_Hedwig_MessageSeqId_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_Hedwig_MessageSeqId_descriptor,
-              new java.lang.String[] { "LocalComponent", "RemoteComponents", },
+              new java.lang.String[] { "LocalComponent", "RemoteComponents", "RegionComponents", },
               org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.class,
               org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId.Builder.class);
           internal_static_Hedwig_PubSubRequest_descriptor =

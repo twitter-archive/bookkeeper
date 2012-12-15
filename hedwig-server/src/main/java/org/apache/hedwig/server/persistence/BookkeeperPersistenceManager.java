@@ -680,12 +680,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         final long localSeqId = topicInfo.lastSeqIdPushed.getLocalComponent() + 1;
         MessageSeqId.Builder builder = MessageSeqId.newBuilder();
         if (request.message.hasMsgId()) {
-            // We want to update the remote component for a region only if the message
-            // we received originated from that region.
-            MessageIdUtils.takeRegionSpecificMaximum(builder, topicInfo.lastSeqIdPushed,
-                                                     request.message.getMsgId(), request.message.getSrcRegion());
+            MessageIdUtils.buildMessageReceived(builder, topicInfo.lastSeqIdPushed, request.message);
         } else {
-            builder.addAllRemoteComponents(topicInfo.lastSeqIdPushed.getRemoteComponentsList());
+            MessageIdUtils.buildMessageGenerated(builder, topicInfo.lastSeqIdPushed, request.message);
         }
         builder.setLocalComponent(localSeqId);
 

@@ -58,7 +58,8 @@ message RegionSpecificSeqId {
     
 message MessageSeqId{
     optional uint64 localComponent = 1;
-    repeated RegionSpecificSeqId remoteComponents = 2;    
+    repeated RegionSpecificSeqId remoteComponents = 2;
+    repeated RegionSpecificSeqId regionComponents = 3;
 }
 
 enum OperationType{

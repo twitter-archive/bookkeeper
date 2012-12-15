@@ -190,10 +190,9 @@ public class LocalDBPersistenceManager implements PersistenceManagerWithRangeSca
             newIdBuilder.setLocalComponent(retValue);
 
             if (messageToPublish.hasMsgId()) {
-                MessageIdUtils.takeRegionSpecificMaximum(newIdBuilder, oldId, messageToPublish.getMsgId(),
-                                                         messageToPublish.getSrcRegion());
+                MessageIdUtils.buildMessageReceived(newIdBuilder, oldId, messageToPublish);
             } else {
-                newIdBuilder.addAllRemoteComponents(oldId.getRemoteComponentsList());
+                MessageIdUtils.buildMessageGenerated(newIdBuilder, oldId, messageToPublish);
             }
         } while (!currTopicSeqIds.replace(topic, oldId, (seqIdToReturn = newIdBuilder.build())));
 

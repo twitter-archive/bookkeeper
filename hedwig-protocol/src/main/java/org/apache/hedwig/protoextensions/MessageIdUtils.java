@@ -29,45 +29,48 @@ import org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId;
 
 public class MessageIdUtils {
 
-    public static String msgIdToReadableString(MessageSeqId seqId) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("local:");
-        sb.append(seqId.getLocalComponent());
-
-        String separator = ";";
-        for (RegionSpecificSeqId regionId : seqId.getRemoteComponentsList()) {
-            sb.append(separator);
+    private static void appendComponents(StringBuilder sb, List<RegionSpecificSeqId> components) {
+        for (RegionSpecificSeqId regionId : components) {
+            sb.append(':');
             sb.append(regionId.getRegion().toStringUtf8());
             sb.append(':');
             sb.append(regionId.getSeqId());
         }
+    }
+
+    public static String msgIdToReadableString(MessageSeqId seqId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("local:");
+        sb.append(seqId.getLocalComponent());
+        sb.append(";region");
+        appendComponents(sb, seqId.getRegionComponentsList());
+        sb.append(";remote");
+        appendComponents(sb, seqId.getRemoteComponentsList());
         return sb.toString();
     }
 
-    public static Map<ByteString, RegionSpecificSeqId> inMapForm(MessageSeqId msi) {
+    public static Map<ByteString, RegionSpecificSeqId> inMapForm(List<RegionSpecificSeqId> components) {
         Map<ByteString, RegionSpecificSeqId> map = new HashMap<ByteString, RegionSpecificSeqId>();
-
-        for (RegionSpecificSeqId lmsid : msi.getRemoteComponentsList()) {
+        for (RegionSpecificSeqId lmsid : components) {
             map.put(lmsid.getRegion(), lmsid);
         }
-
         return map;
     }
 
-    public static boolean areEqual(MessageSeqId m1, MessageSeqId m2) {
+    public static boolean areEqual(RegionSpecificSeqId seqId1, RegionSpecificSeqId seqId2) {
+        return seqId1.getSeqId() == seqId2.getSeqId() &&
+                seqId1.getRegion().equals(seqId2.getRegion());
+    }
 
-        if (m1.getLocalComponent() != m2.getLocalComponent()) {
+    public static boolean areEqual(List<RegionSpecificSeqId> list1,
+                                 List<RegionSpecificSeqId> list2) {
+        if (list1.size() != list2.size()) {
             return false;
         }
 
-        if (m1.getRemoteComponentsCount() != m2.getRemoteComponentsCount()) {
-            return false;
-        }
-
-        Map<ByteString, RegionSpecificSeqId> m2map = inMapForm(m2);
-
-        for (RegionSpecificSeqId lmsid1 : m1.getRemoteComponentsList()) {
-            RegionSpecificSeqId lmsid2 = m2map.get(lmsid1.getRegion());
+        final Map<ByteString, RegionSpecificSeqId> map = inMapForm(list1);
+        for (RegionSpecificSeqId lmsid1 : list2) {
+            RegionSpecificSeqId lmsid2 = map.get(lmsid1.getRegion());
             if (lmsid2 == null) {
                 return false;
             }
@@ -77,7 +80,15 @@ public class MessageIdUtils {
         }
 
         return true;
+    }
 
+    public static boolean areEqual(MessageSeqId m1, MessageSeqId m2) {
+        if (m1.getLocalComponent() != m2.getLocalComponent()) {
+            return false;
+        }
+
+        return areEqual(m1.getRegionComponentsList(), m2.getRegionComponentsList()) &&
+                areEqual(m1.getRemoteComponentsList(), m2.getRemoteComponentsList());
     }
 
     public static Message mergeLocalSeqId(Message.Builder messageBuilder, long localSeqId) {
@@ -122,60 +133,74 @@ public class MessageIdUtils {
     }
 
     /**
-     * Return the union of remote components of lastPushedSeqId modified in a way such that if
-     * the region equals srcRegion, we take the maximum of the remote sequence ID of lastPushedSeqId and the
-     * local component of srcRegionSeqId else just use the sequence ID from lastPushedSeqId
+     * Build message locally generated such that its remote component is merged from remote components
+     * and region components of lastPushedSeqId with local component removed, and its region component
+     * just copy over from region components of lastPushedSeqId with local component replaced.
      */
-    public static void takeRegionSpecificMaximum(MessageSeqId.Builder newIdBuilder, MessageSeqId lastPushedSeqId,
-                                                 MessageSeqId srcRegionSeqId, ByteString srcRegion) {
-        boolean hasRegion = false;
-        RegionSpecificSeqId newRssid = RegionSpecificSeqId.newBuilder().setRegion(srcRegion)
-                                       .setSeqId(srcRegionSeqId.getLocalComponent()).build();
-        for (RegionSpecificSeqId lastPushedRssid : lastPushedSeqId.getRemoteComponentsList()) {
-            if(lastPushedRssid.getRegion().equals(srcRegion)) {
-                hasRegion = true;
-                RegionSpecificSeqId srcRegionRssid = lastPushedRssid;
-                if (lastPushedRssid.getSeqId() < srcRegionSeqId.getLocalComponent()) {
-                    srcRegionRssid = newRssid;
-                }
-                newIdBuilder.addRemoteComponents(srcRegionRssid);
-            } else {
-                // TODO(Aniruddha): Should we simply discard the message if it was redelivered? Currently we don't.
-                newIdBuilder.addRemoteComponents(lastPushedRssid);
+    public static void buildMessageGenerated(MessageSeqId.Builder newIdBuilder, MessageSeqId lastSeqIdPushed,
+                                             Message messageRequested) {
+        assert !messageRequested.hasMsgId();    // Should not have msg-id set
+
+        final ByteString localRegion = messageRequested.getSrcRegion();
+        final RegionSpecificSeqId localSeqId = RegionSpecificSeqId.newBuilder()
+                .setRegion(localRegion)
+                .setSeqId(lastSeqIdPushed.getLocalComponent() + 1)
+                .build();
+        final Map<ByteString, RegionSpecificSeqId> map = new HashMap<ByteString, RegionSpecificSeqId>();
+
+        // Add region vector to map and build region components
+        for (RegionSpecificSeqId seqId : lastSeqIdPushed.getRegionComponentsList()) {
+            if (!localRegion.equals(seqId.getRegion())) {   // skip localRegion
+                newIdBuilder.addRegionComponents(seqId);
+                map.put(seqId.getRegion(), seqId);
             }
         }
-        if (!hasRegion) {
-            newIdBuilder.addRemoteComponents(newRssid);
+        newIdBuilder.addRegionComponents(localSeqId);
+
+        // Merge region and remote components
+        for (RegionSpecificSeqId seqId : lastSeqIdPushed.getRemoteComponentsList()) {
+            if (!localRegion.equals(seqId.getRegion())) {  // skip localRegion
+                RegionSpecificSeqId seqId2 = map.get(seqId.getRegion());
+                if (seqId2 == null || seqId2.getSeqId() < seqId.getSeqId()) {
+                    map.put(seqId.getRegion(), seqId);
+                }
+            }
+        }
+
+        // Build remote components to indicate causal relation
+        for (RegionSpecificSeqId seqId : map.values()) {
+            newIdBuilder.addRemoteComponents(seqId);
         }
     }
 
     /**
-     * Returns the element-wise vector maximum of the two vectors id1 and id2,
-     * if we imagine them to be sparse representations of vectors.
+     * Build message received from other region such that its remote component is copied from remote components
+     * of message received, and its region component is merged from region components of lastPushedSeqId and
+     * local component of message received.
      */
-    public static void takeRegionMaximum(MessageSeqId.Builder newIdBuilder, MessageSeqId id1, MessageSeqId id2) {
-        Map<ByteString, RegionSpecificSeqId> id2Map = MessageIdUtils.inMapForm(id2);
+    public static void buildMessageReceived(MessageSeqId.Builder newIdBuilder,  MessageSeqId lastSeqIdPushed,
+                                            Message messageRequested) {
+        assert messageRequested.hasMsgId();    // Should have msg-id set
 
-        for (RegionSpecificSeqId rrsid1 : id1.getRemoteComponentsList()) {
-            ByteString region = rrsid1.getRegion();
+        final ByteString srcRegion = messageRequested.getSrcRegion();
+        final RegionSpecificSeqId srcSeqId = RegionSpecificSeqId.newBuilder()
+                    .setRegion(srcRegion)
+                    .setSeqId(messageRequested.getMsgId().getLocalComponent())
+                    .build();
 
-            RegionSpecificSeqId rssid2 = id2Map.get(region);
-
-            if (rssid2 == null) {
-                newIdBuilder.addRemoteComponents(rrsid1);
-                continue;
+        // Build region component by merging region components of lastPushedSeqId and local component
+        for (RegionSpecificSeqId rsid : lastSeqIdPushed.getRegionComponentsList()) {
+            if (!srcRegion.equals(rsid.getRegion())) {  // Skip srcRegion
+                newIdBuilder.addRegionComponents(rsid);
             }
-
-            newIdBuilder.addRemoteComponents((rrsid1.getSeqId() > rssid2.getSeqId()) ? rrsid1 : rssid2);
-
-            // remove from map
-            id2Map.remove(region);
         }
+        newIdBuilder.addRegionComponents(srcSeqId);   // add (srcRegion, local component)
 
-        // now take the remaining components in the map and add them
-        for (RegionSpecificSeqId rssid2 : id2Map.values()) {
-            newIdBuilder.addRemoteComponents(rssid2);
+        // Build remote components by copying from message received
+        for (RegionSpecificSeqId rsid : messageRequested.getMsgId().getRemoteComponentsList()) {
+            if (!srcRegion.equals(rsid.getRegion())) {  // skip srcRegion
+                newIdBuilder.addRemoteComponents(rsid);
+            }
         }
-
     }
 }
