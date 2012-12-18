@@ -102,7 +102,7 @@ public class AutoRecoveryMain {
      * Start daemons
      */
     public void start() throws UnavailableException {
-        auditorElector.doElection();
+        auditorElector.start();
         replicationWorker.start();
         deathWatcher.start();
     }
@@ -130,15 +130,19 @@ public class AutoRecoveryMain {
         try {
             deathWatcher.interrupt();
             deathWatcher.join();
+
+            auditorElector.shutdown();
         } catch (InterruptedException e) {
-            // Ignore
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auto recovery", e);
         }
-        auditorElector.shutdown();
+
         replicationWorker.shutdown();
         try {
             zk.close();
         } catch (InterruptedException e) {
-            // Ignore
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auto recovery", e);
         }
     }
 
@@ -170,7 +174,7 @@ public class AutoRecoveryMain {
                 }
                 // If any one service not running, then shutdown peer.
                 if (!autoRecoveryMain.auditorElector.isRunning()
-                        || !autoRecoveryMain.replicationWorker.isRunning()) {
+                    || !autoRecoveryMain.replicationWorker.isRunning()) {
                     autoRecoveryMain.shutdown();
                     break;
                 }

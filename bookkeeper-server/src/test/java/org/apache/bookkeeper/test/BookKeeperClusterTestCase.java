@@ -157,6 +157,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         for (BookieServer server : bs) {
             server.shutdown();
         }
+        bs.clear();
     }
 
     protected void cleanupTempDirs() throws Exception {

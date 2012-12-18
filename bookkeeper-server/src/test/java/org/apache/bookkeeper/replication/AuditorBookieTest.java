@@ -28,10 +28,12 @@ import junit.framework.Assert;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
-import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.ZooKeeper;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +50,7 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
             .getLogger(AuditorBookieTest.class);
     private String electionPath;
     private HashMap<String, AuditorElector> auditorElectors = new HashMap<String, AuditorElector>();
+    private List<ZooKeeper> zkClients = new LinkedList<ZooKeeper>();
 
     public AuditorBookieTest() {
         super(6);
@@ -64,6 +67,10 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
     @Override
     public void tearDown() throws Exception {
         stopAuditorElectors();
+        for (ZooKeeper zk : zkClients) {
+            zk.close();
+        }
+        zkClients.clear();
         super.tearDown();
     }
 
@@ -84,7 +91,7 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
         } else {
             bkIndexDownBookie = indexOf - 1;
         }
-        shudownBookie(bs.get(bkIndexDownBookie));
+        shutdownBookie(bs.get(bkIndexDownBookie));
 
         startNewBookie();
         startNewBookie();
@@ -102,12 +109,12 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
     @Test
     public void testSuccessiveAuditorCrashes() throws Exception {
         BookieServer auditor = verifyAuditor();
-        shudownBookie(auditor);
+        shutdownBookie(auditor);
 
         BookieServer newAuditor1 = waitForNewAuditor(auditor);
         bs.remove(auditor);
 
-        shudownBookie(newAuditor1);
+        shutdownBookie(newAuditor1);
         BookieServer newAuditor2 = waitForNewAuditor(newAuditor1);
         Assert.assertNotSame(
                 "Auditor re-election is not happened for auditor failure!",
@@ -143,7 +150,7 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
     @Test
     public void testShutdown() throws Exception {
         BookieServer auditor = verifyAuditor();
-        shudownBookie(auditor);
+        shutdownBookie(auditor);
 
         // waiting for new auditor
         BookieServer newAuditor = waitForNewAuditor(auditor);
@@ -171,7 +178,8 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
     public void testRestartAuditorBookieAfterCrashing() throws Exception {
         BookieServer auditor = verifyAuditor();
 
-        shudownBookie(auditor);
+        shutdownBookie(auditor);
+        String addr = StringUtils.addrToString(auditor.getLocalAddress());
 
         // restarting Bookie with same configurations.
         int indexOfDownBookie = bs.indexOf(auditor);
@@ -179,11 +187,13 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
                 .get(indexOfDownBookie);
         bs.remove(indexOfDownBookie);
         bsConfs.remove(indexOfDownBookie);
+        tmpDirs.remove(indexOfDownBookie);
+        auditorElectors.remove(addr);
         bs.add(startBookie(serverConfiguration));
         // starting corresponding auditor elector
-        String addr = StringUtils.addrToString(auditor.getLocalAddress());
+
         LOG.debug("Performing Auditor Election:" + addr);
-        auditorElectors.get(addr).doElection();
+        startAuditorElector(addr);
 
         // waiting for new auditor to come
         BookieServer newAuditor = waitForNewAuditor(auditor);
@@ -195,18 +205,44 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
                 .getPort());
     }
 
-    private void startAuditorElectors() throws UnavailableException {
-        for (BookieServer bserver : bs) {
-            String addr = StringUtils.addrToString(bserver.getLocalAddress());
-            AuditorElector auditorElector = new AuditorElector(addr,
-                    baseClientConf, zkc);
-            auditorElectors.put(addr, auditorElector);
-            auditorElector.doElection();
-            LOG.debug("Starting Auditor Elector");
+    /**
+     * Test that, if an auditor looses its ZK connection/session
+     * it will shutdown.
+     */
+    @Test
+    public void testAuditorZKSessionLoss() throws Exception {
+        stopZKCluster();
+        for (AuditorElector e : auditorElectors.values()) {
+            for (int i = 0; i < 10; i++) { // give it 10 seconds to shutdown
+                if (!e.isRunning()) {
+                    break;
+                }
+
+                Thread.sleep(1000);
+            }
+            assertFalse("AuditorElector should have shutdown", e.isRunning());
         }
     }
 
-    private void stopAuditorElectors() {
+    private void startAuditorElector(String addr) throws Exception {
+        ZooKeeper zk = ZooKeeperClient.createConnectedZooKeeper(zkUtil.getZooKeeperConnectString(), 10000);
+        zkClients.add(zk);
+
+        AuditorElector auditorElector = new AuditorElector(addr,
+                                                           baseClientConf, zk);
+        auditorElectors.put(addr, auditorElector);
+        auditorElector.start();
+        LOG.debug("Starting Auditor Elector");
+    }
+
+    private void startAuditorElectors() throws Exception {
+        for (BookieServer bserver : bs) {
+            String addr = StringUtils.addrToString(bserver.getLocalAddress());
+            startAuditorElector(addr);
+        }
+    }
+
+    private void stopAuditorElectors() throws Exception {
         for (AuditorElector auditorElector : auditorElectors.values()) {
             auditorElector.shutdown();
             LOG.debug("Stopping Auditor Elector!");
@@ -235,7 +271,7 @@ public class AuditorBookieTest extends BookKeeperClusterTestCase {
         return auditors;
     }
 
-    private void shudownBookie(BookieServer bkServer) {
+    private void shutdownBookie(BookieServer bkServer) throws Exception {
         String addr = StringUtils.addrToString(bkServer.getLocalAddress());
         LOG.debug("Shutting down bookie:" + addr);
 

@@ -1,21 +1,21 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one 
- * or more contributor license agreements.  See the NOTICE file 
- * distributed with this work for additional information 
- * regarding copyright ownership.  The ASF licenses this file 
- * to you under the Apache License, Version 2.0 (the 
- * "License"); you may not use this file except in compliance 
- * with the License.  You may obtain a copy of the License at 
- * 
- *   http://www.apache.org/licenses/LICENSE-2.0 
- * 
- * Unless required by applicable law or agreed to in writing, 
- * software distributed under the License is distributed on an 
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY 
- * KIND, either express or implied.  See the License for the 
- * specific language governing permissions and limitations 
- * under the License. 
- * 
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
  */
 package org.apache.bookkeeper.replication;
 
@@ -93,7 +93,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             underReplicationManager = null;
         }
     }
-    
+
     /**
      * Tests that replication worker should replicate the failed bookie
      * fragments to target bookie given to the worker.
@@ -364,7 +364,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         }
 
     }
-    
+
     /**
      * Tests that ReplicationWorker should fence the ledger and release ledger
      * lock after timeout. Then replication should happen normally.
@@ -482,6 +482,37 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             underReplicationManager.close();
         }
 
+    }
+
+    /**
+     * Test that the replication worker will shutdown if it lose its zookeeper session
+     */
+    @Test(timeout=30000)
+    public void testRWZKSessionLost() throws Exception {
+        ZooKeeper zk = ZooKeeperClient.createConnectedZooKeeper(zkUtil.getZooKeeperConnectString(), 10000);
+
+        try {
+            ReplicationWorker rw = new ReplicationWorker(zk, baseConf, getBookie(0));
+            rw.start();
+            for (int i = 0; i < 10; i++) {
+                if (rw.isRunning()) {
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            assertTrue("Replication worker should be running", rw.isRunning());
+            stopZKCluster();
+
+            for (int i = 0; i < 10; i++) {
+                if (!rw.isRunning()) {
+                    break;
+                }
+                Thread.sleep(1000);
+            }
+            assertFalse("Replication worker should have shut down", rw.isRunning());
+        } finally {
+            zk.close();
+        }
     }
 
     private void killAllBookies(LedgerHandle lh, InetSocketAddress excludeBK)

@@ -738,19 +738,8 @@ public class TestLedgerUnderreplicationManager {
 
     }
 
-    private String getParentZnodePath(String base, long ledgerId) {
-        String subdir1 = String.format("%04x", ledgerId >> 48 & 0xffff);
-        String subdir2 = String.format("%04x", ledgerId >> 32 & 0xffff);
-        String subdir3 = String.format("%04x", ledgerId >> 16 & 0xffff);
-        String subdir4 = String.format("%04x", ledgerId & 0xffff);
-
-        return String.format("%s/%s/%s/%s/%s", base, subdir1, subdir2, subdir3,
-                subdir4);
-    }
-
     private String getUrLedgerZnode(long ledgerId) {
-        return String.format("%s/urL%010d", getParentZnodePath(urLedgerPath,
-                ledgerId), ledgerId);
+        return ZkLedgerUnderreplicationManager.getUrLedgerZnode(urLedgerPath, ledgerId);
     }
 
     private void takeLedgerAndRelease(final LedgerUnderreplicationManager m,
