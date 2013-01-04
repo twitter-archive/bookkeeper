@@ -103,6 +103,7 @@ public class EntryLogger {
     public final static long INVALID_LID = -1L;
     final ByteBuffer LOGFILE_HEADER = ByteBuffer.allocate(LOGFILE_HEADER_SIZE);
 
+    final static int MIN_SANE_ENTRY_SIZE = 8 + 8;
     final static long MB = 1024 * 1024;
 
     final ServerConfiguration serverCfg;
@@ -665,10 +666,11 @@ public class EntryLogger {
         if (entrySize > MB) {
             LOG.error("Sanity check failed for entry size of " + entrySize + " at location " + pos + " in " + entryLogId);
         }
-        if (entrySize < 0) {
-            throw new Bookie.NoEntryException("Negative entry size found for " + ledgerId + "@"
-                                              + entryId + " in " + entryLogId + "@"
-                                              + pos + " : " + entrySize, ledgerId, entryId);
+        if (entrySize < MIN_SANE_ENTRY_SIZE) {
+            LOG.warn("Read invalid entry length {} found for lid={}, eid={} in log {} @offset {}",
+                    new Object[] { entrySize, ledgerId, entryId, entryLogId, pos });
+            throw new IOException("Invalid entry length " + entrySize + " found for lid=" + ledgerId
+                    + ", eid=" + entryId + " in log " + entryLogId + " @offset " + pos);
         }
         byte data[] = new byte[entrySize];
         ByteBuffer buff = ByteBuffer.wrap(data);

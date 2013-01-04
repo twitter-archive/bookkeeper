@@ -32,7 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.bookkeeper.conf.AbstractConfiguration;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.CreateMode;
@@ -75,7 +75,7 @@ public class AuditorElector {
     private final String electionPath;
 
     private final String bookieId;
-    private final AbstractConfiguration conf;
+    private final ServerConfiguration conf;
     private final ZooKeeper zkc;
     private final ExecutorService executor;
 
@@ -96,7 +96,7 @@ public class AuditorElector {
      * @throws UnavailableException
      *             throws unavailable exception while initializing the elector
      */
-    public AuditorElector(final String bookieId, AbstractConfiguration conf,
+    public AuditorElector(final String bookieId, ServerConfiguration conf,
                           ZooKeeper zkc) throws UnavailableException {
         this.bookieId = bookieId;
         this.conf = conf;

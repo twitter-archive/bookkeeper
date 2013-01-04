@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.Observable;
 import java.util.Observer;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.slf4j.Logger;
@@ -92,7 +93,8 @@ public class LedgerCacheImpl implements LedgerCache {
         return indexPageManager.getEntryOffset(ledger, entry);
     }
 
-    static final String getLedgerName(long ledgerId) {
+    @VisibleForTesting
+    public static final String getLedgerName(long ledgerId) {
         int parent = (int) (ledgerId & 0xff);
         int grandParent = (int) ((ledgerId & 0xff00) >> 8);
         StringBuilder sb = new StringBuilder();
