@@ -19,6 +19,7 @@
  */
 package org.apache.bookkeeper.bookie;
 
+import java.io.Serializable;
 import java.util.Comparator;
 
 public class EntryKey {
@@ -45,7 +46,7 @@ public class EntryKey {
     /**
     * Comparator for the key portion
     */
-    public static KeyComparator COMPARATOR = new KeyComparator();
+    public static final KeyComparator COMPARATOR = new KeyComparator();
 
     // Only compares the key portion
     @Override
@@ -67,7 +68,10 @@ public class EntryKey {
 /**
 * Compare EntryKey.
 */
-class KeyComparator implements Comparator<EntryKey> {
+class KeyComparator implements Comparator<EntryKey>, Serializable {
+
+    private static final long serialVersionUID = 0L;
+
     @Override
     public int compare(EntryKey left, EntryKey right) {
         long ret = left.ledgerId - right.ledgerId;

@@ -347,7 +347,7 @@ class Journal extends BookieThread {
                     .JOURNAL_FORCE_WRITE_GROUPING_COUNT), 0) {
                 @Override
                 public Integer doSample() {
-                    return new Integer(groupingFactor);
+                    return groupingFactor;
                 }
             });
 

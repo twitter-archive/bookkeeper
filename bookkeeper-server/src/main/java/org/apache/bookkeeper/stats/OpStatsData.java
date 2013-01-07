@@ -1,5 +1,7 @@
 package org.apache.bookkeeper.stats;
 
+import java.util.Arrays;
+
 /**
  * This class provides a read view of operation specific stats.
  * We expose this to JMX.
@@ -11,13 +13,14 @@ public class OpStatsData {
     private final double avgLatencyMillis;
     // 10.0 50.0, 90.0, 99.0, 99.9, 99.99 in that order.
     // TODO(Aniruddha): Figure out if we can use a Map
-    long[] percentileLatenciesMillis;
+    private final long[] percentileLatenciesMillis;
     public OpStatsData (long numSuccessfulEvents, long numFailedEvents,
                         double avgLatencyMillis, long[] percentileLatenciesMillis) {
         this.numSuccessfulEvents = numSuccessfulEvents;
         this.numFailedEvents = numFailedEvents;
         this.avgLatencyMillis = avgLatencyMillis;
-        this.percentileLatenciesMillis = percentileLatenciesMillis;
+        this.percentileLatenciesMillis =
+            Arrays.copyOf(percentileLatenciesMillis, percentileLatenciesMillis.length);
     }
 
     public long getP10Latency() {

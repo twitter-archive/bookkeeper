@@ -111,4 +111,19 @@ public class EntryKeyValue extends EntryKey {
     public String toString() {
         return ledgerId + ":" + entryId;
     }
+
+    @Override
+    public boolean equals(Object other) {
+        // since this entry is identified by (lid, eid)
+        // so just use {@link org.apache.bookkeeper.bookie.EntryKey#equals}.
+        return super.equals(other);
+    }
+
+    @Override
+    public int hashCode() {
+        // since this entry is identified by (lid, eid)
+        // so just use {@link org.apache.bookkeeper.bookie.EntryKey#hashCode} as the hash code.
+        return super.hashCode();
+    }
+
 }
