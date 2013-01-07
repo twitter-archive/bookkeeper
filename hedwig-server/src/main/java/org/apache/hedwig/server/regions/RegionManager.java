@@ -383,6 +383,7 @@ public class RegionManager implements SubscriptionEventListener {
         }, null) {
           @Override
           public void run() {
+            final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), cb, ctx);
             for (final HedwigHubClient client : clients) {
               final HedwigHubSubscriber sub = client.getHubSubscriber();
               try {
@@ -391,7 +392,7 @@ public class RegionManager implements SubscriptionEventListener {
                     LOGGER.debug("[{}] cross-region subscription for topic {} did not exist.",
                                  myRegion, topic.toStringUtf8());
                   }
-                  cb.operationFinished(ctx, null);
+                  mcb.operationFinished(ctx, null);
                   continue;
                 }
                 sub.asyncCloseSubscription(topic, mySubId, new Callback<Void>() {
@@ -399,20 +400,20 @@ public class RegionManager implements SubscriptionEventListener {
                   public void operationFinished(Object ctx, Void resultOfOperation) {
                     LOGGER.warn("Closed subscription for topic " + topic.toStringUtf8() +
                         " from region " + sub.getHubHostName());
-                    cb.operationFinished(ctx, null);
+                    mcb.operationFinished(ctx, null);
                   }
 
                   @Override
                   public void operationFailed(Object ctx, PubSubException exception) {
                     LOGGER.error("Error while closing subscription for topic " + topic.toStringUtf8() +
                         " from region " + sub.getHubHostName(), exception);
-                    cb.operationFailed(ctx, exception);
+                    mcb.operationFailed(ctx, exception);
                   }
                 }, null);
               } catch (PubSubException e) {
                 LOGGER.error("[" + myRegion + "] closing cross-region subscription for topic "
                         + topic.toStringUtf8() + " failed (this is should not happen): ", e);
-                cb.operationFailed(ctx, e);
+                mcb.operationFailed(ctx, e);
                 continue;
               }
             }
