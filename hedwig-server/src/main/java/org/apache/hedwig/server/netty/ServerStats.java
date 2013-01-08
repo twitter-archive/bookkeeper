@@ -40,10 +40,11 @@ public class ServerStats {
         private final double avgLatency;
         private final long numSuccessOps, numFailedOps;
         private final long[] latencyBuckets;
-        private long[] cumulativeLatencyBuckets = null;
+        private final long[] cumulativeLatencyBuckets;
 
         @ConstructorProperties({"maxLatency", "minLatency", "avgLatency",
-                                "numSuccessOps", "numFailedOps", "latencyBuckets"})
+                                "numSuccessOps", "numFailedOps", "latencyBuckets",
+                                "p99Latency", "p999Latency", "p9999Latency"})
         public OpStatData(long maxLatency, long minLatency, double avgLatency,
                           long numSuccessOps, long numFailedOps, long[] latencyBuckets) {
             this.maxLatency = maxLatency;
@@ -51,16 +52,19 @@ public class ServerStats {
             this.avgLatency = avgLatency;
             this.numSuccessOps = numSuccessOps;
             this.numFailedOps = numFailedOps;
-            this.latencyBuckets = latencyBuckets;
-        }
-        synchronized private void updateCumulativeLatencies() {
-            if (this.cumulativeLatencyBuckets != null) {
-                return;
-            }
-            this.cumulativeLatencyBuckets = Arrays.copyOf(this.latencyBuckets, this.latencyBuckets.length);
-            for (int i = 1; i < this.latencyBuckets.length; i++) {
+            this.latencyBuckets = Arrays.copyOf(latencyBuckets, latencyBuckets.length);
+            // initialize the cumulative latency buckets
+            this.cumulativeLatencyBuckets = Arrays.copyOf(latencyBuckets, latencyBuckets.length);
+            for (int i = 1; i < latencyBuckets.length; i++) {
                 this.cumulativeLatencyBuckets[i] += this.cumulativeLatencyBuckets[i-1];
             }
+        }
+
+        /**
+         * Expose the latency buckets as a String.
+         */
+        public long[] getLatencyBuckets() {
+            return latencyBuckets;
         }
 
         /**
@@ -69,7 +73,6 @@ public class ServerStats {
          */
         private long percentileLatency(double percentile) {
             double actualPercentile = percentile/100.0;
-            updateCumulativeLatencies();
             long target = (long)(this.numSuccessOps * actualPercentile);
             for (int i = 0; i < this.cumulativeLatencyBuckets.length; i++) {
                 if (this.cumulativeLatencyBuckets[i] >= target) {
@@ -78,15 +81,6 @@ public class ServerStats {
             }
             // Should never reach here
             return this.cumulativeLatencyBuckets.length;
-        }
-
-        public long[] getLatencyBuckets() {
-            return latencyBuckets;
-        }
-
-        public long[] getCumulativeBucket() {
-            updateCumulativeLatencies();
-            return cumulativeLatencyBuckets;
         }
 
         public long getP99Latency() {
@@ -175,9 +169,8 @@ public class ServerStats {
 
         synchronized public OpStatData toOpStatData() {
             double avgLatency = numSuccessOps > 0 ? totalLatency / numSuccessOps : 0.0f;
-            long[] latencyBucketClone = Arrays.copyOf(this.latencyBuckets, latencyBuckets.length);
             return new OpStatData(maxLatency, minLatency, avgLatency,
-                                  numSuccessOps, numFailedOps, latencyBucketClone);
+                                  numSuccessOps, numFailedOps, latencyBuckets);
         }
 
     }

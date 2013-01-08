@@ -174,6 +174,8 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                 if (regiontopic2version.replace(key, versionOld, versionCur))
                     break;
                 versionOld = regiontopic2version.get(key);
+                // since same topic operations are run in-order, so the key should not be null here.
+                assert null != versionOld;
             }
         }
     }

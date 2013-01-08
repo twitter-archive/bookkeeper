@@ -235,6 +235,12 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
         processSubscriptionEvent(event, NetUtils.getHostFromChannel(channel), channel);
     }
 
+    private synchronized void closeSubscribeChannel() {
+        if (null != subscribeChannel) {
+            subscribeChannel.close();
+        }
+    }
+
     @Override
     protected void asyncMessageDeliver(TopicSubscriber topicSubscriber,
                                        Message message) {
@@ -265,9 +271,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
             logger.error("Caught exception while trying to deliver messages to the message handler." + e);
             // We close the channel so that this subscription is closed and retried later resulting in a new response handler.
             // We want the state to be cleared so we don't close the channel explicitly.
-            if (null != subscribeChannel) {
-                subscribeChannel.close();
-            }
+            closeSubscribeChannel();
         }
     }
 
@@ -357,9 +361,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
             deliveryHandler.setMessageHandlerOptionallyDeliver(messageHandler);
         } catch (MessageDeliveryHandler.MessageDeliveryException e) {
             logger.error("Error while starting delivering outstanding messages : ", e);
-            if (null != subscribeChannel) {
-                subscribeChannel.close();
-            }
+            closeSubscribeChannel();
             // if failed to deliver messages, re-estabilish subscription channel
             // we don't need to go thru following logic to make channel readable
             return;
@@ -398,9 +400,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
             deliveryHandler.setMessageHandlerOptionallyDeliver(null);
         } catch (MessageDeliveryHandler.MessageDeliveryException e) {
             logger.error("Error while stopping delivering outstanding messages : ", e);
-            if (null != subscribeChannel) {
-                subscribeChannel.close();
-            }
+            closeSubscribeChannel();
             // if failed, re-estabilish subscription channel
             // we don't need to go thru following logic to make channel unreadable
             return;

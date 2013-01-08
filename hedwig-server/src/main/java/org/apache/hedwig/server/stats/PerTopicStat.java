@@ -18,10 +18,11 @@ public abstract class PerTopicStat {
     /**
      * The topic this stat represents.
      */
-    ByteString topic;
+    // TODO: seems no one use it, comment it to avoid findbug warning
+    // ByteString topic;
 
     public PerTopicStat(ByteString topic) {
-        this.topic = topic;
+        // this.topic = topic;
     }
 
     /**

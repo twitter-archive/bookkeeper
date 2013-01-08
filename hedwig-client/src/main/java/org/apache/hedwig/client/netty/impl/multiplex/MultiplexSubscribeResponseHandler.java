@@ -88,11 +88,6 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
         // The Message delivery handler that is used to deliver messages without locking.
         final private MessageDeliveryHandler deliveryHandler = new MessageDeliveryHandler();
 
-        // Queue used for subscribes when the MessageHandler hasn't been registered
-        // yet but we've already received subscription messages from the server.
-        // This will be lazily created as needed.
-        private Queue<Message> msgQueue = new LinkedList<Message>();
-
         ActiveSubscriber(TopicSubscriber ts, PubSubData op,
                         SubscriptionPreferences preferences,
                         Channel channel) {

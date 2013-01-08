@@ -22,4 +22,10 @@
     <!-- We make is safe by hashing the input before using //-->
     <Bug pattern="SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE" />
   </Match>
+  <Match>
+    <Class name="org.apache.hedwig.server.netty.ServerStats$OpStatData" />
+    <Method name="getLatencyBuckets" />
+    <!-- OpStatData is a read-only view used by JMX Bean. //-->
+    <Bug pattern="EI_EXPOSE_REP" />
+  </Match>
 </FindBugsFilter>
