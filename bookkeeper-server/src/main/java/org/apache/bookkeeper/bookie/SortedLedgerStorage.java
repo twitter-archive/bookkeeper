@@ -33,8 +33,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 
-public class SkipListLedgerStorage extends InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
-    private final static Logger LOG = LoggerFactory.getLogger(SkipListLedgerStorage.class);
+public class SortedLedgerStorage extends InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
+    private final static Logger LOG = LoggerFactory.getLogger(SortedLedgerStorage.class);
 
     private EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
@@ -49,7 +49,7 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
         }
     }
 
-    public SkipListLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
+    public SortedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
                                  LedgerDirsManager ledgerDirsManager, final CacheCallback cb)
             throws IOException {
         super(conf, activeLedgerManager, ledgerDirsManager);
@@ -139,7 +139,7 @@ public class SkipListLedgerStorage extends InterleavedLedgerStorage implements L
             @Override
             public void run() {
                 try {
-                    if (memTable.flush(SkipListLedgerStorage.this, false) != 0) {
+                    if (memTable.flush(SortedLedgerStorage.this, false) != 0) {
                         cacheCallback.onSizeLimitReached();
                     }
                 } catch (IOException e) {

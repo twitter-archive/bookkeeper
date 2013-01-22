@@ -45,7 +45,7 @@ import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
-import org.apache.bookkeeper.bookie.SkipListLedgerStorage;
+import org.apache.bookkeeper.bookie.SortedLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
@@ -438,8 +438,8 @@ public class Bookie extends BookieThread {
 
         syncThread = new SyncThread(conf);
         // Check the type of storage.
-        if (conf.getSkipListUsageEnabled()) {
-            ledgerStorage = new SkipListLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
+        if (conf.getSortedLedgerStorageEnabled()) {
+            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
         } else {
             ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager);
         }

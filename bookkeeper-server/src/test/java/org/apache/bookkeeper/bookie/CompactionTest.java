@@ -83,7 +83,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         // Set up the configuration properties needed.
         baseConf.setEntryLogSizeLimit(numEntries * ENTRY_SIZE);
         // Disable skip list for compaction
-        baseConf.setSkipListUsageEnabled(false);
+        baseConf.setSortedLedgerStorageEnabled(false);
         baseConf.setGcWaitTime(gcWaitTime);
         baseConf.setMinorCompactionThreshold(minorCompactionThreshold);
         baseConf.setMajorCompactionThreshold(majorCompactionThreshold);

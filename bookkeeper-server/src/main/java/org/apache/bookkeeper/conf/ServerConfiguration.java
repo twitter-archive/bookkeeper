@@ -80,7 +80,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
 
-    protected final static String SKIP_LIST_USAGE_ENABLED = "skipListUsageEnabled";
+    protected final static String SORTED_LEDGER_STORAGE_ENABLED = "sortedLedgerStorageEnabled";
     protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
     protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
     protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
@@ -664,22 +664,22 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
-     * Set skip list usage enabled or not
+     * Set sorted-ledger storage enabled or not
      *
      * @param enabled
      */
-    public ServerConfiguration setSkipListUsageEnabled(boolean enabled) {
-        this.setProperty(SKIP_LIST_USAGE_ENABLED, enabled);
+    public ServerConfiguration setSortedLedgerStorageEnabled(boolean enabled) {
+        this.setProperty(SORTED_LEDGER_STORAGE_ENABLED, enabled);
         return this;
     }
 
     /**
-     * Check if skip list usage enabled (default true)
+     * Check if sorted-ledger storage enabled (default true)
      *
      * @return
      */
-    public boolean getSkipListUsageEnabled() {
-        return this.getBoolean(SKIP_LIST_USAGE_ENABLED, true);
+    public boolean getSortedLedgerStorageEnabled() {
+        return this.getBoolean(SORTED_LEDGER_STORAGE_ENABLED, true);
     }
 
     /**

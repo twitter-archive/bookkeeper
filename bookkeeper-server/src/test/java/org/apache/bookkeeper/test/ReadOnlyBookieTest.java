@@ -38,7 +38,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
 
     public ReadOnlyBookieTest() {
         super(2);
-        baseConf.setSkipListUsageEnabled(false);
+        baseConf.setSortedLedgerStorageEnabled(false);
     }
 
     /**
