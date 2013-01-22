@@ -226,6 +226,7 @@ public class LedgerCacheTest extends TestCase {
     /**
      * Test Ledger Cache flush failure
      */
+    @Test
     public void testLedgerCacheFlushFailureOnDiskFull() throws Exception {
         File ledgerDir1 = File.createTempFile("bkTest", ".dir");
         ledgerDir1.delete();
@@ -260,6 +261,8 @@ public class LedgerCacheTest extends TestCase {
         ledgerStorage.prepare(true);
         ledgerStorage.flush();
         File after = newFileInfo.getLf();
+
+        assertEquals("Reference counting for the file info should be zero.", 0, newFileInfo.getUseCount());
 
         assertFalse("After flush index file should be changed", before.equals(after));
         // Verify written entries

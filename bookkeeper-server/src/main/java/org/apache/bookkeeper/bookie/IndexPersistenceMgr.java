@@ -275,11 +275,18 @@ public class IndexPersistenceMgr {
     }
 
     public byte[] readMasterKey(long ledgerId) throws IOException, BookieException {
-        FileInfo fi = getFileInfo(ledgerId, null);
-        if (null == fi) {
-            throw new IOException("Exception while reading master key for ledger:" + ledgerId);
+        FileInfo fi = null;
+        try {
+            fi = getFileInfo(ledgerId, null);
+            if (null == fi) {
+                throw new IOException("Exception while reading master key for ledger:" + ledgerId);
+            }
+            return fi.getMasterKey();
+        } finally {
+            if (null != fi) {
+                fi.release();
+            }
         }
-        return fi.getMasterKey();
     }
 
     public void setMasterKey(long ledgerId, byte[] masterKey) throws IOException {
@@ -328,10 +335,17 @@ public class IndexPersistenceMgr {
             // if some new dir detected as full, then move all corresponding
             // open index files to new location
             for (Long l : dirtyLedgers) {
-                FileInfo fi = getFileInfo(l, null);
-                File currentDir = fi.getLf().getParentFile().getParentFile().getParentFile();
-                if (ledgerDirsManager.isDirFull(currentDir)) {
-                    moveLedgerIndexFile(l, fi, currentDir);
+                FileInfo fi = null;
+                try {
+                    fi = getFileInfo(l, null);
+                    File currentDir = fi.getLf().getParentFile().getParentFile().getParentFile();
+                    if (ledgerDirsManager.isDirFull(currentDir)) {
+                        moveLedgerIndexFile(l, fi, currentDir);
+                    }
+                } finally {
+                    if (null != fi) {
+                        fi.release();
+                    }
                 }
             }
             shouldRelocateIndexFile.set(false);

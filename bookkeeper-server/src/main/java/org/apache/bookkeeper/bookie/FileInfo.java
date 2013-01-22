@@ -302,8 +302,13 @@ class FileInfo {
         useCount.incrementAndGet();
     }
 
+    int getUseCount() {
+        return useCount.get();
+    }
+
     synchronized public void release() {
-        if (isClosed && (useCount.decrementAndGet() == 0) && fc != null) {
+        int count = useCount.decrementAndGet();
+        if (isClosed && (count == 0) && fc != null) {
             try {
                 fc.close();
             } catch (IOException e) {
