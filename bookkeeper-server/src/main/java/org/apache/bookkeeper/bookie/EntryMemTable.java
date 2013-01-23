@@ -191,6 +191,12 @@ public class EntryMemTable {
         if (isSizeLimitReached()) {
             if (snapshot()) {
                 cb.onSizeLimitReached();
+            } else {
+                // Throttling writer w/ 1 ms delay
+                try {
+                    Thread.sleep(1);
+                } catch (Exception exception) {
+                }
             }
         }
 

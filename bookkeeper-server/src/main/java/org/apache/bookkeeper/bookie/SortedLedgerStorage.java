@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 public class SortedLedgerStorage extends InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
     private final static Logger LOG = LoggerFactory.getLogger(SortedLedgerStorage.class);
@@ -62,6 +63,9 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage implements Led
     public void shutdown() throws InterruptedException {
         // Wait for any jobs currently scheduled to be completed and then shut down.
         scheduler.shutdown();
+        if (!scheduler.awaitTermination(3, TimeUnit.SECONDS)) {
+            scheduler.shutdownNow();
+        }
         super.shutdown();
     }
 
@@ -130,6 +134,12 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage implements Led
     @Override
     public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
         processEntry(ledgerId, entryId, buffer);
+    }
+
+    @Override
+    synchronized public void flush() throws IOException {
+        memTable.flush(this, true);
+        super.flush();
     }
 
     // CacheCallback functions.
