@@ -26,6 +26,8 @@ import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerO
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -70,6 +72,9 @@ public class EntryMemTable {
 
     final ServerConfiguration conf;
 
+    final ReentrantLock monitor = new ReentrantLock();
+    final Condition cond = monitor.newCondition();
+
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     final KeyComparator comparator = EntryKey.COMPARATOR;
@@ -78,6 +83,7 @@ public class EntryMemTable {
     final AtomicLong size;
 
     final long skipListSizeLimit;
+    final long writesSlowdownTrigger;
 
     SkipListArena allocator;
 
@@ -97,6 +103,7 @@ public class EntryMemTable {
         this.allocator = new SkipListArena(conf);
         // skip list size limit
         this.skipListSizeLimit = conf.getSkipListSizeLimit();
+        this.writesSlowdownTrigger = (this.skipListSizeLimit * 3)/4;
     }
 
     void dump() {
@@ -137,22 +144,29 @@ public class EntryMemTable {
     }
 
     /**
-     * Flush snapshot and clear it
+     * Flush snapshot and clear it.
+     * Only this function change non-empty this.snapshot.
      * @param force all data to be flushed (incl' current)
      */
-    synchronized public long flush(final SkipListFlusher flusher, boolean force)
+    public long flush(final SkipListFlusher flusher, boolean force)
             throws IOException {
-        // No lock is required as only this function change non-empty this.snapshot
-        EntrySkipList keyValues = this.snapshot;
         long size = 0;
-        if (!keyValues.isEmpty()) {
-            for (EntryKey key : keyValues.keySet()) {
-                EntryKeyValue kv = (EntryKeyValue)key;
-                size += kv.getLength();
-                flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getValueAsByteBuffer());
+        if (!this.snapshot.isEmpty()) {
+            this.monitor.lock();
+            try {
+                EntrySkipList keyValues = this.snapshot;
+                if (!keyValues.isEmpty()) {
+                    for (EntryKey key : keyValues.keySet()) {
+                        EntryKeyValue kv = (EntryKeyValue)key;
+                        size += kv.getLength();
+                        flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getValueAsByteBuffer());
+                    }
+                    Logger.info("skip list flushed " + size + " bytes");
+                    clearSnapshot(keyValues);
+                }
+            } finally {
+                this.monitor.unlock();
             }
-            Logger.info("skip list flushed " + size + " bytes");
-            clearSnapshot(keyValues);
         }
 
         if (force) {
@@ -182,21 +196,48 @@ public class EntryMemTable {
     }
 
     /**
+     * Throttling writer w/ 1 ms delay
+     */
+    private void throttleWriters() {
+        try {
+            Thread.sleep(1);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Wait for snapshot cleared
+     */
+    private void waitEmptySnapshot() {
+        this.monitor.lock();
+        try {
+            while (shouldThrottleWrite() && !snapshot.isEmpty()) {
+                this.cond.await();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            this.monitor.unlock();
+        }
+    }
+
+    /**
     * Write an update
     * @param entry
     * @return approximate size of the passed key and value.
     */
     public long addEntry(long ledgerId, long entryId, final ByteBuffer entry, final CacheCallback cb)
             throws IOException {
-        if (isSizeLimitReached()) {
-            if (snapshot()) {
-                cb.onSizeLimitReached();
-            } else {
-                // Throttling writer w/ 1 ms delay
-                try {
-                    Thread.sleep(1);
-                } catch (Exception exception) {
+        if (shouldThrottleWrite()) {
+            if (isSizeLimitReached()) {
+                if (snapshot()) {
+                    cb.onSizeLimitReached();
+                } else {
+                    waitEmptySnapshot();
                 }
+            } else if (!snapshot.isEmpty()) {
+                throttleWriters();
             }
         }
 
@@ -314,5 +355,12 @@ public class EntryMemTable {
      */
     boolean isSizeLimitReached() {
         return size.get() >= skipListSizeLimit;
+    }
+
+    /**
+     * Check if writes-throttling condition
+     */
+    boolean shouldThrottleWrite() {
+        return size.get() >= writesSlowdownTrigger;
     }
 }
