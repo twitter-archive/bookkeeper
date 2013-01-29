@@ -225,6 +225,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 .maximumWeight(cfg.getMaximumCacheSize())
                 .weigher(new EntryWeigher())
                 .softValues()
+                .expireAfterAccess(cfg.getCacheEntryTTL(), TimeUnit.SECONDS)
                 .removalListener(new CacheRemovalListener())
                 .build();
         this.cacheWorkers = new OrderedSafeExecutor(numThreads, new DaemonThreadFactory());

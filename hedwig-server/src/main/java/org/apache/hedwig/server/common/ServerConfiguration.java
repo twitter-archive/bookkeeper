@@ -42,6 +42,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String READAHEAD_COUNT = "readahead_count";
     protected final static String READAHEAD_SIZE = "readahead_size";
     protected final static String CACHE_SIZE = "cache_size";
+    protected final static String CACHE_ENTRY_TTL = "cache_entry_ttl";
     protected final static String SCAN_BACKOFF_MSEC = "scan_backoff_ms";
     protected final static String SERVER_PORT = "server_port";
     protected final static String SSL_SERVER_PORT = "ssl_server_port";
@@ -147,7 +148,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     public int getReadAheadCount() {
-        return conf.getInt(READAHEAD_COUNT, 10);
+        return conf.getInt(READAHEAD_COUNT, 300); // 300 seconds
     }
 
     public long getReadAheadSizeBytes() {
@@ -157,6 +158,17 @@ public class ServerConfiguration extends AbstractConfiguration {
     public long getMaximumCacheSize() {
         // 2G or half of the maximum amount of memory the JVM uses
         return conf.getLong(CACHE_SIZE, Math.min(2 * 1024L * 1024L * 1024L, Runtime.getRuntime().maxMemory() / 2));
+    }
+
+    /**
+      * Cache Entry TTL w/ default as 300 seconds. Expired entries will not
+      * be visible to read or write operations. Expired entries are cleaned
+      * up as part of the routine maintenance as documented in Guava cache.
+      *
+      * @return cache entry ttl.
+      */
+    public long getCacheEntryTTL() {
+        return conf.getInt(CACHE_ENTRY_TTL, 300); // 300 seconds
     }
 
     // After a scan of a log fails, how long before we retry (in msec)
