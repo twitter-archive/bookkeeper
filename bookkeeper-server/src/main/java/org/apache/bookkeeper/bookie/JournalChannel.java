@@ -30,6 +30,8 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.ByteBuffer;
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -161,5 +163,14 @@ class JournalChannel implements Closeable {
 
     public void close() throws IOException {
         fc.close();
+    }
+
+    public void forceWrite() throws IOException {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Journal ForceWrite");
+        }
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FORCE_WRITES).inc();
+        bc.forceWrite();
     }
 }

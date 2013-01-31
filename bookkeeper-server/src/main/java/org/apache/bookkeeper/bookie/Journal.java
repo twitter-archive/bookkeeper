@@ -281,7 +281,7 @@ class Journal extends BookieThread {
             try {
                 if (shouldForceWrite) {
                     long startTimeNanos = MathUtils.nowInNano();
-                    this.logFile.getBufferedChannel().forceWrite();
+                    this.logFile.forceWrite();
                     ServerStatsProvider.getStatsLoggerInstance()
                         .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
@@ -294,6 +294,9 @@ class Journal extends BookieThread {
                     ServerStatsProvider.getStatsLoggerInstance()
                             .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(e.enqueueTime));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Acknowledge Ledger:" + e.ledgerId + " Entry:" + e.entryId);
+                    }
                     e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
                 }
 
@@ -351,6 +354,16 @@ class Journal extends BookieThread {
                 }
             });
 
+            // Export sampled stats for journal grouping efficiency.
+            Stats.export(new SampledStat<Integer>(ServerStatsProvider
+                .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
+                    .JOURNAL_FORCE_WRITE_QUEUE_SIZE), 0) {
+                @Override
+                public Integer doSample() {
+                    return forceWriteRequests.size();
+                }
+            });
+
         }
         @Override
         public void run() {
@@ -387,10 +400,8 @@ class Journal extends BookieThread {
                     }
 
                     if (enableGroupForceWrites &&
-                        // if its a marker we should switch back to flushing unless its not
-                        // for the current file where the shouldClose would have caused the
-                        // force write flag to have been reset
-                        (!req.isMarker || req.logFile != currLogFile) &&
+                        // if its a marker we should switch back to flushing
+                        !req.isMarker &&
                         // This indicates that this is the last request in a given file
                         // so subsequent requests will go to a different file so we should
                         // flush on the next request
@@ -699,17 +710,39 @@ class Journal extends BookieThread {
                         qe = queue.take();
                     } else {
                         qe = queue.poll();
-                        // If the queue is empty i.e. no benefit of grouping. This happens when we have one
+                        // We should issue a forceWrite if any of the three conditions below holds good
+                        // 1. If the queue is empty i.e. no benefit of grouping. This happens when we have one
                         // publish at a time - common case in tests.
-                        // or if we have buffered more than the buffWriteThreshold
-                        // or if the oldest pending entry has been pending for longer than the max wait time
-                        // we should issue a forceWrite -
+                        boolean isQueueEmpty = (qe == null);
+                        if (isQueueEmpty) {
+                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_EMPTY_QUEUE).inc();
+                        }
+                        // 2. If we have buffered more than the buffWriteThreshold
+                        boolean hasMaxBufferedSizeExceeded = (bc.position() > lastFlushPosition + bufferedWritesThreshold);
+                        if (hasMaxBufferedSizeExceeded) {
+                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
+                        }
+                        // 3. If the oldest pending entry has been pending for longer than the max wait time
+                        boolean hasMaxWaitExceeded = (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec));
+                        if (hasMaxWaitExceeded) {
+                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
+                        }
+
                         // toFlush is non null and not empty so should be safe to access getFirst
-                        if (qe == null ||
-                            (bc.position() > lastFlushPosition + bufferedWritesThreshold)  ||
-                            (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec))) {
+                        if (isQueueEmpty || hasMaxBufferedSizeExceeded || hasMaxWaitExceeded) {
                             bc.flush(false);
                             lastFlushPosition = bc.position();
+
+                            // Trace the lifetime of entries through persistence
+                            if (LOG.isDebugEnabled()) {
+                                for (QueueEntry e : toFlush) {
+                                    LOG.debug("Written and queuing for flush Ledger:" + e.ledgerId + " Entry:" + e.entryId);
+                                }
+                            }
+
                             forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
                             toFlush = new LinkedList<QueueEntry>();
                             // check whether journal file is over file limit
