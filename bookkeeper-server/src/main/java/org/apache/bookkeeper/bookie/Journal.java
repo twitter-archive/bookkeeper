@@ -30,8 +30,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
@@ -53,6 +55,15 @@ import com.twitter.common.stats.Stats;
 class Journal extends BookieThread {
 
     static Logger LOG = LoggerFactory.getLogger(Journal.class);
+
+    private static class DaemonThreadFactory implements ThreadFactory {
+        private ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
+        public Thread newThread(Runnable r) {
+            Thread thread = defaultThreadFactory.newThread(r);
+            thread.setDaemon(true);
+            return thread;
+        }
+    }
 
     /**
      * Filter to pickup journals
@@ -249,9 +260,19 @@ class Journal extends BookieThread {
             this.entryId = entryId;
             this.enqueueTime = enqueueTime;
         }
+
+        public void callback() {
+            ServerStatsProvider.getStatsLoggerInstance()
+                    .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
+                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Acknowledge Ledger:" + ledgerId + " Entry:" + entryId);
+            }
+            cb.writeComplete(0, ledgerId, entryId, null, ctx);
+        }
     }
 
-    private class ForceWriteRequest {
+    private class ForceWriteRequest implements Runnable {
         private JournalChannel logFile;
         private LinkedList<QueueEntry> forceWriteWaiters;
         private boolean shouldClose;
@@ -290,20 +311,18 @@ class Journal extends BookieThread {
                 lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
 
                 // Notify the waiters that the force write succeeded
-                for (QueueEntry e : this.forceWriteWaiters) {
-                    ServerStatsProvider.getStatsLoggerInstance()
-                            .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(e.enqueueTime));
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Acknowledge Ledger:" + e.ledgerId + " Entry:" + e.entryId);
-                    }
-                    e.cb.writeComplete(0, e.ledgerId, e.entryId, null, e.ctx);
-                }
+                cbThreadPool.submit(this);
 
                 return this.forceWriteWaiters.size();
             }
             finally {
                 closeFileIfNecessary();
+            }
+        }
+
+        public void run() {
+            for (QueueEntry e : this.forceWriteWaiters) {
+                e.callback();    // Process cbs inline
             }
         }
 
@@ -459,6 +478,11 @@ class Journal extends BookieThread {
 
     private LastLogMark lastLogMark = new LastLogMark(0, 0);
 
+    /**
+     * The thread pool used to handle callback.
+     */
+    private final ExecutorService cbThreadPool;
+
     // journal entry queue to commit
     LinkedBlockingQueue<QueueEntry> queue = new LinkedBlockingQueue<QueueEntry>();
     LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
@@ -479,6 +503,7 @@ class Journal extends BookieThread {
         this.forceWriteThread = new ForceWriteThread(this, enableGroupForceWrites);
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
+        this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumAddWorkerThreads(), new DaemonThreadFactory());
 
         // read last log mark
         lastLogMark.readLog();
@@ -811,6 +836,9 @@ class Journal extends BookieThread {
                 return;
             }
             forceWriteThread.shutdown();
+            cbThreadPool.shutdown();
+            cbThreadPool.awaitTermination(5, TimeUnit.SECONDS);
+            cbThreadPool.shutdownNow();
             running = false;
             this.interrupt();
             this.join();
