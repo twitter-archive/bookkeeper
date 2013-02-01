@@ -22,6 +22,9 @@ import java.util.Map;
 import org.jboss.netty.channel.ChannelPipeline;
 import org.jboss.netty.channel.ChannelPipelineFactory;
 import org.jboss.netty.channel.Channels;
+import org.jboss.netty.handler.codec.compression.ZlibDecoder;
+import org.jboss.netty.handler.codec.compression.ZlibEncoder;
+import org.jboss.netty.handler.codec.compression.ZlibWrapper;
 import org.jboss.netty.handler.codec.frame.LengthFieldBasedFrameDecoder;
 import org.jboss.netty.handler.codec.frame.LengthFieldPrepender;
 import org.jboss.netty.handler.codec.protobuf.ProtobufDecoder;
@@ -37,11 +40,13 @@ public abstract class ClientChannelPipelineFactory implements ChannelPipelineFac
 
     protected ClientConfiguration cfg;
     protected AbstractHChannelManager channelManager;
+    private final boolean isCompressionEnabled;
 
     public ClientChannelPipelineFactory(ClientConfiguration cfg,
                                         AbstractHChannelManager channelManager) {
         this.cfg = cfg;
         this.channelManager = channelManager;
+        this.isCompressionEnabled = cfg.isCompressionEnabled();
     }
 
     protected abstract Map<OperationType, AbstractResponseHandler> createResponseHandlers();
@@ -57,6 +62,11 @@ public abstract class ClientChannelPipelineFactory implements ChannelPipelineFac
         ChannelPipeline pipeline = Channels.pipeline();
         if (channelManager.getSslFactory() != null) {
             pipeline.addLast("ssl", new SslHandler(channelManager.getSslFactory().getEngine()));
+        }
+        if (isCompressionEnabled) {
+            // Enable stream compression 
+            pipeline.addLast("deflater", new ZlibEncoder(ZlibWrapper.GZIP));
+            pipeline.addLast("inflater", new ZlibDecoder(ZlibWrapper.GZIP));
         }
         pipeline.addLast("lengthbaseddecoder", new LengthFieldBasedFrameDecoder(
                          cfg.getMaximumMessageSize(), 0, 4, 0, 4));

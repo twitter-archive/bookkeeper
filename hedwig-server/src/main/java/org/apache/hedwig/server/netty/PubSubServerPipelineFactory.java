@@ -20,6 +20,9 @@ package org.apache.hedwig.server.netty;
 import org.jboss.netty.channel.ChannelPipeline;
 import org.jboss.netty.channel.ChannelPipelineFactory;
 import org.jboss.netty.channel.Channels;
+import org.jboss.netty.handler.codec.compression.ZlibDecoder;
+import org.jboss.netty.handler.codec.compression.ZlibEncoder;
+import org.jboss.netty.handler.codec.compression.ZlibWrapper;
 import org.jboss.netty.handler.codec.frame.LengthFieldBasedFrameDecoder;
 import org.jboss.netty.handler.codec.frame.LengthFieldPrepender;
 import org.jboss.netty.handler.codec.protobuf.ProtobufDecoder;
@@ -39,6 +42,8 @@ public class PubSubServerPipelineFactory implements ChannelPipelineFactory {
     private UmbrellaHandler uh;
     private SslServerContextFactory sslFactory;
     private int maxMessageSize;
+    private final boolean isSSLCompressionEnabled;
+    private final boolean isCompressionEnabled;
 
     /**
      *
@@ -47,17 +52,31 @@ public class PubSubServerPipelineFactory implements ChannelPipelineFactory {
      *            may be null if ssl is disabled
      * @param cfg
      */
-    public PubSubServerPipelineFactory(UmbrellaHandler uh, SslServerContextFactory sslFactory, int maxMessageSize) {
+    public PubSubServerPipelineFactory(UmbrellaHandler uh, SslServerContextFactory sslFactory,
+                                       int maxMessageSize, boolean isCompressionEnabled,
+                                       boolean isSSLCompressionEnabled) {
         this.uh = uh;
         this.sslFactory = sslFactory;
         this.maxMessageSize = maxMessageSize;
+        this.isCompressionEnabled = isCompressionEnabled;
+        this.isSSLCompressionEnabled = isSSLCompressionEnabled;
     }
 
     public ChannelPipeline getPipeline() throws Exception {
         ChannelPipeline pipeline = Channels.pipeline();
+        boolean compression;
         if (sslFactory != null) {
             pipeline.addLast("ssl", new SslHandler(sslFactory.getEngine()));
+            compression = isSSLCompressionEnabled;
+        } else {
+            compression = isCompressionEnabled;
         }
+        if (compression) {
+            // Enable stream compression 
+            pipeline.addLast("deflater", new ZlibEncoder(ZlibWrapper.GZIP));
+            pipeline.addLast("inflater", new ZlibDecoder(ZlibWrapper.GZIP));
+        }
+
         pipeline.addLast("lengthbaseddecoder",
                          new LengthFieldBasedFrameDecoder(maxMessageSize, 0, 4, 0, 4));
         pipeline.addLast("lengthprepender", new LengthFieldPrepender(4));

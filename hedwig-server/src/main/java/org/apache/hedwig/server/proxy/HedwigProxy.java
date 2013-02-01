@@ -118,8 +118,8 @@ public class HedwigProxy {
             (ChannelDisconnectListener) handlers.get(OperationType.SUBSCRIBE);
         UmbrellaHandler umbrellaHandler =
             new UmbrellaHandler(allChannels, handlers, disconnectListener, false);
-        PubSubServerPipelineFactory pipeline = new PubSubServerPipelineFactory(umbrellaHandler, null, cfg
-                .getMaximumMessageSize());
+        PubSubServerPipelineFactory pipeline = new PubSubServerPipelineFactory(umbrellaHandler, null,
+            cfg.getMaximumMessageSize(), cfg.isCompressionEnabled(), cfg.isCompressionEnabled());
 
         bootstrap.setPipelineFactory(pipeline);
         bootstrap.setOption("child.tcpNoDelay", true);

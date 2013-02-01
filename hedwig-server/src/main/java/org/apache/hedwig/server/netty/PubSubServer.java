@@ -287,7 +287,7 @@ public class PubSubServer {
             new UmbrellaHandler(allChannels, handlers, subChannelMgr, isSSLEnabled);
         PubSubServerPipelineFactory pipeline =
             new PubSubServerPipelineFactory(umbrellaHandler, sslFactory,
-                                            conf.getMaximumMessageSize());
+            conf.getMaximumMessageSize(), conf.isCompressionEnabled(), conf.isSSLCompressionEnabled());
 
         bootstrap.setPipelineFactory(pipeline);
         bootstrap.setOption("child.tcpNoDelay", true);

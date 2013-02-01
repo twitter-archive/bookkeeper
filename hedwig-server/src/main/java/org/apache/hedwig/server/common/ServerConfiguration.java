@@ -56,6 +56,8 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String CERT_PATH = "cert_path";
     protected final static String PASSWORD = "password";
     protected final static String SSL_ENABLED = "ssl_enabled";
+    protected final static String SSL_COMPRESSION_ENABLED = "ssl_compression_enabled";
+    protected final static String COMPRESSION_ENABLED = "compression_enabled";
     protected final static String CONSUME_INTERVAL = "consume_interval";
     protected final static String RETENTION_SECS = "retention_secs";
     protected final static String INTER_REGION_SSL_ENABLED = "inter_region_ssl_enabled";
@@ -278,6 +280,14 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     public boolean isSSLEnabled() {
         return conf.getBoolean(SSL_ENABLED, false);
+    }
+    
+    public boolean isSSLCompressionEnabled() {
+        return conf.getBoolean(SSL_COMPRESSION_ENABLED, true);
+    }
+
+    public boolean isCompressionEnabled() {
+        return conf.getBoolean(COMPRESSION_ENABLED, true);
     }
 
     public int getConsumeInterval() {
