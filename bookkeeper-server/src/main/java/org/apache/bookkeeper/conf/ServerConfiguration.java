@@ -50,6 +50,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String JOURNAL_ADAPTIVE_GROUP_WRITES = "journalAdaptiveGroupWrites";
     protected final static String JOURNAL_MAX_GROUP_WAIT_MSEC = "journalMaxGroupWaitMSec";
     protected final static String JOURNAL_BUFFERED_WRITES_THRESHOLD = "journalBufferedWritesThreshold";
+    protected final static String JOURNAL_FLUSH_WHEN_QUEUE_EMPTY = "journalFlushWhenQueueEmpty";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
     // Bookie Parameters
@@ -769,6 +770,16 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public long getJournalBufferedWritesThreshold() {
         return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512 * 1024);
+    }
+
+
+    /**
+     * Should we group journal force writes
+     *
+     * @return group journal force writes
+     */
+    public boolean getJournalFlushWhenQueueEmpty() {
+        return getBoolean(JOURNAL_FLUSH_WHEN_QUEUE_EMPTY, true);
     }
 
 

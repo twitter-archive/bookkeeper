@@ -475,6 +475,8 @@ class Journal extends BookieThread {
     private final long maxGroupWaitInMSec;
     // Threshold after which we flush any buffered journal writes
     private final long bufferedWritesThreshold;
+    // should we flush if the queue is empty
+    private final boolean flushWhenQueueEmpty;
 
     private LastLogMark lastLogMark = new LastLogMark(0, 0);
 
@@ -504,6 +506,10 @@ class Journal extends BookieThread {
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
         this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumAddWorkerThreads(), new DaemonThreadFactory());
+
+        // Unless there is a cap on the max wait (which requires group force writes)
+        // we cannot skip flushing for queue empty
+        this.flushWhenQueueEmpty = !enableGroupForceWrites || conf.getJournalFlushWhenQueueEmpty();
 
         // read last log mark
         lastLogMark.readLog();
@@ -734,30 +740,35 @@ class Journal extends BookieThread {
                     if (toFlush.isEmpty()) {
                         qe = queue.take();
                     } else {
-                        qe = queue.poll();
+                        long pollWaitTime = maxGroupWaitInMSec - MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime);
+                        if (flushWhenQueueEmpty || pollWaitTime < 0) {
+                            pollWaitTime = 0;
+                        }
+                        qe = queue.poll(pollWaitTime, TimeUnit.MILLISECONDS);
+                        boolean shouldFlush = false;
                         // We should issue a forceWrite if any of the three conditions below holds good
-                        // 1. If the queue is empty i.e. no benefit of grouping. This happens when we have one
-                        // publish at a time - common case in tests.
-                        boolean isQueueEmpty = (qe == null);
-                        if (isQueueEmpty) {
+                        // 1. If the oldest pending entry has been pending for longer than the max wait time
+                        if (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec)) {
+                            shouldFlush = true;
+                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
+                        } else if ((bc.position() > lastFlushPosition + bufferedWritesThreshold)) {
+                            // 2. If we have buffered more than the buffWriteThreshold
+                            shouldFlush = true;
+                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
+                        } else if (qe == null) {
+                            // We should get here only if we flushWhenQueueEmpty is true else we would wait
+                            // for timeout that would put is past the maxWait threshold
+                            // 3. If the queue is empty i.e. no benefit of grouping. This happens when we have one
+                            // publish at a time - common case in tests.
+                            shouldFlush = true;
                             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                                 BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_EMPTY_QUEUE).inc();
                         }
-                        // 2. If we have buffered more than the buffWriteThreshold
-                        boolean hasMaxBufferedSizeExceeded = (bc.position() > lastFlushPosition + bufferedWritesThreshold);
-                        if (hasMaxBufferedSizeExceeded) {
-                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
-                        }
-                        // 3. If the oldest pending entry has been pending for longer than the max wait time
-                        boolean hasMaxWaitExceeded = (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec));
-                        if (hasMaxWaitExceeded) {
-                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
-                        }
 
                         // toFlush is non null and not empty so should be safe to access getFirst
-                        if (isQueueEmpty || hasMaxBufferedSizeExceeded || hasMaxWaitExceeded) {
+                        if (shouldFlush) {
                             bc.flush(false);
                             lastFlushPosition = bc.position();
 
