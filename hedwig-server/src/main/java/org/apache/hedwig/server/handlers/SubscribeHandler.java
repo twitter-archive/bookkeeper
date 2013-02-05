@@ -132,7 +132,7 @@ public class SubscribeHandler extends BaseHandler {
             }
 
             @Override
-            public void operationFinished(Object ctx, SubscriptionData subData) {
+            public void operationFinished(Object ctx, final SubscriptionData subData) {
 
                 TopicSubscriber topicSub = new TopicSubscriber(topic, subscriberId);
                 synchronized (channel) {
@@ -196,27 +196,36 @@ public class SubscribeHandler extends BaseHandler {
                     subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     return;
                 }
-                // First write success and then tell the delivery manager,
-                // otherwise the first message might go out before the response
-                // to the subscribe
-                SubscribeResponse.Builder subRespBuilder = SubscribeResponse.newBuilder()
-                    .setPreferences(subData.getPreferences());
-                ResponseBody respBody = ResponseBody.newBuilder()
-                    .setSubscribeResponse(subRespBuilder).build();
-                channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId(), respBody));
-                logger.info("Subscribe request (" + request.getTxnId() + ") for (topic:" + topic.toStringUtf8()
-                          + ", subscriber:" + subscriberId.toStringUtf8() + ") from channel " + channel.getRemoteAddress()
-                          + " succeed - its subscription data is " + SubscriptionStateUtils.toString(subData));
-                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
 
                 // want to start 1 ahead of the consume ptr
                 MessageSeqId lastConsumedSeqId = subData.getState().getMsgId();
                 MessageSeqId seqIdToStartFrom = MessageSeqId.newBuilder(lastConsumedSeqId).setLocalComponent(
                                                     lastConsumedSeqId.getLocalComponent() + 1).build();
                 deliveryMgr.startServingSubscription(topic, subscriberId,
-                                                     subData.getPreferences(),
-                                                     seqIdToStartFrom,
-                                                     new ChannelEndPoint(channel), filter);
+                        subData.getPreferences(), seqIdToStartFrom, new ChannelEndPoint(channel), filter,
+                        new Callback<Void>() {
+                            @Override
+                            public void operationFinished(Object ctx, Void result) {
+                                // First write success and then tell the delivery manager,
+                                // otherwise the first message might go out before the response
+                                // to the subscribe
+                                SubscribeResponse.Builder subRespBuilder = SubscribeResponse.newBuilder()
+                                    .setPreferences(subData.getPreferences());
+                                ResponseBody respBody = ResponseBody.newBuilder()
+                                    .setSubscribeResponse(subRespBuilder).build();
+                                channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId(), respBody));
+                                logger.info("Subscribe request (" + request.getTxnId() + ") for (topic:"
+                                            + topic.toStringUtf8() + ", subscriber:" + subscriberId.toStringUtf8()
+                                            + ") from channel " + channel.getRemoteAddress()
+                                            + " succeed - its subscription data is "
+                                            + SubscriptionStateUtils.toString(subData));
+                                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+                            }
+                            @Override
+                            public void operationFailed(Object ctx, PubSubException exception) {
+                                // would not happened
+                            }
+                        }, null);
             }
         }, null);
 

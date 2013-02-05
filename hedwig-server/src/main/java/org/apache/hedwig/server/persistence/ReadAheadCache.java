@@ -490,6 +490,43 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         }
     }
 
+    public class CancelScanRequestOp extends CacheRequest {
+
+        final CancelScanRequest request;
+
+        public CancelScanRequestOp(CancelScanRequest request) {
+            this.request = request;
+        }
+
+        @Override
+        public void safeRun() {
+            // cancel scan request
+            cancelScanRequest(request.getScanRequest());
+            super.safeRun();
+        }
+
+        void cancelScanRequest(ScanRequest request) {
+            if (null == request) {
+                // nothing to cancel
+                return;
+            }
+
+            CacheKey cacheKey = new CacheKey(request.getTopic(), request.getStartSeqId());
+            CacheValue cacheValue = cache.getIfPresent(cacheKey);
+            if (null == cacheValue) {
+                // cache value is evicted
+                // so it's callback would be called, we don't need to worry about
+                // cancel it. since it was treated as executed.
+                return;
+            }
+            cacheValue.removeCallback(request.getCallback(), request.getCtx());
+        }
+    }
+
+    public void cancelScanRequest(ByteString topic, CancelScanRequest request) {
+        enqueueWithoutFailure(topic, new CancelScanRequestOp(request));
+    }
+
     protected class ScanResponse extends CacheRequest {
         CacheKey cacheKey;
         Message message;

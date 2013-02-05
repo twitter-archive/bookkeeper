@@ -43,7 +43,6 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.streaming.LedgerInputStream;
 import org.apache.bookkeeper.streaming.LedgerOutputStream;
-import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.WatchedEvent;
@@ -393,116 +392,6 @@ public class BookieReadWriteTest extends MultiLedgerManagerMultiDigestTestCase
                 sync.notify();
             }
             LOG.info("Current counter: " + sync.counter);
-        }
-    }
-
-    /**
-     * Method for obtaining the available permits of a ledger handle
-     * using reflection to avoid adding a new public method to the
-     * class.
-     *
-     * @param lh
-     * @return
-     */
-    @SuppressWarnings("unchecked")
-    int getAvailablePermits(LedgerHandle lh) throws
-        NoSuchFieldException, IllegalAccessException
-    {
-        Field field = LedgerHandle.class.getDeclaredField("bkSharedSem");
-        field.setAccessible(true);
-        return ((BookKeeperSharedSemaphore)field.get(lh)).availablePermits();
-    }
-
-    @Test
-    public void testReadWriteAsyncSingleClientThrottle() throws
-        IOException, NoSuchFieldException, IllegalAccessException {
-        try {
-
-            Integer throttle = 100;
-            ThrottleTestCallback tcb = new ThrottleTestCallback(throttle);
-            // Create a ledger
-            bkc.getConf().setThrottleValue(throttle);
-            lh = bkc.createLedger(digestType, ledgerPassword);
-            // bkc.initMessageDigest("SHA1");
-            ledgerId = lh.getId();
-            LOG.info("Ledger ID: " + lh.getId());
-
-            numEntriesToWrite = 8000;
-            for (int i = 0; i < (numEntriesToWrite - 2000); i++) {
-                ByteBuffer entry = ByteBuffer.allocate(4);
-                entry.putInt(rng.nextInt(maxInt));
-                entry.position(0);
-
-                entries.add(entry.array());
-                entriesSize.add(entry.array().length);
-                lh.asyncAddEntry(entry.array(), this, sync);
-                /*
-                 * Check that the difference is no larger than the throttling threshold
-                 */
-                int testValue = getAvailablePermits(lh);
-                assertTrue("Difference is incorrect : " + i + ", " + sync.counter + ", " + testValue, testValue <= throttle);
-            }
-
-
-            for (int i = 0; i < 2000; i++) {
-                ByteBuffer entry = ByteBuffer.allocate(4);
-                entry.putInt(rng.nextInt(maxInt));
-                entry.position(0);
-
-                entries.add(entry.array());
-                entriesSize.add(entry.array().length);
-                lh.asyncAddEntry(entry.array(), this, sync);
-
-                /*
-                 * Check that the difference is no larger than the throttling threshold
-                 */
-                int testValue = getAvailablePermits(lh);
-                assertTrue("Difference is incorrect : " + i + ", " + sync.counter + ", " + testValue, testValue <= throttle);
-            }
-
-            // wait for all entries to be acknowledged
-            synchronized (sync) {
-                while (sync.counter < numEntriesToWrite) {
-                    LOG.debug("Entries counter = " + sync.counter);
-                    sync.wait();
-                }
-            }
-
-            LOG.debug("*** WRITE COMPLETE ***");
-            // close ledger
-            lh.close();
-
-            // *** WRITING PART COMPLETE // READ PART BEGINS ***
-
-            // open ledger
-            lh = bkc.openLedger(ledgerId, digestType, ledgerPassword);
-            LOG.debug("Number of entries written: " + (lh.getLastAddConfirmed() + 1));
-            assertTrue("Verifying number of entries written", lh.getLastAddConfirmed() == (numEntriesToWrite - 1));
-
-            // read entries
-            sync.counter = 0;
-            for (int i = 0; i < numEntriesToWrite; i+=throttle) {
-                lh.asyncReadEntries(i, i + throttle - 1, tcb, sync);
-                int testValue = getAvailablePermits(lh);
-                assertTrue("Difference is incorrect : " + i + ", " + sync.counter + ", " + testValue, testValue <= throttle);
-            }
-
-            synchronized (sync) {
-                while (sync.counter < numEntriesToWrite) {
-                    LOG.info("Entries counter = " + sync.counter);
-                    sync.wait();
-                }
-            }
-
-            LOG.debug("*** READ COMPLETE ***");
-
-            lh.close();
-        } catch (BKException e) {
-            LOG.error("Test failed", e);
-            fail("Test failed due to BookKeeper exception");
-        } catch (InterruptedException e) {
-            LOG.error("Test failed", e);
-            fail("Test failed due to interruption");
         }
     }
 

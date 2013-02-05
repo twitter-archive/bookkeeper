@@ -17,17 +17,18 @@
  */
 package org.apache.bookkeeper.proto;
 
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
@@ -61,20 +62,57 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
         ByteBuffer[] toSend = new ByteBuffer[2];
         int rc = BookieProtocol.EIO;
         try {
+            Future<Boolean> fenceResult = null;
             if ((flags & BookieProtocol.FLAG_DO_FENCING) == BookieProtocol.FLAG_DO_FENCING) {
                 logger.warn("Ledger fence request received for ledger:" + ledgerId + " from address:" + srcConn.getPeerName());
                 if (header.getVersion() >= 2) {
                     // Versions below 2 don't allow fencing ledgers.
                     byte[] masterKey = new byte[BookieProtocol.MASTER_KEY_LENGTH];
                     packet.get(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
-                    bookie.fenceLedger(ledgerId, masterKey);
+                    fenceResult = bookie.fenceLedger(ledgerId, masterKey);
                 } else {
                     logger.error("Fencing a ledger is not supported by version:" + header.getVersion());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 }
             }
             toSend[1] = bookie.readEntry(ledgerId, entryId);
-            rc = BookieProtocol.EOK;
+            if (null != fenceResult) {
+                // TODO:
+                // currently we don't have readCallback to run in separated read
+                // threads. after BOOKKEEPER-429 is complete, we could improve
+                // following code to make it not wait here
+                //
+                // For now, since we only try to wait after read entry. so writing
+                // to journal and read entry are executed in different thread
+                // it would be fine.
+                try {
+                    Boolean fenced = fenceResult.get(1000, TimeUnit.MILLISECONDS);
+                    if (null == fenced || !fenced) {
+                        // if failed to fence, fail the read request to make it retry.
+                        rc = BookieProtocol.EIO;
+                        toSend[1] = null;
+                    } else {
+                        rc = BookieProtocol.EOK;
+                    }
+                } catch (InterruptedException ie) {
+                    logger.error("Interrupting fence read entry (lid:" + ledgerId
+                              + ", eid:" + entryId + ") :", ie);
+                    rc = BookieProtocol.EIO;
+                    toSend[1] = null;
+                } catch (ExecutionException ee) {
+                    logger.error("Failed to fence read entry (lid:" + ledgerId
+                              + ", eid:" + entryId + ") :", ee);
+                    rc = BookieProtocol.EIO;
+                    toSend[1] = null;
+                } catch (TimeoutException te) {
+                    logger.error("Timeout to fence read entry (lid:" + ledgerId
+                              + ", eid:" + entryId + ") :", te);
+                    rc = BookieProtocol.EIO;
+                    toSend[1] = null;
+                }
+            } else {
+                rc = BookieProtocol.EOK;
+            }
         } catch (Bookie.NoLedgerException e) {
             rc = BookieProtocol.ENOLEDGER;
             logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +

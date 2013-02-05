@@ -13,7 +13,7 @@ public interface BookkeeperClientStatsLogger extends StatsLogger {
     }
 
     public static enum BookkeeperClientSimpleStatType {
-        NUM_ENSEMBLE_CHANGE, NUM_OPEN_LEDGERS, NUM_PENDING_ADD, NUM_PERMITS_TAKEN
+        NUM_ENSEMBLE_CHANGE, NUM_OPEN_LEDGERS, NUM_PENDING_ADD
     }
 }
 

@@ -23,6 +23,7 @@ package org.apache.bookkeeper.client;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
@@ -35,7 +36,6 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
-import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
@@ -84,6 +84,7 @@ public class BookKeeper {
     final BookieWatcher bookieWatcher;
 
     final OrderedSafeExecutor mainWorkerPool;
+    final ScheduledExecutorService scheduler;
 
     // Ledger manager responsible for how to store ledger meta data
     final LedgerManagerFactory ledgerManagerFactory;
@@ -134,9 +135,11 @@ public class BookKeeper {
 
         this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
                                                                 Executors.newCachedThreadPool());
+        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+
         mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool);
-        bookieWatcher = new BookieWatcher(conf, this);
+        bookieWatcher = new BookieWatcher(conf, scheduler, this);
         bookieWatcher.readBookiesBlocking();
 
         ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
@@ -196,10 +199,11 @@ public class BookKeeper {
         this.conf = conf;
         this.zk = zk;
         this.channelFactory = channelFactory;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor();
 
         mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool);
-        bookieWatcher = new BookieWatcher(conf, this);
+        bookieWatcher = new BookieWatcher(conf, scheduler, this);
         bookieWatcher.readBookiesBlocking();
 
         ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
@@ -236,18 +240,6 @@ public class BookKeeper {
      */
     BookieClient getBookieClient() {
         return bookieClient;
-    }
-
-    /**
-     * Get the shared semaphore created by this bookkeeper client.
-     * A new semaphore will be returned on each invocation.
-     * This semaphore will have the throttle values
-     * as specified by the configuration.
-     * @return
-     */
-    BookKeeperSharedSemaphore getSharedSemaphore() {
-        return new BookKeeperSharedSemaphore(conf.getThrottleValue(),
-                conf.getReadThrottleValue());
     }
 
     /**
@@ -583,6 +575,15 @@ public class BookKeeper {
      *
      */
     public void close() throws InterruptedException, BKException {
+        scheduler.shutdown();
+        if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
+            LOG.warn("The scheduler did not shutdown cleanly");
+        }
+        mainWorkerPool.shutdown();
+        if (!mainWorkerPool.awaitTermination(10, TimeUnit.SECONDS)) {
+            LOG.warn("The mainWorkerPool did not shutdown cleanly");
+        }
+
         bookieClient.close();
         try {
             ledgerManager.close();
@@ -590,14 +591,13 @@ public class BookKeeper {
         } catch (IOException ie) {
             LOG.error("Failed to close ledger manager : ", ie);
         }
-        bookieWatcher.halt();
+
         if (ownChannelFactory) {
             channelFactory.releaseExternalResources();
         }
         if (ownZKHandle) {
             zk.close();
         }
-        mainWorkerPool.shutdown();
     }
 
     private static class SyncCreateCallback implements CreateCallback {

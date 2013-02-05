@@ -31,7 +31,6 @@ import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.BKException.Code;
 import org.apache.bookkeeper.proto.BookieClient;
-import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

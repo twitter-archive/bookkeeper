@@ -472,6 +472,9 @@ public class IndexInMemPageMgr {
     private void flushSpecificLedger(long ledger) throws IOException {
         LinkedList<Long> firstEntryList = pageMapAndList.getFirstEntryListToBeFlushed(ledger);
 
+        // flush ledger index file header if necessary
+        indexPersistenceManager.flushLedgerHeader(ledger);
+
         if (firstEntryList.size() == 0) {
             LOG.info("Nothing to flush for ledger {}.", ledger);
             // nothing to do

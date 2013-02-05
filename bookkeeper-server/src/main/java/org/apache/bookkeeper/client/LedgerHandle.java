@@ -43,9 +43,9 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
-import org.apache.bookkeeper.util.BookKeeperSharedSemaphore;
-import org.apache.bookkeeper.util.BookKeeperSharedSemaphore.BKSharedOp;
 import org.apache.bookkeeper.util.SafeRunnable;
+
+import com.google.common.util.concurrent.RateLimiter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,7 +69,7 @@ public class LedgerHandle {
     final DigestManager macManager;
     final DistributionSchedule distributionSchedule;
 
-    final BookKeeperSharedSemaphore bkSharedSem;
+    final RateLimiter throttler;
 
     /**
      * Invalid entry id. This value is returned from methods which
@@ -96,7 +96,7 @@ public class LedgerHandle {
 
         this.ledgerId = ledgerId;
 
-        this.bkSharedSem = bk.getSharedSemaphore();
+        this.throttler = RateLimiter.create(bk.getConf().getThrottleValue());
 
         macManager = DigestManager.instantiate(ledgerId, password, digestType);
         this.ledgerKey = MacDigestManager.genDigest("ledger", password);
@@ -164,15 +164,6 @@ public class LedgerHandle {
      */
     DigestManager getDigestManager() {
         return macManager;
-    }
-
-    /**
-     * Return total number of available slots.
-     *
-     * @return int    available slots
-     */
-    BookKeeperSharedSemaphore getAvailablePermits() {
-        return this.bkSharedSem;
     }
 
     /**
@@ -386,7 +377,8 @@ public class LedgerHandle {
         }
 
         try {
-            new PendingReadOp(this, firstEntry, lastEntry, cb, ctx).initiate();
+            new PendingReadOp(this, bk.scheduler,
+                              firstEntry, lastEntry, cb, ctx).initiate();
         } catch (InterruptedException e) {
             cb.readComplete(BKException.Code.InterruptedException, this, null, ctx);
         }
@@ -492,33 +484,29 @@ public class LedgerHandle {
                 "Invalid values for offset("+offset
                 +") or length("+length+")");
         }
-        try {
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).inc();
-            bkSharedSem.acquire(BKSharedOp.ADD_OP);
-        } catch (InterruptedException e) {
-            cb.addComplete(BKException.Code.InterruptedException,
-                           LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-            return;
+        throttler.acquire();
+
+        final long entryId;
+        final long currentLength;
+        synchronized(this) {
+            // synchronized on this to ensure that
+            // the ledger isn't closed between checking and 
+            // updating lastAddPushed
+            if (metadata.isClosed()) {
+                LOG.warn("Attempt to add to closed ledger: " + ledgerId);
+                cb.addComplete(BKException.Code.LedgerClosedException,
+                               LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+                return;
+            }
+
+            entryId = ++lastAddPushed;
+            currentLength = addToLength(length);
+            op.setEntryId(entryId);
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
+            pendingAddOps.add(op);
         }
 
         try {
-            final long entryId;
-            final long currentLength;
-            synchronized(this) {
-                // synchronized on this to ensure that
-                // the ledger isn't closed between checking and
-                // updating lastAddPushed
-                if (metadata.isClosed()) {
-                    throw new BKException.BKLedgerClosedException();
-                }
-
-                entryId = ++lastAddPushed;
-                currentLength = addToLength(length);
-                op.setEntryId(entryId);
-                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
-                pendingAddOps.add(op);
-            }
-
             bk.mainWorkerPool.submit(new SafeRunnable() {
                 @Override
                 public void safeRun() {
@@ -527,19 +515,9 @@ public class LedgerHandle {
                     op.initiate(toSend);
                 }
             });
-        } catch (Exception e) {
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PERMITS_TAKEN).dec();
-            bkSharedSem.release(BKSharedOp.ADD_OP);
-            if (e instanceof BKException) {
-                BKException bkException = (BKException)e;
-                LOG.warn("Failed to add to ledger " + ledgerId + ": " + bkException.getMessage());
-                cb.addComplete(bkException.getCode(),
-                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-            } else {
-                // TODO: BookieHandleNotAvailableException is probably incorrect
-                cb.addComplete(BKException.Code.BookieHandleNotAvailableException,
-                            LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-            }
+        } catch (RuntimeException e) {
+            cb.addComplete(BKException.Code.InterruptedException,
+                    LedgerHandle.this, INVALID_ENTRY_ID, ctx);
         }
     }
 
@@ -675,25 +653,16 @@ public class LedgerHandle {
 
     }
 
-    void handleBookieFailure(final InetSocketAddress addr, final int bookieIndex) {
+    ArrayList<InetSocketAddress> replaceBookieInMetadata(final InetSocketAddress addr, final int bookieIndex)
+            throws BKException.BKNotEnoughBookiesException {
         InetSocketAddress newBookie;
-
-        LOG.debug("Handling failure of bookie: {} index: {}", addr, bookieIndex);
+        LOG.info("Handling failure of bookie: {} index: {}", addr, bookieIndex);
         final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
-        blockAddCompletions.incrementAndGet();
         final long newEnsembleStartEntry = lastAddConfirmed + 1;
 
         // avoid parallel ensemble changes to same ensemble.
         synchronized (metadata) {
-            try {
-                newBookie = bk.bookieWatcher
-                        .getAdditionalBookie(metadata.currentEnsemble);
-            } catch (BKNotEnoughBookiesException e) {
-                LOG.error("Could not get additional bookie to "
-                        + "remake ensemble, closing ledger: " + ledgerId);
-                handleUnrecoverableErrorDuringAdd(e.getCode());
-                return;
-            }
+            newBookie = bk.bookieWatcher.getAdditionalBookie(metadata.currentEnsemble);
 
             newEnsemble.addAll(metadata.currentEnsemble);
             newEnsemble.set(bookieIndex, newBookie);
@@ -706,10 +675,34 @@ public class LedgerHandle {
 
             metadata.addEnsemble(newEnsembleStartEntry, newEnsemble);
         }
+        return newEnsemble;
+    }
 
-        EnsembleInfo ensembleInfo = new EnsembleInfo(newEnsemble, bookieIndex,
-                addr);
-        writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+    void handleBookieFailure(final InetSocketAddress addr, final int bookieIndex) {
+        blockAddCompletions.incrementAndGet();
+
+        synchronized (metadata) {
+            if (!metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
+                // ensemble has already changed, failure of this addr is immaterial
+                LOG.warn("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
+                         addr, bookieIndex);
+                blockAddCompletions.decrementAndGet();
+                return;
+            }
+
+            try {
+                ArrayList<InetSocketAddress> newEnsemble = replaceBookieInMetadata(addr, bookieIndex);
+
+                EnsembleInfo ensembleInfo = new EnsembleInfo(newEnsemble, bookieIndex,
+                                                             addr);
+                writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+            } catch (BKException.BKNotEnoughBookiesException e) {
+                LOG.error("Could not get additional bookie to "
+                          + "remake ensemble, closing ledger: " + ledgerId);
+                handleUnrecoverableErrorDuringAdd(e.getCode());
+                return;
+            }
+        }
     }
 
     // Contains newly reformed ensemble, bookieIndex, failedBookieAddress
@@ -851,7 +844,7 @@ public class LedgerHandle {
 
     };
 
-    private void unsetSuccessAndSendWriteRequest(final int bookieIndex) {
+    void unsetSuccessAndSendWriteRequest(final int bookieIndex) {
         for (PendingAddOp pendingAddOp : pendingAddOps) {
             pendingAddOp.unsetSuccessAndSendWriteRequest(bookieIndex);
         }

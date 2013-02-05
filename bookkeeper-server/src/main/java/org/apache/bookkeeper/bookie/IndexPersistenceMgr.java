@@ -300,6 +300,36 @@ public class IndexPersistenceMgr {
         }
     }
 
+    boolean setFenced(long ledgerId) throws IOException {
+        FileInfo fi = null;
+        try {
+            fi = getFileInfo(ledgerId, null);
+            if (null != fi) {
+                return fi.setFenced();
+            }
+            return false;
+        } finally {
+            if (null != fi) {
+                fi.release();
+            }
+        }
+    }
+
+    boolean isFenced(long ledgerId) throws IOException {
+        FileInfo fi = null;
+        try {
+            fi = getFileInfo(ledgerId, null);
+            if (null != fi) {
+                return fi.isFenced();
+            }
+            return false;
+        } finally {
+            if (null != fi) {
+                fi.release();
+            }
+        }
+    }
+
     public int getOpenFileLimit() {
         return openFileLimit;
     }
@@ -355,6 +385,21 @@ public class IndexPersistenceMgr {
     private void moveLedgerIndexFile(Long l, FileInfo fi, File dirExcl) throws NoWritableLedgerDirException, IOException {
         File newLedgerIndexFile = getNewLedgerIndexFile(l, dirExcl);
         fi.moveToNewLocation(newLedgerIndexFile, fi.getSizeSinceLastwrite());
+    }
+
+    /**
+     * flush ledger index header, if necessary
+     */
+    void flushLedgerHeader(long ledger) throws IOException {
+        FileInfo fi = null;
+        try {
+            fi = getFileInfo(ledger, null);
+            fi.flushHeader();
+        } finally {
+            if (null != fi) {
+                fi.release();
+            }
+        }
     }
 
     public void flushLedgerEntries(Long ledger,

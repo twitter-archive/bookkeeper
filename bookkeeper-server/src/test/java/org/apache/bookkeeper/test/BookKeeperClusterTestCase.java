@@ -29,11 +29,12 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
-import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -153,6 +154,17 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         }
     }
 
+    protected ServerConfiguration newServerConfiguration() throws IOException {
+        File f = File.createTempFile("bookie", "test");
+        tmpDirs.add(f);
+        f.delete();
+        f.mkdir();
+
+        int port = PortManager.nextFreePort();
+        return newServerConfiguration(port, zkUtil.getZooKeeperConnectString(),
+                                      f, new File[] { f });
+    }
+
     protected ServerConfiguration newServerConfiguration(int port, String zkServers, File journalDir, File[] ledgerDirs) {
         ServerConfiguration conf = new ServerConfiguration(baseConf);
         conf.setBookiePort(port);
@@ -235,30 +247,27 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public CountDownLatch sleepBookie(InetSocketAddress addr, final int seconds)
             throws InterruptedException, IOException {
-        final CountDownLatch l = new CountDownLatch(1);
-        final String name = "BookieJournal-" + addr.getPort();
-        Thread[] allthreads = new Thread[Thread.activeCount()];
-        Thread.enumerate(allthreads);
-        for (final Thread t : allthreads) {
-            if (t.getName().equals(name)) {
+        for (final BookieServer bookie : bs) {
+            if (bookie.getLocalAddress().equals(addr)) {
+                final CountDownLatch l = new CountDownLatch(1);
                 Thread sleeper = new Thread() {
-                    @Override
-                    public void run() {
-                        try {
-                            t.suspend();
-                            l.countDown();
-                            Thread.sleep(seconds*1000);
-                            t.resume();
-                        } catch (Exception e) {
-                            LOG.error("Error suspending thread", e);
+                        @Override
+                        public void run() {
+                            try {
+                                bookie.suspendProcessing();
+                                l.countDown();
+                                Thread.sleep(seconds*1000);
+                                bookie.resumeProcessing();
+                            } catch (Exception e) {
+                                LOG.error("Error suspending bookie", e);
+                            }
                         }
-                    }
-                };
+                    };
                 sleeper.start();
                 return l;
             }
         }
-        throw new IOException("Bookie thread not found");
+        throw new IOException("Bookie not found");
     }
 
     /**
@@ -273,19 +282,16 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public void sleepBookie(InetSocketAddress addr, final CountDownLatch l)
             throws InterruptedException, IOException {
-        final String name = "BookieJournal-" + addr.getPort();
-        Thread[] allthreads = new Thread[Thread.activeCount()];
-        Thread.enumerate(allthreads);
-        for (final Thread t : allthreads) {
-            if (t.getName().equals(name)) {
+        for (final BookieServer bookie : bs) {
+            if (bookie.getLocalAddress().equals(addr)) {
                 Thread sleeper = new Thread() {
                     public void run() {
                         try {
-                            t.suspend();
+                            bookie.suspendProcessing();
                             l.await();
-                            t.resume();
+                            bookie.resumeProcessing();
                         } catch (Exception e) {
-                            LOG.error("Error suspending thread", e);
+                            LOG.error("Error suspending bookie", e);
                         }
                     }
                 };
@@ -293,7 +299,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
                 return;
             }
         }
-        throw new IOException("Bookie thread not found");
+        throw new IOException("Bookie not found");
     }
 
     /**
@@ -348,18 +354,11 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public int startNewBookie()
             throws IOException, InterruptedException, KeeperException, BookieException {
-        File f = File.createTempFile("bookie", "test");
-        tmpDirs.add(f);
-        f.delete();
-        f.mkdir();
-
-        int port = PortManager.nextFreePort();
-        ServerConfiguration conf = newServerConfiguration(port, zkUtil.getZooKeeperConnectString(),
-                                                          f, new File[] { f });
+        ServerConfiguration conf = newServerConfiguration();
         bsConfs.add(conf);
         bs.add(startBookie(conf));
 
-        return port;
+        return conf.getBookiePort();
     }
 
     /**
@@ -384,4 +383,29 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
 
         return server;
     }
+
+    /**
+     * Start a bookie with the given bookie instance.
+     */
+    protected BookieServer startBookie(ServerConfiguration conf, final Bookie b)
+            throws IOException, InterruptedException, KeeperException, BookieException {
+        BookieServer server = new BookieServer(conf) {
+            @Override
+            protected Bookie newBookie(ServerConfiguration conf) {
+                return b;
+            }
+        };
+        server.start();
+
+        int port = conf.getBookiePort();
+        while(bkc.getZkHandle().exists("/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port, false) == null) {
+            Thread.sleep(500);
+        }
+
+        bkc.readBookiesBlocking();
+        LOG.info("New bookie on port " + port + " has been created.");
+
+        return server;
+    }
+
 }

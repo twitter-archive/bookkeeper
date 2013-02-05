@@ -119,6 +119,16 @@ public class LedgerCacheImpl implements LedgerCache {
     }
 
     @Override
+    public boolean setFenced(long ledgerId) throws IOException {
+        return indexPersistenceManager.setFenced(ledgerId);
+    }
+
+    @Override
+    public boolean isFenced(long ledgerId) throws IOException {
+        return indexPersistenceManager.isFenced(ledgerId); 
+    }
+
+    @Override
     public void setMasterKey(long ledgerId, byte[] masterKey) throws IOException {
         indexPersistenceManager.setMasterKey(ledgerId, masterKey);
     }

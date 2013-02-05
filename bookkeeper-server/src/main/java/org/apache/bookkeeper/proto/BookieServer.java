@@ -22,11 +22,9 @@ package org.apache.bookkeeper.proto;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
 
 import org.apache.zookeeper.KeeperException;
 
@@ -35,18 +33,16 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.stats.HTTPStatsExporter;
-import org.apache.bookkeeper.util.MathUtils;
 
-import static org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.ParseException;
-import org.apache.commons.codec.binary.Hex;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -123,9 +119,25 @@ public class BookieServer {
         }
     }
 
-    //VisibleForTesting
+    @VisibleForTesting
     public Bookie getBookie() {
         return bookie;
+    }
+
+    /**
+     * Suspend processing of requests in the bookie (for testing)
+     */
+    @VisibleForTesting
+    public void suspendProcessing() {
+        nioServerFactory.suspendProcessing();
+    }
+
+    /**
+     * Resume processing requests in the bookie (for testing)
+     */
+    @VisibleForTesting
+    public void resumeProcessing() {
+        nioServerFactory.resumeProcessing();
     }
 
     public synchronized void shutdown() {
@@ -352,4 +364,5 @@ public class BookieServer {
             System.exit(ExitCode.SERVER_EXCEPTION);
         }
     }
+
 }

@@ -34,6 +34,10 @@ Trunk (unreleased changes)
 
       BOOKKEEPER-484: Misc fixes for test scripts (ivank via fpj)
 
+      BOOKKEEPER-483: precommit tests only check toplevel rat file, not the one for submodules. (ivank via fpj)
+
+      BOOKKEEPER-533: TestSubAfterCloseSub fails strangely in tests (ivank via fpj)
+
       bookkeeper-server:
 
         BOOKKEEPER-183: Provide tools to read/check data files in bookie server (sijie via ivank)
@@ -124,6 +128,50 @@ Trunk (unreleased changes)
 
 	BOOKKEEPER-475: BookieRecoveryTest#testSyncBookieRecoveryToRandomBookiesCheckForDupes() iterates too much (ivank via fpj)
 
+	BOOKKEEPER-431: Duplicate definition of COOKIES_NODE (uma via fpj)
+
+	BOOKKEEPER-474:  BookieReadWriteTest#testShutdown doesn't make sense (ivank via fpj)
+
+	BOOKKEEPER-465: CreateNewLog may overwrite lastLogId with smaller value (yixue, fpj via fpj)
+
+	BOOKKEEPER-498: BookieRecoveryTest.tearDown NPE (fpj)
+
+        BOOKKEEPER-497: GcLedgersTest has a potential race (ivank via sijie)
+
+        BOOKKEEPER-493: moveLedgerIndexFile might have chance pickup same directory (sijie via ivank)
+
+        BOOKKEEPER-365: Ledger will never recover if one of the quorum bookie is down forever and others dont have entry (sijie via ivank)
+
+        BOOKKEEPER-336: bookie readEntries is taking more time if the ensemble has failed bookie(s) (ivank)
+
+        BOOKKEEPER-512: BookieZkExpireTest fails periodically (ivank via sijie)
+
+        BOOKKEEPER-509: TestBookKeeperPersistenceManager failed on latest trunk (sijie via ivank)
+
+        BOOKKEEPER-496: Ensure that the auditor and replication worker will shutdown if they lose their ZK session (ivank)
+
+        BOOKKEEPER-500: Fencing doesn't work when restarting bookies. (sijie via ivank)
+
+        BOOKKEEPER-520: BookieFailureTest hangs on precommit build (ivank via sijie)
+
+        BOOKKEEPER-447: Bookie can fail to recover if index pages flushed before ledger flush acknowledged (ivank via sijie)
+
+	BOOKKEEPER-520: BookieFailureTest hangs on precommit build (sijie via fpj, jira reopened)
+
+	BOOKKEEPER-514: TestDeadLock hanging sometimes (ivank, sijie via fpj)
+
+        BOOKKEEPER-524: Bookie journal filesystem gets full after SyncThread is terminated with exception (Matteo, fpj via sijie)
+
+        BOOKKEEPER-355: Ledger recovery will mark ledger as closed with -1, in case of slow bookie is added to ensemble during recovery add (ivank)
+
+        BOOKKEEPER-534: Flakeyness in AuditorBookieTest (umamahesh via ivank)
+
+        BOOKKEEPER-542: Remove trailing spaces in IndexCorruptionTest (fpj via ivank)
+
+        BOOKKEEPER-530: data might be lost during compaction. (ivank)
+
+	BOOKKEEPER-538: Race condition in BookKeeper#close (ivank via fpj)
+
       hedwig-protocol:
 
         BOOKKEEPER-394: CompositeException message is not useful (Stu Hood via sijie)
@@ -171,6 +219,24 @@ Trunk (unreleased changes)
         BOOKKEEPER-442: Failed to deliver messages due to inconsistency between SubscriptionState and LedgerRanges. (jiannan via ivank)
 
         BOOKKEEPER-461: Delivery throughput degrades when there are lots of publishers w/ high traffic. (sijie via ivank)
+
+	BOOKKEEPER-458:  Annoy BKReadException error when changing ledger. (jiannan via fpj)
+
+        BOOKKEEPER-507: Race condition happens if closeSubscription and subscribe happened at the same time (in multiplexed client). (sijie via ivank)
+
+	BOOKKEEPER-532: AbstractSubscriptionManager#AcquireOp read subscriptions every time even it already owned the topic. (sijie via fpj)
+
+        BOOKKEEPER-531: Cache thread should wait until old entries are collected (sijie via ivank)
+
+        BOOKKEEPER-529: stopServingSubscriber in delivery manager should remove stub callbacks in ReadAheadCache (sijie via ivank)
+
+        BOOKKEEPER-543: Read zk host list in a wrong way in hedwig server (Fangmin via sijie)
+
+        BOOKKEEPER-540: #stopServingSubscriber when channel is disconnected. (Fangmin via sijie)
+
+        BOOKKEEPER-539: ClientNotSubscribedException & doesn't receive enough messages in TestThrottlingDelivery#testServerSideThrottle (sijie)
+
+        BOOKKEEPER-503: The test case of TestThrottlingDelivery#testServerSideThrottle failed sometimes (jiannan & sijie via ivank)
 
     IMPROVEMENTS:
 
@@ -415,6 +481,10 @@ Release 4.1.0 - 2012-06-07
         BOOKKEEPER-287: NoSuchElementException in LedgerCacheImpl (sijie)
 
         BOOKKEEPER-288: NOTICE files don't have the correct year (ivank via sijie)
+
+        BOOKKEEPER-408: BookieReadWriteTest will enter the endless loop and will not leave out (ivank)
+
+	BOOKKEEPER-504: Fix findbugs warning in PendingReadOp (fpj via ivank)
 
       hedwig-client/
 

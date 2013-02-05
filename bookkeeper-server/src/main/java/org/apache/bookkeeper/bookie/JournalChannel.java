@@ -53,7 +53,7 @@ class JournalChannel implements Closeable {
 
     int HEADER_SIZE = 8; // 4byte magic word, 4 byte version
     int MIN_COMPAT_JOURNAL_FORMAT_VERSION = 1;
-    int CURRENT_JOURNAL_FORMAT_VERSION = 3;
+    int CURRENT_JOURNAL_FORMAT_VERSION = 4;
 
     private long preAllocSize;
     public final static ByteBuffer zeros = ByteBuffer.allocate(512);

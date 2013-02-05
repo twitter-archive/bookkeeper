@@ -294,6 +294,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 @Override
                 public void safeReadComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq, Object ctx) {
                     if (rc != BKException.Code.OK || !seq.hasMoreElements()) {
+                        if (rc == BKException.Code.OK) {
+                            // means that there is no entries read, provide a meaningful exception
+                            rc = BKException.Code.NoSuchEntryException;
+                        }
                         BKException bke = BKException.create(rc);
                         logger.error("Error while reading from ledger: " + imlr.range.getLedgerId() + " for topic: "
                                      + topic.toStringUtf8(), bke);
@@ -1017,6 +1021,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                         public void safeReadComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq,
                         Object ctx) {
                             if (rc != BKException.Code.OK || !seq.hasMoreElements()) {
+                                if (rc == BKException.Code.OK) {
+                                    // means that there is no entries read, provide a meaningful exception
+                                    rc = BKException.Code.NoSuchEntryException;
+                                }
+                                logger.info("Received error code {}", rc);
                                 BKException bke = BKException.create(rc);
                                 logger.error("While recovering ledger: " + ledgerId + " for topic: "
                                              + topic.toStringUtf8() + ", could not read last entry", bke);
@@ -1115,6 +1124,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 LedgerRange lastRange = LedgerRange.newBuilder().setLedgerId(lh.getId())
                                         .setStartSeqIdIncluded(startSeqId).build();
                 topicInfo.currentLedgerRange = new InMemoryLedgerRange(lastRange, lh);
+                topicInfo.lastEntryIdAckedInCurrentLedger = -1;
 
                 // Persist the fact that we started this new
                 // ledger to ZK
