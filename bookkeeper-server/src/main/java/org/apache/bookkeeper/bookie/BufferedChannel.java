@@ -124,7 +124,9 @@ public class BufferedChannel extends BufferedReadChannel {
      */
     private void flushInternal() throws IOException {
         writeBuffer.flip();
-        fileChannel.write(writeBuffer);
+        do {
+            fileChannel.write(writeBuffer);
+        } while (writeBuffer.hasRemaining());
         writeBuffer.clear();
         writeBufferStartPosition = fileChannel.position();
     }

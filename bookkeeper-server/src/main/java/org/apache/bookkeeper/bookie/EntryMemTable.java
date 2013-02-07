@@ -19,6 +19,7 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
@@ -26,8 +27,6 @@ import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerO
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -49,8 +48,17 @@ public class EntryMemTable {
      * Entry skip list
      */
     static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
-        EntrySkipList() {
+        final LogMark logMark;
+        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(LogMark.MAX_VALUE) {
+            @Override
+            public boolean isEmpty() {
+                return true;
+            }
+        };
+
+        EntrySkipList(final LogMark logMark) {
             super(EntryKey.COMPARATOR);
+            this.logMark = logMark;
         }
 
         @Override
@@ -71,39 +79,34 @@ public class EntryMemTable {
     volatile EntrySkipList snapshot;
 
     final ServerConfiguration conf;
-
-    final ReentrantLock monitor = new ReentrantLock();
-    final Condition cond = monitor.newCondition();
+    final CheckpointProgress progress;
 
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-
-    final KeyComparator comparator = EntryKey.COMPARATOR;
 
     // Used to track own data size
     final AtomicLong size;
 
     final long skipListSizeLimit;
-    final long writesSlowdownTrigger;
 
     SkipListArena allocator;
 
     private EntrySkipList newSkipList() {
-        return new EntrySkipList();
+        return new EntrySkipList(progress.getRolledLogMark());
     }
 
     /**
     * Constructor.
     * @param conf Server configuration
     */
-    public EntryMemTable(final ServerConfiguration conf) {
+    public EntryMemTable(final ServerConfiguration conf, final CheckpointProgress progress) {
+        this.progress = progress;
         this.kvmap = newSkipList();
-        this.snapshot = newSkipList();
+        this.snapshot = EntrySkipList.EMPTY_VALUE;
         this.conf = conf;
         this.size = new AtomicLong(0);
         this.allocator = new SkipListArena(conf);
         // skip list size limit
         this.skipListSizeLimit = conf.getSkipListSizeLimit();
-        this.writesSlowdownTrigger = (this.skipListSizeLimit * 3)/4;
     }
 
     void dump() {
@@ -119,14 +122,15 @@ public class EntryMemTable {
     * Creates a snapshot of the current EntryMemTable.
     * Snapshot must be cleared by call to {@link #clearSnapshot(EntrySkipList)}
     */
-    boolean snapshot() throws IOException {
+    boolean snapshotInternal(final LogMark logMark) throws IOException {
         boolean success = false;
         // No-op if snapshot currently has entries
         if (this.snapshot.isEmpty()) {
+            final long startTimeMillis = MathUtils.now();
             this.lock.writeLock().lock();
             try {
-                if (this.snapshot.isEmpty()) {
-                    if (!this.kvmap.isEmpty()) {
+                if (this.snapshot.isEmpty() && !this.kvmap.isEmpty()) {
+                    if (this.kvmap.logMark.compare(logMark) <= 0) {
                         this.snapshot = this.kvmap;
                         this.kvmap = newSkipList();
                         // Reset heap to not include any keys
@@ -139,21 +143,36 @@ public class EntryMemTable {
             } finally {
                 this.lock.writeLock().unlock();
             }
+
+            long latencyMillis = MathUtils.now() - startTimeMillis;
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                        .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(latencyMillis);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                        .SKIP_LIST_SNAPSHOT).registerFailedEvent(latencyMillis);
+            }
         }
         return success;
+    }
+
+    boolean snapshot() throws IOException {
+        return snapshotInternal(LogMark.MAX_VALUE);
+    }
+
+    boolean snapshot(final LogMark logMark) throws IOException {
+        return snapshotInternal(logMark);
     }
 
     /**
      * Flush snapshot and clear it.
      * Only this function change non-empty this.snapshot.
-     * @param force all data to be flushed (incl' current)
      */
-    public long flush(final SkipListFlusher flusher, boolean force)
-            throws IOException {
+    long flush(final SkipListFlusher flusher) throws IOException {
         long size = 0;
         if (!this.snapshot.isEmpty()) {
-            this.monitor.lock();
-            try {
+            final long startTimeMillis = MathUtils.now();
+            synchronized (this) {
                 EntrySkipList keyValues = this.snapshot;
                 if (!keyValues.isEmpty()) {
                     for (EntryKey key : keyValues.keySet()) {
@@ -161,18 +180,34 @@ public class EntryMemTable {
                         size += kv.getLength();
                         flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getValueAsByteBuffer());
                     }
-                    Logger.info("skip list flushed " + size + " bytes");
+                    ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
+                            BookkeeperServerSimpleStatType.SKIP_LIST_FLUSH_BYTES).add(size);
                     clearSnapshot(keyValues);
                 }
-            } finally {
-                this.monitor.unlock();
+            }
+
+            if (size > 0) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                        .SKIP_LIST_FLUSH).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                        .SKIP_LIST_FLUSH).registerFailedEvent(MathUtils.now() - startTimeMillis);
             }
         }
 
-        if (force) {
-            if (snapshot()) {
-                size += flush(flusher, false);
-            }
+        return size;
+    }
+
+    /**
+     * Flush snapshot clear it.
+     * Snapshot current skipList to logMark position and flush it.
+     * @param logMark all data before it need to be flushed
+     */
+    public long flush(final SkipListFlusher flusher, final LogMark logMark)
+            throws IOException {
+        long size = flush(flusher);
+        if (snapshot(logMark)) {
+            size += flush(flusher);
         }
         return size;
     }
@@ -185,41 +220,31 @@ public class EntryMemTable {
     private void clearSnapshot(final EntrySkipList keyValues) {
         // Caller makes sure that keyValues not empty
         assert !keyValues.isEmpty();
+        final long startTimeMillis = MathUtils.now();
         this.lock.writeLock().lock();
         try {
             // create a new snapshot and let the old one go.
             assert this.snapshot == keyValues;
-            this.snapshot = newSkipList();
+            this.snapshot = EntrySkipList.EMPTY_VALUE;
         } finally {
             this.lock.writeLock().unlock();
         }
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_CLEAR_SNAPSHOT).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
     }
 
     /**
      * Throttling writer w/ 1 ms delay
      */
     private void throttleWriters() {
+        final long startTimeMillis = MathUtils.now();
         try {
             Thread.sleep(1);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    /**
-     * Wait for snapshot cleared
-     */
-    private void waitEmptySnapshot() {
-        this.monitor.lock();
-        try {
-            while (shouldThrottleWrite() && !snapshot.isEmpty()) {
-                this.cond.await();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            this.monitor.unlock();
-        }
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_THROTTLING).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
     }
 
     /**
@@ -229,14 +254,12 @@ public class EntryMemTable {
     */
     public long addEntry(long ledgerId, long entryId, final ByteBuffer entry, final CacheCallback cb)
             throws IOException {
-        if (shouldThrottleWrite()) {
-            if (isSizeLimitReached()) {
-                if (snapshot()) {
-                    cb.onSizeLimitReached();
-                } else {
-                    waitEmptySnapshot();
-                }
-            } else if (!snapshot.isEmpty()) {
+        long size = 0;
+        final long startTimeMillis = MathUtils.now();
+        if (isSizeLimitReached()) {
+            if (snapshot()) {
+                cb.onSizeLimitReached();
+            } else {
                 throttleWriters();
             }
         }
@@ -244,10 +267,14 @@ public class EntryMemTable {
         this.lock.readLock().lock();
         try {
             EntryKeyValue toAdd = cloneWithAllocator(ledgerId, entryId, entry);
-            return internalAdd(toAdd);
+            size = internalAdd(toAdd);
         } finally {
             this.lock.readLock().unlock();
         }
+
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+        return size;
     }
 
     /**
@@ -258,13 +285,10 @@ public class EntryMemTable {
     */
     private long internalAdd(final EntryKeyValue toAdd) throws IOException {
         long sizeChange = 0;
-        long startTimeMillis = MathUtils.now();
         if (kvmap.putIfAbsent(toAdd, toAdd) == null) {
             sizeChange = toAdd.getLength();
             size.addAndGet(sizeChange);
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-            .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
         return sizeChange;
     }
 
@@ -307,18 +331,18 @@ public class EntryMemTable {
     public EntryKeyValue getEntry(long ledgerId, long entryId) throws IOException {
         EntryKey key = new EntryKey(ledgerId, entryId);
         EntryKeyValue value = null;
+        long startTimeMillis = MathUtils.now();
         this.lock.readLock().lock();
         try {
-            long startTimeMillis = MathUtils.now();
             value = this.kvmap.get(key);
             if (value == null) {
                 value = this.snapshot.get(key);
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
             }
         } finally {
             this.lock.readLock().unlock();
         }
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
 
         return value;
     }
@@ -331,18 +355,18 @@ public class EntryMemTable {
     public EntryKeyValue getLastEntry(long ledgerId) throws IOException {
         EntryKey result = null;
         EntryKey key = new EntryKey(ledgerId, Long.MAX_VALUE);
+        long startTimeMillis = MathUtils.now();
         this.lock.readLock().lock();
         try {
-            long startTimeMillis = MathUtils.now();
             result = this.kvmap.floorKey(key);
             if (result == null || result.getLedgerId() != ledgerId) {
                 result = this.snapshot.floorKey(key);
             }
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
         } finally {
             this.lock.readLock().unlock();
         }
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
+                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
 
         if (result == null || result.getLedgerId() != ledgerId) {
             return null;
@@ -358,9 +382,10 @@ public class EntryMemTable {
     }
 
     /**
-     * Check if writes-throttling condition
+     * Check if there is data in the mem-table
+     * @return
      */
-    boolean shouldThrottleWrite() {
-        return size.get() >= writesSlowdownTrigger;
+    boolean isEmpty() {
+        return size.get() == 0 && snapshot.isEmpty();
     }
 }

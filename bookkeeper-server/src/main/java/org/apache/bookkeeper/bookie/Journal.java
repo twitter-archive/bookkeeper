@@ -30,7 +30,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -41,6 +40,7 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
@@ -52,18 +52,9 @@ import com.twitter.common.stats.Stats;
 /**
  * Provide journal related management.
  */
-class Journal extends BookieThread {
+class Journal extends BookieThread implements CheckpointProgress {
 
     static Logger LOG = LoggerFactory.getLogger(Journal.class);
-
-    private static class DaemonThreadFactory implements ThreadFactory {
-        private ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
-        public Thread newThread(Runnable r) {
-            Thread thread = defaultThreadFactory.newThread(r);
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
 
     /**
      * Filter to pickup journals
@@ -105,40 +96,38 @@ class Journal extends BookieThread {
      * Last Log Mark
      */
     class LastLogMark {
-        private long txnLogId;
-        private long txnLogPosition;
-        private LastLogMark lastMark;
+        private LogMark curMark;
+        private LogMark syncMark;
+        private LogMark rolledMark;
         LastLogMark(long logId, long logPosition) {
-            this.txnLogId = logId;
-            this.txnLogPosition = logPosition;
+            this.curMark = new LogMark(logId, logPosition);
+            this.syncMark = new LogMark(logId, logPosition);
+            this.rolledMark = new LogMark(logId, logPosition);
         }
-        synchronized void setLastLogMark(long logId, long logPosition) {
-            txnLogId = logId;
-            txnLogPosition = logPosition;
+        synchronized void setCurLogMark(long logId, long logPosition) {
+            curMark.setLogMark(logId, logPosition);
         }
-        synchronized void markLog() {
-            lastMark = new LastLogMark(txnLogId, txnLogPosition);
+        synchronized LogMark markLog() {
+            syncMark = new LogMark(curMark);
+            return syncMark;
         }
 
-        synchronized LastLogMark getLastMark() {
-            return lastMark;
+        synchronized LogMark getRolledMark() {
+            return rolledMark;
         }
-        synchronized long getTxnLogId() {
-            return txnLogId;
-        }
-        synchronized long getTxnLogPosition() {
-            return txnLogPosition;
+        synchronized LogMark getCurMark() {
+            return curMark;
         }
 
         synchronized void rollLog() throws NoWritableLedgerDirException {
+            rolledMark = syncMark;
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             // we should record <logId, logPosition> marked in markLog
             // which is safe since records before lastMark have been
             // persisted to disk (both index & entry logger)
-            bb.putLong(lastMark.getTxnLogId());
-            bb.putLong(lastMark.getTxnLogPosition());
-            LOG.debug("RollLog to persist last marked log : {}", lastMark);
+            rolledMark.writeLogMark(bb);
+            LOG.debug("RollLog to persist last marked log : {}", rolledMark);
             List<File> writableLedgerDirs = ledgerDirsManager
                     .getWritableLedgerDirs();
             for (File dir : writableLedgerDirs) {
@@ -169,6 +158,7 @@ class Journal extends BookieThread {
         synchronized void readLog() {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
+            LogMark mark = new LogMark();
             for(File dir: ledgerDirsManager.getAllLedgerDirs()) {
                 File file = new File(dir, "lastMark");
                 try {
@@ -183,28 +173,15 @@ class Journal extends BookieThread {
                         fis.close();
                     }
                     bb.clear();
-                    long i = bb.getLong();
-                    long p = bb.getLong();
-                    if (i > txnLogId) {
-                        txnLogId = i;
-                        if(p > txnLogPosition) {
-                          txnLogPosition = p;
-                        }
+                    mark.readLogMark(bb);
+                    if (curMark.compare(mark) < 0) {
+                        curMark.setLogMark(mark.getLogFileId(), mark.logFileOffset);
+                        rolledMark.setLogMark(mark.getLogFileId(), mark.getLogFileOffset());
                     }
                 } catch (IOException e) {
                     LOG.error("Problems reading from " + file + " (this is okay if it is the first time starting this bookie");
                 }
             }
-        }
-
-        @Override
-        public String toString() {
-            StringBuilder sb = new StringBuilder();
-
-            sb.append("LastMark: logId - ").append(txnLogId)
-              .append(" , position - ").append(txnLogPosition);
-
-            return sb.toString();
         }
     }
 
@@ -214,7 +191,7 @@ class Journal extends BookieThread {
     private class JournalRollingFilter implements JournalIdFilter {
         @Override
         public boolean accept(long journalId) {
-            if (journalId < lastLogMark.getLastMark().getTxnLogId()) {
+            if (journalId < lastLogMark.getRolledMark().getLogFileId()) {
                 return true;
             } else {
                 return false;
@@ -308,7 +285,7 @@ class Journal extends BookieThread {
                             .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
                 }
 
-                lastLogMark.setLastLogMark(this.logId, this.lastFlushedPosition);
+                lastLogMark.setCurLogMark(this.logId, this.lastFlushedPosition);
 
                 // Notify the waiters that the force write succeeded
                 cbThreadPool.submit(this);
@@ -388,7 +365,6 @@ class Journal extends BookieThread {
         public void run() {
             LOG.info("ForceWrite Thread started");
             boolean shouldForceWrite = true;
-            JournalChannel currLogFile = null;
             int numReqInLastForceWrite = 0;
             while(running) {
                 ForceWriteRequest req = null;
@@ -415,7 +391,6 @@ class Journal extends BookieThread {
                             }
                         }
                         numReqInLastForceWrite += req.process(shouldForceWrite);
-                        currLogFile = req.logFile;
                     }
 
                     if (enableGroupForceWrites &&
@@ -478,7 +453,7 @@ class Journal extends BookieThread {
     // should we flush if the queue is empty
     private final boolean flushWhenQueueEmpty;
 
-    private LastLogMark lastLogMark = new LastLogMark(0, 0);
+    private final LastLogMark lastLogMark = new LastLogMark(0, 0);
 
     /**
      * The thread pool used to handle callback.
@@ -513,11 +488,15 @@ class Journal extends BookieThread {
 
         // read last log mark
         lastLogMark.readLog();
-        LOG.debug("Last Log Mark : {}", lastLogMark);
+        LOG.debug("Last Log Mark : {}", lastLogMark.getCurMark());
     }
 
     LastLogMark getLastLogMark() {
         return lastLogMark;
+    }
+
+    public LogMark getRolledLogMark() {
+        return lastLogMark.getRolledMark();
     }
 
     /**
@@ -534,8 +513,8 @@ class Journal extends BookieThread {
      * This method is called before flushing entry log files and ledger cache.
      * </p>
      */
-    public void markLog() {
-        lastLogMark.markLog();
+    public LogMark markLog() {
+        return lastLogMark.markLog();
     }
 
     /**
@@ -573,7 +552,7 @@ class Journal extends BookieThread {
             for (int i=0; i<maxIdx; i++) {
                 long id = logs.get(i);
                 // make sure the journal id is smaller than marked journal id
-                if (id < lastLogMark.getLastMark().getTxnLogId()) {
+                if (id < lastLogMark.getRolledMark().getLogFileId()) {
                     File journalFile = new File(journalDirectory, Long.toHexString(id) + ".txn");
                     if (!journalFile.delete()) {
                         LOG.warn("Could not delete old journal file {}", journalFile);
@@ -647,11 +626,11 @@ class Journal extends BookieThread {
      * @throws IOException
      */
     public void replay(JournalScanner scanner) throws IOException {
-        final long markedLogId = lastLogMark.getTxnLogId();
+        final LogMark markedLog = lastLogMark.getRolledMark();
         List<Long> logs = listJournalIds(journalDirectory, new JournalIdFilter() {
             @Override
             public boolean accept(long journalId) {
-                if (journalId < markedLogId) {
+                if (journalId < markedLog.getLogFileId()) {
                     return false;
                 }
                 return true;
@@ -659,9 +638,9 @@ class Journal extends BookieThread {
         });
         // last log mark may be missed due to no sync up before
         // validate filtered log ids only when we have markedLogId
-        if (markedLogId > 0) {
-            if (logs.size() == 0 || logs.get(0) != markedLogId) {
-                throw new IOException("Recovery log " + markedLogId + " is missing");
+        if (markedLog.getLogFileId() > 0) {
+            if (logs.size() == 0 || logs.get(0) != markedLog.getLogFileId()) {
+                throw new IOException("Recovery log " + markedLog.getLogFileId() + " is missing");
             }
         }
         LOG.debug("Try to relay journal logs : {}", logs);
@@ -670,8 +649,8 @@ class Journal extends BookieThread {
         // system calls done.
         for(Long id: logs) {
             long logPosition = 0L;
-            if(id == markedLogId) {
-                logPosition = lastLogMark.getTxnLogPosition();
+            if(id == markedLog.getLogFileId()) {
+                logPosition = markedLog.getLogFileOffset();
             }
             scanJournal(id, logPosition, scanner);
         }

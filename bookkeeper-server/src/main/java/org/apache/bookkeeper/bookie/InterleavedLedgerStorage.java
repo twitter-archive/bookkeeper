@@ -178,9 +178,18 @@ class InterleavedLedgerStorage implements LedgerStorage {
         }
     }
 
+    void flushInternal() throws IOException {
+        if (!somethingWritten) {
+            return;
+        }
+        somethingWritten = false;
+        flushOptional(true);
+    }
+
     @Override
-    synchronized public void prepare(boolean force) throws IOException {
-        // No-op
+    synchronized public void flush(final LogMark logMark) throws IOException {
+        // Ignore logMark
+        flushInternal();
     }
 
     @Override
@@ -190,11 +199,7 @@ class InterleavedLedgerStorage implements LedgerStorage {
 
     @Override
     synchronized public void flush() throws IOException {
-        if (!somethingWritten) {
-            return;
-        }
-        somethingWritten = false;
-        flushOptional(true);
+        flushInternal();
     }
 
     @Override

@@ -325,7 +325,6 @@ public class GarbageCollectorThread extends Thread {
 
             // after persistence of new entry logs, remove old ones
             try {
-                storage.prepare(true);
                 storage.flush();
                 for (EntryLogMetadata meta : logsToRemove) {
                     removeEntryLog(meta.entryLogId);

@@ -263,6 +263,7 @@ public class Bookie extends BookieThread {
         final int flushInterval;
 
         LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
+        LogMark syncMark;
 
         @Override
         public void onSizeLimitReached() throws IOException {
@@ -271,10 +272,42 @@ public class Bookie extends BookieThread {
             }
         }
 
-        public SyncThread(ServerConfiguration conf) {
+        public SyncThread() {
             super("SyncThread");
             flushInterval = conf.getFlushInterval();
+            syncMark = journal.getRolledLogMark();
             LOG.debug("Flush Interval : {}", flushInterval);
+        }
+
+        /**
+         * flush data up to given logMark and roll log if success
+         * @param logMark
+         */
+        private void checkPoint(final LogMark logMark) {
+            boolean flushFailed = false;
+            try {
+                ledgerStorage.flush(logMark);
+            } catch (NoWritableLedgerDirException e) {
+                LOG.error("No writeable ledger directories");
+                flushFailed = true;
+                transitionToReadOnlyMode();
+            } catch (IOException e) {
+                LOG.error("Exception flushing Ledger", e);
+                flushFailed = true;
+            }
+
+            // if flush failed, we should not roll last mark, otherwise we would
+            // have some ledgers are not flushed and their journal entries were lost
+            if (!flushFailed) {
+                try {
+                    journal.rollLog();
+                    if (running) {
+                        journal.gcJournals();
+                    }
+                } catch (NoWritableLedgerDirException e) {
+                    transitionToReadOnlyMode();
+                }
+            }
         }
 
         private Object suspensionLock = new Object();
@@ -304,16 +337,18 @@ public class Bookie extends BookieThread {
         @Override
         public void run() {
             while(running) {
-                synchronized(this) {
-                    try {
-                        syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
-                        if (!ledgerStorage.isFlushRequired()) {
-                            continue;
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                try {
+                    Boolean req = syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
+                    if (req == null || !req.booleanValue()) {   // timeout or shutdown
+                        // journal mark log
+                        syncMark = journal.markLog();
+                    }
+                    if (!ledgerStorage.isFlushRequired()) {
                         continue;
                     }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue;
                 }
 
                 synchronized (suspensionLock) {
@@ -326,64 +361,33 @@ public class Bookie extends BookieThread {
                         }
                     }
                 }
-                // try to mark flushing flag to make sure it would not be interrupted
-                // by shutdown during flushing. otherwise it will receive
-                // ClosedByInterruptException which may cause index file & entry logger
-                // closed and corrupted.
+
+                // try to mark flushing flag to check if interrupted
                 if (!flushing.compareAndSet(false, true)) {
                     // set flushing flag failed, means flushing is true now
                     // indicates another thread wants to interrupt sync thread to exit
                     break;
                 }
 
-                // journal mark log
-                journal.markLog();
+                checkPoint(syncMark);
 
-                boolean flushFailed = false;
-                try {
-                    ledgerStorage.prepare(true);
-                    ledgerStorage.flush();
-                } catch (NoWritableLedgerDirException e) {
-                    LOG.error("No writeable ledger directories");
-                    flushFailed = true;
-                    flushing.set(false);
-                    transitionToReadOnlyMode();
-                } catch (IOException e) {
-                    LOG.error("Exception flushing Ledger", e);
-                    flushFailed = true;
-                }
-
-                // if flush failed, we should not roll last mark, otherwise we would
-                // have some ledgers are not flushed and their journal entries were lost
-                if (!flushFailed) {
-                    try {
-                        journal.rollLog();
-                        if (running) {
-                        	journal.gcJournals();
-						}
-                    } catch (NoWritableLedgerDirException e) {
-                        flushing.set(false);
-                        transitionToReadOnlyMode();
-                    }
-                }
-
-                // clear flushing flag
                 flushing.set(false);
             }
         }
 
         // shutdown sync thread
         void shutdown() throws InterruptedException {
+            // Wake up and finish sync thread
             running = false;
-            if (ledgerStorage.isFlushRequired()) {
-                // Offer queue item to wake up Sync thread
-                syncRequests.offer(Boolean.FALSE);
-            } else if (flushing.compareAndSet(false, true)) {
-                // if setting flushing flag succeed, means syncThread is not flushing now
-                // it is safe to interrupt itself now
-                this.interrupt();
-            }
+            flushing.compareAndSet(false, true);
+            syncRequests.offer(Boolean.FALSE);
             this.join();
+
+            // Roll log upon shutdown
+            LogMark lastMark = journal.markLog();
+            if (lastMark.compare(syncMark) > 0) {
+                checkPoint(lastMark);
+            }
         }
     }
 
@@ -544,16 +548,19 @@ public class Bookie extends BookieThread {
         activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
-        syncThread = new SyncThread(conf);
+        // instantiate the journal
+        journal = new Journal(conf, ledgerDirsManager);
+
+        // start sync thread after journal
+        syncThread = new SyncThread();
+
         // Check the type of storage.
         if (conf.getSortedLedgerStorageEnabled()) {
-            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
+            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread, journal);
         } else {
             ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager);
         }
         handles = new HandleFactoryImpl(ledgerStorage);
-        // instantiate the journal
-        journal = new Journal(conf, ledgerDirsManager);
 
         // ZK ephemeral node for this Bookie.
         zkBookieRegPath = this.bookieRegistrationPath + getMyId();
@@ -616,7 +623,7 @@ public class Bookie extends BookieThread {
         });
 
         // Flush skip list
-        ledgerStorage.prepare(true);
+        ledgerStorage.flush();
     }
 
     synchronized public void start() {
@@ -958,13 +965,6 @@ public class Bookie extends BookieThread {
 
                 // Shutdown the ZK client
                 if(zk != null) zk.close();
-
-                // Flush cache
-                try {
-                    ledgerStorage.prepare(true);
-                } catch (IOException e) {
-                    LOG.error("Error while flushing cache", e);
-                }
 
                 // Shutdown Sync thread
                 syncThread.shutdown();

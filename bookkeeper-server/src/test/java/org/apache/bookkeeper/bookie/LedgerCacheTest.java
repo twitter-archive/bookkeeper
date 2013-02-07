@@ -249,7 +249,6 @@ public class LedgerCacheTest extends TestCase {
         // Add entries
         ledgerStorage.addEntry(generateEntry(1, 1));
         ledgerStorage.addEntry(generateEntry(1, 2));
-        ledgerStorage.prepare(true);
         ledgerStorage.flush();
 
         // add the dir to failed dirs
@@ -258,7 +257,6 @@ public class LedgerCacheTest extends TestCase {
         File before = newFileInfo.getLf();
         // flush after disk is added as failed.
         ledgerStorage.addEntry(generateEntry(1, 3));
-        ledgerStorage.prepare(true);
         ledgerStorage.flush();
         File after = newFileInfo.getLf();
 

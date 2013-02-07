@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
 
+import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -111,15 +112,6 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
     // JMX Beans
     ReadAheadCacheBean jmxCacheBean = null;
-
-    private static class DaemonThreadFactory implements ThreadFactory {
-        private ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
-        public Thread newThread(Runnable r) {
-            Thread thread = defaultThreadFactory.newThread(r);
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
 
     private class EntryWeigher implements Weigher<CacheKey, CacheValue> {
         public int weigh(CacheKey cacheKey, CacheValue cacheValue)  {

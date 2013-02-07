@@ -20,10 +20,10 @@
  */
 package org.apache.bookkeeper.bookie;
 
-import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,30 +31,21 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
-public class SortedLedgerStorage extends InterleavedLedgerStorage implements LedgerStorage, CacheCallback, SkipListFlusher {
+public class SortedLedgerStorage extends InterleavedLedgerStorage
+        implements LedgerStorage, CacheCallback, SkipListFlusher {
     private final static Logger LOG = LoggerFactory.getLogger(SortedLedgerStorage.class);
 
     private EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
     private final CacheCallback cacheCallback;
 
-    private static class DaemonThreadFactory implements ThreadFactory {
-        private ThreadFactory defaultThreadFactory = Executors.defaultThreadFactory();
-        public Thread newThread(Runnable r) {
-            Thread thread = defaultThreadFactory.newThread(r);
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
-
     public SortedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                                 LedgerDirsManager ledgerDirsManager, final CacheCallback cb)
-            throws IOException {
+                               LedgerDirsManager ledgerDirsManager, final CacheCallback cb,
+                               final CheckpointProgress progress) throws IOException {
         super(conf, activeLedgerManager, ledgerDirsManager);
-        this.memTable = new EntryMemTable(conf);
+        this.memTable = new EntryMemTable(conf, progress);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(new DaemonThreadFactory());
         this.cacheCallback = cb;
     }
@@ -126,8 +117,18 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage implements Led
     }
 
     @Override
-    public void prepare(boolean force) throws IOException {
-        memTable.flush(this, force);
+    public boolean isFlushRequired() {
+        return !memTable.isEmpty() || super.isFlushRequired();
+    }
+
+    private void flushInternal(final LogMark logMark) throws IOException {
+        memTable.flush(this, logMark);
+        super.flush();
+    }
+
+    @Override
+    public void flush(final LogMark logMark) throws IOException {
+        flushInternal(logMark);
     }
 
     // SkipListFlusher functions.
@@ -138,8 +139,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage implements Led
 
     @Override
     synchronized public void flush() throws IOException {
-        memTable.flush(this, true);
-        super.flush();
+        flushInternal(LogMark.MAX_VALUE);
     }
 
     // CacheCallback functions.
@@ -148,13 +148,13 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage implements Led
         scheduler.submit(new Runnable() {
             @Override
             public void run() {
-                try {
-                    if (memTable.flush(SortedLedgerStorage.this, false) != 0) {
-                        cacheCallback.onSizeLimitReached();
-                    }
-                } catch (IOException e) {
-                    LOG.error("IOException thrown while flushing skip list cache.", e);
+            try {
+                if (memTable.flush(SortedLedgerStorage.this) != 0) {
+                    cacheCallback.onSizeLimitReached();
                 }
+            } catch (IOException e) {
+                LOG.error("IOException thrown while flushing skip list cache.", e);
+            }
             }
         });
     }

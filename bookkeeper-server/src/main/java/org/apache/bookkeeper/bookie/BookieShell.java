@@ -782,9 +782,7 @@ public class BookieShell implements Tool {
      */
     protected void printLastLogMark() throws IOException {
         LastLogMark lastLogMark = getJournal().getLastLogMark();
-        System.out.println("LastLogMark: Journal Id - " + lastLogMark.getTxnLogId() + "("
-                + Long.toHexString(lastLogMark.getTxnLogId()) + ".txn), Pos - "
-                + lastLogMark.getTxnLogPosition());
+        System.out.println(lastLogMark.getCurMark().toString());
     }
 
     /**

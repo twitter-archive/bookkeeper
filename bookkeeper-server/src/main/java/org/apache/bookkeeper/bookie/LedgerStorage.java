@@ -91,10 +91,11 @@ interface LedgerStorage {
     ByteBuffer getEntry(long ledgerId, long entryId) throws IOException;
 
     /**
-     * Prepares data for flush
-     * @param force fresh data to be flushed as well
+     * Flushes all data which has not checkpoint up to the logMark.
+     * Once this is called, add data written to the LedgerStorage
+     * up until this checkpoint has been persisted to permanent storage
      */
-    void prepare(boolean force) throws IOException;
+    void flush(final LogMark logMark) throws IOException;
 
     /**
      * Whether there is data in the storage which needs to be flushed

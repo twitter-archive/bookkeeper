@@ -34,14 +34,35 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
-public class TestEntryMemTable implements CacheCallback, SkipListFlusher {
+public class TestEntryMemTable implements CacheCallback, SkipListFlusher, CheckpointProgress {
     private static Logger Logger = LoggerFactory.getLogger(Journal.class);
     private EntryMemTable memTable;
     private final Random random = new Random();
+    private LogMark logMark = new LogMark();
+
+    public LogMark getRolledLogMark() {
+        return logMark;
+    }
 
     @Before
     public void setUp() throws Exception {
-        this.memTable = new EntryMemTable(new ServerConfiguration());
+        this.memTable = new EntryMemTable(new ServerConfiguration(), this);
+    }
+
+    @Test
+    public void testLogMark() throws IOException {
+        LogMark mark = new LogMark();
+        assertTrue(mark.compare(new LogMark()) == 0);
+        assertTrue(mark.compare(LogMark.MAX_VALUE) < 0);
+        mark.setLogMark(3, 11);
+        byte[] data = new byte[16];
+        ByteBuffer buf = ByteBuffer.wrap(data);
+        mark.writeLogMark(buf);
+        buf.flip();
+        LogMark mark1 = new LogMark(9, 13);
+        assertTrue(mark1.compare(mark) > 0);
+        mark1.readLogMark(buf);
+        assertTrue(mark1.compare(mark) == 0);
     }
 
     /**
@@ -61,7 +82,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher {
         assertTrue(kv.getLedgerId() == ledgerId);
         assertTrue(kv.getEntryId() == entryId);
         assertTrue(kv.getValueAsByteBuffer().equals(buf));
-        memTable.flush(this, false);
+        memTable.flush(this);
     }
 
     /**
@@ -99,7 +120,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher {
         for (EntryKeyValue kv : keyValues) {
             assertTrue(memTable.getEntry(kv.getLedgerId(), kv.getEntryId()).equals(kv));
         }
-        memTable.flush(this, true);
+        memTable.flush(this, LogMark.MAX_VALUE);
     }
 
     private class KVFLusher implements SkipListFlusher {
@@ -114,6 +135,41 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher {
             assertTrue(ledgerId + ":" + entryId + " is duplicate in store!",
                     keyValues.add(new EntryKeyValue(ledgerId, entryId, entry.array())));
         }
+    }
+
+    /**
+     * Test flush w/ logMark parameter
+     * @throws IOException
+     */
+    @Test
+    public void testFlushLogMark() throws IOException {
+        HashSet<EntryKeyValue> keyValues = new HashSet<EntryKeyValue>();
+        HashSet<EntryKeyValue> flushedKVs = new HashSet<EntryKeyValue>();
+        KVFLusher flusher = new KVFLusher(flushedKVs);
+
+        logMark.setLogMark(2, 2);
+
+        byte[] data = new byte[10];
+        long ledgerId = 100;
+        for (long entryId = 1; entryId < 100; entryId++) {
+            random.nextBytes(data);
+            memTable.addEntry(ledgerId, entryId, ByteBuffer.wrap(data), this);
+        }
+
+        assertFalse(memTable.snapshot(new LogMark(1, 1)));
+        assertTrue(memTable.snapshot(new LogMark(3, 3)));
+
+        assertTrue(0 < memTable.flush(flusher));
+        assertTrue(0 == memTable.flush(flusher));
+
+        logMark.setLogMark(4, 4);
+
+        random.nextBytes(data);
+        memTable.addEntry(ledgerId, 101, ByteBuffer.wrap(data), this);
+        assertTrue(0 == memTable.flush(flusher));
+
+        assertTrue(0 == memTable.flush(flusher, new LogMark(3, 3)));
+        assertTrue(0 < memTable.flush(flusher, new LogMark(4, 4)));
     }
 
     /**
@@ -137,14 +193,14 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher {
                 if (random.nextInt(16) == 0) {
                     if (memTable.snapshot()) {
                         if (random.nextInt(2) == 0) {
-                            memTable.flush(flusher, false);
+                            memTable.flush(flusher);
                         }
                     }
                 }
             }
         }
 
-        memTable.flush(flusher, true);
+        memTable.flush(flusher, LogMark.MAX_VALUE);
         for (EntryKeyValue kv : keyValues) {
             assertTrue("kv " + kv.toString() + " was not flushed!", flushedKVs.contains(kv));
         }

@@ -303,11 +303,11 @@ public class EntryLogTest extends TestCase {
         // Add entries
         ledgerStorage.addEntry(generateEntry(1, 1));
         ledgerStorage.addEntry(generateEntry(2, 1));
-        ledgerStorage.prepare(true);
+        ledgerStorage.flush();
         // Add entry with disk full failure simulation
         bookie.getLedgerDirsManager().addToFilledDirs(entryLogger.currentDir);
         ledgerStorage.addEntry(generateEntry(3, 1));
-        ledgerStorage.prepare(true);
+        ledgerStorage.flush();
         // Verify written entries
         Assert.assertTrue(0 == generateEntry(1, 1).compareTo(ledgerStorage.getEntry(1, 1)));
         Assert.assertTrue(0 == generateEntry(2, 1).compareTo(ledgerStorage.getEntry(2, 1)));
