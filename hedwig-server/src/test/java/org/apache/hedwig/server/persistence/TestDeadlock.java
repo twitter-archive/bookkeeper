@@ -190,8 +190,15 @@ public class TestDeadlock extends HedwigHubTestBase {
             return 4;
         }
         @Override
-        public long getMaximumCacheSize() {
+        public long getReadAheadSizeBytes() {
             return 32;
+        }
+        @Override
+        public long getMaximumCacheSize() {
+            // for guava cache based ReadAheadCache, we could not set cache size less than a message's size
+            // otherwise, it ends up evicting messages
+            // return 1;
+            return 128;
         }
     }
 

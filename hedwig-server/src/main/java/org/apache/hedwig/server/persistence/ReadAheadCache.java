@@ -151,10 +151,12 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
     private class CacheRemovalListener implements RemovalListener<CacheKey, CacheValue> {
         public void onRemoval(final RemovalNotification<CacheKey, CacheValue> removal) {
             CacheKey cacheKey = removal.getKey();
-            logger.debug("Removing key {} from cache, causal : {}",
-                    cacheKey, removal.getCause().name());
-
             CacheValue cacheValue = removal.getValue();
+            if (logger.isDebugEnabled()) {
+                logger.debug("Removing key {} from cache, causal : {}, isStub: {}",
+                        new Object[] { cacheKey, removal.getCause().name(), cacheValue.isStub() });
+            }
+
             if (cacheValue.isStub()) {
                 enqueueWithoutFailure(cacheKey.getTopic(),
                         new ExceptionOnCacheKey(cacheKey, cacheValue, stubEvictedInstance));

@@ -55,11 +55,18 @@ public class MessageBoundedPersistenceTest extends HedwigHubTestBase {
             super(serverPort, sslServerPort);
         }
         public long getMaximumCacheSize() {
-            return 1;
+            // for guava cache based ReadAheadCache, we could not set cache size less than a message's size
+            // otherwise, it ends up evicting messages
+            // return 1;
+            return 65536;
         }
 
         public int getReadAheadCount() {
             return 1;
+        }
+
+        public long getReadAheadSizeBytes() {
+            return 32;
         }
 
         public int getNumReadAheadCacheThreads() {
