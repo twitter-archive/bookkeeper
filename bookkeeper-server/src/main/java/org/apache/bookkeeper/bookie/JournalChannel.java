@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.NativeIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 class JournalChannel implements Closeable {
     static Logger LOG = LoggerFactory.getLogger(JournalChannel.class);
 
+    final RandomAccessFile randomAccessFile;
     final FileChannel fc;
     final BufferedChannel bc;
     final int formatVersion;
@@ -56,7 +58,11 @@ class JournalChannel implements Closeable {
     int CURRENT_JOURNAL_FORMAT_VERSION = 4;
 
     private long preAllocSize;
+    private boolean fRemoveFromPageCache;
     public final static ByteBuffer zeros = ByteBuffer.allocate(512);
+
+    // The position of the file channel's last force write.
+    private long lastForceWritePosition = 0;
 
     // Mostly used by tests
     JournalChannel(File journalDirectory, long logId) throws IOException {
@@ -69,12 +75,24 @@ class JournalChannel implements Closeable {
 
     JournalChannel(File journalDirectory, long logId,
                    long preAllocSize, int writeBufferSize, long position) throws IOException {
+         this(journalDirectory, logId, preAllocSize, writeBufferSize, position, false);
+    }
+
+    JournalChannel(File journalDirectory, long logId,
+                   long preAllocSize, int writeBufferSize, boolean fRemoveFromPageCache) throws IOException {
+        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE, fRemoveFromPageCache);
+    }
+
+    JournalChannel(File journalDirectory, long logId,
+                   long preAllocSize, int writeBufferSize, long position, boolean fRemoveFromPageCache) throws IOException {
         this.preAllocSize = preAllocSize;
+        this.fRemoveFromPageCache = fRemoveFromPageCache;
         File fn = new File(journalDirectory, Long.toHexString(logId) + ".txn");
 
         LOG.info("Opening journal {}", fn);
         if (!fn.exists()) { // new file, write version
-            fc = new RandomAccessFile(fn, "rw").getChannel();
+            randomAccessFile = new RandomAccessFile(fn, "rw");
+            fc = randomAccessFile.getChannel();
             formatVersion = CURRENT_JOURNAL_FORMAT_VERSION;
 
             ByteBuffer bb = ByteBuffer.allocate(HEADER_SIZE);
@@ -82,14 +100,14 @@ class JournalChannel implements Closeable {
             bb.putInt(formatVersion);
             bb.flip();
             fc.write(bb);
-            fc.force(true);
 
             bc = new BufferedChannel(fc, writeBufferSize);
-
+            forceWrite(true);
             nextPrealloc = preAllocSize;
             fc.write(zeros, nextPrealloc);
         } else {  // open an existing file
-            fc = new RandomAccessFile(fn, "r").getChannel();
+            randomAccessFile = new RandomAccessFile(fn, "r");
+            fc = randomAccessFile.getChannel();
             bc = null; // readonly
 
             ByteBuffer bb = ByteBuffer.allocate(HEADER_SIZE);
@@ -134,6 +152,9 @@ class JournalChannel implements Closeable {
             } catch (IOException e) {
                 LOG.error("Bookie journal file can seek to position :", e);
             }
+
+            // Anything we read has been force written
+            lastForceWritePosition = fc.position();
         }
     }
 
@@ -165,12 +186,19 @@ class JournalChannel implements Closeable {
         fc.close();
     }
 
-    public void forceWrite() throws IOException {
+    public void forceWrite(boolean forceMetadata) throws IOException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Journal ForceWrite");
         }
         ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
             BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FORCE_WRITES).inc();
-        bc.forceWrite();
+        long newForceWritePosition = bc.forceWrite(forceMetadata);
+        if (newForceWritePosition > lastForceWritePosition) {
+            if (fRemoveFromPageCache) {
+                NativeIO.bestEffortRemoveFromPageCache(randomAccessFile.getFD(),
+                    lastForceWritePosition, (int)(newForceWritePosition - lastForceWritePosition));
+            }
+            lastForceWritePosition = newForceWritePosition;
+        }
     }
 }

@@ -51,6 +51,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String JOURNAL_MAX_GROUP_WAIT_MSEC = "journalMaxGroupWaitMSec";
     protected final static String JOURNAL_BUFFERED_WRITES_THRESHOLD = "journalBufferedWritesThreshold";
     protected final static String JOURNAL_FLUSH_WHEN_QUEUE_EMPTY = "journalFlushWhenQueueEmpty";
+    protected final static String JOURNAL_REMOVE_FROM_PAGE_CACHE = "journalRemoveFromPageCache";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
     // Bookie Parameters
@@ -774,14 +775,22 @@ public class ServerConfiguration extends AbstractConfiguration {
 
 
     /**
-     * Should we group journal force writes
+     * Should we flush the journal when queue is empty
      *
-     * @return group journal force writes
+     * @return flush when queue is empty
      */
     public boolean getJournalFlushWhenQueueEmpty() {
         return getBoolean(JOURNAL_FLUSH_WHEN_QUEUE_EMPTY, true);
     }
 
+    /**
+     * Should we remove pages from page cache after force write
+     *
+     * @return remove pages from cache
+     */
+    public boolean getJournalRemovePagesFromCache() {
+        return getBoolean(JOURNAL_REMOVE_FROM_PAGE_CACHE, false);
+    }
 
     /**
      * Set the ReadOnlyModeEnabled status

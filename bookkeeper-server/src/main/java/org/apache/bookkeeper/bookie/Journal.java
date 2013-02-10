@@ -279,7 +279,7 @@ class Journal extends BookieThread implements CheckpointProgress {
             try {
                 if (shouldForceWrite) {
                     long startTimeNanos = MathUtils.nowInNano();
-                    this.logFile.forceWrite();
+                    this.logFile.forceWrite(false);
                     ServerStatsProvider.getStatsLoggerInstance()
                         .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
@@ -452,6 +452,8 @@ class Journal extends BookieThread implements CheckpointProgress {
     private final long bufferedWritesThreshold;
     // should we flush if the queue is empty
     private final boolean flushWhenQueueEmpty;
+    // should we hint the filesystem to remove pages from cache after force write
+    private final boolean removePagesFromCache;
 
     private final LastLogMark lastLogMark = new LastLogMark(0, 0);
 
@@ -486,6 +488,7 @@ class Journal extends BookieThread implements CheckpointProgress {
         // we cannot skip flushing for queue empty
         this.flushWhenQueueEmpty = !enableGroupForceWrites || conf.getJournalFlushWhenQueueEmpty();
 
+        this.removePagesFromCache = conf.getJournalRemovePagesFromCache();
         // read last log mark
         lastLogMark.readLog();
         LOG.debug("Last Log Mark : {}", lastLogMark.getCurMark());
@@ -709,7 +712,11 @@ class Journal extends BookieThread implements CheckpointProgress {
                 // new journal file to write
                 if (null == logFile) {
                     logId = MathUtils.now();
-                    logFile = new JournalChannel(journalDirectory, logId, journalPreAllocSize, journalWriteBufferSize);
+                    logFile = new JournalChannel(journalDirectory,
+                                        logId,
+                                        journalPreAllocSize,
+                                        journalWriteBufferSize,
+                                        removePagesFromCache);
                     bc = logFile.getBufferedChannel();
 
                     lastFlushPosition = 0;

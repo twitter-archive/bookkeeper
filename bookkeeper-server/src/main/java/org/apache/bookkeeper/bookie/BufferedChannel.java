@@ -24,7 +24,7 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-
+import java.util.concurrent.atomic.AtomicLong;
 /**
  * Provides a buffering layer in front of a FileChannel.
  */
@@ -36,7 +36,7 @@ public class BufferedChannel extends BufferedReadChannel {
     // The capacity of the write buffer.
     protected final int writeCapacity;
     // The position of the file channel's write pointer.
-    protected volatile long writeBufferStartPosition;
+    protected AtomicLong writeBufferStartPosition = new AtomicLong(0);
     // The buffer used to write operations.
     protected final ByteBuffer writeBuffer;
     // The absolute position of the next write operation.
@@ -54,7 +54,7 @@ public class BufferedChannel extends BufferedReadChannel {
         this.readBuffer.limit(readCapacity);
         this.writeCapacity = writeCapacity;
         this.position = fc.position();
-        this.writeBufferStartPosition = position;
+        this.writeBufferStartPosition.set(position);
         this.writeBuffer = ByteBuffer.allocateDirect(writeCapacity);
     }
 
@@ -98,7 +98,7 @@ public class BufferedChannel extends BufferedReadChannel {
      * @return
      */
     public long getFileChannelPosition() {
-        return writeBufferStartPosition;
+        return writeBufferStartPosition.get();
     }
 
 
@@ -113,7 +113,7 @@ public class BufferedChannel extends BufferedReadChannel {
             flushInternal();
         }
         if (shouldForceWrite) {
-            forceWrite();
+            forceWrite(false);
         }
     }
 
@@ -128,11 +128,17 @@ public class BufferedChannel extends BufferedReadChannel {
             fileChannel.write(writeBuffer);
         } while (writeBuffer.hasRemaining());
         writeBuffer.clear();
-        writeBufferStartPosition = fileChannel.position();
+        writeBufferStartPosition.set(fileChannel.position());
     }
 
-    public void forceWrite() throws IOException {
-        fileChannel.force(false);
+    public long forceWrite(boolean forceMetadata) throws IOException {
+        // This is the point up to which we had flushed to the file system page cache
+        // before issuing this force write hence is guaranteed to be made durable by
+        // the force write, any flush that happens after this may or may
+        // not be flushed
+        long positionForceWrite = writeBufferStartPosition.get();
+        fileChannel.force(forceMetadata);
+        return positionForceWrite;
     }
 
     @Override
@@ -140,8 +146,8 @@ public class BufferedChannel extends BufferedReadChannel {
         long prevPos = pos;
         while(dest.remaining() > 0) {
             // check if it is in the write buffer
-            if (writeBuffer != null && writeBufferStartPosition <= pos) {
-                long positionInBuffer = pos - writeBufferStartPosition;
+            if (writeBuffer != null && writeBufferStartPosition.get() <= pos) {
+                long positionInBuffer = pos - writeBufferStartPosition.get();
                 long bytesToCopy = writeBuffer.position()-positionInBuffer;
                 if (bytesToCopy > dest.remaining()) {
                     bytesToCopy = dest.remaining();
@@ -154,7 +160,7 @@ public class BufferedChannel extends BufferedReadChannel {
                 src.limit((int) (positionInBuffer+bytesToCopy));
                 dest.put(src);
                 pos+= bytesToCopy;
-            } else if (writeBuffer == null && writeBufferStartPosition <= pos) {
+            } else if (writeBuffer == null && writeBufferStartPosition.get() <= pos) {
                 // here we reach the end
                 break;
                 // first check if there is anything we can grab from the readBuffer
@@ -174,8 +180,8 @@ public class BufferedChannel extends BufferedReadChannel {
                 readBufferStartPosition = pos;
                 readBuffer.clear();
                 // make sure that we don't overlap with the write buffer
-                if (readBufferStartPosition + readBuffer.capacity() >= writeBufferStartPosition) {
-                    readBufferStartPosition = writeBufferStartPosition - readBuffer.capacity();
+                if (readBufferStartPosition + readBuffer.capacity() >= writeBufferStartPosition.get()) {
+                    readBufferStartPosition = writeBufferStartPosition.get() - readBuffer.capacity();
                     if (readBufferStartPosition < 0) {
                         readBuffer.put(LedgerEntryPage.zeroPage, 0, (int)-readBufferStartPosition);
                     }
