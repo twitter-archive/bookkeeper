@@ -33,6 +33,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
 /**
@@ -48,17 +49,17 @@ public class EntryMemTable {
      * Entry skip list
      */
     static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
-        final LogMark logMark;
-        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(LogMark.MAX_VALUE) {
+        final CheckPoint cp;
+        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(null) {
             @Override
             public boolean isEmpty() {
                 return true;
             }
         };
 
-        EntrySkipList(final LogMark logMark) {
+        EntrySkipList(final CheckPoint cp) {
             super(EntryKey.COMPARATOR);
-            this.logMark = logMark;
+            this.cp = cp;
         }
 
         @Override
@@ -70,6 +71,11 @@ public class EntryMemTable {
         public EntryKeyValue putIfAbsent(EntryKey k, EntryKeyValue v) {
             assert k.equals(v);
             return super.putIfAbsent(v, v);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return this == o;
         }
     }
 
@@ -91,7 +97,7 @@ public class EntryMemTable {
     SkipListArena allocator;
 
     private EntrySkipList newSkipList() {
-        return new EntrySkipList(progress.getRolledLogMark());
+        return new EntrySkipList(progress.requestCheckpoint());
     }
 
     /**
@@ -118,34 +124,43 @@ public class EntryMemTable {
         }
     }
 
+    CheckPoint snapshot() throws IOException {
+        return snapshot(CheckPoint.MAX);
+    }
+
     /**
-    * Creates a snapshot of the current EntryMemTable.
-    * Snapshot must be cleared by call to {@link #clearSnapshot(EntrySkipList)}
-    */
-    boolean snapshotInternal(final LogMark logMark) throws IOException {
-        boolean success = false;
+     * Snapshot current EntryMemTable. if given <i>oldCp</i> is older than current checkpoint,
+     * we don't do any snapshot. If snapshot happened, we return the checkpoint of the snapshot.
+     *
+     * @param oldCp
+     *          checkpoint
+     * @return checkpoint of the snapshot, null means no snapshot
+     * @throws IOException
+     */
+    CheckPoint snapshot(CheckPoint oldCp) throws IOException {
+        CheckPoint cp = null;
         // No-op if snapshot currently has entries
         if (this.snapshot.isEmpty()) {
             final long startTimeMillis = MathUtils.now();
             this.lock.writeLock().lock();
             try {
-                if (this.snapshot.isEmpty() && !this.kvmap.isEmpty()) {
-                    if (this.kvmap.logMark.compare(logMark) <= 0) {
-                        this.snapshot = this.kvmap;
-                        this.kvmap = newSkipList();
-                        // Reset heap to not include any keys
-                        this.size.set(0);
-                        // Reset allocator so we get a fresh buffer for the new EntryMemTable
-                        this.allocator = new SkipListArena(conf);
-                        success = true;
-                    }
+                if (this.snapshot.isEmpty() && !this.kvmap.isEmpty()
+                        && this.kvmap.cp.compareTo(oldCp) < 0) {
+                    this.snapshot = this.kvmap;
+                    this.kvmap = newSkipList();
+                    // get the checkpoint of the memtable.
+                    cp = this.kvmap.cp;
+                    // Reset heap to not include any keys
+                    this.size.set(0);
+                    // Reset allocator so we get a fresh buffer for the new EntryMemTable
+                    this.allocator = new SkipListArena(conf);
                 }
             } finally {
                 this.lock.writeLock().unlock();
             }
 
             long latencyMillis = MathUtils.now() - startTimeMillis;
-            if (success) {
+            if (null != cp) {
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                         .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(latencyMillis);
             } else {
@@ -153,15 +168,7 @@ public class EntryMemTable {
                         .SKIP_LIST_SNAPSHOT).registerFailedEvent(latencyMillis);
             }
         }
-        return success;
-    }
-
-    boolean snapshot() throws IOException {
-        return snapshotInternal(LogMark.MAX_VALUE);
-    }
-
-    boolean snapshot(final LogMark logMark) throws IOException {
-        return snapshotInternal(logMark);
+        return cp;
     }
 
     /**
@@ -199,24 +206,24 @@ public class EntryMemTable {
     }
 
     /**
-     * Flush snapshot clear it.
-     * Snapshot current skipList to logMark position and flush it.
-     * @param logMark all data before it need to be flushed
+     * Flush memtable until checkpoint.
+     *
+     * @param checkpoint
+     *          all data before this checkpoint need to be flushed.
      */
-    public long flush(final SkipListFlusher flusher, final LogMark logMark)
-            throws IOException {
+    public long flush(SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
         long size = flush(flusher);
-        if (snapshot(logMark)) {
+        if (null != snapshot(checkpoint)) {
             size += flush(flusher);
         }
         return size;
     }
 
     /**
-    * The passed snapshot was successfully persisted; it can be let go.
-    * @param keyValues The snapshot to clean out.
-    * @see {@link #snapshot()}
-    */
+     * The passed snapshot was successfully persisted; it can be let go.
+     * @param keyValues The snapshot to clean out.
+     * @see {@link #snapshot()}
+     */
     private void clearSnapshot(final EntrySkipList keyValues) {
         // Caller makes sure that keyValues not empty
         assert !keyValues.isEmpty();
@@ -257,8 +264,9 @@ public class EntryMemTable {
         long size = 0;
         final long startTimeMillis = MathUtils.now();
         if (isSizeLimitReached()) {
-            if (snapshot()) {
-                cb.onSizeLimitReached();
+            CheckPoint cp = snapshot();
+            if (null != cp) {
+                cb.onSizeLimitReached(cp);
             } else {
                 throttleWriters();
             }

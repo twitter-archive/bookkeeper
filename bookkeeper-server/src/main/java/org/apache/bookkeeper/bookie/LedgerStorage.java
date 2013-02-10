@@ -24,6 +24,7 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
 
 /**
@@ -91,23 +92,21 @@ interface LedgerStorage {
     ByteBuffer getEntry(long ledgerId, long entryId) throws IOException;
 
     /**
-     * Flushes all data which has not checkpoint up to the logMark.
-     * Once this is called, add data written to the LedgerStorage
-     * up until this checkpoint has been persisted to permanent storage
-     */
-    void flush(final LogMark logMark) throws IOException;
-
-    /**
-     * Whether there is data in the storage which needs to be flushed
-     */
-    boolean isFlushRequired();
-
-    /**
      * Flushes all data in the storage. Once this is called,
      * add data written to the LedgerStorage up until this point
      * has been persisted to permanent storage
      */
     void flush() throws IOException;
+
+    /**
+     * Flushes the data in the storage to make a checkpoint. Once this is
+     * called, it means that data added before the checkpoint is persisted.
+     *
+     * @param checkpoint
+     *          Check Point
+     * @throws IOException
+     */
+    void checkpoint(CheckPoint checkpoint) throws IOException;
 
     /**
      * Get the JMX management bean for this LedgerStorage

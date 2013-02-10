@@ -39,6 +39,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
     public ReadOnlyBookieTest() {
         super(2);
         baseConf.setSortedLedgerStorageEnabled(false);
+        baseConf.setEntryLogFilePreAllocationEnabled(false);
     }
 
     /**
@@ -70,7 +71,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         } catch (BKException.BKNotEnoughBookiesException e) {
             // Expected
         }
-
+        LOG.warn("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
         assertTrue("Bookie should be running and converted to readonly mode",
                 bookie.isRunning() && bookie.isReadOnly());
 

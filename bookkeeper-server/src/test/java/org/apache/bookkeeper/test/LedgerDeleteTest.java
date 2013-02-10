@@ -53,8 +53,8 @@ public class LedgerDeleteTest extends MultiLedgerManagerTestCase {
         // Set up the configuration properties needed.
         baseConf.setEntryLogSizeLimit(2 * 1024 * 1024L);
         baseConf.setGcWaitTime(1000);
-        baseConf.setSkipListSizeLimit(2 * 1024 * 1024);
-        baseConf.setSkipListArenaChunkSize(128 * 1024);
+        baseConf.setEntryLogFilePreAllocationEnabled(false);
+        baseConf.setSortedLedgerStorageEnabled(false);
         super.setUp();
     }
 
@@ -98,6 +98,8 @@ public class LedgerDeleteTest extends MultiLedgerManagerTestCase {
     public void testLedgerDelete() throws Exception {
         // Write enough ledger entries so that we roll over the initial entryLog (0.log)
         LedgerHandle[] lhs = writeLedgerEntries(3, 1024, 1024);
+        // restart bookies to force rolling entry log files
+        restartBookies();
 
         // Delete all of these ledgers from the BookKeeper client
         for (LedgerHandle lh : lhs) {
@@ -138,7 +140,7 @@ public class LedgerDeleteTest extends MultiLedgerManagerTestCase {
             bkc.deleteLedger(lh.getId());
         }
         LOG.info("Finished deleting all ledgers so waiting for the GC thread to clean up the entryLogs");
-        Thread.sleep(2000);
+        Thread.sleep(2 * baseConf.getGcWaitTime());
 
         /*
          * Verify that the first two entry logs ([0,1].log) have been deleted

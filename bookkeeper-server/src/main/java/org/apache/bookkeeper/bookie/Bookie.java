@@ -30,9 +30,6 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Map;
-import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -45,6 +42,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
 import org.apache.bookkeeper.bookie.SortedLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
@@ -255,38 +253,33 @@ public class Bookie extends BookieThread {
      * number of old journal files which may be used for manual recovery in critical disaster.
      * </p>
      */
-    class SyncThread extends BookieThread implements CacheCallback {
+    class SyncThread extends BookieThread implements CheckpointProgress {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);
-        // make flush interval as a parameter
-        final int flushInterval;
 
-        LinkedBlockingQueue<Boolean> syncRequests = new LinkedBlockingQueue<Boolean>();
-        LogMark syncMark;
+        LinkedBlockingQueue<CheckPoint> syncRequests = new LinkedBlockingQueue<CheckPoint>();
 
-        @Override
-        public void onSizeLimitReached() throws IOException {
-            if (running) {
-                syncRequests.offer(Boolean.TRUE);
-            }
+        private void offerSyncRequest(CheckPoint cp) {
+            syncRequests.offer(cp);
         }
 
         public SyncThread() {
             super("SyncThread");
-            flushInterval = conf.getFlushInterval();
-            syncMark = journal.getRolledLogMark();
-            LOG.debug("Flush Interval : {}", flushInterval);
         }
 
         /**
          * flush data up to given logMark and roll log if success
          * @param logMark
          */
-        private void checkPoint(final LogMark logMark) {
+        private void checkPoint(final CheckPoint checkpoint) {
             boolean flushFailed = false;
             try {
-                ledgerStorage.flush(logMark);
+                if (running) {
+                    ledgerStorage.checkpoint(checkpoint);
+                } else {
+                    ledgerStorage.flush();
+                }
             } catch (NoWritableLedgerDirException e) {
                 LOG.error("No writeable ledger directories");
                 flushFailed = true;
@@ -300,11 +293,8 @@ public class Bookie extends BookieThread {
             // have some ledgers are not flushed and their journal entries were lost
             if (!flushFailed) {
                 try {
-                    journal.rollLog();
-                    if (running) {
-                        journal.gcJournals();
-                    }
-                } catch (NoWritableLedgerDirException e) {
+                    checkpoint.checkpointComplete(running);
+                } catch (IOException e) {
                     transitionToReadOnlyMode();
                 }
             }
@@ -337,15 +327,9 @@ public class Bookie extends BookieThread {
         @Override
         public void run() {
             while(running) {
+                CheckPoint checkpoint;
                 try {
-                    Boolean req = syncRequests.poll(flushInterval, TimeUnit.MILLISECONDS);
-                    if (req == null || !req.booleanValue()) {   // timeout or shutdown
-                        // journal mark log
-                        syncMark = journal.markLog();
-                    }
-                    if (!ledgerStorage.isFlushRequired()) {
-                        continue;
-                    }
+                    checkpoint = syncRequests.take();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     continue;
@@ -369,7 +353,7 @@ public class Bookie extends BookieThread {
                     break;
                 }
 
-                checkPoint(syncMark);
+                checkPoint(checkpoint);
 
                 flushing.set(false);
             }
@@ -379,16 +363,28 @@ public class Bookie extends BookieThread {
         void shutdown() throws InterruptedException {
             // Wake up and finish sync thread
             running = false;
-            flushing.compareAndSet(false, true);
-            syncRequests.offer(Boolean.FALSE);
-            this.join();
 
-            // Roll log upon shutdown
-            LogMark lastMark = journal.markLog();
-            if (lastMark.compare(syncMark) > 0) {
-                checkPoint(lastMark);
+            // make a checkpoint when shutdown
+            if (flushing.compareAndSet(false, true)) {
+                // if setting flushing flag succeed, means syncThread is not flushing now
+                // checkpoint to do a flush here to reduce the recover time when restarts
+                CheckPoint cp = requestCheckpoint();
+                flushing.set(false);
+                startCheckpoint(cp);
             }
+            this.join();
         }
+
+        @Override
+        public CheckPoint requestCheckpoint() {
+            return journal.requestCheckpoint();
+        }
+
+        @Override
+        public void startCheckpoint(CheckPoint checkpoint) {
+            offerSyncRequest(checkpoint);
+        }
+
     }
 
     public static void checkDirectoryStructure(File dir) throws IOException {
@@ -556,9 +552,9 @@ public class Bookie extends BookieThread {
 
         // Check the type of storage.
         if (conf.getSortedLedgerStorageEnabled()) {
-            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread, journal);
+            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
         } else {
-            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager);
+            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
         }
         handles = new HandleFactoryImpl(ledgerStorage);
 
@@ -621,9 +617,6 @@ public class Bookie extends BookieThread {
                 }
             }
         });
-
-        // Flush skip list
-        ledgerStorage.flush();
     }
 
     synchronized public void start() {

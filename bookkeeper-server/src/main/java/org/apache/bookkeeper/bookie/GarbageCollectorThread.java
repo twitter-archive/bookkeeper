@@ -324,6 +324,9 @@ public class GarbageCollectorThread extends Thread {
             }
 
             // after persistence of new entry logs, remove old ones
+            // TODO: we might need to adapt BOOKKEEPER-530 to not affect performance
+            // otherwise, flush will cause flush current entry log, which will compete
+            // I/O.
             try {
                 storage.flush();
                 for (EntryLogMetadata meta : logsToRemove) {
@@ -497,7 +500,7 @@ public class GarbageCollectorThread extends Thread {
         // Extract it for every entry log except for the current one.
         // Entry Log ID's are just a long value that starts at 0 and increments
         // by 1 when the log fills up and we roll to a new one.
-        long curLogId = entryLogger.getCurrentLogId();
+        long curLogId = entryLogger.getLeastUnflushedLogId();
         boolean hasExceptionWhenScan = false;
         for (long entryLogId = scannedLogId; entryLogId < curLogId; entryLogId++) {
             // Comb the current entry log file if it has not already been extracted.

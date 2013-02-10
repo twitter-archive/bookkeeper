@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -52,7 +53,7 @@ import com.twitter.common.stats.Stats;
 /**
  * Provide journal related management.
  */
-class Journal extends BookieThread implements CheckpointProgress {
+class Journal extends BookieThread {
 
     static Logger LOG = LoggerFactory.getLogger(Journal.class);
 
@@ -93,41 +94,93 @@ class Journal extends BookieThread implements CheckpointProgress {
     }
 
     /**
+     * A wrapper over log mark to provide a checkpoint for users of journal
+     * to do checkpointing.
+     */
+    public class LogMarkCheckPoint implements CheckPoint {
+        final LastLogMark mark;
+
+        public LogMarkCheckPoint(LastLogMark checkpoint) {
+            this.mark = checkpoint;
+        }
+
+        /**
+         * Telling journal a checkpoint is finished.
+         *
+         * @throws IOException
+         */
+        public void checkpointComplete(boolean compact) throws IOException {
+            mark.rollLog(mark);
+            if (compact) {
+                // list the journals that have been marked
+                List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
+                // keep MAX_BACKUP_JOURNALS journal files before marked journal
+                if (logs.size() >= maxBackupJournals) {
+                    int maxIdx = logs.size() - maxBackupJournals;
+                    for (int i=0; i<maxIdx; i++) {
+                        long id = logs.get(i);
+                        // make sure the journal id is smaller than marked journal id
+                        if (id < mark.getCurMark().getLogFileId()) {
+                            File journalFile = new File(journalDirectory, Long.toHexString(id) + ".txn");
+                            if (!journalFile.delete()) {
+                                LOG.warn("Could not delete old journal file {}", journalFile);
+                            }
+                            LOG.info("garbage collected journal " + journalFile.getName());
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
+        public int compareTo(CheckPoint o) {
+            if (o == CheckPoint.MAX) {
+                return -1;
+            }
+            return mark.getCurMark().compare(((LogMarkCheckPoint)o).mark.getCurMark());
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof LogMarkCheckPoint)) {
+                return false;
+            }
+            return 0 == compareTo((LogMarkCheckPoint)o);
+        }
+
+        @Override
+        public int hashCode() {
+            return mark.hashCode();
+        }
+    }
+
+    /**
      * Last Log Mark
      */
     class LastLogMark {
         private LogMark curMark;
-        private LogMark syncMark;
-        private LogMark rolledMark;
+
         LastLogMark(long logId, long logPosition) {
             this.curMark = new LogMark(logId, logPosition);
-            this.syncMark = new LogMark(logId, logPosition);
-            this.rolledMark = new LogMark(logId, logPosition);
         }
         synchronized void setCurLogMark(long logId, long logPosition) {
             curMark.setLogMark(logId, logPosition);
         }
-        synchronized LogMark markLog() {
-            syncMark = new LogMark(curMark);
-            return syncMark;
-        }
-
-        synchronized LogMark getRolledMark() {
-            return rolledMark;
+        synchronized LastLogMark markLog() {
+            return new LastLogMark(curMark.getLogFileId(), curMark.getLogFileOffset());
         }
         synchronized LogMark getCurMark() {
             return curMark;
         }
 
-        synchronized void rollLog() throws NoWritableLedgerDirException {
-            rolledMark = syncMark;
+        synchronized void rollLog(LastLogMark lastMark) throws NoWritableLedgerDirException {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             // we should record <logId, logPosition> marked in markLog
             // which is safe since records before lastMark have been
             // persisted to disk (both index & entry logger)
-            rolledMark.writeLogMark(bb);
-            LOG.debug("RollLog to persist last marked log : {}", rolledMark);
+            lastMark.getCurMark().writeLogMark(bb);
+            LOG.debug("RollLog to persist last marked log : {}", lastMark.getCurMark());
             List<File> writableLedgerDirs = ledgerDirsManager
                     .getWritableLedgerDirs();
             for (File dir : writableLedgerDirs) {
@@ -176,7 +229,6 @@ class Journal extends BookieThread implements CheckpointProgress {
                     mark.readLogMark(bb);
                     if (curMark.compare(mark) < 0) {
                         curMark.setLogMark(mark.getLogFileId(), mark.logFileOffset);
-                        rolledMark.setLogMark(mark.getLogFileId(), mark.getLogFileOffset());
                     }
                 } catch (IOException e) {
                     LOG.error("Problems reading from " + file + " (this is okay if it is the first time starting this bookie");
@@ -188,10 +240,17 @@ class Journal extends BookieThread implements CheckpointProgress {
     /**
      * Filter to return list of journals for rolling
      */
-    private class JournalRollingFilter implements JournalIdFilter {
+    private static class JournalRollingFilter implements JournalIdFilter {
+
+        final LastLogMark lastMark;
+
+        JournalRollingFilter(LastLogMark lastMark) {
+            this.lastMark = lastMark;
+        }
+        
         @Override
         public boolean accept(long journalId) {
-            if (journalId < lastLogMark.getRolledMark().getLogFileId()) {
+            if (journalId < lastMark.getCurMark().getLogFileId()) {
                 return true;
             } else {
                 return false;
@@ -284,7 +343,6 @@ class Journal extends BookieThread implements CheckpointProgress {
                         .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
                 }
-
                 lastLogMark.setCurLogMark(this.logId, this.lastFlushedPosition);
 
                 // Notify the waiters that the force write succeeded
@@ -498,72 +556,13 @@ class Journal extends BookieThread implements CheckpointProgress {
         return lastLogMark;
     }
 
-    public LogMark getRolledLogMark() {
-        return lastLogMark.getRolledMark();
-    }
-
     /**
-     * Records a <i>LastLogMark</i> in memory.
-     *
-     * <p>
-     * The <i>LastLogMark</i> contains two parts: first one is <i>txnLogId</i>
-     * (file id of a journal) and the second one is <i>txnLogPos</i> (offset in
-     *  a journal). The <i>LastLogMark</i> indicates that those entries before
-     * it have been persisted to both index and entry log files.
-     * </p>
-     *
-     * <p>
-     * This method is called before flushing entry log files and ledger cache.
-     * </p>
+     * Application tried to schedule a checkpoint. After all the txns added
+     * before checkpoint are persisted, a <i>checkpoint</i> will be returned
+     * to application. Application could use <i>checkpoint</i> to do its logic.
      */
-    public LogMark markLog() {
-        return lastLogMark.markLog();
-    }
-
-    /**
-     * Persists the <i>LastLogMark</i> marked by #markLog() to disk.
-     *
-     * <p>
-     * This action means entries added before <i>LastLogMark</i> whose entry data
-     * and index pages were already persisted to disk. It is the time to safely
-     * remove journal files created earlier than <i>LastLogMark.txnLogId</i>.
-     * </p>
-     * <p>
-     * If the bookie has crashed before persisting <i>LastLogMark</i> to disk,
-     * it still has journal files contains entries for which index pages may not
-     * have been persisted. Consequently, when the bookie restarts, it inspects
-     * journal files to restore those entries; data isn't lost.
-     * </p>
-     * <p>
-     * This method is called after flushing entry log files and ledger cache successfully, which is to ensure <i>LastLogMark</i> is pesisted.
-     * </p>
-     * @see #markLog()
-     */
-    public void rollLog() throws NoWritableLedgerDirException {
-        lastLogMark.rollLog();
-    }
-
-    /**
-     * Garbage collect older journals
-     */
-    public void gcJournals() {
-        // list the journals that have been marked
-        List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter());
-        // keep MAX_BACKUP_JOURNALS journal files before marked journal
-        if (logs.size() >= maxBackupJournals) {
-            int maxIdx = logs.size() - maxBackupJournals;
-            for (int i=0; i<maxIdx; i++) {
-                long id = logs.get(i);
-                // make sure the journal id is smaller than marked journal id
-                if (id < lastLogMark.getRolledMark().getLogFileId()) {
-                    File journalFile = new File(journalDirectory, Long.toHexString(id) + ".txn");
-                    if (!journalFile.delete()) {
-                        LOG.warn("Could not delete old journal file {}", journalFile);
-                    }
-                    LOG.info("garbage collected journal " + journalFile.getName());
-                }
-            }
-        }
+    public CheckPoint requestCheckpoint() {
+        return new LogMarkCheckPoint(lastLogMark.markLog());
     }
 
     /**
@@ -629,7 +628,7 @@ class Journal extends BookieThread implements CheckpointProgress {
      * @throws IOException
      */
     public void replay(JournalScanner scanner) throws IOException {
-        final LogMark markedLog = lastLogMark.getRolledMark();
+        final LogMark markedLog = lastLogMark.getCurMark();
         List<Long> logs = listJournalIds(journalDirectory, new JournalIdFilter() {
             @Override
             public boolean accept(long journalId) {

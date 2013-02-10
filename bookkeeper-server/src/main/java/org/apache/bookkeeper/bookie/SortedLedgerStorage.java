@@ -20,6 +20,7 @@
  */
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -39,15 +40,15 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
 
     private EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
-    private final CacheCallback cacheCallback;
+    private final CheckpointProgress checkpointer;
 
     public SortedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                               LedgerDirsManager ledgerDirsManager, final CacheCallback cb,
-                               final CheckpointProgress progress) throws IOException {
-        super(conf, activeLedgerManager, ledgerDirsManager);
+                               LedgerDirsManager ledgerDirsManager, final CheckpointProgress progress)
+                                       throws IOException {
+        super(conf, activeLedgerManager, ledgerDirsManager, null);
         this.memTable = new EntryMemTable(conf, progress);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(new DaemonThreadFactory());
-        this.cacheCallback = cb;
+        this.checkpointer = progress;
     }
 
     @Override
@@ -117,44 +118,45 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
-    public boolean isFlushRequired() {
-        return !memTable.isEmpty() || super.isFlushRequired();
+    public void checkpoint(final CheckPoint checkpoint) throws IOException {
+        memTable.flush(this, checkpoint);
+        super.checkpoint(checkpoint);
     }
 
-    private void flushInternal(final LogMark logMark) throws IOException {
-        memTable.flush(this, logMark);
-        super.flush();
-    }
-
-    @Override
-    public void flush(final LogMark logMark) throws IOException {
-        flushInternal(logMark);
-    }
-
-    // SkipListFlusher functions.
-    @Override
     public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
-        processEntry(ledgerId, entryId, buffer);
+        processEntry(ledgerId, entryId, buffer, false);
     }
 
     @Override
     synchronized public void flush() throws IOException {
-        flushInternal(LogMark.MAX_VALUE);
+        memTable.flush(this, CheckPoint.MAX);
+        super.flush();
     }
 
     // CacheCallback functions.
     @Override
-    public void onSizeLimitReached() throws IOException {
+    public void onSizeLimitReached(final CheckPoint cp) throws IOException {
+        // when size limit reached, we get the previous checkpoint from snapshotted memtable.
+        // at this point, we are safer to schedule a checkpoint, since the entries added before
+        // this checkpoint already written to entry logger.
+        // but it would be better not to let a memtable flush to different entry log files,
+        // so we rolling entry log files in SortedLedgerStorage itself.
+        // After that, we could make the process writing data to entry logger file not bound with checkpointing.
+        // otherwise, it hurts add performance.
         scheduler.submit(new Runnable() {
             @Override
             public void run() {
-            try {
-                if (memTable.flush(SortedLedgerStorage.this) != 0) {
-                    cacheCallback.onSizeLimitReached();
+                try {
+                    memTable.flush(SortedLedgerStorage.this);
+                    if (entryLogger.reachEntryLogLimit(0)) {
+                        entryLogger.rollLog();
+                        checkpointer.startCheckpoint(cp);
+                    }
+                } catch (IOException e) {
+                    // TODO: if we failed to flush data, we should switch the bookie back to readonly mode
+                    //       or shutdown it.
+                    LOG.error("IOException thrown while flushing skip list cache.", e);
                 }
-            } catch (IOException e) {
-                LOG.error("IOException thrown while flushing skip list cache.", e);
-            }
             }
         });
     }

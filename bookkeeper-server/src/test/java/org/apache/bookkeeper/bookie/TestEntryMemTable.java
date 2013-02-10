@@ -30,18 +30,22 @@ import org.junit.Before;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
 public class TestEntryMemTable implements CacheCallback, SkipListFlusher, CheckpointProgress {
-    private static Logger Logger = LoggerFactory.getLogger(Journal.class);
+
     private EntryMemTable memTable;
     private final Random random = new Random();
-    private LogMark logMark = new LogMark();
+    private TestCheckPoint curCheckpoint = new TestCheckPoint(0, 0);
 
-    public LogMark getRolledLogMark() {
-        return logMark;
+    @Override
+    public CheckPoint requestCheckpoint() {
+        return curCheckpoint;
+    }
+
+    @Override
+    public void startCheckpoint(CheckPoint checkpoint) {
+        // DO NOTHING
     }
 
     @Before
@@ -89,7 +93,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
      * Process notification that cache size limit reached
      */
     @Override
-    public void onSizeLimitReached() throws IOException {
+    public void onSizeLimitReached(CheckPoint cp) throws IOException {
         // No-op
     }
 
@@ -120,7 +124,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         for (EntryKeyValue kv : keyValues) {
             assertTrue(memTable.getEntry(kv.getLedgerId(), kv.getEntryId()).equals(kv));
         }
-        memTable.flush(this, LogMark.MAX_VALUE);
+        memTable.flush(this, CheckPoint.MAX);
     }
 
     private class KVFLusher implements SkipListFlusher {
@@ -143,11 +147,10 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
      */
     @Test
     public void testFlushLogMark() throws IOException {
-        HashSet<EntryKeyValue> keyValues = new HashSet<EntryKeyValue>();
         HashSet<EntryKeyValue> flushedKVs = new HashSet<EntryKeyValue>();
         KVFLusher flusher = new KVFLusher(flushedKVs);
 
-        logMark.setLogMark(2, 2);
+        curCheckpoint.setCheckPoint(2, 2);
 
         byte[] data = new byte[10];
         long ledgerId = 100;
@@ -156,20 +159,20 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
             memTable.addEntry(ledgerId, entryId, ByteBuffer.wrap(data), this);
         }
 
-        assertFalse(memTable.snapshot(new LogMark(1, 1)));
-        assertTrue(memTable.snapshot(new LogMark(3, 3)));
+        assertNull(memTable.snapshot(new TestCheckPoint(1, 1)));
+        assertNotNull(memTable.snapshot(new TestCheckPoint(3, 3)));
 
         assertTrue(0 < memTable.flush(flusher));
         assertTrue(0 == memTable.flush(flusher));
 
-        logMark.setLogMark(4, 4);
+        curCheckpoint.setCheckPoint(4, 4);
 
         random.nextBytes(data);
         memTable.addEntry(ledgerId, 101, ByteBuffer.wrap(data), this);
         assertTrue(0 == memTable.flush(flusher));
 
-        assertTrue(0 == memTable.flush(flusher, new LogMark(3, 3)));
-        assertTrue(0 < memTable.flush(flusher, new LogMark(4, 4)));
+        assertTrue(0 == memTable.flush(flusher, new TestCheckPoint(3, 3)));
+        assertTrue(0 < memTable.flush(flusher, new TestCheckPoint(4, 5)));
     }
 
     /**
@@ -191,7 +194,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
                 assertTrue(ledgerId + ":" + entryId + " is duplicate in hash-set!",
                         keyValues.add(memTable.getEntry(ledgerId, entryId)));
                 if (random.nextInt(16) == 0) {
-                    if (memTable.snapshot()) {
+                    if (null != memTable.snapshot()) {
                         if (random.nextInt(2) == 0) {
                             memTable.flush(flusher);
                         }
@@ -200,10 +203,37 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
             }
         }
 
-        memTable.flush(flusher, LogMark.MAX_VALUE);
+        memTable.flush(flusher, CheckPoint.MAX);
         for (EntryKeyValue kv : keyValues) {
             assertTrue("kv " + kv.toString() + " was not flushed!", flushedKVs.contains(kv));
         }
+    }
+
+    private static class TestCheckPoint implements CheckPoint {
+
+        LogMark mark;
+
+        public TestCheckPoint(long fid, long fpos) {
+            mark = new LogMark(fid, fpos);
+        }
+
+        private void setCheckPoint(long fid, long fpos) {
+            mark.setLogMark(fid, fpos);
+        }
+
+        @Override
+        public int compareTo(CheckPoint o) {
+            if (CheckPoint.MAX == o) {
+                return -1;
+            }
+            return mark.compare(((TestCheckPoint)o).mark);
+        }
+
+        @Override
+        public void checkpointComplete(boolean compact) throws IOException {
+            // do nothing
+        }
+        
     }
 }
 

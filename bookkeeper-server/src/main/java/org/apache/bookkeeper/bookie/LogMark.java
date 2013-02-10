@@ -19,9 +19,7 @@
  */
 package org.apache.bookkeeper.bookie;
 
-import java.io.Serializable;
 import java.nio.ByteBuffer;
-import java.util.Comparator;
 
 /**
  * Ledger log stream position
@@ -84,11 +82,4 @@ public class LogMark {
 
         return sb.toString();
     }
-}
-
-/**
- * Interface to communicate checkpoint progress
- */
-interface CheckpointProgress {
-    public LogMark getRolledLogMark();
 }
