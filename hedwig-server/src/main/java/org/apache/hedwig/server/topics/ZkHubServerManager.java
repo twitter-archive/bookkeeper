@@ -470,6 +470,15 @@ class ZkHubServerManager implements HubServerManager {
                 TopicBasedLoadShedder tbls = new TopicBasedLoadShedder(tm,
                         tolerancePercentage, maxLoadToShed);
                 tbls.shedLoad(loadMap, callback, ctx);
+
+                // Update the node information after completing the re-balance cycle
+                // to reflect any changes that may have happened as a part of re-balance
+                // We do this to mitigate the fact that while the hubload contents are
+                // maintained thread-safe; uploading to ZK is opportunistic, so we may
+                // upload out of order - since the re-balance is likely to make large scale
+                // changes, we reflect the changed load before and after the cycle
+                uploadSelfLoadData();
+
             }
 
             @Override
