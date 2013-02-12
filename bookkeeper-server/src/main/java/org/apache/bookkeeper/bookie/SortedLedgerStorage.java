@@ -43,9 +43,10 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     private final CheckpointProgress checkpointer;
 
     public SortedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                               LedgerDirsManager ledgerDirsManager, final CheckpointProgress progress)
+                               LedgerDirsManager ledgerDirsManager,
+                               LedgerDirsManager indexDirsManager, final CheckpointProgress progress)
                                        throws IOException {
-        super(conf, activeLedgerManager, ledgerDirsManager, null);
+        super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null);
         this.memTable = new EntryMemTable(conf, progress);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(new DaemonThreadFactory());
         this.checkpointer = progress;

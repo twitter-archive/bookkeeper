@@ -93,7 +93,7 @@ public class LedgerCacheTest extends TestCase {
             ledgerCache.close();
         }
         ledgerCache = ((InterleavedLedgerStorage) bookie.ledgerStorage).ledgerCache = new LedgerCacheImpl(
-                conf, activeLedgerManager, bookie.getLedgerDirsManager());
+                conf, activeLedgerManager, bookie.getIndexDirsManager());
     }
 
     @Test
@@ -252,7 +252,7 @@ public class LedgerCacheTest extends TestCase {
         ledgerStorage.flush();
 
         // add the dir to failed dirs
-        bookie.getLedgerDirsManager().addToFilledDirs(
+        bookie.getIndexDirsManager().addToFilledDirs(
                 newFileInfo.getLf().getParentFile().getParentFile().getParentFile());
         File before = newFileInfo.getLf();
         // flush after disk is added as failed.

@@ -42,7 +42,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
 import org.apache.bookkeeper.bookie.SortedLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
@@ -101,6 +100,7 @@ public class Bookie extends BookieThread {
     static final String CURRENT_DIR = "current";
 
     private LedgerDirsManager ledgerDirsManager;
+    private LedgerDirsManager indexDirsManager;
 
     // ZooKeeper client instance for the Bookie
     ZooKeeper zk;
@@ -420,9 +420,15 @@ public class Bookie extends BookieThread {
      * first run and the filesystem structure is up to date.
      */
     private void checkEnvironment(ZooKeeper zk) throws BookieException, IOException {
+        List<File> allLedgerDirs = new ArrayList<File>(ledgerDirsManager.getAllLedgerDirs().size()
+                                                     + indexDirsManager.getAllLedgerDirs().size());
+        allLedgerDirs.addAll(ledgerDirsManager.getAllLedgerDirs());
+        if (indexDirsManager != ledgerDirsManager) {
+            allLedgerDirs.addAll(indexDirsManager.getAllLedgerDirs());
+        }
         if (zk == null) { // exists only for testing, just make sure directories are correct
             checkDirectoryStructure(journalDirectory);
-            for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
+            for (File dir : allLedgerDirs) {
                     checkDirectoryStructure(dir);
             }
             return;
@@ -450,7 +456,7 @@ public class Bookie extends BookieThread {
             } catch (FileNotFoundException fnf) {
                 missedCookieDirs.add(journalDirectory);
             }
-            for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
+            for (File dir : allLedgerDirs) {
                 checkDirectoryStructure(dir);
                 try {
                     Cookie c = Cookie.readFromDirectory(dir);
@@ -469,7 +475,7 @@ public class Bookie extends BookieThread {
                 if (missedCookieDirs.size() > 0) {
                     LOG.debug("Directories missing cookie file are {}", missedCookieDirs);
                     masterCookie.writeToDirectory(journalDirectory);
-                    for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
+                    for (File dir : allLedgerDirs) {
                         masterCookie.writeToDirectory(dir);
                     }
                 }
@@ -516,6 +522,10 @@ public class Bookie extends BookieThread {
         return ledgerDirsManager;
     }
 
+    LedgerDirsManager getIndexDirsManager() {
+        return indexDirsManager;
+    }
+
     public static File getCurrentDirectory(File dir) {
         return new File(dir, CURRENT_DIR);
     }
@@ -535,7 +545,13 @@ public class Bookie extends BookieThread {
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath() + "/";
         this.conf = conf;
         this.journalDirectory = getCurrentDirectory(conf.getJournalDir());
-        this.ledgerDirsManager = new LedgerDirsManager(conf);
+        this.ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        File[] idxDirs = conf.getIndexDirs();
+        if (null == idxDirs) {
+            this.indexDirsManager = this.ledgerDirsManager;
+        } else {
+            this.indexDirsManager = new LedgerDirsManager(conf, idxDirs);
+        }
 
         // instantiate zookeeper client to initialize ledger manager
         this.zk = instantiateZookeeperClient(conf);
@@ -552,9 +568,11 @@ public class Bookie extends BookieThread {
 
         // Check the type of storage.
         if (conf.getSortedLedgerStorageEnabled()) {
-            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
+            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager,
+                    ledgerDirsManager, indexDirsManager, syncThread);
         } else {
-            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager, ledgerDirsManager, syncThread);
+            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
+                    ledgerDirsManager, indexDirsManager, syncThread);
         }
         handles = new HandleFactoryImpl(ledgerStorage);
 
@@ -637,9 +655,10 @@ public class Bookie extends BookieThread {
         // start bookie thread
         super.start();
 
-        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        //Start DiskChecker thread
-        ledgerDirsManager.start();
+        startDirsManager(ledgerDirsManager);
+        if (indexDirsManager != ledgerDirsManager) {
+            startDirsManager(indexDirsManager);
+        }
 
         ledgerStorage.start();
 
@@ -654,6 +673,12 @@ public class Bookie extends BookieThread {
             LOG.error("Couldn't register bookie with zookeeper, shutting down", e);
             shutdown(ExitCode.ZK_REG_FAIL);
         }
+    }
+
+    private void startDirsManager(LedgerDirsManager dirsManager) {
+        dirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        //Start DiskChecker thread
+        dirsManager.start();
     }
 
     /*
@@ -964,6 +989,9 @@ public class Bookie extends BookieThread {
 
                 //Shutdown disk checker
                 ledgerDirsManager.shutdown();
+                if (indexDirsManager != ledgerDirsManager) {
+                    indexDirsManager.shutdown();
+                }
 
                 // Shutdown journal
                 journal.shutdown();

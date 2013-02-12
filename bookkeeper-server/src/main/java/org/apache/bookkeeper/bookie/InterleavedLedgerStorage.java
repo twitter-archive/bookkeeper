@@ -59,11 +59,12 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     private volatile boolean somethingWritten = false;
 
     public InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
-                                    LedgerDirsManager ledgerDirsManager, CheckpointProgress checkPointer)
+                                    LedgerDirsManager ledgerDirsManager,
+                                    LedgerDirsManager indexDirsManager, CheckpointProgress checkPointer)
                                             throws IOException {
         this.checkPointer = checkPointer;
         entryLogger = new EntryLogger(conf, ledgerDirsManager, this);
-        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, ledgerDirsManager);
+        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager);
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
                 activeLedgerManager, new EntryLogCompactionScanner());
     }
