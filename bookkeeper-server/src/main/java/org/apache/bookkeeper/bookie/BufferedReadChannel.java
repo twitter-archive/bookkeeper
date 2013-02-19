@@ -62,12 +62,17 @@ public class BufferedReadChannel extends BufferedChannelBase {
      * depending on the implementation..
      * @param dest
      * @param pos
-     * @return The total number of bytes read.
-     * @throws IOException if a read operation fails or in case of a short read.
+     * @return The total number of bytes read. -1 if the given position is greater than or equal to the file's current size.
+     * @throws IOException if I/O error occurs
      */
     synchronized public int read(ByteBuffer dest, long pos) throws IOException {
         invocationCount++;
         long currentPosition = pos;
+        long eof = validateAndGetFileChannel().size();
+        // return -1 if the given position is greater than or equal to the file's current size.
+        if (pos >= eof) {
+            return -1;
+        }
         while (dest.remaining() > 0) {
             // Check if the data is in the buffer, if so, copy it.
             if (readBufferStartPosition <= currentPosition && currentPosition < readBufferStartPosition + readBuffer.limit()) {
@@ -79,6 +84,9 @@ public class BufferedReadChannel extends BufferedChannelBase {
                 dest.put(rbDup);
                 currentPosition += bytesToCopy;
                 cacheHitCount++;
+            } else if (currentPosition >= eof) {
+                // here we reached eof.
+                break;
             } else {
                 // We don't have it in the buffer, so put necessary data in the buffer
                 readBuffer.clear();

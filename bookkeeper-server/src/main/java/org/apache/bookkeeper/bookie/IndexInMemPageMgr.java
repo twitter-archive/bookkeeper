@@ -424,7 +424,7 @@ public class IndexInMemPageMgr {
 
         while(true) {
             boolean canAllocate = false;
-            if (pageCount.incrementAndGet() < pageLimit) {
+            if (pageCount.incrementAndGet() <= pageLimit) {
                 canAllocate = true;
             } else {
                 pageCount.decrementAndGet();

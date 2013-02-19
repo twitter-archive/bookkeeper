@@ -130,16 +130,10 @@ public class EntryLogTest extends TestCase {
         assertTrue(verifyData(src, dst, cap-16, dst.length));
 
         // Read from a position beyond the end of the file.
-        try {
-            dst = new byte[100];
-            dstBuff = ByteBuffer.wrap(dst);
-            brc.clear();
-            brc.read(dstBuff, cap - 50);
-            // Should not reach here.
-            fail("Read from the end of the file.");
-        } catch (IOException e) {
-            // This is what we expect.
-        }
+        dst = new byte[100];
+        dstBuff = ByteBuffer.wrap(dst);
+        brc.clear();
+        assertEquals(50, brc.read(dstBuff, cap - 50));
     }
 
     @Test
