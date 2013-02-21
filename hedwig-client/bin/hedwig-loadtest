@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+#
+#/**
+# * Copyright 2007 The Apache Software Foundation
+# *
+# * Licensed to the Apache Software Foundation (ASF) under one
+# * or more contributor license agreements.  See the NOTICE file
+# * distributed with this work for additional information
+# * regarding copyright ownership.  The ASF licenses this file
+# * to you under the Apache License, Version 2.0 (the
+# * "License"); you may not use this file except in compliance
+# * with the License.  You may obtain a copy of the License at
+# *
+# *     http://www.apache.org/licenses/LICENSE-2.0
+# *
+# * Unless required by applicable law or agreed to in writing, software
+# * distributed under the License is distributed on an "AS IS" BASIS,
+# * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# * See the License for the specific language governing permissions and
+# * limitations under the License.
+# */
+
+BINDIR=`dirname "$0"`
+HW_HOME=`cd $BINDIR/..;pwd`
+
+DEFAULT_LOG_CONF=$HW_HOME/conf/log4j.properties
+
+RELEASE_JAR=`ls $HW_HOME/hedwig-client-*.jar 2> /dev/null | tail -1`
+if [ $? == 0 ]; then
+    HEDWIG_JAR=$RELEASE_JAR
+fi
+
+BUILT_JAR=`ls $HW_HOME/target/hedwig-client-*.jar 2> /dev/null | tail -1`
+if [ $? != 0 ] && [ ! -e "$HEDWIG_JAR" ]; then 
+    echo "\nCouldn't find hedwig jar.";
+    echo "Make sure you've run 'mvn package'\n";
+    exit 1;
+elif [ -e "$BUILT_JAR" ]; then
+    HEDWIG_JAR=$BUILT_JAR
+fi
+
+add_maven_deps_to_classpath() {
+    MVN="mvn"
+    if [ "$MAVEN_HOME" != "" ]; then
+	MVN=${MAVEN_HOME}/bin/mvn
+    fi
+    
+    # Need to generate classpath from maven pom. This is costly so generate it
+    # and cache it. Save the file into our target dir so a mvn clean will get
+    # clean it up and force us create a new one.
+    f="${HW_HOME}/target/cached_classpath.txt"
+    if [ ! -f "${f}" ]
+    then
+	${MVN} -f "${HW_HOME}/pom.xml" dependency:build-classpath -Dmdep.outputFile="${f}" &> /dev/null
+    fi
+    HEDWIG_CLASSPATH=${CLASSPATH}:`cat "${f}"`
+}
+
+if [ -d "$HW_HOME/lib" ]; then
+    for i in $HW_HOME/lib/*.jar; do
+	HEDWIG_CLASSPATH=$HEDWIG_CLASSPATH:$i
+    done
+else
+    add_maven_deps_to_classpath
+fi
+
+# get arguments
+COMMAND=$1
+shift
+
+HEDWIG_LOG_CONF=$DEFAULT_LOG_CONF
+
+HEDWIG_CLASSPATH="$HEDWIG_JAR:$HEDWIG_CLASSPATH"
+
+if [ "$HEDWIG_LOG_CONF" != "" ]; then
+    HEDWIG_CLASSPATH="`dirname $HEDWIG_LOG_CONF`:$HEDWIG_CLASSPATH"
+    OPTS="$OPTS -Dlog4j.configuration=`basename $HEDWIG_LOG_CONF`"
+fi
+OPTS="-cp $HEDWIG_CLASSPATH $OPTS $HEDWIG_EXTRA_OPTS"
+
+# Disable ipv6 as it can cause issues
+OPTS="$OPTS -Djava.net.preferIPv4Stack=true"
+
+echo $OPTS
+# log directory & file
+#HEDWIG_ROOT_LOGGER=${HEDWIG_ROOT_LOGGER:-"INFO,CONSOLE"}
+#HEDWIG_LOG_DIR=${HEDWIG_LOG_DIR:-"$HW_HOME/logs"}
+#HEDWIG_LOG_FILE=${HEDWIG_LOG_FILE:-"hedwig-loadtest.log"}
+#
+## Configure log configuration system properties
+#OPTS="$OPTS -Dhedwig.root.logger=$HEDWIG_ROOT_LOGGER"
+#OPTS="$OPTS -Dhedwig.log.dir=$HEDWIG_LOG_DIR"
+#OPTS="$OPTS -Dhedwig.log.file=$HEDWIG_LOG_FILE"
+
+# Change to HW_HOME to support relative paths
+cd "$BK_HOME"
+if [ $COMMAND == "loadtest" ]; then
+    exec java $OPTS $JMX_ARGS org.apache.hedwig.client.loadtest.LoadTestMain $@
+fi
+
+
