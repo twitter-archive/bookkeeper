@@ -241,6 +241,11 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     synchronized protected void processEntry(long ledgerId, long entryId, ByteBuffer entry, boolean rollLog)
             throws IOException {
         /*
+         * Touch dirty flag
+         */
+        somethingWritten = true;
+
+        /*
          * Log the entry
          */
         long pos = entryLogger.addEntry(entry, rollLog);
@@ -249,8 +254,6 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
          * Set offset of entry id to be the current ledger position
          */
         ledgerCache.putEntryOffset(ledgerId, entryId, pos);
-
-        somethingWritten = true;
     }
 
     @Override
