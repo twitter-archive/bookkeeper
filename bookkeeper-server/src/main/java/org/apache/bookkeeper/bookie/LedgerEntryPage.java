@@ -26,6 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.util.ZeroBuffer;
 
 /**
  * This is a page in the LedgerCache. It holds the locations
@@ -39,9 +40,9 @@ public class LedgerEntryPage {
     volatile private long firstEntry = BookieProtocol.INVALID_ENTRY_ID;
     private final ByteBuffer page;
     volatile private boolean clean = true;
-    volatile private boolean pinned = false;
     private final AtomicInteger useCount = new AtomicInteger();
     volatile private int version;
+    volatile private int last = -1; // Last update position
     private final LEPStateChangeCallback callback;
 
     public static int getIndexEntrySize() {
@@ -73,15 +74,6 @@ public class LedgerEntryPage {
         if ((0 == oldVal) && (null != callback)) {
             callback.onSetInUse(this);
         }
-    }
-    synchronized public void pin() {
-        pinned = true;
-    }
-    synchronized public void unpin() {
-        pinned = false;
-    }
-    synchronized public boolean isPinned() {
-        return pinned;
     }
     public void releasePage() {
         int newUseCount = useCount.decrementAndGet();
@@ -126,6 +118,9 @@ public class LedgerEntryPage {
         checkPage();
         page.putLong(position, offset);
         version++;
+        if (last < position/8) {
+            last = position/8;
+        }
         this.clean = false;
 
         if (null != callback) {
@@ -137,11 +132,11 @@ public class LedgerEntryPage {
         checkPage();
         return page.getLong(position);
     }
-    static final byte zeroPage[] = new byte[64*1024];
     public void zeroPage() {
         checkPage();
         page.clear();
-        page.put(zeroPage, 0, page.remaining());
+        ZeroBuffer.put(page);
+        last = -1;
         clean = true;
     }
     public void readPage(FileInfo fi) throws IOException {
@@ -152,6 +147,7 @@ public class LedgerEntryPage {
                 throw new IOException("Short page read of ledger " + getLedger() + " tried to get " + page.capacity() + " from position " + getFirstEntryPosition() + " still need " + page.remaining());
             }
         }
+        last = getLastEntryIndex();
         clean = true;
     }
     public ByteBuffer getPageToWrite() {
@@ -186,12 +182,20 @@ public class LedgerEntryPage {
     public boolean inUse() {
         return useCount.get() > 0;
     }
-    public long getLastEntry() {
+    private int getLastEntryIndex() {
         for(int i = entriesPerPage - 1; i >= 0; i--) {
             if (getOffset(i*indexEntrySize) > 0) {
-                return i + firstEntry;
+                return i;
             }
         }
-        return 0;
+        return -1;
+    }
+    public long getLastEntry() {
+        if (last >= 0) {
+            return last + firstEntry;
+        } else {
+            int index = getLastEntryIndex();
+            return index >= 0? (index + firstEntry) : 0;
+        }
     }
 }
