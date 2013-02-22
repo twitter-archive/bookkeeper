@@ -749,12 +749,12 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
-     * Get skip list data size limitation (default 32MB)
+     * Get skip list data size limitation (default 64MB)
      *
      * @return skip list data size limitation
      */
     public long getSkipListSizeLimit() {
-        return this.getLong(SKIP_LIST_SIZE_LIMIT, 32 * 1024 * 1024L);
+        return this.getLong(SKIP_LIST_SIZE_LIMIT, 64 * 1024 * 1024L);
     }
 
     /**
@@ -771,11 +771,11 @@ public class ServerConfiguration extends AbstractConfiguration {
     /**
      * Get the number of bytes we should use as chunk allocation for the {@link
      * org.apache.bookkeeper.bookie.SkipListArena}
-     * Default is 2 MB
+     * Default is 4 MB
      * @return
      */
     public int getSkipListArenaChunkSize() {
-        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 2048 * 1024);
+        return getInt(SKIP_LIST_CHUNK_SIZE_ENTRY, 4096 * 1024);
     }
 
     /**

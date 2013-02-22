@@ -137,12 +137,12 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     // CacheCallback functions.
     @Override
     public void onSizeLimitReached(final CheckPoint cp) throws IOException {
-        // when size limit reached, we get the previous checkpoint from snapshotted memtable.
+        // when size limit reached, we get the previous checkpoint from snapshot mem-table.
         // at this point, we are safer to schedule a checkpoint, since the entries added before
         // this checkpoint already written to entry logger.
-        // but it would be better not to let a memtable flush to different entry log files,
-        // so we rolling entry log files in SortedLedgerStorage itself.
-        // After that, we could make the process writing data to entry logger file not bound with checkpointing.
+        // but it would be better not to let mem-table flush to different entry log files,
+        // so we roll entry log files in SortedLedgerStorage itself.
+        // After that, we could make the process writing data to entry logger file not bound with checkpoint.
         // otherwise, it hurts add performance.
         scheduler.submit(new Runnable() {
             @Override

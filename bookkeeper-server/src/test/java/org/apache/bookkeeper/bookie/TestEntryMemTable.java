@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 
+import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.junit.Test;
 import org.junit.Before;
 import java.nio.ByteBuffer;
@@ -141,6 +142,13 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         }
     }
 
+    private class NoLedgerFLusher implements SkipListFlusher {
+        @Override
+        public void process(long ledgerId, long entryId, ByteBuffer entry) throws IOException {
+            throw new NoLedgerException(ledgerId);
+        }
+    }
+
     /**
      * Test flush w/ logMark parameter
      * @throws IOException
@@ -207,6 +215,29 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         for (EntryKeyValue kv : keyValues) {
             assertTrue("kv " + kv.toString() + " was not flushed!", flushedKVs.contains(kv));
         }
+    }
+
+    /**
+     * Test NoLedger exception/flush interaction
+     * @throws IOException
+     */
+    @Test
+    public void testNoLedgerException() throws IOException {
+        NoLedgerFLusher flusher = new NoLedgerFLusher();
+
+        byte[] data = new byte[10];
+        for (long entryId = 1; entryId < 100; entryId++) {
+            for (long ledgerId = 1; ledgerId < 100; ledgerId++) {
+                random.nextBytes(data);
+                if (random.nextInt(16) == 0) {
+                    if (null != memTable.snapshot()) {
+                        memTable.flush(flusher);
+                    }
+                }
+            }
+        }
+
+        memTable.flush(flusher, CheckPoint.MAX);
     }
 
     private static class TestCheckPoint implements CheckPoint {

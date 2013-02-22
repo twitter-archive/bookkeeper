@@ -275,7 +275,7 @@ public class Bookie extends BookieThread {
 
         /**
          * flush data up to given logMark and roll log if success
-         * @param logMark
+         * @param checkpoint
          */
         private void checkPoint(final CheckPoint checkpoint) {
             boolean flushFailed = false;

@@ -188,7 +188,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         }
         assert null != cacheValue : "Found null value for cache key " + cacheKey;
 
-        if (loader.wasCalled()) {
+        if (loader.wasCalled() && logger.isDebugEnabled()) {
             logger.debug("Cache key {} inserted w/ weight {}", cacheKey, cacheValue.getCacheWeight());
         }
 

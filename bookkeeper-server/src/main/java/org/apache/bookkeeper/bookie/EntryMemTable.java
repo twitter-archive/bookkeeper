@@ -19,6 +19,7 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
@@ -179,13 +180,21 @@ public class EntryMemTable {
         long size = 0;
         if (!this.snapshot.isEmpty()) {
             final long startTimeMillis = MathUtils.now();
+            long ledger, ledgerGC = -1;
             synchronized (this) {
                 EntrySkipList keyValues = this.snapshot;
                 if (!keyValues.isEmpty()) {
                     for (EntryKey key : keyValues.keySet()) {
                         EntryKeyValue kv = (EntryKeyValue)key;
                         size += kv.getLength();
-                        flusher.process(kv.getLedgerId(), kv.getEntryId(), kv.getValueAsByteBuffer());
+                        ledger = kv.getLedgerId();
+                        if (ledgerGC != ledger) {
+                            try {
+                                flusher.process(ledger, kv.getEntryId(), kv.getValueAsByteBuffer());
+                            } catch (NoLedgerException exception) {
+                                ledgerGC = ledger;
+                            }
+                        }
                     }
                     ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
                             BookkeeperServerSimpleStatType.SKIP_LIST_FLUSH_BYTES).add(size);
