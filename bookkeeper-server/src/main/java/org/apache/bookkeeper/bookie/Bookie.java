@@ -264,6 +264,7 @@ public class Bookie extends BookieThread {
         final AtomicBoolean flushing = new AtomicBoolean(false);
 
         LinkedBlockingQueue<CheckPoint> syncRequests = new LinkedBlockingQueue<CheckPoint>();
+        CheckPoint completed;
 
         private void offerSyncRequest(CheckPoint cp) {
             syncRequests.offer(cp);
@@ -299,6 +300,7 @@ public class Bookie extends BookieThread {
             if (!flushFailed) {
                 try {
                     checkpoint.checkpointComplete(running);
+                    completed = checkpoint;
                 } catch (IOException e) {
                     transitionToReadOnlyMode();
                 }
@@ -368,16 +370,15 @@ public class Bookie extends BookieThread {
         void shutdown() throws InterruptedException {
             // Wake up and finish sync thread
             running = false;
-
-            // make a checkpoint when shutdown
-            if (flushing.compareAndSet(false, true)) {
-                // if setting flushing flag succeed, means syncThread is not flushing now
-                // checkpoint to do a flush here to reduce the recover time when restarts
-                CheckPoint cp = requestCheckpoint();
-                flushing.set(false);
-                startCheckpoint(cp);
-            }
+            flushing.compareAndSet(false, true);
+            CheckPoint cp = requestCheckpoint();
+            startCheckpoint(cp);
             this.join();
+
+            // Roll log upon shutdown
+            if (completed == null || cp.compareTo(completed) > 0) {
+                checkPoint(cp);
+            }
         }
 
         @Override
