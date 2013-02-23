@@ -179,7 +179,6 @@ public class EntryMemTable {
     long flush(final SkipListFlusher flusher) throws IOException {
         long size = 0;
         if (!this.snapshot.isEmpty()) {
-            final long startTimeMillis = MathUtils.now();
             long ledger, ledgerGC = -1;
             synchronized (this) {
                 EntrySkipList keyValues = this.snapshot;
@@ -200,14 +199,6 @@ public class EntryMemTable {
                             BookkeeperServerSimpleStatType.SKIP_LIST_FLUSH_BYTES).add(size);
                     clearSnapshot(keyValues);
                 }
-            }
-
-            if (size > 0) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_FLUSH).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
-            } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_FLUSH).registerFailedEvent(MathUtils.now() - startTimeMillis);
             }
         }
 
@@ -236,7 +227,6 @@ public class EntryMemTable {
     private void clearSnapshot(final EntrySkipList keyValues) {
         // Caller makes sure that keyValues not empty
         assert !keyValues.isEmpty();
-        final long startTimeMillis = MathUtils.now();
         this.lock.writeLock().lock();
         try {
             // create a new snapshot and let the old one go.
@@ -245,22 +235,19 @@ public class EntryMemTable {
         } finally {
             this.lock.writeLock().unlock();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_CLEAR_SNAPSHOT).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
     }
 
     /**
      * Throttling writer w/ 1 ms delay
      */
     private void throttleWriters() {
-        final long startTimeMillis = MathUtils.now();
         try {
             Thread.sleep(1);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_THROTTLING).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(BookkeeperServerSimpleStatType
+                .SKIP_LIST_THROTTLING).inc();
     }
 
     /**
