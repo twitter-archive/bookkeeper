@@ -129,7 +129,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
-    synchronized public void flush() throws IOException {
+    public void flush() throws IOException {
         memTable.flush(this, CheckPoint.MAX);
         super.flush();
     }
