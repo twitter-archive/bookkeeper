@@ -23,9 +23,15 @@ public class MessageProvider {
     private IntegerDistribution distribution;
     private Random rGen = new Random();
     private List<ByteString> topicList;
+    private ByteString retMessage;
     public MessageProvider(TopicProvider topicProvider, int messageSize,
                            LoadTestUtils ltUtil) {
         this.messageSize = messageSize;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < messageSize; i++) {
+            sb.append(rGen.nextInt(26) + 'a');
+        }
+        this.retMessage = ByteString.copyFromUtf8(sb.toString());
         int numTopics = topicProvider.numTopics();
         if (numTopics > 1) {
             this.distribution = new UniformIntegerDistribution(0,
@@ -49,13 +55,8 @@ public class MessageProvider {
     }
 
     private LoadTestMessage getLoadTestMessage(int size) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < size; i++) {
-            sb.append(rGen.nextInt(26) + 'a');
-        }
-        ByteString retMessage = ByteString.copyFromUtf8(sb.toString());
         LoadTestMessage message = LoadTestMessage.newBuilder()
-                .setBody(retMessage)
+                .setBody(this.retMessage)
                 .setTimestamp(System.currentTimeMillis())
                 .build();
         return message;
