@@ -153,7 +153,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     // This parameter is a boolean flag indicating if communication with the
     // server should be done via compression.
     public boolean isCompressionEnabled() {
-        return conf.getBoolean(COMPRESSION_ENABLED, true);
+        return conf.getBoolean(COMPRESSION_ENABLED, false);
     }
 
     /**

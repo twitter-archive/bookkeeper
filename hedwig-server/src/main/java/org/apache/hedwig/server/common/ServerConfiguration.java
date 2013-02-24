@@ -292,7 +292,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     public boolean isCompressionEnabled() {
-        return conf.getBoolean(COMPRESSION_ENABLED, true);
+        return conf.getBoolean(COMPRESSION_ENABLED, false);
     }
 
     public int getConsumeInterval() {
