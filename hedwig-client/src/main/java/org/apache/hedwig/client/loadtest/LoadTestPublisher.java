@@ -20,6 +20,8 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class LoadTestPublisher extends LoadTestBase {
     private int concurrency;
@@ -45,6 +47,7 @@ public class LoadTestPublisher extends LoadTestBase {
         }
         public void run() {
             Publisher publisher = client.getPublisher();
+            final AtomicBoolean syncPublish = new AtomicBoolean(true);
             while (running) {
                 final long token = rl.take();
                 MessageProviderValue value = mp.getMessage();
@@ -56,7 +59,15 @@ public class LoadTestPublisher extends LoadTestBase {
                 if (logger.isDebugEnabled()) {
                     logger.debug("Publishing message:" + messageToPublish + " for token:" + token);
                 }
-
+                if (syncPublish.getAndSet(false)) {
+                    try {
+                        publisher.publish(topic, messageToPublish);
+                    } catch (Exception e) {
+                        logger.error("Exception on first publish" + e);
+                        syncPublish.set(true);
+                    }
+                    continue;
+                }
                 final long startTimeMillis = MathUtils.now();
                 publisher.asyncPublish(topic, messageToPublish, new Callback<Void>() {
                     @Override
@@ -75,6 +86,7 @@ public class LoadTestPublisher extends LoadTestBase {
                         logger.error("Error while publishing message for token:" + token);
                         long latencyMillis = MathUtils.now() - startTimeMillis;
                         stat.incErrors(TimeUnit.MILLISECONDS.toMicros(latencyMillis));
+                        syncPublish.set(true);
                     }
                 }, value);
             }

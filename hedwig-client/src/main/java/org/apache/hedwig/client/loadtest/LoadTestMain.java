@@ -54,6 +54,7 @@ public class LoadTestMain {
                 " Default: 0");
         options.addOption("ns", "num_subscribers", true, "Number of subscribers. Default: 1");
         options.addOption("sp", "stat_print_sec", true, "The time duration between printing stats. Default: 30");
+        options.addOption("h", "help", false, "Help.");
         return options;
     }
 
