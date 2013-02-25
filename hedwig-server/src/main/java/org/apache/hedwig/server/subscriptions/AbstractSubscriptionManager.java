@@ -134,7 +134,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 boolean hasBound = true;
                 // Loop through all subscribers on the current topic to find the
                 // minimum persisted message id. The reason not using in-memory
-                // consumed message id is LedgerRangs and InMemorySubscriptionState
+                // consumed message id is LedgerRanges and InMemorySubscriptionState
                 // may be inconsistent in case of a server crash.
                 for (InMemorySubscriptionState curSubscription : topicSubscriptions.values()) {
                     if (curSubscription.getLastPersistedSeqId() < minConsumedMessage) {

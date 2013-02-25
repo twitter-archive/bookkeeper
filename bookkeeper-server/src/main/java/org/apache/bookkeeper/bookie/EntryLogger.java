@@ -67,18 +67,29 @@ import com.google.common.collect.MapMaker;
 public class EntryLogger {
     private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
 
+    private class BufferedLogChannel extends BufferedChannel {
+        final private long logId;
+        public BufferedLogChannel(FileChannel fc, int writeCapacity,
+                                  int readCapacity, long logId) throws IOException {
+            super(fc, writeCapacity, readCapacity);
+            this.logId = logId;
+        }
+        public long getLogId() {
+            return logId;
+        }
+    }
+
     volatile File currentDir;
     private LedgerDirsManager ledgerDirsManager;
     private AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
 
-    private volatile long logId;
     private volatile long leastUnflushedLogId;
     /**
      * The maximum size of a entry logger file.
      */
     final long logSizeLimit;
-    private List<BufferedChannel> logChannelsToFlush;
-    private volatile BufferedChannel logChannel;
+    private List<BufferedLogChannel> logChannelsToFlush;
+    private volatile BufferedLogChannel logChannel;
     private final EntryLoggerAllocator entryLoggerAllocator;
     private final EntryLogListener listener;
     private final boolean entryLogPreAllocationEnabled;
@@ -156,7 +167,7 @@ public class EntryLogger {
         // this header buffer is cleared before writing it into the new logChannel.
         LOGFILE_HEADER.put("BKLO".getBytes());
         // Find the largest logId
-        logId = -1;
+        long logId = -1;
         for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
             if (!dir.exists()) {
                 throw new FileNotFoundException(
@@ -174,7 +185,7 @@ public class EntryLogger {
     }
 
     /**
-     * If the currently written to logId is the same as entryLogId and if the position
+     * If the log id of current writable channel is the same as entryLogId and the position
      * we want to read might end up reading from a position in the write buffer of the
      * buffered channel, route this read to the current logChannel. Else,
      * read from the BufferedReadChannel that is provided.
@@ -187,11 +198,12 @@ public class EntryLogger {
      */
     private int readFromLogChannel(long entryLogId, BufferedReadChannel channel, ByteBuffer buff, long pos)
             throws IOException {
-        if (entryLogId == logId) {
-            if (null != logChannel) {
-                synchronized (logChannel) {
-                    if (pos + buff.remaining() >= logChannel.getFileChannelPosition()) {
-                        return logChannel.read(buff, pos);
+        BufferedLogChannel bc = logChannel;
+        if (null != bc) {
+            if (entryLogId == bc.getLogId()) {
+                synchronized (bc) {
+                    if (pos + buff.remaining() >= bc.getFileChannelPosition()) {
+                        return bc.read(buff, pos);
                     }
                 }
             }
@@ -312,7 +324,7 @@ public class EntryLogger {
     void createNewLog() throws IOException {
         if (null != logChannel) {
             if (null == logChannelsToFlush) {
-                logChannelsToFlush = new LinkedList<BufferedChannel>();
+                logChannelsToFlush = new LinkedList<BufferedLogChannel>();
             }
             logChannelsToFlush.add(logChannel);
             if (null != listener) {
@@ -328,7 +340,7 @@ public class EntryLogger {
     class EntryLoggerAllocator {
 
         long preallocatedLogId;
-        Future<BufferedChannel> preallocation = null;
+        Future<BufferedLogChannel> preallocation = null;
         ExecutorService allocatorExecutor;
 
         EntryLoggerAllocator(long logId) {
@@ -336,12 +348,11 @@ public class EntryLogger {
             allocatorExecutor = Executors.newSingleThreadExecutor();
         }
 
-        synchronized BufferedChannel createNewLog() throws IOException {
-            BufferedChannel bc;
+        synchronized BufferedLogChannel createNewLog() throws IOException {
+            BufferedLogChannel bc;
             if (!entryLogPreAllocationEnabled || null == preallocation) {
                 // initialization time to create a new log 
                 bc = allocateNewLog();
-                logId = preallocatedLogId;
             } else {
                 // has a preallocated entry log
                 try {
@@ -357,10 +368,9 @@ public class EntryLogger {
                 } catch (InterruptedException ie) {
                     throw new IOException("Intrrupted when waiting a new entry log to be allocated.", ie);
                 }
-                logId = preallocatedLogId;
-                preallocation = allocatorExecutor.submit(new Callable<BufferedChannel>() {
+                preallocation = allocatorExecutor.submit(new Callable<BufferedLogChannel>() {
                     @Override
-                    public BufferedChannel call() throws IOException {
+                    public BufferedLogChannel call() throws IOException {
                         return allocateNewLog();
                     }
                 });
@@ -371,7 +381,7 @@ public class EntryLogger {
         /**
          * Allocate a new log file.
          */
-        BufferedChannel allocateNewLog() throws IOException {
+        BufferedLogChannel allocateNewLog() throws IOException {
             List<File> list = ledgerDirsManager.getWritableLedgerDirs();
             Collections.shuffle(list);
             // It would better not to overwrite existing entry log files
@@ -391,8 +401,8 @@ public class EntryLogger {
             } while (newLogFile == null);
 
             FileChannel channel = new RandomAccessFile(newLogFile, "rw").getChannel();
-            BufferedChannel logChannel = new BufferedChannel(channel,
-                    serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes());
+            BufferedLogChannel logChannel = new BufferedLogChannel(channel,
+                    serverCfg.getWriteBufferBytes(), serverCfg.getReadBufferBytes(), preallocatedLogId);
             logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
 
             for (File f : list) {
@@ -446,6 +456,7 @@ public class EntryLogger {
             try {
                 bw.close();
             } catch (IOException e) {
+                LOG.error("Could not close lastId file in {}", dir.getPath());
             }
         }
     }
@@ -516,21 +527,23 @@ public class EntryLogger {
     }
     
     void flushRotatedLogs() throws IOException {
-        List<BufferedChannel> channels = null;
-        long newUnflushedLogId;
+        List<BufferedLogChannel> channels = null;
+        long flushedLogId = -1;
         synchronized (this) {
             channels = logChannelsToFlush;
             logChannelsToFlush = null;
-            newUnflushedLogId = logId;
         }
         if (null == channels) {
             return;
         }
-        for (BufferedChannel channel : channels) {
+        for (BufferedLogChannel channel : channels) {
             channel.flush(true);
+            if (channel.getLogId() > flushedLogId) {
+                flushedLogId = channel.getLogId();
+            }
         }
         // move the leastUnflushedLogId ptr
-        leastUnflushedLogId = newUnflushedLogId;
+        leastUnflushedLogId = flushedLogId + 1;
     }
 
     void flush() throws IOException {
@@ -568,7 +581,7 @@ public class EntryLogger {
 
         long pos = logChannel.position();
         logChannel.write(entry);
-        return (logId << 32L) | pos;
+        return (logChannel.getLogId() << 32L) | pos;
     }
 
     synchronized boolean reachEntryLogLimit(long size) {
@@ -645,8 +658,8 @@ public class EntryLogger {
         // so that there are no overlaps with the write buffer while reading
         fc = new BufferedReadChannel(newFc, serverCfg.getReadBufferBytes());
         putInChannels(entryLogId, fc);
-            return fc;
-        }
+        return fc;
+    }
 
     /**
      * Whether the log file exists or not.

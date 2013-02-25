@@ -53,6 +53,16 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
+    public void start() {
+        try {
+            flush();
+        } catch (IOException e) {
+            LOG.error("Exception thrown while flushing ledger cache.", e);
+        }
+        super.start();
+    }
+
+    @Override
     public void shutdown() throws InterruptedException {
         // Wait for any jobs currently scheduled to be completed and then shut down.
         scheduler.shutdown();
@@ -156,7 +166,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                 } catch (IOException e) {
                     // TODO: if we failed to flush data, we should switch the bookie back to readonly mode
                     //       or shutdown it.
-                    LOG.error("IOException thrown while flushing skip list cache.", e);
+                    LOG.error("Exception thrown while flushing skip list cache.", e);
                 }
             }
         });
