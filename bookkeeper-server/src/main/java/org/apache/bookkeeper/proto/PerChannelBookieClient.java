@@ -500,12 +500,16 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                     String bAddress = "null";
                     if(channel != null)
                         bAddress = channel.getRemoteAddress().toString();
-                    LOG.error("Could not write request for adding entry: " + key.entryId + " ledger-id: "
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Could not write request for adding entry: " + key.entryId + " ledger-id: "
                               + key.ledgerId + " bookie: " + bAddress);
+                    }
 
                     addCompletion.cb.writeComplete(BKException.Code.BookieHandleNotAvailableException, key.ledgerId,
                                                    key.entryId, addr, addCompletion.ctx);
-                    LOG.error("Invoked callback method: " + key.entryId);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Invoked callback method: " + key.entryId);
+                    }
                 }
             }
 
@@ -686,8 +690,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         AddCompletion ac;
         ac = addCompletions.remove(new CompletionKey(ledgerId, entryId));
         if (ac == null) {
-            LOG.error("Unexpected add response received from bookie: " + addr + " for ledger: " + ledgerId
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Unexpected add response received from bookie: " + addr + " for ledger: " + ledgerId
                       + ", entry: " + entryId + " , ignoring");
+            }
             return;
         }
 
