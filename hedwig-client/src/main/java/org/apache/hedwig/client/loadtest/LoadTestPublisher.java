@@ -17,9 +17,8 @@ import org.apache.hedwig.util.Callback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.HashMap;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -42,29 +41,31 @@ public class LoadTestPublisher extends LoadTestBase {
     }
     private class SinglePublisher implements Runnable {
         final HedwigClient client;
+        // Store whether we've seen this topic before.
+        final ConcurrentMap<ByteString, Boolean> topicMap;
         public SinglePublisher() {
             this.client = new HedwigClient(conf);
+            this.topicMap = new ConcurrentHashMap<ByteString, Boolean>();
         }
         public void run() {
             Publisher publisher = client.getPublisher();
-            final AtomicBoolean syncPublish = new AtomicBoolean(true);
             while (running) {
                 final long token = rl.take();
                 MessageProviderValue value = mp.getMessage();
                 LoadTestMessage ltm = value.getMessage();
-                ByteString topic = value.getTopic();
+                final ByteString topic = value.getTopic();
                 Message messageToPublish = Message.newBuilder()
                         .setBody(ltm.toByteString())
                         .build();
                 if (logger.isDebugEnabled()) {
                     logger.debug("Publishing message:" + messageToPublish + " for token:" + token);
                 }
-                if (syncPublish.getAndSet(false)) {
+                if (!topicMap.containsKey(topic)) {
                     try {
                         publisher.publish(topic, messageToPublish);
+                        topicMap.put(topic, true);
                     } catch (Exception e) {
                         logger.error("Exception on first publish" + e);
-                        syncPublish.set(true);
                     }
                     continue;
                 }
@@ -86,7 +87,7 @@ public class LoadTestPublisher extends LoadTestBase {
                         logger.error("Error while publishing message for token:" + token);
                         long latencyMillis = MathUtils.now() - startTimeMillis;
                         stat.incErrors(TimeUnit.MILLISECONDS.toMicros(latencyMillis));
-                        syncPublish.set(true);
+                        topicMap.remove(topic);
                     }
                 }, value);
             }
