@@ -36,8 +36,7 @@ public class LedgerEntryPage {
     private final static int indexEntrySize = 8;
     private final int pageSize;
     private final int entriesPerPage;
-    volatile private long ledger = -1;
-    volatile private long firstEntry = BookieProtocol.INVALID_ENTRY_ID;
+    volatile private EntryKey entryKey = new EntryKey(-1, BookieProtocol.INVALID_ENTRY_ID);
     private final ByteBuffer page;
     volatile private boolean clean = true;
     private final AtomicInteger useCount = new AtomicInteger();
@@ -156,28 +155,29 @@ public class LedgerEntryPage {
         return page;
     }
     long getLedger() {
-        return ledger;
+        return entryKey.getLedgerId();
     }
     int getVersion() {
         return version;
     }
-
+    public EntryKey getEntryKey() {
+        return entryKey;
+    }
     void setLedgerAndFirstEntry(long ledgerId, long firstEntry) {
         if (firstEntry % entriesPerPage != 0) {
             throw new IllegalArgumentException(firstEntry + " is not a multiple of " + entriesPerPage);
         }
-        this.firstEntry = firstEntry;
-        this.ledger = ledgerId;
+        this.entryKey = new EntryKey(ledgerId, firstEntry);
     }
 
     long getFirstEntry() {
-        return firstEntry;
+        return entryKey.getEntryId();
     }
     long getMaxPossibleEntry() {
-        return firstEntry+entriesPerPage;
+        return entryKey.getEntryId()+entriesPerPage;
     }
     long getFirstEntryPosition() {
-        return firstEntry*indexEntrySize;
+        return entryKey.getEntryId()*indexEntrySize;
     }
     public boolean inUse() {
         return useCount.get() > 0;
@@ -192,10 +192,10 @@ public class LedgerEntryPage {
     }
     public long getLastEntry() {
         if (last >= 0) {
-            return last + firstEntry;
+            return last + entryKey.getEntryId();
         } else {
             int index = getLastEntryIndex();
-            return index >= 0? (index + firstEntry) : 0;
+            return index >= 0? (index + entryKey.getEntryId()) : 0;
         }
     }
 }

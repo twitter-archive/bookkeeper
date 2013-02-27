@@ -194,7 +194,7 @@ public class IndexInMemPageMgr {
         private void addToCleanPagesList(LedgerEntryPage lep) {
             synchronized(lruCleanPageMap) {
                 if (lep.isClean() && !lep.inUse()) {
-                    lruCleanPageMap.put(new EntryKey(lep.getLedger(), lep.getFirstEntry()), lep);
+                    lruCleanPageMap.put(lep.getEntryKey(), lep);
                 }
             }
         }
@@ -208,7 +208,7 @@ public class IndexInMemPageMgr {
         private void removeFromCleanPageList(LedgerEntryPage lep) {
             synchronized(lruCleanPageMap) {
                 if (!lep.isClean() || lep.inUse()) {
-                    lruCleanPageMap.remove(new EntryKey(lep.getLedger(), lep.getFirstEntry()));
+                    lruCleanPageMap.remove(lep.getEntryKey());
                 }
             }
         }
