@@ -48,7 +48,8 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                                        throws IOException {
         super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null);
         this.memTable = new EntryMemTable(conf, progress);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(new DaemonThreadFactory());
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                new DaemonThreadFactory((Thread.NORM_PRIORITY + Thread.MAX_PRIORITY)/2));
         this.checkpointer = progress;
     }
 
