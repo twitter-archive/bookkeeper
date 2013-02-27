@@ -135,27 +135,20 @@ public class MessageIdUtils {
     /**
      * Build message locally generated such that its remote component is merged from remote components
      * and region components of lastPushedSeqId with local component removed, and its region component
-     * just copy over from region components of lastPushedSeqId with local component replaced.
+     * just copy over from region components of lastPushedSeqId.
      */
     public static void buildMessageGenerated(MessageSeqId.Builder newIdBuilder, MessageSeqId lastSeqIdPushed,
                                              Message messageRequested) {
         assert !messageRequested.hasMsgId();    // Should not have msg-id set
 
         final ByteString localRegion = messageRequested.getSrcRegion();
-        final RegionSpecificSeqId localSeqId = RegionSpecificSeqId.newBuilder()
-                .setRegion(localRegion)
-                .setSeqId(lastSeqIdPushed.getLocalComponent() + 1)
-                .build();
         final Map<ByteString, RegionSpecificSeqId> map = new HashMap<ByteString, RegionSpecificSeqId>();
 
         // Add region vector to map and build region components
         for (RegionSpecificSeqId seqId : lastSeqIdPushed.getRegionComponentsList()) {
-            if (!localRegion.equals(seqId.getRegion())) {   // skip localRegion
-                newIdBuilder.addRegionComponents(seqId);
-                map.put(seqId.getRegion(), seqId);
-            }
+            newIdBuilder.addRegionComponents(seqId);
+            map.put(seqId.getRegion(), seqId);
         }
-        newIdBuilder.addRegionComponents(localSeqId);
 
         // Merge region and remote components
         for (RegionSpecificSeqId seqId : lastSeqIdPushed.getRemoteComponentsList()) {

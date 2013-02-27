@@ -44,6 +44,7 @@ import org.apache.hedwig.protocol.PubSubProtocol.LedgerRange;
 import org.apache.hedwig.protocol.PubSubProtocol.LedgerRanges;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
+import org.apache.hedwig.protocol.PubSubProtocol.RegionSpecificSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
@@ -395,9 +396,7 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         lastSeqIdPushed0 = getNewSeqIdPushed(lastSeqIdPushed0, request);
         assertTrue(lastSeqIdPushed0.getLocalComponent() == 1);
         assertTrue(lastSeqIdPushed0.getRemoteComponentsList().isEmpty());
-        assertTrue(lastSeqIdPushed0.getRegionComponentsList().size() == 1);
-        assertTrue(lastSeqIdPushed0.getRegionComponents(0).getRegion().equals(region0));
-        assertTrue(lastSeqIdPushed0.getRegionComponents(0).getSeqId() == lastSeqIdPushed0.getLocalComponent());
+        assertTrue(lastSeqIdPushed0.getRegionComponentsList().size() == 0);
 
         // Region1 received message generated from region0
         request = Message.newBuilder(request).setMsgId(lastSeqIdPushed0).build();
@@ -405,21 +404,19 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         assertTrue(lastSeqIdPushed1.getLocalComponent() == 1);
         assertTrue(lastSeqIdPushed1.getRemoteComponentsList().isEmpty());
         assertTrue(lastSeqIdPushed1.getRegionComponentsList().size() == 1);
-        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRegionComponents(0),
-                lastSeqIdPushed0.getRegionComponents(0)));
+        assertTrue(lastSeqIdPushed1.getRegionComponents(0).getRegion().equals(region0));
+        assertTrue(lastSeqIdPushed1.getRegionComponents(0).getSeqId() == lastSeqIdPushed0.getLocalComponent());
 
         // Region1 generated message
         request = Message.newBuilder().setSrcRegion(region1).setBody(body).build();
         lastSeqIdPushed1 = getNewSeqIdPushed(lastSeqIdPushed1, request);
         assertTrue(lastSeqIdPushed1.getLocalComponent() == 2);
         assertTrue(lastSeqIdPushed1.getRemoteComponentsList().size() == 1);
-        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRemoteComponents(0),
-                lastSeqIdPushed0.getRegionComponents(0)));
-        assertTrue(lastSeqIdPushed1.getRegionComponentsList().size() == 2);
-        assertTrue(MessageIdUtils.areEqual(lastSeqIdPushed1.getRegionComponents(0),
-                lastSeqIdPushed0.getRegionComponents(0)));
-        assertTrue(lastSeqIdPushed1.getRegionComponents(1).getRegion().equals(region1));
-        assertTrue(lastSeqIdPushed1.getRegionComponents(1).getSeqId() == lastSeqIdPushed1.getLocalComponent());
+        assertTrue(lastSeqIdPushed1.getRemoteComponents(0).getRegion().equals(region0));
+        assertTrue(lastSeqIdPushed1.getRemoteComponents(0).getSeqId() == lastSeqIdPushed0.getLocalComponent());
+        assertTrue(lastSeqIdPushed1.getRegionComponentsList().size() == 1);
+        assertTrue(lastSeqIdPushed1.getRegionComponents(0).getRegion().equals(region0));
+        assertTrue(lastSeqIdPushed1.getRegionComponents(0).getSeqId() == lastSeqIdPushed0.getLocalComponent());
 
         // Region2 received message generated from region1
         request = Message.newBuilder(request).setMsgId(lastSeqIdPushed1).build();
@@ -433,7 +430,7 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         lastSeqIdPushed2 = getNewSeqIdPushed(lastSeqIdPushed2, request);
         assertTrue(lastSeqIdPushed2.getLocalComponent() == 2);
         assertTrue(lastSeqIdPushed2.getRemoteComponentsList().size() == 2);
-        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 2);
+        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 1);
 
         // Region2 received message generated from region0
         request = Message.newBuilder().setSrcRegion(region0).setBody(body)
@@ -441,7 +438,7 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         lastSeqIdPushed2 = getNewSeqIdPushed(lastSeqIdPushed2, request);
         assertTrue(lastSeqIdPushed2.getLocalComponent() == 3);
         assertTrue(lastSeqIdPushed2.getRemoteComponentsList().isEmpty());
-        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 3);
+        assertTrue(lastSeqIdPushed2.getRegionComponentsList().size() == 2);
     }
 
     @Test
