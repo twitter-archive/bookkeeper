@@ -1,5 +1,6 @@
 package org.apache.hedwig.client.loadtest;
 
+import com.google.common.io.Files;
 import com.twitter.common.application.ShutdownRegistry;
 import com.twitter.common.quantity.Amount;
 import com.twitter.common.quantity.Time;
@@ -11,7 +12,11 @@ import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Date;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +59,7 @@ public class LoadTestMain {
                 " Default: 0");
         options.addOption("ns", "num_subscribers", true, "Number of subscribers. Default: 1");
         options.addOption("sp", "stat_print_sec", true, "The time duration between printing stats. Default: 30");
+        options.addOption("f", "stat_file", true, "The output file for stats");
         options.addOption("h", "help", false, "Help.");
         return options;
     }
@@ -94,14 +100,16 @@ public class LoadTestMain {
         int subscriberStartIndex = Integer.valueOf(cmd.getOptionValue("subscriber_start_index", "0"));
         int numSubscribers = Integer.valueOf(cmd.getOptionValue("num_subscribers", "1"));
         int statPrintSec = Integer.valueOf(cmd.getOptionValue("stat_print_sec", "30"));
+        String fileName = cmd.getOptionValue("stat_file", "hedwig-loadtest-stats.txt");
         TopicProvider topicProvider = new TopicProvider(numTopics, topicStartIndex,
                 ltUtil);
-        logger.info("Starting loadtest with the following options. Operation:" + op + ", topicPrefix:" + topicPrefix +
+        String optionsString = "Starting loadtest with the following options. Operation:" + op + ", topicPrefix:" + topicPrefix +
                 ", subscriberPrefix:" + subscriberPrefix + ", numTopics:" + numTopics +
                 ", topicStartIndex:" + topicStartIndex + ", messageSize:" + messageSize +
                 ", concurrency:" + concurrency + ", durationSec:" + durationSec +
                 ", publishRate:" + publishRate + ", subscriberStartIndex:" + subscriberStartIndex +
-                ", numSubscribers:" + numSubscribers + ", statPrintSec:" + statPrintSec);
+                ", numSubscribers:" + numSubscribers + ", statPrintSec:" + statPrintSec;
+        logger.info(optionsString);
         /**
          * Command line related code ends.
          */
@@ -124,12 +132,28 @@ public class LoadTestMain {
         ShutdownRegistry.ShutdownRegistryImpl shutdownRegistry = new ShutdownRegistry.ShutdownRegistryImpl();
         sampler.start(shutdownRegistry);
 
+        // The file to which stats will be printed.
+        final BufferedWriter outFile = new BufferedWriter(new FileWriter(new File(fileName), true));
+        outFile.write(optionsString);
+        outFile.newLine();
+        outFile.flush();
         // A separate thread prints stats every configurable duration.
         ScheduledExecutorService statPrinter = Executors.newSingleThreadScheduledExecutor();
         statPrinter.scheduleWithFixedDelay(new Runnable() {
             @Override
             public void run() {
-                logger.info("Stats: " + testBase.getStats());
+                StringBuilder sb = new StringBuilder();
+                sb.append("TimeStamp : ")
+                        .append(new Date().toString())
+                        .append("\n")
+                        .append(testBase.getStats());
+                try {
+                    outFile.write(sb.toString());
+                    outFile.newLine();
+                    outFile.flush();
+                } catch (IOException e) {
+                    logger.error("IOException while writing stats.", e);
+                }
             }
         }, statPrintSec, statPrintSec, TimeUnit.SECONDS);
 
@@ -146,6 +170,7 @@ public class LoadTestMain {
         } finally {
             testBase.stop();
             statPrinter.shutdownNow();
+            outFile.close();
             shutdownRegistry.execute();
         }
         // exit without an error.

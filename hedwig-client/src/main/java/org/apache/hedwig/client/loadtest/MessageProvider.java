@@ -21,17 +21,14 @@ public class MessageProvider {
     private LoadTestUtils ltUtil;
     private int messageSize;
     private IntegerDistribution distribution;
-    private Random rGen = new Random();
     private List<ByteString> topicList;
     private ByteString retMessage;
     public MessageProvider(TopicProvider topicProvider, int messageSize,
                            LoadTestUtils ltUtil) {
         this.messageSize = messageSize;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < messageSize; i++) {
-            sb.append(rGen.nextInt(26) + 'a');
-        }
-        this.retMessage = ByteString.copyFromUtf8(sb.toString());
+        byte[] message = new byte[messageSize];
+        new Random().nextBytes(message);
+        this.retMessage = ByteString.copyFrom(message);
         int numTopics = topicProvider.numTopics();
         if (numTopics > 1) {
             this.distribution = new UniformIntegerDistribution(0,
