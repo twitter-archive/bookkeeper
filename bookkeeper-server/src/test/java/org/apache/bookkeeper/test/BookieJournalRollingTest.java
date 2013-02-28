@@ -22,14 +22,12 @@ package org.apache.bookkeeper.test;
  */
 import java.io.File;
 import java.util.Enumeration;
-import java.util.List;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
-import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -199,7 +197,7 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
             LOG.debug("Testing Journal Rolling without sync up");
         }
 
-        ServerConfiguration newConf = new ServerConfiguration();
+        ServerConfiguration newConf = TestBKConfiguration.newServerConfiguration();
 
         // restart bookies
         restartBookies(newConf);
@@ -236,7 +234,7 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
         checkpointBookies();
 
         // restart bookies
-        ServerConfiguration newConf = new ServerConfiguration();
+        ServerConfiguration newConf = TestBKConfiguration.newServerConfiguration();
         restartBookies(newConf);
 
         // Write entries again to let them existed in journal

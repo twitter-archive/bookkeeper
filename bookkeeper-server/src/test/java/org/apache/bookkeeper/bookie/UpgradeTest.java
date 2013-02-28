@@ -27,7 +27,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 
 import java.io.File;
-import java.io.IOException;
 
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
@@ -35,6 +34,7 @@ import java.io.BufferedWriter;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
 
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.junit.Before;
 import org.junit.After;
 import org.junit.Test;
@@ -164,7 +164,7 @@ public class UpgradeTest {
     }
 
     private static void testUpgradeProceedure(String zkServers, String journalDir, String ledgerDir) throws Exception {
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkServers)
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir })
@@ -221,7 +221,7 @@ public class UpgradeTest {
         String ledgerDir = newV2LedgerDirectory();
         testUpgradeProceedure(zkutil.getZooKeeperConnectString(), journalDir, ledgerDir);
         // Upgrade again
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkutil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir })

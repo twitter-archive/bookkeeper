@@ -46,6 +46,11 @@ public class TestSkipListArena {
         public int getSkipListArenaMaxAllocSize() {
             return 1024;
         }
+        @Override
+        public boolean getJournalFlushWhenQueueEmpty() {
+            return true;
+        }
+
     }
 
     final CustomConfiguration cfg = new CustomConfiguration();

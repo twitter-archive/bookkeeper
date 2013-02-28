@@ -802,7 +802,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @return max wait for grouping
      */
     public long getJournalMaxGroupWaitMSec() {
-        return getLong(JOURNAL_MAX_GROUP_WAIT_MSEC, 20);
+        return getLong(JOURNAL_MAX_GROUP_WAIT_MSEC, 200);
     }
 
     /**
@@ -816,12 +816,20 @@ public class ServerConfiguration extends AbstractConfiguration {
 
 
     /**
+     * Set if we should flush the journal when queue is empty
+     */
+    public ServerConfiguration setJournalFlushWhenQueueEmpty(boolean enabled) {
+        setProperty(JOURNAL_FLUSH_WHEN_QUEUE_EMPTY, enabled);
+        return this;
+    }
+
+    /**
      * Should we flush the journal when queue is empty
      *
      * @return flush when queue is empty
      */
     public boolean getJournalFlushWhenQueueEmpty() {
-        return getBoolean(JOURNAL_FLUSH_WHEN_QUEUE_EMPTY, true);
+        return getBoolean(JOURNAL_FLUSH_WHEN_QUEUE_EMPTY, false);
     }
 
     /**

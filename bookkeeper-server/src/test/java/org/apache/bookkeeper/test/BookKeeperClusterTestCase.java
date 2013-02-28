@@ -35,6 +35,7 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.KeeperException;
@@ -65,7 +66,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     protected int numBookies;
     protected BookKeeperTestClient bkc;
 
-    protected ServerConfiguration baseConf = new ServerConfiguration();
+    protected ServerConfiguration baseConf = TestBKConfiguration.newServerConfiguration();
     protected ClientConfiguration baseClientConf = new ClientConfiguration();
 
     public BookKeeperClusterTestCase(int numBookies) {

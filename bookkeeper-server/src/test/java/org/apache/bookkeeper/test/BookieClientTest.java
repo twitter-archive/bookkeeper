@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.Executors;
 
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -53,7 +54,7 @@ public class BookieClientTest extends TestCase {
     public int port = 13645;
     public ClientSocketChannelFactory channelFactory;
     public OrderedSafeExecutor executor;
-    ServerConfiguration conf = new ServerConfiguration();
+    ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
 
     @Override
     public void setUp() throws Exception {
@@ -64,7 +65,7 @@ public class BookieClientTest extends TestCase {
         // Since this test does not rely on the BookKeeper client needing to
         // know via ZooKeeper which Bookies are available, okay, so pass in null
         // for the zkServers input parameter when constructing the BookieServer.
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setZkServers(null).setBookiePort(port)
             .setJournalDirName(tmpDir.getPath())
             .setLedgerDirNames(new String[] { tmpDir.getPath() });
