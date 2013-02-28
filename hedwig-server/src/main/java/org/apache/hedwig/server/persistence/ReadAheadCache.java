@@ -116,8 +116,8 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
     private class EntryWeigher implements Weigher<CacheKey, CacheValue> {
         public int weigh(CacheKey cacheKey, CacheValue cacheValue)  {
             // Approximate weight for stub which will be corrected later
-            return !cacheValue.isStub() ? cacheValue.getMessage().getBody().size() :
-                    (int) (readAheadSizeLimit / readAheadCount);
+            return cfg.getCacheEntryOverheadBytes() + (!cacheValue.isStub()
+                    ? cacheValue.getMessage().getBody().size() : 0);
         }
     }
 

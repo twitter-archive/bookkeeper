@@ -78,6 +78,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String REBALANCE_MAX_SHED = "rebalance_max_shed";
     protected final static String REBALANCE_INTERVAL_SEC = "rebalance_interval_sec";
     protected final static String NUM_READAHEAD_CACHE_THREADS = "num_readahead_cache_threads";
+    protected final static String CACHE_ENTRY_OVERHEAD_BYTES = "cache_entry_overhead_bytes";
 
     // manager related settings
     protected final static String METADATA_MANAGER_BASED_TOPIC_MANAGER_ENABLED = "metadata_manager_based_topic_manager_enabled";
@@ -417,6 +418,9 @@ public class ServerConfiguration extends AbstractConfiguration {
         return conf.getLong(REBALANCE_INTERVAL_SEC, 300);
     }
 
+    public int getCacheEntryOverheadBytes() {
+        return conf.getInt(CACHE_ENTRY_OVERHEAD_BYTES, 300);
+    }
     /*
      * Is this a valid configuration that we can run with? This code might grow
      * over time.
