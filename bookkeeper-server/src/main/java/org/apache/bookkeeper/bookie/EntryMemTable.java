@@ -51,7 +51,7 @@ public class EntryMemTable {
      */
     static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
         final CheckPoint cp;
-        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(null) {
+        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(CheckPoint.MAX) {
             @Override
             public boolean isEmpty() {
                 return true;
@@ -61,6 +61,10 @@ public class EntryMemTable {
         EntrySkipList(final CheckPoint cp) {
             super(EntryKey.COMPARATOR);
             this.cp = cp;
+        }
+
+        int compareTo(final CheckPoint cp) {
+            return this.cp.compareTo(cp);
         }
 
         @Override
@@ -141,12 +145,13 @@ public class EntryMemTable {
     CheckPoint snapshot(CheckPoint oldCp) throws IOException {
         CheckPoint cp = null;
         // No-op if snapshot currently has entries
-        if (this.snapshot.isEmpty()) {
+        if (this.snapshot.isEmpty() &&
+                this.kvmap.compareTo(oldCp) < 0) {
             final long startTimeMillis = MathUtils.now();
             this.lock.writeLock().lock();
             try {
                 if (this.snapshot.isEmpty() && !this.kvmap.isEmpty()
-                        && this.kvmap.cp.compareTo(oldCp) < 0) {
+                        && this.kvmap.compareTo(oldCp) < 0) {
                     this.snapshot = this.kvmap;
                     this.kvmap = newSkipList();
                     // get the checkpoint of the memtable.
@@ -174,15 +179,36 @@ public class EntryMemTable {
 
     /**
      * Flush snapshot and clear it.
-     * Only this function change non-empty this.snapshot.
      */
     long flush(final SkipListFlusher flusher) throws IOException {
+        return flushSnapshot(flusher, CheckPoint.MAX);
+    }
+
+    /**
+     * Flush memtable until checkpoint.
+     *
+     * @param checkpoint
+     *          all data before this checkpoint need to be flushed.
+     */
+    public long flush(SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
+        long size = flushSnapshot(flusher, checkpoint);
+        if (null != snapshot(checkpoint)) {
+            size += flushSnapshot(flusher, checkpoint);
+        }
+        return size;
+    }
+
+    /**
+     * Flush snapshot and clear it iff its data is before checkpoint.
+     * Only this function change non-empty this.snapshot.
+     */
+    private long flushSnapshot(final SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
         long size = 0;
-        if (!this.snapshot.isEmpty()) {
+        if (this.snapshot.compareTo(checkpoint) < 0) {
             long ledger, ledgerGC = -1;
             synchronized (this) {
                 EntrySkipList keyValues = this.snapshot;
-                if (!keyValues.isEmpty()) {
+                if (keyValues.compareTo(checkpoint) < 0) {
                     for (EntryKey key : keyValues.keySet()) {
                         EntryKeyValue kv = (EntryKeyValue)key;
                         size += kv.getLength();
@@ -202,20 +228,6 @@ public class EntryMemTable {
             }
         }
 
-        return size;
-    }
-
-    /**
-     * Flush memtable until checkpoint.
-     *
-     * @param checkpoint
-     *          all data before this checkpoint need to be flushed.
-     */
-    public long flush(SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
-        long size = flush(flusher);
-        if (null != snapshot(checkpoint)) {
-            size += flush(flusher);
-        }
         return size;
     }
 
