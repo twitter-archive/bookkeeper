@@ -31,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -314,6 +315,16 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
             throws InterruptedException, IOException, KeeperException, BookieException {
         restartBookies(null);
     }
+
+    /**
+     * Checkpoint all bookies
+     */
+    public void checkpointBookies() {
+        for (BookieServer server : bs) {
+            server.getBookie().getSyncThread().checkPoint(CheckPoint.MAX);
+        }
+    }
+
 
     /**
      * Restart bookie servers using new configuration settings

@@ -37,8 +37,6 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     // Gc Parameters
     protected final static String GC_WAIT_TIME = "gcWaitTime";
-    // Sync Parameters
-    protected final static String FLUSH_INTERVAL = "flushInterval";
     // Bookie death watch interval
     protected final static String DEATH_WATCH_INTERVAL = "bookieDeathWatchInterval";
     // Ledger Cache Parameters
@@ -166,27 +164,6 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setGcWaitTime(long gcWaitTime) {
         this.setProperty(GC_WAIT_TIME, Long.toString(gcWaitTime));
-        return this;
-    }
-
-    /**
-     * Get flush interval
-     *
-     * @return flush interval
-     */
-    public int getFlushInterval() {
-        return this.getInt(FLUSH_INTERVAL, 100);
-    }
-
-    /**
-     * Set flush interval
-     *
-     * @param flushInterval
-     *          Flush Interval
-     * @return server configuration
-     */
-    public ServerConfiguration setFlushInterval(int flushInterval) {
-        this.setProperty(FLUSH_INTERVAL, Integer.toString(flushInterval));
         return this;
     }
 

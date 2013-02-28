@@ -442,7 +442,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 preferencesBuilder = SubscriptionPreferences.newBuilder();
             }
 
-            // backward compability
+            // backward compatibility
             if (subRequest.hasMessageBound()) {
                 preferencesBuilder = preferencesBuilder.setMessageBound(subRequest.getMessageBound());
             }

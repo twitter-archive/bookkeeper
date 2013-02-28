@@ -277,6 +277,7 @@ public class RegionManager implements SubscriptionEventListener {
     @Override
     public void onFirstLocalSubscribe(final ByteString topic, final boolean synchronous, final Callback<Void> cb) {
         topicStatuses.put(topic, true);
+
         // Whenever we acquire a topic due to a (local) subscribe, subscribe on
         // it to all the other regions (currently using simple all-to-all
         // topology).
@@ -285,8 +286,8 @@ public class RegionManager implements SubscriptionEventListener {
             public void run() {
                 LOGGER.info("Handling first subscription to topic:{} with synchronous mode:{}",
                             topic.toStringUtf8(), synchronous);
-                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER, 
-                        "[" + myRegion + "] all cross-region subscriptions succeeded", 
+                Callback<Void> postCb = synchronous ? cb : CallbackUtils.logger(LOGGER,
+                        "[" + myRegion + "] all cross-region subscriptions succeeded",
                         "[" + myRegion + "] at least one cross-region subscription failed");
                 final Callback<Void> mcb = CallbackUtils.multiCallback(clients.size(), postCb, ctx);
                 for (final HedwigHubClient client : clients) {
@@ -296,7 +297,6 @@ public class RegionManager implements SubscriptionEventListener {
                     cb.operationFinished(null, null);
             }
         });
-
     }
 
     private void unSubscribeRemoteRegions(final ByteString topic) {

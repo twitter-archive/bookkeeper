@@ -233,8 +233,8 @@ public class MultipleThreadReadTest extends MultiLedgerManagerMultiDigestTestCas
                     fail("Error while closing handle.");
                 }
             }
-            // Sleep till a flush occurs
-            Thread.sleep(2*baseConf.getFlushInterval());
+            // checkpoint bookies
+            checkpointBookies();
             // Now try to read.
             mainSyncObj.failed = false;
             threadList.clear();

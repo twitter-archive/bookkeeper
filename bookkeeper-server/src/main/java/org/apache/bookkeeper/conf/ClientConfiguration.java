@@ -40,9 +40,6 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Throttle value
     protected final static String THROTTLE = "throttle";
 
-    // Read Throttle value. This should be less than or equal to the total throttle value.
-    protected final static String READ_THROTTLE = "readThrottle";
-
     // Digest Type
     protected final static String DIGEST_TYPE = "digestType";
     // Passwd
@@ -83,21 +80,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @see #setThrottleValue
      */
     public int getThrottleValue() {
-        return this.getInt(THROTTLE, 5000);
-    }
-
-    /**
-     * Get the maximum available read permits from the total number of permits
-     * returned by getThrottleValue. You can have only as many read operations
-     * outstanding as the number of permits provided by this function. Add operations
-     * can take up all permits though.
-     *
-     * The default behavior is to have no special add permits. So, we just return
-     * the total throttle value.
-     * @return
-     */
-    public int getReadThrottleValue() {
-        return this.getInt(READ_THROTTLE, getThrottleValue());
+        return this.getInt(THROTTLE, 10000);
     }
 
     /**
@@ -114,17 +97,6 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setThrottleValue(int throttle) {
         this.setProperty(THROTTLE, Integer.toString(throttle));
-        return this;
-    }
-
-    /**
-     * We don't want potentially slow read operations to take up all permits, thereby blocking
-     * the add operations.
-     * @param readThrottleValue
-     * @return
-     */
-    public ClientConfiguration setReadThrottleValue(int readThrottleValue) {
-        this.setProperty(READ_THROTTLE, Integer.toString(readThrottleValue));
         return this;
     }
 
@@ -340,10 +312,10 @@ public class ClientConfiguration extends AbstractConfiguration {
      * bookies. This should be taken into account before changing this configuration value.
      *
      * @see org.apache.bookkeeper.client.LedgerHandle#asyncReadEntries
-     * @return the speculative read timeout in milliseconds. Default 2000.
+     * @return the speculative read timeout in milliseconds. Default 1000.
      */
     public int getSpeculativeReadTimeout() {
-        return getInt(SPECULATIVE_READ_TIMEOUT, 2000);
+        return getInt(SPECULATIVE_READ_TIMEOUT, 1000);
     }
 
     /**

@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -45,6 +46,7 @@ import junit.framework.TestCase;
  */
 public class LedgerCacheTest extends TestCase {
     static Logger LOG = LoggerFactory.getLogger(LedgerCacheTest.class);
+    static int flushInterval = 100;
 
     ActiveLedgerManager activeLedgerManager;
     LedgerManagerFactory ledgerManagerFactory;
@@ -103,7 +105,8 @@ public class LedgerCacheTest extends TestCase {
                 public void run() {
                     while (true) {
                         try {
-                            sleep(conf.getFlushInterval());
+                            sleep(flushInterval);
+                            bookie.getSyncThread().checkPoint(CheckPoint.MAX);
                             ledgerCache.flushLedger(true);
                         } catch (InterruptedException ie) {
                             // killed by teardown
@@ -313,8 +316,7 @@ public class LedgerCacheTest extends TestCase {
         ServerConfiguration conf = new ServerConfiguration()
             .setZkServers(null)
             .setJournalDirName(journalDir.getPath())
-            .setLedgerDirNames(new String[] { ledgerDir.getPath() })
-            .setFlushInterval(1000)
+            .setLedgerDirNames(new String[]{ledgerDir.getPath()})
             .setPageLimit(1)
             .setSortedLedgerStorageEnabled(false);
 

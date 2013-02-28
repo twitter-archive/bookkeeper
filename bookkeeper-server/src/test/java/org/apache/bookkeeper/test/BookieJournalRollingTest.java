@@ -165,8 +165,8 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
             ledgerIds[i] = lhs[i].getId();
         }
 
-        // Sleep for a while to ensure data are flushed
-        Thread.sleep(2000);
+        // ensure data are flushed
+        checkpointBookies();
 
         // verify that we only keep at most journal files 
         for (File journalDir : tmpDirs) {
@@ -199,9 +199,8 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
             LOG.debug("Testing Journal Rolling without sync up");
         }
 
-        // set flush interval to a large value
         ServerConfiguration newConf = new ServerConfiguration();
-        newConf.setFlushInterval(999999999);
+
         // restart bookies
         restartBookies(newConf);
 
@@ -234,12 +233,10 @@ public class BookieJournalRollingTest extends BookKeeperClusterTestCase {
         // Write entries
         LedgerHandle[] lhs = writeLedgerEntries(1, 1024, 10);
         // Wait until all entries are flushed and last mark rolls
-        Thread.sleep(3 * baseConf.getFlushInterval());
+        checkpointBookies();
 
-        // restart bookies with flush interval set to a large value
-        ServerConfiguration newConf = new ServerConfiguration();
-        newConf.setFlushInterval(999999999);
         // restart bookies
+        ServerConfiguration newConf = new ServerConfiguration();
         restartBookies(newConf);
 
         // Write entries again to let them existed in journal

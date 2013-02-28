@@ -236,6 +236,11 @@ public class Bookie extends BookieThread {
         }
     }
 
+    @VisibleForTesting
+    public SyncThread getSyncThread() {
+        return syncThread;
+    }
+
     /**
      * SyncThread is a background thread which flushes ledger index pages periodically.
      * Also it takes responsibility of garbage collecting journal files.
@@ -258,7 +263,8 @@ public class Bookie extends BookieThread {
      * number of old journal files which may be used for manual recovery in critical disaster.
      * </p>
      */
-    class SyncThread extends BookieThread implements CheckpointProgress {
+    @VisibleForTesting
+    public class SyncThread extends BookieThread implements CheckpointProgress {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);
@@ -278,7 +284,8 @@ public class Bookie extends BookieThread {
          * flush data up to given logMark and roll log if success
          * @param checkpoint
          */
-        private void checkPoint(final CheckPoint checkpoint) {
+        @VisibleForTesting
+        public void checkPoint(final CheckPoint checkpoint) {
             boolean flushFailed = false;
             try {
                 if (running) {

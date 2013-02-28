@@ -24,6 +24,7 @@ package org.apache.bookkeeper.bookie;
 import java.util.Enumeration;
 import java.util.List;
 
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -75,7 +76,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync 
-        Thread.sleep(2 * baseConf.getFlushInterval());
+        syncThread.checkPoint(CheckPoint.MAX);
 
         // restart bookies
         restartBookies();
@@ -117,7 +118,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync
-        Thread.sleep(2 * baseConf.getFlushInterval());
+        syncThread.checkPoint(CheckPoint.MAX);
 
         syncThread.suspendSync();
 
@@ -132,7 +133,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // wait for sync again
-        Thread.sleep(2 * baseConf.getFlushInterval());
+        syncThread.checkPoint(CheckPoint.MAX);
     
         // restart bookies
         restartBookies();

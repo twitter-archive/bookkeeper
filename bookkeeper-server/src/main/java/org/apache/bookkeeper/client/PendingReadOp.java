@@ -154,7 +154,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
 
-                // Do it a bit perssimistically, only when finished trying all replicas
+                // Do it a bit pessimistically, only when finished trying all replicas
                 // to check whether we received more missed reads than maxMissedReadsAllowed
                 if (BKException.Code.BookieHandleNotAvailableException == firstError &&
                     numMissedEntryReads > maxMissedReadsAllowed) {
@@ -260,6 +260,13 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         heardFromHosts = new HashSet<InetSocketAddress>();
     }
 
+    private void cancelSpeculativeTask(boolean mayInterruptIfRunning) {
+        if (speculativeTask != null) {
+            speculativeTask.cancel(mayInterruptIfRunning);
+            speculativeTask = null;
+        }
+    }
+
     public void initiate() throws InterruptedException {
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeMillis = MathUtils.now();
@@ -271,7 +278,11 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                         int x = 0;
                         for (LedgerEntryRequest r : seq) {
                             if (!r.isComplete()) {
-                                if (null != r.maybeSendSpeculativeRead(heardFromHosts)) {
+                                if (null == r.maybeSendSpeculativeRead(heardFromHosts)) {
+                                    // Subsequent speculative read will not materialize anyway
+                                    cancelSpeculativeTask(false);
+                                }
+                                else {
                                     LOG.debug("Send speculative read for {}. Hosts heard are {}.",
                                               r, heardFromHosts);
                                     ++x;
@@ -287,8 +298,6 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         do {
-            LOG.debug("Acquiring lock: {}", i);
-
             if (i == nextEnsembleChange) {
                 ensemble = lh.metadata.getEnsemble(i);
                 nextEnsembleChange = lh.metadata.getNextEnsembleChange(i);
@@ -350,10 +359,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
                     .registerSuccessfulEvent(latencyMillis);
         }
-        if (speculativeTask != null) {
-            speculativeTask.cancel(true);
-            speculativeTask = null;
-        }
+        cancelSpeculativeTask(true);
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);
     }
     public boolean hasMoreElements() {
