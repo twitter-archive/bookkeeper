@@ -59,7 +59,8 @@ public class LoadTestMain {
                 " Default: 0");
         options.addOption("ns", "num_subscribers", true, "Number of subscribers. Default: 1");
         options.addOption("sp", "stat_print_sec", true, "The time duration between printing stats. Default: 30");
-        options.addOption("f", "stat_file", true, "The output file for stats");
+        options.addOption("f", "stat_file", true, "The output file for stats. Default: hedwig-loadtest-stats.txt");
+        options.addOption("rt", "ramp_up_sec", true, "Time to ramp up the rate limiter. Default: 0");
         options.addOption("h", "help", false, "Help.");
         return options;
     }
@@ -101,6 +102,7 @@ public class LoadTestMain {
         int numSubscribers = Integer.valueOf(cmd.getOptionValue("num_subscribers", "1"));
         int statPrintSec = Integer.valueOf(cmd.getOptionValue("stat_print_sec", "30"));
         String fileName = cmd.getOptionValue("stat_file", "hedwig-loadtest-stats.txt");
+        int rampUpSec = Integer.valueOf(cmd.getOptionValue("ramp_up_sec", "0"));
         TopicProvider topicProvider = new TopicProvider(numTopics, topicStartIndex,
                 ltUtil);
         String optionsString = "Starting loadtest with the following options. Operation:" + op + ", topicPrefix:" + topicPrefix +
@@ -108,7 +110,8 @@ public class LoadTestMain {
                 ", topicStartIndex:" + topicStartIndex + ", messageSize:" + messageSize +
                 ", concurrency:" + concurrency + ", durationSec:" + durationSec +
                 ", publishRate:" + publishRate + ", subscriberStartIndex:" + subscriberStartIndex +
-                ", numSubscribers:" + numSubscribers + ", statPrintSec:" + statPrintSec;
+                ", numSubscribers:" + numSubscribers + ", statPrintSec:" + statPrintSec +
+                ", statFile:" + fileName + ", rampUpSec:" + rampUpSec;
         logger.info(optionsString);
         /**
          * Command line related code ends.
@@ -120,7 +123,7 @@ public class LoadTestMain {
                     numSubscribers, subscriberStartIndex);
         } else if (op.equals("publish")) {
             testBase = new LoadTestPublisher(topicProvider, ltUtil, conf,
-                    concurrency, publishRate, maxOutstanding, messageSize);
+                    concurrency, publishRate, rampUpSec, maxOutstanding, messageSize);
         } else {
             throw new UnrecognizedOptionException("Operation not supported:" + op);
         }

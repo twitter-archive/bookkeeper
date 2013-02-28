@@ -31,10 +31,10 @@ public class LoadTestPublisher extends LoadTestBase {
     private static Logger logger = LoggerFactory.getLogger(LoadTestPublisher.class);
     public LoadTestPublisher(TopicProvider topicProvider, LoadTestUtils ltUtil,
                              ClientConfiguration conf, int concurrency,
-                             int publishRate, int maxOutstanding, int messageSize) {
+                             int publishRate, int rampUpSec, int maxOutstanding, int messageSize) {
         super(topicProvider, ltUtil, conf, "publish");
         this.concurrency = concurrency;
-        this.rl = new RateLimiter(publishRate, maxOutstanding);
+        this.rl = new RateLimiter(publishRate, rampUpSec, maxOutstanding);
         this.mp = new MessageProvider(topicProvider,
                 messageSize, ltUtil);
         this.executor = Executors.newFixedThreadPool(concurrency);
@@ -63,6 +63,7 @@ public class LoadTestPublisher extends LoadTestBase {
                 if (!topicMap.containsKey(topic)) {
                     try {
                         publisher.publish(topic, messageToPublish);
+                        logger.info("First publish succeeded for topic:" + topic.toStringUtf8());
                         topicMap.put(topic, true);
                     } catch (Exception e) {
                         logger.error("Exception on first publish" + e);

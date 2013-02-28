@@ -26,6 +26,7 @@ public class RateLimiter implements Runnable {
     private AtomicLong tokenNumber = new AtomicLong(0);
     // Rate - per second.
     private final int rate;
+    private final int rampUpSec;
     // Used to control if rate is 0.
     private final int maxOutstanding;
     // Sleep for the delay period only after each batch size.
@@ -34,8 +35,9 @@ public class RateLimiter implements Runnable {
     // of doing actual work. rate should not be less than this.
     private final int BATCH_SIZE = 100;
 
-    public RateLimiter(int rate, int maxOutstanding) {
+    public RateLimiter(int rate, int rampUpSec, int maxOutstanding) {
         this.rate = rate;
+        this.rampUpSec = rampUpSec;
         this.maxOutstanding = maxOutstanding;
         // Create a large enough queue. If rate is 0, we should not create
         // a queue with 0 capacity.
@@ -51,8 +53,11 @@ public class RateLimiter implements Runnable {
                 for (int i = 0; i < maxOutstanding; i++) {
                     tokenQueue.offer(tokenNumber.incrementAndGet());
                 }
+                return;
             }
-            long delayMillis = BATCH_SIZE * TimeUnit.SECONDS.toMillis(1) / rate;
+            long startMillis = System.currentTimeMillis();
+            long rampUpMsec = TimeUnit.SECONDS.toMillis(this.rampUpSec);
+            long currentRate = this.rate;
             while (true) {
                 // Generate tokens in batches and sleep for a precalculated delay.
                 for (int i = 0; i < BATCH_SIZE; i++) {
@@ -66,6 +71,15 @@ public class RateLimiter implements Runnable {
                         break;
                     }
                 }
+                if (rampUpMsec != 0) {
+                    long diffMillis = System.currentTimeMillis() - startMillis;
+                    if (diffMillis < rampUpMsec) {
+                        currentRate = Math.max(1, (this.rate * diffMillis) / rampUpMsec);
+                    } else {
+                        currentRate = this.rate;
+                    }
+                }
+                long delayMillis = BATCH_SIZE * TimeUnit.SECONDS.toMillis(1) / currentRate;
                 Thread.sleep(delayMillis);
             }
         } catch (InterruptedException e) {
