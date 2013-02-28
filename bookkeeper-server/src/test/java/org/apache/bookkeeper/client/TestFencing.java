@@ -295,7 +295,7 @@ public class TestFencing extends BaseTestCase {
         try {
             writelh.close();
             fail("Should fail trying to update metadata");
-        } catch (BKException.BKMetadataVersionException e) {
+        } catch (BKException.BKLedgerClosedException e) {
             // correct behaviour
         }
     }
@@ -342,7 +342,7 @@ public class TestFencing extends BaseTestCase {
         try {
             writelh.close();
             fail("Should fail trying to update metadata");
-        } catch (BKException.BKMetadataVersionException e) {
+        } catch (BKException.BKLedgerClosedException e) {
             // correct behaviour
         }
     }

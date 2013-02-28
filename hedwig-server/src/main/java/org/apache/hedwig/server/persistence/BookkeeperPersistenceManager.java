@@ -607,9 +607,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
      */
     protected void releaseTopicIfRequested(final ByteString topic, Exception e, Object ctx) {
         TopicInfo topicInfo = topicInfos.get(topic);
+        // if there is no topic info in topic infos mapping, it means that someone already released the topic
+        // so we don't need to release it again.
         if (topicInfo == null) {
-            logger.warn("No topic found when trying to release ownership of topic " + topic.toStringUtf8()
-                      + " on failure.");
             return;
         }
         // do release owner ship of topic
@@ -628,6 +628,8 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                               + " exception from bookkeeper", topic.toStringUtf8());
                 }
             }, null);
+        } else {
+            logger.warn("Topic {} is already released.", topic.toStringUtf8());
         }
         // if release happens when the topic is changing ledger
         // we need to fail all queued persist requests

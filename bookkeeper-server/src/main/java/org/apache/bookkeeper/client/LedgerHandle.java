@@ -252,6 +252,11 @@ public class LedgerHandle {
                 if (!metadata.isClosed()) {
                     // Closed a ledger
                     bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
+                } else {
+                    // if the metadata is already closed, we don't need to proceed the process
+                    // otherwise, it might end up encountering bad version error log messages when updating metadata
+                    cb.closeComplete(BKException.Code.LedgerClosedException, LedgerHandle.this, ctx);
+                    return;
                 }
                 final long prevLastEntryId;
                 final long prevLength;
