@@ -147,7 +147,10 @@ public class BookKeeperTest extends BaseTestCase {
             bkc.openLedger(id, digestCorrect, passwdCorrect).close();
         } finally {
             if (lh != null) {
-                lh.close();
+                try {
+                    lh.close();
+                } catch (BKException.BKLedgerClosedException e) {
+                }
             }
             bkc.close();
         }

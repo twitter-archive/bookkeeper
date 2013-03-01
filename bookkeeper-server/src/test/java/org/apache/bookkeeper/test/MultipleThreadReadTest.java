@@ -229,6 +229,7 @@ public class MultipleThreadReadTest extends MultiLedgerManagerMultiDigestTestCas
             for (LedgerHandle lh : oldLedgerHandles) {
                 try {
                     lh.close();
+                } catch (BKException.BKLedgerClosedException e) {
                 } catch (Exception e) {
                     fail("Error while closing handle.");
                 }
