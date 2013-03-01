@@ -105,8 +105,10 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                     ledgerId);
         } catch (Bookie.NoEntryException e) {
             status = StatusCode.ENOENTRY;
-            logger.error("No entry found while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            if (logger.isDebugEnabled()) {
+                logger.debug("No entry found while reading entry:" + entryId + " from ledger:" +
+                        ledgerId);
+            }
         } catch (IOException e) {
             status = StatusCode.EIO;
             logger.error("IOException while reading entry:" + entryId + " from ledger:" +

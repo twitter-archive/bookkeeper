@@ -107,8 +107,10 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
             logger.error("Error writing entry:" + entryId + " to ledger:" + ledgerId, e);
             status = StatusCode.EIO;
         } catch (BookieException.LedgerFencedException e) {
-            logger.error("Ledger fenced while writing entry:" + entryId +
-                    " to ledger:" + ledgerId);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Ledger fenced while writing entry:" + entryId +
+                        " to ledger:" + ledgerId);
+            }
             status = StatusCode.EFENCED;
         } catch (BookieException e) {
             logger.error("Unauthorized access to ledger:" + ledgerId +
