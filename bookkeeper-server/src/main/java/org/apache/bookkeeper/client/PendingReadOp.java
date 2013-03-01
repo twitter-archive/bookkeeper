@@ -196,8 +196,10 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 ++numMissedEntryReads;
             }
 
-            LOG.error(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
-                      + host);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
+                        + host);
+            }
 
             int replica = getReplicaIndex(host);
             if (replica == NOT_FOUND) {
@@ -290,8 +292,10 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                             }
                         }
                         if (x > 0) {
-                            LOG.info("Send {} speculative reads for ledger {} ({}, {}). Hosts heard are {}.",
-                                     new Object[] { x, lh.getId(), startEntryId, endEntryId, heardFromHosts });
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Send {} speculative reads for ledger {} ({}, {}). Hosts heard are {}.",
+                                        new Object[] { x, lh.getId(), startEntryId, endEntryId, heardFromHosts });
+                            }
                         }
                     }
                 }, speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);

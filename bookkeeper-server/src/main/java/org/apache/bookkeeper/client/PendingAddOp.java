@@ -119,7 +119,9 @@ class PendingAddOp implements WriteCallback {
 
         if (!lh.metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
             // ensemble has already changed, failure of this addr is immaterial
-            LOG.warn("Write did not succeed: " + ledgerId + ", " + entryId + ". But we have already fixed it.");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Write did not succeed: " + ledgerId + ", " + entryId + ". But we have already fixed it.");
+            }
             return;
         }
 
@@ -128,7 +130,9 @@ class PendingAddOp implements WriteCallback {
             // continue
             break;
         case BKException.Code.LedgerFencedException:
-            LOG.warn("Fencing exception on write: " + ledgerId + ", " + entryId);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Fencing exception on write: " + ledgerId + ", " + entryId);
+            }
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         case BKException.Code.UnauthorizedAccessException:
