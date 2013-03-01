@@ -19,6 +19,9 @@ package org.apache.bookkeeper.client;
  */
 
 import java.util.Enumeration;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
@@ -46,18 +49,19 @@ import org.jboss.netty.buffer.ChannelBuffer;
 class LedgerRecoveryOp implements ReadCallback, AddCallback {
     static final Logger LOG = LoggerFactory.getLogger(LedgerRecoveryOp.class);
     LedgerHandle lh;
-    int numResponsesPending;
-    boolean proceedingWithRecovery = false;
-    long maxAddPushed = LedgerHandle.INVALID_ENTRY_ID;
-    long maxAddConfirmed = LedgerHandle.INVALID_ENTRY_ID;
-    long maxLength = 0;
-
+    AtomicLong readCount, writeCount;
+    AtomicBoolean readDone;
+    AtomicBoolean ledgerClosed;
+    volatile long entryToRead;
     GenericCallback<Void> cb;
 
     public LedgerRecoveryOp(LedgerHandle lh, GenericCallback<Void> cb) {
+        readCount = new AtomicLong(0);
+        writeCount = new AtomicLong(0);
+        readDone = new AtomicBoolean(false);
+        ledgerClosed = new AtomicBoolean(false);
         this.cb = cb;
         this.lh = lh;
-        numResponsesPending = lh.metadata.getEnsembleSize();
     }
 
     public void initiate() {
@@ -67,6 +71,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                     if (rc == BKException.Code.OK) {
                         lh.lastAddPushed = lh.lastAddConfirmed = data.lastAddConfirmed;
                         lh.length = data.length;
+                        entryToRead = lh.lastAddConfirmed;
                         doRecoveryRead();
                     } else if (rc == BKException.Code.UnauthorizedAccessException) {
                         cb.operationComplete(rc, null);
@@ -88,15 +93,31 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
      * Try to read past the last confirmed.
      */
     private void doRecoveryRead() {
-        lh.lastAddConfirmed++;
-        lh.asyncReadEntries(lh.lastAddConfirmed, lh.lastAddConfirmed, this, null);
+        entryToRead++;
+        lh.asyncForceReadEntries(entryToRead, entryToRead, this, null);
+    }
+
+    private void closeAndCallback() {
+        if (ledgerClosed.compareAndSet(false, true)) {
+            lh.asyncCloseInternal(new CloseCallback() {
+                @Override
+                public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
+                    if (rc != KeeperException.Code.OK.intValue()) {
+                        LOG.warn("Close failed: " + BKException.getMessage(rc));
+                        cb.operationComplete(BKException.Code.ZKException, null);
+                    } else {
+                        cb.operationComplete(BKException.Code.OK, null);
+                        LOG.debug("After closing length is: {}", lh.getLength());
+                    }
+                }
+            }, null, BKException.Code.LedgerClosedException);
+        }
     }
 
     @Override
     public void readComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq, Object ctx) {
-        // get back to prev value
-        lh.lastAddConfirmed--;
         if (rc == BKException.Code.OK) {
+            readCount.incrementAndGet();
             LedgerEntry entry = seq.nextElement();
             byte[] data = entry.getEntry();
 
@@ -109,27 +130,20 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                 lh.length = entry.getLength() - (long) data.length;
             }
             lh.asyncRecoveryAddEntry(data, 0, data.length, this, null);
+            doRecoveryRead();
             return;
         }
 
         if (rc == BKException.Code.NoSuchEntryException || rc == BKException.Code.NoSuchLedgerExistsException) {
-            lh.asyncCloseInternal(new CloseCallback() {
-                @Override
-                public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
-                    if (rc != KeeperException.Code.OK.intValue()) {
-                        LOG.warn("Close failed: " + BKException.getMessage(rc));
-                        cb.operationComplete(BKException.Code.ZKException, null);
-                    } else {
-                        cb.operationComplete(BKException.Code.OK, null);
-                        LOG.debug("After closing length is: {}", lh.getLength());
-                    }
-                }
-                }, null, BKException.Code.LedgerClosedException);
+            readDone.set(true);
+            if (readCount.get() == writeCount.get()) {
+                closeAndCallback();
+            }
             return;
         }
 
         // otherwise, some other error, we can't handle
-        LOG.error("Failure " + BKException.getMessage(rc) + " while reading entry: " + (lh.lastAddConfirmed + 1)
+        LOG.error("Failure " + BKException.getMessage(rc) + " while reading entry: " + (entryToRead)
                   + " ledger: " + lh.ledgerId + " while recovering ledger");
         cb.operationComplete(rc, null);
         return;
@@ -140,14 +154,15 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
         if (rc != BKException.Code.OK) {
             // Give up, we can't recover from this error
 
-            LOG.error("Failure " + BKException.getMessage(rc) + " while writing entry: " + (lh.lastAddConfirmed + 1)
+            LOG.error("Failure " + BKException.getMessage(rc) + " while writing entry: " + (entryId + 1)
                       + " ledger: " + lh.ledgerId + " while recovering ledger");
             cb.operationComplete(rc, null);
             return;
         }
-
-        doRecoveryRead();
-
+        long numAdd = writeCount.incrementAndGet();
+        if (readDone.get() && readCount.get() == numAdd) {
+            closeAndCallback();
+        }
     }
 
 }

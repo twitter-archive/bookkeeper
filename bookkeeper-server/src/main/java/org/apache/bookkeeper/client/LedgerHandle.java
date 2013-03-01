@@ -380,15 +380,35 @@ public class LedgerHandle {
             cb.readComplete(BKException.Code.ReadException, this, null, ctx);
             return;
         }
+        asyncReadEntriesWithoutCheck(firstEntry, lastEntry, cb, ctx);
+    }
 
+    /**
+     * Even if we want to read past lastAddConfirmed, allow it.
+     * @param firstEntry
+     * @param lastEntry
+     * @param cb
+     * @param ctx
+     */
+    public void asyncForceReadEntries(long firstEntry, long lastEntry,
+                                         ReadCallback cb, Object ctx) {
+        if (firstEntry < 0 || firstEntry > lastEntry) {
+            cb.readComplete(BKException.Code.ReadException, this, null, ctx);
+            return;
+        }
+        asyncReadEntriesWithoutCheck(firstEntry, lastEntry, cb, ctx);
+    }
+
+    private void asyncReadEntriesWithoutCheck(long firstEntry, long lastEntry,
+                                              ReadCallback cb, Object ctx) {
         try {
             new PendingReadOp(this, bk.scheduler,
-                              firstEntry, lastEntry, cb, ctx).initiate();
+                    firstEntry, lastEntry, cb, ctx).initiate();
         } catch (InterruptedException e) {
             cb.readComplete(BKException.Code.InterruptedException, this, null, ctx);
         }
-    }
 
+    }
     /**
      * Add entry synchronously to an open ledger.
      *
