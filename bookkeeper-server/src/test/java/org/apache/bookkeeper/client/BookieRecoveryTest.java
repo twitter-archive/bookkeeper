@@ -583,7 +583,11 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
         bkAdmin.recoverBookieData(bookieToKill, bookieDest);
         for (LedgerHandle lh : lhs) {
             assertTrue("Not fully replicated", verifyFullyReplicated(lh, numMsgs));
-            lh.close();
+            try {
+                lh.close();
+            } catch (BKException.BKLedgerClosedException e) {
+                // those ledger handle already closed.
+            }
         }
     }
 
