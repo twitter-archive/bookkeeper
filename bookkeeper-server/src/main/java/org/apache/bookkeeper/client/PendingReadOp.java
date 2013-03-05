@@ -132,7 +132,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * @return host we sent to if we sent. null otherwise.
          */
         synchronized InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
-            if (nextReplicaIndexToReadFrom >= lh.getLedgerMetadata().getWriteQuorumSize()) {
+            if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getWriteQuorumSize()) {
                 return null;
             }
 
@@ -150,7 +150,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         synchronized InetSocketAddress sendNextRead() {
-            if (nextReplicaIndexToReadFrom >= lh.metadata.getWriteQuorumSize()) {
+            if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getWriteQuorumSize()) {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
 
@@ -257,9 +257,14 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         this.endEntryId = endEntryId;
         this.scheduler = scheduler;
         numPendingEntries = endEntryId - startEntryId + 1;
-        maxMissedReadsAllowed = lh.metadata.getWriteQuorumSize() - lh.metadata.getAckQuorumSize();
+        maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
+                - getLedgerMetadata().getAckQuorumSize();
         speculativeReadTimeout = lh.bk.getConf().getSpeculativeReadTimeout();
         heardFromHosts = new HashSet<InetSocketAddress>();
+    }
+
+    protected LedgerMetadata getLedgerMetadata() {
+        return lh.metadata;
     }
 
     private void cancelSpeculativeTask(boolean mayInterruptIfRunning) {
@@ -303,8 +308,8 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
         do {
             if (i == nextEnsembleChange) {
-                ensemble = lh.metadata.getEnsemble(i);
-                nextEnsembleChange = lh.metadata.getNextEnsembleChange(i);
+                ensemble = getLedgerMetadata().getEnsemble(i);
+                nextEnsembleChange = getLedgerMetadata().getNextEnsembleChange(i);
             }
             LedgerEntryRequest entry = new LedgerEntryRequest(ensemble, lh.ledgerId, i);
             seq.add(entry);

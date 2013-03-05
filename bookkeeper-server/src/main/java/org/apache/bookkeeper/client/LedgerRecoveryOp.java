@@ -19,6 +19,7 @@ package org.apache.bookkeeper.client;
  */
 
 import java.util.Enumeration;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -48,6 +49,22 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
     AtomicBoolean callbackDone;
     volatile long entryToRead;
     GenericCallback<Void> cb;
+    // keep a copy of metadata for recovery.
+    LedgerMetadata metadataForRecovery;
+
+    class RecoveryReadOp extends PendingReadOp {
+
+        RecoveryReadOp(LedgerHandle lh, ScheduledExecutorService scheduler, long startEntryId,
+                long endEntryId, ReadCallback cb, Object ctx) {
+            super(lh, scheduler, startEntryId, endEntryId, cb, ctx);
+        }
+
+        @Override
+        protected LedgerMetadata getLedgerMetadata() {
+            return metadataForRecovery;
+        }
+
+    }
 
     public LedgerRecoveryOp(LedgerHandle lh, GenericCallback<Void> cb) {
         readCount = new AtomicLong(0);
@@ -66,6 +83,9 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                         lh.lastAddPushed = lh.lastAddConfirmed = data.lastAddConfirmed;
                         lh.length = data.length;
                         entryToRead = lh.lastAddConfirmed;
+                        // keep a copy of ledger metadata before proceeding
+                        // ledger recovery
+                        metadataForRecovery = new LedgerMetadata(lh.getLedgerMetadata());
                         doRecoveryRead();
                     } else if (rc == BKException.Code.UnauthorizedAccessException) {
                         cb.operationComplete(rc, null);
@@ -89,7 +109,11 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
     private void doRecoveryRead() {
         if (!callbackDone.get()) {
             entryToRead++;
-            lh.asyncForceReadEntries(entryToRead, entryToRead, this, null);
+            try {
+                new RecoveryReadOp(lh, lh.bk.scheduler, entryToRead, entryToRead, this, null).initiate();
+            } catch (InterruptedException e) {
+                readComplete(BKException.Code.InterruptedException, lh, null, null);
+            }
         }
     }
 
