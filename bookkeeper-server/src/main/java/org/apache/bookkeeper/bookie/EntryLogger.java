@@ -67,7 +67,7 @@ import com.google.common.collect.MapMaker;
 public class EntryLogger {
     private static final Logger LOG = LoggerFactory.getLogger(EntryLogger.class);
 
-    private class BufferedLogChannel extends BufferedChannel {
+    private static class BufferedLogChannel extends BufferedChannel {
         final private long logId;
         public BufferedLogChannel(FileChannel fc, int writeCapacity,
                                   int readCapacity, long logId) throws IOException {
@@ -326,6 +326,9 @@ public class EntryLogger {
             if (null == logChannelsToFlush) {
                 logChannelsToFlush = new LinkedList<BufferedLogChannel>();
             }
+            // flush the internal buffer back to filesystem but not sync disk
+            // so the readers could access the data from filesystem.
+            logChannel.flush(false);
             logChannelsToFlush.add(logChannel);
             if (null != listener) {
                 listener.onRotateEntryLog();
@@ -538,6 +541,10 @@ public class EntryLogger {
         }
         for (BufferedLogChannel channel : channels) {
             channel.flush(true);
+            // since this channel is only used for writing, after flushing the channel,
+            // we had to close the underlying file channel. Otherwise, we might end up
+            // leaking fds which cause the disk spaces could not be reclaimed.
+            closeFileChannel(channel);
             if (channel.getLogId() > flushedLogId) {
                 flushedLogId = channel.getLogId();
             }
@@ -760,25 +767,45 @@ public class EntryLogger {
         // since logChannel is buffered channel, do flush when shutting down
         try {
             flush();
-            for (BufferedReadChannel bufferedChannel : logid2channel.get().values()) {
-                FileChannel fc = bufferedChannel.getFileChannel();
-                if (null != fc && fc.isOpen ()) {
-                    fc.close();
+            for (FileChannel fc : logid2filechannel.values()) {
+                fc.close();
             }
-            }
+            // clear the mapping, so we don't need to go through the channels again in finally block in normal case.
+            logid2filechannel.clear();
+            // close current writing log file
+            closeFileChannel(logChannel);
+            logChannel = null;
         } catch (IOException ie) {
             // we have no idea how to avoid io exception during shutting down, so just ignore it
             LOG.error("Error flush entry log during shutting down, which may cause entry log corrupted.", ie);
         } finally {
-            for (BufferedReadChannel bufferedChannel : logid2channel.get().values()) {
-                FileChannel fileChannel = bufferedChannel.getFileChannel();
-                if (null != fileChannel && fileChannel.isOpen()) {
-                    IOUtils.close(LOG, fileChannel);
-                }
+            for (FileChannel fc : logid2filechannel.values()) {
+                IOUtils.close(LOG, fc);
             }
+            forceCloseFileChannel(logChannel);
         }
         // shutdown the pre-allocation thread
         entryLoggerAllocator.stop();
+    }
+
+    private static void closeFileChannel(BufferedChannelBase channel) throws IOException {
+        if (null == channel) {
+            return;
+        }
+        FileChannel fileChannel = channel.getFileChannel();
+        if (null != fileChannel) {
+            fileChannel.close();
+        }
+    }
+
+    private static void forceCloseFileChannel(BufferedChannelBase channel) {
+        if (null == channel) {
+            return;
+        }
+        FileChannel fileChannel = channel.getFileChannel();
+        if (null != fileChannel) {
+            IOUtils.close(LOG, fileChannel);
+        }
     }
 
 }
