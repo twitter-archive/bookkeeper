@@ -52,6 +52,8 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-559: Fix occasional failure in AuditorBookieTest (ivank via umamahesh)
 
+    IMPROVEMENTS:
+
         BOOKKEEPER-599: NPE in PerChannelBookieClient (jiannan via sijie)
 
 	BOOKKEEPER-577: BookieFailureTest uses sync/wait()/notify() incorrectly (ivank via fpj) 
