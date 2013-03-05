@@ -20,23 +20,17 @@ package org.apache.bookkeeper.client;
 
 import java.util.Enumeration;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
-import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
-import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
-import org.apache.bookkeeper.client.LedgerHandle.NoopCloseCallback;
 import org.apache.bookkeeper.client.DigestManager.RecoveryData;
-import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.jboss.netty.buffer.ChannelBuffer;
 
 /**
  * This class encapsulated the ledger recovery operation. It first does a read
@@ -51,7 +45,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
     LedgerHandle lh;
     AtomicLong readCount, writeCount;
     AtomicBoolean readDone;
-    AtomicBoolean ledgerClosed;
+    AtomicBoolean callbackDone;
     volatile long entryToRead;
     GenericCallback<Void> cb;
 
@@ -59,7 +53,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
         readCount = new AtomicLong(0);
         writeCount = new AtomicLong(0);
         readDone = new AtomicBoolean(false);
-        ledgerClosed = new AtomicBoolean(false);
+        callbackDone = new AtomicBoolean(false);
         this.cb = cb;
         this.lh = lh;
     }
@@ -93,12 +87,14 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
      * Try to read past the last confirmed.
      */
     private void doRecoveryRead() {
-        entryToRead++;
-        lh.asyncForceReadEntries(entryToRead, entryToRead, this, null);
+        if (!callbackDone.get()) {
+            entryToRead++;
+            lh.asyncForceReadEntries(entryToRead, entryToRead, this, null);
+        }
     }
 
     private void closeAndCallback() {
-        if (ledgerClosed.compareAndSet(false, true)) {
+        if (callbackDone.compareAndSet(false, true)) {
             lh.asyncCloseInternal(new CloseCallback() {
                 @Override
                 public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
@@ -152,11 +148,12 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
     @Override
     public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
         if (rc != BKException.Code.OK) {
-            // Give up, we can't recover from this error
-
             LOG.error("Failure " + BKException.getMessage(rc) + " while writing entry: " + (entryId + 1)
-                      + " ledger: " + lh.ledgerId + " while recovering ledger");
-            cb.operationComplete(rc, null);
+                    + " ledger: " + lh.ledgerId + " while recovering ledger");
+            if (callbackDone.compareAndSet(false, true)) {
+                // Give up, we can't recover from this error
+                cb.operationComplete(rc, null);
+            }
             return;
         }
         long numAdd = writeCount.incrementAndGet();
