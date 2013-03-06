@@ -23,6 +23,9 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.channel.Channel;
@@ -90,14 +93,14 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
         // succeeds
         Set<TopicSubscriber> topicSubs;
         synchronized (channel) {
-            topicSubs = channel2sub.remove(channel);
+            topicSubs = channel2sub.get(channel);
         }
         if (topicSubs != null) {
             for (TopicSubscriber topicSub : topicSubs) {
                 logger.info("Subscription channel {} for {} is disconnected.",
                             va(channel.getRemoteAddress(), topicSub));
                 // remove entry only currently mapped to given value.
-                sub2Channel.remove(topicSub, channel);
+                remove(topicSub, channel);
                 for (SubChannelDisconnectedListener listener : listeners) {
                     listener.onSubChannelDisconnected(topicSub);
                 }
@@ -182,6 +185,9 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
                 channel2sub.put(channel, topicSubs); 
             }
             topicSubs.add(topicSub);
+            if (null == oldChannel) {
+                updateSubscriptionStat(topicSub, true);
+            }
             return null;
         }
     }
@@ -208,6 +214,31 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
             if (!sub2Channel.remove(topicSub, channel)) {
                 logger.warn("Failed to remove channel ({}) due to it isn't ({})'s channel.",
                             va(channel, topicSub));
+            } else {
+                updateSubscriptionStat(topicSub, false);
+            }
+        }
+    }
+
+    /**
+     * @param topicSub
+     * @param increment if true, increment else decrement.
+     */
+    void updateSubscriptionStat(TopicSubscriber topicSub, boolean increment) {
+        if (increment) {
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                    .NUM_SUBSCRIPTIONS).inc();
+            if (SubscriptionStateUtils.isHubSubscriber(topicSub.getSubscriberId())) {
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                        .NUM_REMOTE_SUBSCRIPTIONS).inc();
+            }
+
+        } else {
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                    .NUM_SUBSCRIPTIONS).dec();
+            if (SubscriptionStateUtils.isHubSubscriber(topicSub.getSubscriberId())) {
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                        .NUM_REMOTE_SUBSCRIPTIONS).dec();
             }
         }
     }
