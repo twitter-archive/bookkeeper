@@ -289,7 +289,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
     
     public boolean isSSLCompressionEnabled() {
-        return conf.getBoolean(SSL_COMPRESSION_ENABLED, true);
+        return conf.getBoolean(SSL_COMPRESSION_ENABLED, false);
     }
 
     public boolean isCompressionEnabled() {

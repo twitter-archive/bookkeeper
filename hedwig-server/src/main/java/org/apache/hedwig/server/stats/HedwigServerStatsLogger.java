@@ -1,13 +1,11 @@
 package org.apache.hedwig.server.stats;
 
-import com.google.protobuf.ByteString;
-import org.apache.bookkeeper.stats.OpStatsLogger;
-import org.apache.bookkeeper.stats.SimpleStat;
+import java.util.concurrent.ConcurrentMap;
+
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.hedwig.protocol.PubSubProtocol;
 
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
+import com.google.protobuf.ByteString;
 
 /**
  * Any backend that logs hedwig stats should implement this interface.
@@ -24,6 +22,14 @@ public interface HedwigServerStatsLogger extends StatsLogger {
         NUM_TOPICS, PERSIST_QUEUE, NUM_SUBSCRIPTIONS, NUM_REMOTE_SUBSCRIPTIONS,
         NUM_CACHED_ENTRIES, NUM_CACHE_STUBS, NUM_CACHE_HITS, NUM_CACHE_MISS,
         CACHE_ENTRY_SIZE
+    }
+
+    /**
+     * An enum representing operations logged by this logger
+     */
+    public static enum HedwigServerInternalOpStatType {
+        PERSISTENCE_MANAGER_ACQUIRE, PERSISTENCE_MANAGER_RELEASE, PERSISTENCE_MANAGER_UPDATE_LEDGERRANGES,
+        PERSISTENCE_MANAGER_CHANGE_LEDGER, SUBSCRIPTION_MANAGER_ACQUIRE, SUBSCRIPTION_MANAGER_RELEASE
     }
 
     public static enum PerTopicStatType {

@@ -1,8 +1,9 @@
 package org.apache.hedwig.server.stats;
 
-import com.google.protobuf.ByteString;
-import com.twitter.common.stats.SampledStat;
-import com.twitter.common.stats.Stats;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.apache.bookkeeper.stats.BaseStatsImpl;
 import org.apache.bookkeeper.stats.OpStatsData;
 import org.apache.bookkeeper.util.MathUtils;
@@ -10,9 +11,9 @@ import org.apache.hedwig.protocol.PubSubProtocol;
 import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.util.Pair;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
+import com.google.protobuf.ByteString;
+import com.twitter.common.stats.SampledStat;
+import com.twitter.common.stats.Stats;
 
 /**
  * This class implements the HedwigServerStatsLogger and HedwigServerStatsGetter interfaces.
@@ -27,8 +28,17 @@ public class HedwigServerStatsImpl extends BaseStatsImpl implements HedwigServer
     ConcurrentMap<PerTopicStatType, ConcurrentMap<ByteString, PerTopicStat>> perTopicLoggerMap
             = new ConcurrentHashMap<PerTopicStatType, ConcurrentMap<ByteString, PerTopicStat>>();
 
+    static Enum[] allOpStatsEnums() {
+        Enum[] publicOps = OperationType.values();
+        Enum[] internalOps = HedwigServerInternalOpStatType.values();
+        Enum[] stats = new Enum[publicOps.length + internalOps.length];
+        System.arraycopy(publicOps, 0, stats, 0, publicOps.length);
+        System.arraycopy(internalOps, 0, stats, publicOps.length, internalOps.length);
+        return stats;
+    }
+
     public HedwigServerStatsImpl(String name) {
-        super(name, OperationType.values(), HedwigServerSimpleStatType.values());
+        super(name, allOpStatsEnums(), HedwigServerSimpleStatType.values());
         for (PerTopicStatType type : PerTopicStatType.values()) {
             perTopicLoggerMap.put(type, new ConcurrentHashMap<ByteString, PerTopicStat>());
         }

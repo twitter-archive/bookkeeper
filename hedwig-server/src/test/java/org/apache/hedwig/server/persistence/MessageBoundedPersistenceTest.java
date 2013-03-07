@@ -180,22 +180,22 @@ public class MessageBoundedPersistenceTest extends HedwigHubTestBase {
 
         sub.subscribe(topic, subid5, options5);
         sub.closeSubscription(topic, subid5);
-        sendXExpectLastY(pub, sub, topic, subid5, 1000, 5);
+        sendXExpectLastY(pub, sub, topic, subid5, 100, 5);
 
         sub.subscribe(topic, subid20, options20);
         sub.closeSubscription(topic, subid20);
-        sendXExpectLastY(pub, sub, topic, subid20, 1000, 20);
+        sendXExpectLastY(pub, sub, topic, subid20, 100, 20);
 
         sub.subscribe(topic, subidUnbounded, optionsUnbounded);
         sub.closeSubscription(topic, subidUnbounded);
 
-        sendXExpectLastY(pub, sub, topic, subidUnbounded, 10000, 10000);
+        sendXExpectLastY(pub, sub, topic, subidUnbounded, 200, 200);
         sub.unsubscribe(topic, subidUnbounded);
 
-        sendXExpectLastY(pub, sub, topic, subid20, 1000, 20);
+        sendXExpectLastY(pub, sub, topic, subid20, 100, 20);
         sub.unsubscribe(topic, subid20);
 
-        sendXExpectLastY(pub, sub, topic, subid5, 1000, 5);
+        sendXExpectLastY(pub, sub, topic, subid5, 100, 5);
         sub.unsubscribe(topic, subid5);
 
         client.close();

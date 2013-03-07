@@ -17,10 +17,12 @@
  */
 package org.apache.hedwig.server.persistence;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 import java.io.IOException;
 import java.util.Enumeration;
-import java.util.Iterator;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -34,18 +36,11 @@ import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
-import org.apache.hedwig.server.stats.ServerStatsProvider;
-import org.apache.hedwig.server.stats.HedwigServerStatsLogger.PerTopicStatType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.ServerNotResponsibleForTopicException;
 import org.apache.hedwig.protocol.PubSubProtocol.LedgerRange;
@@ -59,11 +54,18 @@ import org.apache.hedwig.server.common.UnexpectedError;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.meta.TopicPersistenceManager;
 import org.apache.hedwig.server.persistence.ScanCallback.ReasonForFinish;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerInternalOpStatType;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.PerTopicStatType;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.server.topics.TopicOwnershipChangeListener;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.zookeeper.SafeAsynBKCallback;
-import static org.apache.hedwig.util.VarArgs.va;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 /**
  * This persistence manager uses zookeeper and bookkeeper to store messages.
@@ -80,11 +82,11 @@ import static org.apache.hedwig.util.VarArgs.va;
 public class BookkeeperPersistenceManager implements PersistenceManagerWithRangeScan, TopicOwnershipChangeListener {
     static Logger logger = LoggerFactory.getLogger(BookkeeperPersistenceManager.class);
     static byte[] passwd = "sillysecret".getBytes();
-    private BookKeeper bk;
-    private TopicPersistenceManager tpManager;
-    private ServerConfiguration cfg;
+    private final BookKeeper bk;
+    private final TopicPersistenceManager tpManager;
+    private final ServerConfiguration cfg;
     final private ByteString myRegion;
-    private TopicManager tm;
+    private final TopicManager tm;
 
     private static final long START_SEQ_ID = 1L;
     // max number of entries allowed in a ledger
@@ -402,16 +404,17 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
     }
 
+    @Override
     public void deliveredUntil(ByteString topic, Long seqId) {
         queuer.pushAndMaybeRun(topic, new DeliveredUntilOp(topic, seqId));
     }
 
-    public class UpdateLedgerOp extends TopicOpQueuer.AsynchronousOp<Void> {
-        private Set<Long> ledgersDeleted;
+    public class UpdateLedgerOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
+        private final Set<Long> ledgersDeleted;
 
         public UpdateLedgerOp(ByteString topic, final Callback<Void> cb, final Object ctx,
                               Set<Long> ledgersDeleted) {
-            queuer.super(topic, cb, ctx);
+            queuer.super(topic, cb, ctx, HedwigServerInternalOpStatType.PERSISTENCE_MANAGER_UPDATE_LEDGERRANGES);
             this.ledgersDeleted = ledgersDeleted;
         }
 
@@ -448,17 +451,19 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 final LedgerRanges newRanges = builder.build();
                 tpManager.writeTopicPersistenceInfo(
                 topic, newRanges, topicInfo.ledgerRangesVersion, new Callback<Version>() {
+                    @Override
                     public void operationFinished(Object ctx, Version newVersion) {
                         // Finally, all done
                         for (Long k : keysToRemove) {
                             topicInfo.ledgerRanges.remove(k);
-                        }    
+                        }
                         topicInfo.ledgerRangesVersion = newVersion;
                         cb.operationFinished(ctx, null);
-                    }    
+                    }
+                    @Override
                     public void operationFailed(Object ctx, PubSubException exception) {
                         cb.operationFailed(ctx, exception);
-                    }    
+                    }
                 }, ctx);
             } else {
                 cb.operationFinished(ctx, null);
@@ -509,10 +514,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                                                     final Set<Long> ledgersDeleted) {
         if (ledgersToDelete.isEmpty()) {
             Callback<Void> cb = new Callback<Void>() {
+                @Override
                 public void operationFinished(Object ctx, Void result) {
                     // do nothing, op is async to stop other ops
                     // occurring on the topic during the update
                 }
+                @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
                     logger.error("Failed to update ledger znode for topic {} deleting ledgers {} : {}",
                                  va(topic.toStringUtf8(), ledgersDeleted, exception.getMessage()));
@@ -542,10 +549,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                                 va(ledger, ledgersToDelete, ledgersDeleted, BKException.create(rc)));
                     // We should not continue when failed to delete ledger
                     Callback<Void> cb = new Callback<Void>() {
+                        @Override
                         public void operationFinished(Object ctx, Void result) {
                             // do nothing, op is async to stop other ops
                             // occurring on the topic during the update
                         }
+                        @Override
                         public void operationFailed(Object ctx, PubSubException exception) {
                             logger.error("Failed to update ledger znode for topic {} deleting ledgers {} : {}",
                                          va(topic, ledgersDeleted, exception.getMessage()));
@@ -558,10 +567,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }, null);
     }
 
+    @Override
     public void consumedUntil(ByteString topic, Long seqId) {
         queuer.pushAndMaybeRun(topic, new ConsumeUntilOp(topic, Math.max(seqId, getMinSeqIdForTopic(topic))));
     }
 
+    @Override
     public void consumeToBound(ByteString topic) {
         TopicInfo topicInfo = topicInfos.get(topic);
 
@@ -581,6 +592,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
     }
 
+    @Override
     public MessageSeqId getCurrentSeqIdForTopic(ByteString topic) throws ServerNotResponsibleForTopicException {
         TopicInfo topicInfo = topicInfos.get(topic);
 
@@ -591,6 +603,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         return topicInfo.lastSeqIdPushed;
     }
 
+    @Override
     public long getSeqIdAfterSkipping(ByteString topic, long seqId, int skipAmount) {
         return Math.max(seqId + skipAmount, getMinSeqIdForTopic(topic));
     }
@@ -795,10 +808,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }, request.ctx);
     }
 
+    @Override
     public void persistMessage(PersistRequest request) {
         queuer.pushAndMaybeRun(request.topic, new PersistOp(request));
     }
 
+    @Override
     public void scanSingleMessage(ScanRequest request) {
         throw new RuntimeException("Not implemented");
     }
@@ -809,9 +824,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         };
     };
 
-    class AcquireOp extends TopicOpQueuer.AsynchronousOp<Void> {
+    class AcquireOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
         public AcquireOp(ByteString topic, Callback<Void> cb, Object ctx) {
-            queuer.super(topic, cb, ctx);
+            queuer.super(topic, cb, ctx, HedwigServerInternalOpStatType.PERSISTENCE_MANAGER_ACQUIRE);
         }
 
         @Override
@@ -885,7 +900,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 public void safeOpenComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
 
                     if (rc == BKException.Code.NoSuchLedgerExistsException) {
-                        // process next ledger 
+                        // process next ledger
                         processTopicLedgerRanges(rangesList, version, START_SEQ_ID);
                         return;
                     } else if (rc != BKException.Code.OK) {
@@ -980,7 +995,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
          *
          * @param ledgerId
          *            Ledger to be recovered
-         * @param expectedStartSeqId 
+         * @param expectedStartSeqId
          *            Start seq id of the ledger to recover
          * @param expectedVersionOfLedgerNode
          *            Expected version to update ledgers range
@@ -1172,10 +1187,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
     /**
      * Change ledger to write for a topic.
      */
-    class ChangeLedgerOp extends TopicOpQueuer.AsynchronousOp<Void> {
+    class ChangeLedgerOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
 
         public ChangeLedgerOp(ByteString topic, Callback<Void> cb, Object ctx) {
-            queuer.super(topic, cb, ctx);
+            queuer.super(topic, cb, ctx, HedwigServerInternalOpStatType.PERSISTENCE_MANAGER_CHANGE_LEDGER);
         }
 
         @Override
@@ -1240,10 +1255,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         lh.asyncClose(noOpCloseCallback, null);
     }
 
-    class ReleaseOp extends TopicOpQueuer.SynchronousOp {
+    class ReleaseOp extends TopicOpQueuer.TimedSynchronousOp {
 
         public ReleaseOp(ByteString topic) {
-            queuer.super(topic);
+            queuer.super(topic, HedwigServerInternalOpStatType.PERSISTENCE_MANAGER_RELEASE);
         }
 
         @Override
@@ -1297,10 +1312,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
     }
 
+    @Override
     public void setMessageBound(ByteString topic, Integer bound) {
         queuer.pushAndMaybeRun(topic, new SetMessageBoundOp(topic, bound));
     }
 
+    @Override
     public void clearMessageBound(ByteString topic) {
         queuer.pushAndMaybeRun(topic, new SetMessageBoundOp(topic, TopicInfo.UNLIMITED));
     }

@@ -22,13 +22,14 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.ScheduledExecutorService;
 
-import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.hedwig.exceptions.PubSubException;
+import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.util.Callback;
 
-import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
-import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
+import com.google.protobuf.ByteString;
 
 public class TopicOpQueuer {
     /**
@@ -75,23 +76,58 @@ public class TopicOpQueuer {
             this.cb = new Callback<T>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
-                    // We finished running an async op. Decrement the persist queue size
-                    // if required
-                    updatePersistQueueSize(AsynchronousOp.this, false);
+                    onOperationFailed();
                     cb.operationFailed(ctx, exception);
                     popAndRunNext(topic);
                 }
 
                 @Override
                 public void operationFinished(Object ctx, T resultOfOperation) {
-                    // We finished running an async op. Decrement the persist queue size
-                    // if required
-                    updatePersistQueueSize(AsynchronousOp.this, false);
+                    onOperationFinished();
                     cb.operationFinished(ctx, resultOfOperation);
                     popAndRunNext(topic);
                 }
             };
             this.ctx = ctx;
+        }
+
+        protected void onOperationFailed() {
+            // We finished running an async op. Decrement the persist queue size
+            // if required
+            updatePersistQueueSize(AsynchronousOp.this, false);
+        }
+
+        protected void onOperationFinished() {
+            // We finished running an async op. Decrement the persist queue size
+            // if required
+            updatePersistQueueSize(AsynchronousOp.this, false);
+        }
+    }
+
+    public abstract class TimedAsynchronousOp<T> extends AsynchronousOp<T> {
+        final long enqueueTime;
+        @SuppressWarnings("rawtypes")
+        final Enum opType;
+
+        @SuppressWarnings("rawtypes")
+        public TimedAsynchronousOp(final ByteString topic, final Callback<T> cb, Object ctx, Enum opType) {
+            super(topic, cb, ctx);
+            this.enqueueTime = MathUtils.nowInNano();
+            this.opType = opType;
+        }
+
+        @Override
+        protected void onOperationFailed() {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
+                    .registerFailedEvent(MathUtils.elapsedMSec(enqueueTime));
+            super.onOperationFailed();
+        }
+
+        @Override
+        protected void onOperationFinished() {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
+                    .registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+            super.onOperationFinished();
         }
     }
 
@@ -105,14 +141,37 @@ public class TopicOpQueuer {
         @Override
         public final void run() {
             runInternal();
-            // We finished running a sync op. Decrement the persist queue size if
-            // required.
-            updatePersistQueueSize(SynchronousOp.this, false);
+            onOperationFinished();
             popAndRunNext(topic);
         }
 
         protected abstract void runInternal();
 
+        protected void onOperationFinished() {
+            // We finished running a sync op. Decrement the persist queue size if
+            // required.
+            updatePersistQueueSize(SynchronousOp.this, false);
+        }
+    }
+
+    public abstract class TimedSynchronousOp extends SynchronousOp {
+        final long enqueueTime;
+        @SuppressWarnings("rawtypes")
+        final Enum opType;
+
+        @SuppressWarnings("rawtypes")
+        public TimedSynchronousOp(ByteString topic, Enum opType) {
+            super(topic);
+            this.enqueueTime = MathUtils.nowInNano();
+            this.opType = opType;
+        }
+
+        @Override
+        protected void onOperationFinished() {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
+                    .registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+            super.onOperationFinished();
+        }
     }
 
     protected synchronized void popAndRunNext(ByteString topic) {

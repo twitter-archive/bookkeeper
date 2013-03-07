@@ -26,33 +26,31 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.protobuf.ByteString;
-
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.versioning.Version;
-import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionState;
-import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest.CreateOrAttach;
-import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.common.TopicOpQueuer;
 import org.apache.hedwig.server.delivery.DeliveryManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerInternalOpStatType;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.server.topics.TopicOwnershipChangeListener;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.CallbackUtils;
 import org.apache.hedwig.util.ConcurrencyUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.protobuf.ByteString;
 
 public abstract class AbstractSubscriptionManager implements SubscriptionManager, TopicOwnershipChangeListener {
 
@@ -90,6 +88,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
             logger.warn("Exception found in AbstractSubscriptionManager : ", exception);
         }
 
+        @Override
         public void operationFinished(Object ctx, T resultOfOperation) {
         };
     }
@@ -142,7 +141,6 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     }
                     hasBound = hasBound && curSubscription.getSubscriptionPreferences().hasMessageBound();
                 }
-                boolean callPersistenceManager = true;
                 // Call the PersistenceManager if nobody subscribes to the topic
                 // yet, or the consume pointer has moved ahead since the last
                 // time, or if this is the initial subscription.
@@ -159,9 +157,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         }
     }
 
-    private class AcquireOp extends TopicOpQueuer.AsynchronousOp<Void> {
+    private class AcquireOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
+
         public AcquireOp(TopicOpQueuer enclosingInstance, ByteString topic, Callback<Void> callback, Object ctx) {
-            enclosingInstance.super(topic, callback, ctx);
+            enclosingInstance.super(topic, callback, ctx, HedwigServerInternalOpStatType.SUBSCRIPTION_MANAGER_ACQUIRE);
         }
 
         @Override
@@ -254,10 +253,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         localQueuer.pushAndMaybeRun(topic, new AcquireOp(localQueuer, topic, callback, ctx));
     }
 
-    class ReleaseOp extends TopicOpQueuer.AsynchronousOp<Void> {
+    class ReleaseOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
 
         public ReleaseOp(TopicOpQueuer enclosingInstance, final ByteString topic, final Callback<Void> cb, Object ctx) {
-            enclosingInstance.super(topic, cb, ctx);
+            enclosingInstance.super(topic, cb, ctx, HedwigServerInternalOpStatType.SUBSCRIPTION_MANAGER_RELEASE);
         }
 
         @Override
@@ -345,10 +344,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     protected abstract void readSubscriptions(final ByteString topic,
             final Callback<Map<ByteString, InMemorySubscriptionState>> cb, final Object ctx);
-    
-    protected abstract void readSubscriptionData(final ByteString topic, final ByteString subscriberId, 
+
+    protected abstract void readSubscriptionData(final ByteString topic, final ByteString subscriberId,
             final Callback<InMemorySubscriptionState> cb, Object ctx);
-    
+
     private class SubscribeOp extends TopicOpQueuer.AsynchronousOp<SubscriptionData> {
         SubscribeRequest subRequest;
         MessageSeqId consumeSeqId;
@@ -657,7 +656,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 cb.operationFailed(ctx, new PubSubException.ClientNotSubscribedException(""));
                 return;
             }
-            
+
             deleteSubscriptionData(topic, subscriberId, topicSubscriptions.get(subscriberId).getVersion(),
                     new Callback<Void>() {
                 @Override
@@ -700,6 +699,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
      * Method to stop this class gracefully including releasing any resources
      * used and stopping all threads spawned.
      */
+    @Override
     public void stop() {
         timer.cancel();
         try {
@@ -751,9 +751,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                             callback.operationFailed(ctx, exception);
                         }
                     }, ctx);
-                    
+
                     return;
-                } 
+                }
                 callback.operationFailed(ctx, exception);
             }
         };
@@ -792,9 +792,9 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                             callback.operationFailed(ctx, exception);
                         }
                     }, ctx);
-                    
+
                     return;
-                } 
+                }
                 callback.operationFailed(ctx, exception);
             }
         };

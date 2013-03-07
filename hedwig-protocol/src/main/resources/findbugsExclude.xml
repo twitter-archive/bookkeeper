@@ -20,4 +20,8 @@
     <!-- generated code, we can't be held responsible for findbugs in it //-->
     <Class name="~org\.apache\.hedwig\.protocol\.PubSubProtocol.*" />
   </Match>
+  <Match>
+    <!-- generated code, we can't be held responsible for findbugs in it //-->
+    <Class name="~org\.apache\.hedwig\.protocol\.LoadTest.*" />
+  </Match>
 </FindBugsFilter>

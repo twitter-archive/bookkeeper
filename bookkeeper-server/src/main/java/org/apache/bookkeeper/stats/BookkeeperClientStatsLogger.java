@@ -9,7 +9,7 @@ public interface BookkeeperClientStatsLogger extends StatsLogger {
      * An enum for the operations that can be logged by this logger.
      */
     public static enum BookkeeperClientOp {
-        ADD_ENTRY, READ_ENTRY
+        ADD_ENTRY, READ_ENTRY, ENSEMBLE_CHANGE, LEDGER_CREATE, LEDGER_OPEN, LEDGER_DELETE
     }
 
     public static enum BookkeeperClientSimpleStatType {

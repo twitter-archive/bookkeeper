@@ -21,16 +21,17 @@
 
 package org.apache.bookkeeper.client;
 
-import java.util.Arrays;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
 
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     final DigestType digestType;
     boolean doRecovery = true;
     boolean administrativeOpen = false;
+    long startTime;
 
     /**
      * Constructor.
@@ -86,6 +88,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
      * Inititates the ledger open operation
      */
     public void initiate() {
+        startTime = MathUtils.nowInNano();
         /**
          * Asynchronously read the ledger metadata node.
          */
@@ -103,10 +106,11 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     /**
      * Implements Open Ledger Callback.
      */
+    @Override
     public void operationComplete(int rc, LedgerMetadata metadata) {
         if (BKException.Code.OK != rc) {
             // open ledger failed.
-            cb.openComplete(rc, null, this.ctx);
+            openComplete(rc, null);
             return;
         }
 
@@ -126,12 +130,12 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
             if (metadata.hasPassword()) {
                 if (!Arrays.equals(passwd, metadata.getPassword())) {
                     LOG.error("Provided passwd does not match that in metadata");
-                    cb.openComplete(BKException.Code.UnauthorizedAccessException, null, this.ctx);
+                    openComplete(BKException.Code.UnauthorizedAccessException, null);
                     return;
                 }
                 if (digestType != metadata.getDigestType()) {
                     LOG.error("Provided digest does not match that in metadata");
-                    cb.openComplete(BKException.Code.DigestMatchException, null, this.ctx);
+                    openComplete(BKException.Code.DigestMatchException, null);
                     return;
                 }
             }
@@ -142,57 +146,65 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
             lh = new ReadOnlyLedgerHandle(bk, ledgerId, metadata, digestType, passwd);
         } catch (GeneralSecurityException e) {
             LOG.error("Security exception while opening ledger: " + ledgerId, e);
-            cb.openComplete(BKException.Code.DigestNotInitializedException, null, this.ctx);
+            openComplete(BKException.Code.DigestNotInitializedException, null);
             return;
         } catch (NumberFormatException e) {
             LOG.error("Incorrectly entered parameter throttle: " + bk.getConf().getThrottleValue(), e);
-            cb.openComplete(BKException.Code.IncorrectParameterException, null, this.ctx);
+            openComplete(BKException.Code.IncorrectParameterException, null);
             return;
         }
 
         if (metadata.isClosed()) {
-            // Opened a new ledger
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
             // Ledger was closed properly
-            cb.openComplete(BKException.Code.OK, lh, this.ctx);
+            openComplete(BKException.Code.OK, lh);
             return;
         }
 
         if (doRecovery) {
             lh.recover(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
-                    @Override
-                    public void safeOperationComplete(int rc, Void result) {
-                        if (rc == BKException.Code.OK) {
-                            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
-                            cb.openComplete(BKException.Code.OK, lh, LedgerOpenOp.this.ctx);
-                        } else if (rc == BKException.Code.UnauthorizedAccessException) {
-                            cb.openComplete(BKException.Code.UnauthorizedAccessException, null, LedgerOpenOp.this.ctx);
-                        } else {
-                            // Do this in case of error because the recover() function closes the ledger and as a result
-                            // decrements this counter.
-                            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
-                            cb.openComplete(BKException.Code.LedgerRecoveryException, null, LedgerOpenOp.this.ctx);
-                        }
+                @Override
+                public void safeOperationComplete(int rc, Void result) {
+                    if (rc == BKException.Code.OK) {
+                        openComplete(BKException.Code.OK, lh);
+                    } else if (rc == BKException.Code.UnauthorizedAccessException) {
+                        openComplete(BKException.Code.UnauthorizedAccessException, null);
+                    } else {
+                        openComplete(BKException.Code.LedgerRecoveryException, null);
                     }
-                });
+                }
+            });
         } else {
             lh.asyncReadLastConfirmed(new ReadLastConfirmedCallback() {
-
                 @Override
                 public void readLastConfirmedComplete(int rc,
                         long lastConfirmed, Object ctx) {
                     if (rc != BKException.Code.OK) {
-                        cb.openComplete(BKException.Code.ReadException, null, LedgerOpenOp.this.ctx);
+                        openComplete(BKException.Code.ReadException, null);
                     } else {
-                        // Opened a new ledger
-                        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
                         lh.lastAddConfirmed = lh.lastAddPushed = lastConfirmed;
-                        cb.openComplete(BKException.Code.OK, lh, LedgerOpenOp.this.ctx);
+                        openComplete(BKException.Code.OK, lh);
                     }
                 }
-
             }, null);
 
         }
+    }
+
+    void openComplete(int rc, LedgerHandle lh) {
+        if (BKException.Code.OK != rc) {
+            bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
+                    .registerFailedEvent(startTime);
+            if (doRecovery && rc == BKException.Code.LedgerRecoveryException) {
+                // Do this in case of error because the recover() function closes the ledger and as a result
+                // decrements this counter.
+                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
+            }
+        } else {
+            bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
+                    .registerSuccessfulEvent(startTime);
+            // Increment the number indicates there is an opened ledger.
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
+        }
+        cb.openComplete(rc, lh, ctx);
     }
 }
