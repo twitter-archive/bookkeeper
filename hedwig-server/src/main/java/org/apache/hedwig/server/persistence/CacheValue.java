@@ -17,6 +17,7 @@
  */
 package org.apache.hedwig.server.persistence;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -35,48 +36,49 @@ public class CacheValue {
     Message message;
 
     public CacheValue() {
-        this.callbacks = new HashSet<ScanCallbackWithContext>();
+        this.callbacks = Collections.synchronizedSet(new HashSet<ScanCallbackWithContext>());
     }
 
     public CacheValue(Message message) {
         this.message = message;
     }
 
-    synchronized public boolean isStub() {
+    public boolean isStub() {
         return message == null;
     }
 
-    synchronized public boolean wasStub() {
+    public boolean wasStub() {
         return callbacks != null;
     }
 
     // Cache weight static (loading cache)
-    synchronized public int getCacheWeight() {
+    public int getCacheWeight() {
         return wasStub()? 0 : message.getBody().size();
     }
 
-    synchronized public void setMessageAndInvokeCallbacks(Message message) {
+    public void setMessageAndInvokeCallbacks(Message message) {
         if (this.message != null) {
             return;
         }
 
         this.message = message;
-
-        for (ScanCallbackWithContext callbackWithCtx : callbacks) {
-            if (null != callbackWithCtx) {
-                callbackWithCtx.getScanCallback().messageScanned(callbackWithCtx.getCtx(), message);
+        synchronized (callbacks) {
+            for (ScanCallbackWithContext callbackWithCtx : callbacks) {
+                if (null != callbackWithCtx) {
+                    callbackWithCtx.getScanCallback().messageScanned(callbackWithCtx.getCtx(), message);
+                }
             }
         }
     }
 
-    synchronized public boolean removeCallback(ScanCallback callback, Object ctx) {
+    public boolean removeCallback(ScanCallback callback, Object ctx) {
         if (null == callbacks) {
             return false;
         }
         return callbacks.remove(new ScanCallbackWithContext(callback, ctx));
     }
 
-    synchronized public void addCallback(ScanCallback callback, Object ctx) {
+    public void addCallback(ScanCallback callback, Object ctx) {
         if (!isStub()) {
             // call the callback right away
             callback.messageScanned(ctx, message);
@@ -86,11 +88,11 @@ public class CacheValue {
         callbacks.add(new ScanCallbackWithContext(callback, ctx));
     }
 
-    synchronized public Message getMessage() {
+    public Message getMessage() {
         return message;
     }
 
-    synchronized public void setErrorAndInvokeCallbacks(Exception exception) {
+    public void setErrorAndInvokeCallbacks(Exception exception) {
         if (this.message != null) {
             return;
         }
