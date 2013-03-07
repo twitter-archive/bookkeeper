@@ -17,10 +17,7 @@
  */
 package org.apache.hedwig.server.handlers;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
@@ -91,16 +88,21 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
         // Evils of synchronized programming: there is a race between a channel
         // getting disconnected, and us adding it to the maps when a subscribe
         // succeeds
-        Set<TopicSubscriber> topicSubs;
+        Set<TopicSubscriber> topicSubs, tempTopicSubs = null;
         synchronized (channel) {
-            topicSubs = channel2sub.get(channel);
+            topicSubs = channel2sub.remove(channel);
+            if (null != topicSubs) {
+                synchronized (topicSubs) {
+                    tempTopicSubs = new HashSet<TopicSubscriber>(topicSubs);
+                }
+            }
         }
-        if (topicSubs != null) {
-            for (TopicSubscriber topicSub : topicSubs) {
+        if (tempTopicSubs != null) {
+            for (TopicSubscriber topicSub : tempTopicSubs) {
                 logger.info("Subscription channel {} for {} is disconnected.",
                             va(channel.getRemoteAddress(), topicSub));
                 // remove entry only currently mapped to given value.
-                remove(topicSub, channel);
+                remove(topicSubs, topicSub, channel);
                 for (SubChannelDisconnectedListener listener : listeners) {
                     listener.onSubChannelDisconnected(topicSub);
                 }
@@ -181,7 +183,7 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
             // without synchronization
             Set<TopicSubscriber> topicSubs = channel2sub.get(channel);
             if (null == topicSubs) {
-                topicSubs = new HashSet<TopicSubscriber>();
+                topicSubs = Collections.synchronizedSet(new HashSet<TopicSubscriber>());
                 channel2sub.put(channel, topicSubs); 
             }
             topicSubs.add(topicSub);
@@ -203,17 +205,26 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
     public void remove(TopicSubscriber topicSub, Channel channel) {
         synchronized (channel) {
             Set<TopicSubscriber> topicSubs = channel2sub.get(channel);
+            remove(topicSubs, topicSub, channel);
+        }
+    }
+
+    /**
+     * Remove topicSub,channel from the specified set
+     */
+    private void remove(Set<TopicSubscriber> topicSubs, TopicSubscriber topicSub, Channel channel) {
+        synchronized (channel) {
             if (null != topicSubs) {
                 if (!topicSubs.remove(topicSub)) {
                     logger.warn("Failed to remove subscription ({}) due to it isn't on channel ({}).",
-                                va(topicSub, channel));
+                            va(topicSub, channel));
                 } else if (topicSubs.isEmpty()) {
                     channel2sub.remove(channel);
                 }
             }
             if (!sub2Channel.remove(topicSub, channel)) {
                 logger.warn("Failed to remove channel ({}) due to it isn't ({})'s channel.",
-                            va(channel, topicSub));
+                        va(channel, topicSub));
             } else {
                 updateSubscriptionStat(topicSub, false);
             }
