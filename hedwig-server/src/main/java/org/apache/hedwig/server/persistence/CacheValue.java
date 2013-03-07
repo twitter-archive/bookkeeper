@@ -42,20 +42,20 @@ public class CacheValue {
         this.message = message;
     }
 
-    public boolean isStub() {
+    synchronized public boolean isStub() {
         return message == null;
     }
 
-    public boolean wasStub() {
+    synchronized public boolean wasStub() {
         return callbacks != null;
     }
 
     // Cache weight static (loading cache)
-    public int getCacheWeight() {
+    synchronized public int getCacheWeight() {
         return wasStub()? 0 : message.getBody().size();
     }
 
-    public void setMessageAndInvokeCallbacks(Message message) {
+    synchronized public void setMessageAndInvokeCallbacks(Message message) {
         if (this.message != null) {
             return;
         }
@@ -69,14 +69,14 @@ public class CacheValue {
         }
     }
 
-    public boolean removeCallback(ScanCallback callback, Object ctx) {
+    synchronized public boolean removeCallback(ScanCallback callback, Object ctx) {
         if (null == callbacks) {
             return false;
         }
         return callbacks.remove(new ScanCallbackWithContext(callback, ctx));
     }
 
-    public void addCallback(ScanCallback callback, Object ctx) {
+    synchronized public void addCallback(ScanCallback callback, Object ctx) {
         if (!isStub()) {
             // call the callback right away
             callback.messageScanned(ctx, message);
@@ -86,11 +86,11 @@ public class CacheValue {
         callbacks.add(new ScanCallbackWithContext(callback, ctx));
     }
 
-    public Message getMessage() {
+    synchronized public Message getMessage() {
         return message;
     }
 
-    public void setErrorAndInvokeCallbacks(Exception exception) {
+    synchronized public void setErrorAndInvokeCallbacks(Exception exception) {
         if (this.message != null) {
             return;
         }

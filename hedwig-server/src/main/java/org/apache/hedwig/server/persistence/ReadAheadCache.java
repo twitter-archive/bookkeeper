@@ -19,6 +19,7 @@ package org.apache.hedwig.server.persistence;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -122,27 +123,30 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
     }
 
     private class CacheValueLoader implements Callable<CacheValue> {
-        final private CacheValue cacheValue;
-        private boolean called = false;
+        private final CacheValue cacheValue;
+        private final AtomicBoolean called;
         public CacheValueLoader() {
             cacheValue = new CacheValue();
+            called = new AtomicBoolean(false);
         }
         public CacheValueLoader(ScanCallback cb, Object ctx) {
             cacheValue = new CacheValue();
+            called = new AtomicBoolean(false);
             cacheValue.addCallback(cb, ctx);
         }
         public CacheValueLoader(Message message) {
             cacheValue = new CacheValue(message);
+            called = new AtomicBoolean(false);
         }
         public CacheValue getCacheValue() {
             return cacheValue;
         }
         public boolean wasCalled() {
-            return called;
+            return called.get();
         }
         @Override
         public CacheValue call() throws Exception {
-            called = true;
+            called.set(true);
             onCacheInsert(cacheValue);
             return cacheValue;
         }
