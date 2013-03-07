@@ -97,9 +97,11 @@ public class CacheValue {
             return;
         }
 
-        for (ScanCallbackWithContext callbackWithCtx : callbacks) {
-            if (null != callbackWithCtx) {
-                callbackWithCtx.getScanCallback().scanFailed(callbackWithCtx.getCtx(), exception);
+        synchronized (callbacks) {
+            for (ScanCallbackWithContext callbackWithCtx : callbacks) {
+                if (null != callbackWithCtx) {
+                    callbackWithCtx.getScanCallback().scanFailed(callbackWithCtx.getCtx(), exception);
+                }
             }
         }
     }
