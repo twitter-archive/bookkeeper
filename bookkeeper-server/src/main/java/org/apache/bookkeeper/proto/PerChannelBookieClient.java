@@ -629,7 +629,18 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final long ledgerId;
         final BKPacketHeader header;
         header = response.getHeader();
-        ledgerId = response.getReadResponse().getLedgerId();
+        switch (header.getOperation()) {
+            case ADD_ENTRY:
+                ledgerId = response.getAddResponse().getLedgerId();
+                break;
+            case READ_ENTRY:
+                ledgerId = response.getReadResponse().getLedgerId();
+                break;
+            default:
+                LOG.error("Unexpected response, type:" + header.getOperation() + " received from bookie:" +
+                        addr + ", ignoring");
+                return;
+        }
         executor.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
