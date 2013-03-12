@@ -2,6 +2,7 @@ package org.apache.hedwig.client.loadtest;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.twitter.common.stats.Stats;
 import org.apache.hedwig.client.HedwigClient;
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.client.api.Subscriber;
@@ -18,6 +19,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.LinkedList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 public class LoadTestReceiver extends LoadTestBase {
     private static Logger logger = LoggerFactory.getLogger(LoadTestReceiver.class);
@@ -41,6 +44,8 @@ public class LoadTestReceiver extends LoadTestBase {
         }
 
         private void startDelivery(ByteString topic) {
+            final AtomicLong lastId = new AtomicLong(-1);
+            Stats.export("lastId" + subId.toStringUtf8(), lastId);
             try {
                 client.getSubscriber().startDelivery(topic, subId, new MessageHandler() {
                     @Override
@@ -50,6 +55,13 @@ public class LoadTestReceiver extends LoadTestBase {
                             logger.debug("Received message:" + msg + " for topic:" + topic.toString() + " for" +
                                     " subscriber:" + subscriberId.toStringUtf8());
                         }
+                        long newId = msg.getMsgId().getLocalComponent();
+                        long oldId = lastId.get();
+                        if (oldId != -1 && oldId+1 != newId) {
+                            logger.warn("Last id is {} and new id is {}. Skipped {} messages.", new Object[] {oldId, newId, newId-oldId});
+                            stat.incErrors();
+                        }
+                        lastId.set(newId);
                         try {
                             LoadTestMessage ltm = LoadTestMessage.parseFrom(msg.getBody().toByteArray());
                             long latencyMillis = System.currentTimeMillis() - ltm.getTimestamp();
