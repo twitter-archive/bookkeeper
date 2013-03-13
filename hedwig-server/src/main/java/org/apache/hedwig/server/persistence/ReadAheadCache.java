@@ -586,7 +586,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
         private void failIfMessageGCed() {
             for (Long seqId : stubs) {
-                if (seqId < maxSeqIdScanned) {
+                if (seqId <= maxSeqIdScanned) {
                     CacheKey cacheKey = new CacheKey(request.getTopic(), seqId);
                     ExceptionOnCacheKey runnable = new ExceptionOnCacheKey(cacheKey, noSuchSeqIdExceptionInstance);
                     enqueueWithoutFailure(cacheKey.getTopic(), runnable);
@@ -595,7 +595,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         }
 
         private void failIfMessageNotFound(Exception exception) {
-            if (maxSeqIdScanned > 0) {
+            if (maxSeqIdScanned > Long.MIN_VALUE) {
                 failIfMessageGCed();
             }
             for (Long seqId : stubs) {

@@ -20,6 +20,7 @@ package org.apache.hedwig.server.persistence;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
 
@@ -33,18 +34,19 @@ public class CacheValue {
     // Actually we don't care the order of callbacks
     // when a scan callback, it should be delivered to both callbacks
     Set<ScanCallbackWithContext> callbacks;
-    Message message;
+    AtomicReference<Message> messageRef;
 
     public CacheValue() {
         this.callbacks = Collections.synchronizedSet(new HashSet<ScanCallbackWithContext>());
+        this.messageRef = new AtomicReference<Message>(null);
     }
 
     public CacheValue(Message message) {
-        this.message = message;
+        this.messageRef = new AtomicReference<Message>(message);
     }
 
     public boolean isStub() {
-        return message == null;
+        return this.messageRef.get() == null;
     }
 
     public boolean wasStub() {
@@ -53,15 +55,14 @@ public class CacheValue {
 
     // Cache weight static (loading cache)
     public int getCacheWeight() {
-        return wasStub()? 0 : message.getBody().size();
+        return wasStub()? 0 : messageRef.get().getBody().size();
     }
 
     public void setMessageAndInvokeCallbacks(Message message) {
-        if (this.message != null) {
+        if (!this.messageRef.compareAndSet(null, message)) {
             return;
         }
 
-        this.message = message;
         synchronized (callbacks) {
             for (ScanCallbackWithContext callbackWithCtx : callbacks) {
                 if (null != callbackWithCtx) {
@@ -81,7 +82,7 @@ public class CacheValue {
     public void addCallback(ScanCallback callback, Object ctx) {
         if (!isStub()) {
             // call the callback right away
-            callback.messageScanned(ctx, message);
+            callback.messageScanned(ctx, messageRef.get());
             return;
         }
 
@@ -89,11 +90,11 @@ public class CacheValue {
     }
 
     public Message getMessage() {
-        return message;
+        return messageRef.get();
     }
 
     public void setErrorAndInvokeCallbacks(Exception exception) {
-        if (this.message != null) {
+        if (this.messageRef.get() != null) {
             return;
         }
 
