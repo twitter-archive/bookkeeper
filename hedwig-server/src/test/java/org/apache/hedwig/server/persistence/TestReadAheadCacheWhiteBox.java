@@ -27,6 +27,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.hedwig.HelperMethods;
 import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.StubScanCallback;
@@ -49,10 +50,11 @@ public class TestReadAheadCacheWhiteBox {
         }
 
         @Override
-        protected void enqueueWithoutFailure(ByteString topic, final CacheRequest obj) {
+        protected void enqueueWithoutFailureByTopic(ByteString topic, final CacheRequest obj) {
             // make it perform in the same thread
-            obj.safeRun();
+            obj.performRequest();
         }
+
     }
 
     class MyServerConfiguration extends ServerConfiguration {
@@ -61,11 +63,8 @@ public class TestReadAheadCacheWhiteBox {
         // the count limit
         int readAheadCount = NUM_MESSAGES / 2;
         long readAheadSize = (long) (MSG_SIZE * 2.5);
-        long maxCacheSize = Long.MAX_VALUE;
-
-        int getReadAheadMaxCountOfMessages() {
-            return (int)Math.ceil(myConf.readAheadSize / (MSG_SIZE + 0.0));
-        }
+        long maxCacheSize = Integer.MAX_VALUE;
+        long cacheEntryTTL = 0L;
 
         @Override
         public int getReadAheadCount() {
@@ -83,9 +82,10 @@ public class TestReadAheadCacheWhiteBox {
         }
 
         @Override
-        public int getNumReadAheadCacheThreads() {
-            return 1;
+        public long getCacheEntryTTL() {
+            return cacheEntryTTL;
         }
+
     }
 
     @Before
@@ -99,7 +99,7 @@ public class TestReadAheadCacheWhiteBox {
 
     }
 
-    @Test
+    @Test(timeout=60000)
     public void testPersistMessage() throws Exception {
         StubCallback<PubSubProtocol.MessageSeqId> callback = new StubCallback<PubSubProtocol.MessageSeqId>();
         PersistRequest request = new PersistRequest(topic, messages.get(0), callback, null);
@@ -110,7 +110,7 @@ public class TestReadAheadCacheWhiteBox {
 
         CacheKey key = new CacheKey(topic, cacheBasedPersistenceManager.getCurrentSeqIdForTopic(topic)
                                     .getLocalComponent());
-        assertFalse(null != cacheBasedPersistenceManager.cache.getIfPresent(key));
+        assertFalse(cacheBasedPersistenceManager.cache.containsKey(key));
 
         stubPersistenceManager.failure = false;
         persistMessage(messages.get(0));
@@ -123,14 +123,14 @@ public class TestReadAheadCacheWhiteBox {
         assertNotNull(ConcurrencyUtils.take(callback.queue).left());
         CacheKey key = new CacheKey(topic, cacheBasedPersistenceManager.getCurrentSeqIdForTopic(topic)
                                     .getLocalComponent());
-        CacheValue cacheValue = cacheBasedPersistenceManager.cache.getIfPresent(key);
-
+        CacheValue cacheValue = cacheBasedPersistenceManager.cache.get(key);
         assertNotNull(cacheValue);
         assertFalse(cacheValue.isStub());
         assertTrue(HelperMethods.areEqual(cacheValue.getMessage(), msg));
+
     }
 
-    @Test
+    @Test(timeout=60000)
     public void testScanSingleMessage() throws Exception {
         StubScanCallback callback = new StubScanCallback();
         ScanRequest request = new ScanRequest(topic, 1, callback, null);
@@ -146,101 +146,163 @@ public class TestReadAheadCacheWhiteBox {
 
         persistMessage(messages.get(0));
         assertTrue(callback.isSuccess());
+
     }
 
-    @Test
-    public void testDoReadAhead() throws Exception {
+    @Test(timeout=60000)
+    public void testDeliveredUntil() throws Exception {
+        for (Message m : messages) {
+            persistMessage(m);
+        }
+        assertEquals((long) NUM_MESSAGES * MSG_SIZE, cacheBasedPersistenceManager.presentCacheSize.get());
+        long middle = messages.size() / 2;
+        cacheBasedPersistenceManager.deliveredUntil(topic, middle);
+
+        assertEquals(messages.size() - middle, cacheBasedPersistenceManager.cache.size());
+
+        long middle2 = middle - 1;
+        cacheBasedPersistenceManager.deliveredUntil(topic, middle2);
+        // should have no effect
+        assertEquals(messages.size() - middle, cacheBasedPersistenceManager.cache.size());
+
+        // delivered all messages
+        cacheBasedPersistenceManager.deliveredUntil(topic, (long) messages.size());
+        // should have no effect
+        assertTrue(cacheBasedPersistenceManager.cache.isEmpty());
+        assertTrue(cacheBasedPersistenceManager.cacheSegment.get()
+                   .timeIndexOfAddition.isEmpty());
+        assertTrue(cacheBasedPersistenceManager.orderedIndexOnSeqId.isEmpty());
+        assertTrue(0 == cacheBasedPersistenceManager.presentCacheSize.get());
+
+    }
+
+    @Test(timeout=60000)
+    public void testDoReadAhead() {
         StubScanCallback callback = new StubScanCallback();
         ScanRequest request = new ScanRequest(topic, 1, callback, null);
-        cacheBasedPersistenceManager.scanSingleMessage(request);
+        cacheBasedPersistenceManager.doReadAhead(request);
 
         assertEquals(myConf.readAheadCount, cacheBasedPersistenceManager.cache.size());
 
         request = new ScanRequest(topic, myConf.readAheadCount / 2 - 1, callback, null);
-        cacheBasedPersistenceManager.scanSingleMessage(request);
+        cacheBasedPersistenceManager.doReadAhead(request);
         assertEquals(myConf.readAheadCount, cacheBasedPersistenceManager.cache.size());
 
         request = new ScanRequest(topic, myConf.readAheadCount / 2 + 2, callback, null);
-        cacheBasedPersistenceManager.scanSingleMessage(request);
-        assertEquals((myConf.readAheadCount + (myConf.readAheadCount + 1) /2), cacheBasedPersistenceManager.cache.size());
+        cacheBasedPersistenceManager.doReadAhead(request);
+        assertEquals((int) (1.5 * myConf.readAheadCount), cacheBasedPersistenceManager.cache.size());
+
     }
 
-    @Test
+    @Test(timeout=60000)
     public void testReadAheadSizeLimit() throws Exception {
         for (Message m : messages) {
             persistMessage(m);
         }
-        cacheBasedPersistenceManager.removeAllMessagesFromCache();
+        cacheBasedPersistenceManager.cache.clear();
         StubScanCallback callback = new StubScanCallback();
         ScanRequest request = new ScanRequest(topic, 1, callback, null);
         cacheBasedPersistenceManager.scanSingleMessage(request);
 
         assertTrue(callback.isSuccess());
-        assertEquals(myConf.getReadAheadMaxCountOfMessages(),
-                cacheBasedPersistenceManager.cache.size());
+        assertEquals((int) Math.ceil(myConf.readAheadSize / (MSG_SIZE + 0.0)), cacheBasedPersistenceManager.cache
+                     .size());
+
     }
 
-    @Test
+    @Test(timeout=60000)
     public void testDoReadAheadStartingFrom() throws Exception {
         persistMessage(messages.get(0));
         int readAheadCount = 5;
         int start = 1;
-        StubScanCallback callback = new StubScanCallback();
-        RangeScanRequest readAheadRequest = cacheBasedPersistenceManager.doReadAhead(topic, start,
-                readAheadCount, callback, null);
+        RangeScanRequest readAheadRequest = cacheBasedPersistenceManager.doReadAheadStartingFrom(topic, start,
+                                            readAheadCount);
         assertNull(readAheadRequest);
 
+        StubScanCallback callback = new StubScanCallback();
         int end = 100;
         ScanRequest request = new ScanRequest(topic, end, callback, null);
-        cacheBasedPersistenceManager.scanSingleMessage(request);
+        cacheBasedPersistenceManager.doReadAhead(request);
 
         int pos = 98;
-        readAheadRequest = cacheBasedPersistenceManager.doReadAhead(topic, pos, readAheadCount, callback, null);
+        readAheadRequest = cacheBasedPersistenceManager.doReadAheadStartingFrom(topic, pos, readAheadCount);
         assertEquals(readAheadRequest.messageLimit, end - pos);
 
         end = 200;
         request = new ScanRequest(topic, end, callback, null);
-        cacheBasedPersistenceManager.scanSingleMessage(request);
+        cacheBasedPersistenceManager.doReadAhead(request);
 
         // too far back
         pos = 150;
-        readAheadRequest = cacheBasedPersistenceManager.doReadAhead(topic, pos, readAheadCount, callback, null);
+        readAheadRequest = cacheBasedPersistenceManager.doReadAheadStartingFrom(topic, pos, readAheadCount);
         assertEquals(readAheadRequest.messageLimit, readAheadCount);
     }
 
-    @Test
+    @Test(timeout=60000)
     public void testAddMessageToCache() {
         CacheKey key = new CacheKey(topic, 1);
-        cacheBasedPersistenceManager.addMessageToCache(key, messages.get(0));
+        cacheBasedPersistenceManager.addMessageToCache(key, messages.get(0), MathUtils.now());
         assertEquals(1, cacheBasedPersistenceManager.cache.size());
         assertEquals(MSG_SIZE, cacheBasedPersistenceManager.presentCacheSize.get());
+        assertEquals(1, cacheBasedPersistenceManager.orderedIndexOnSeqId.get(topic).size());
+        assertTrue(cacheBasedPersistenceManager.orderedIndexOnSeqId.get(topic).contains(1L));
 
-        CacheValue value = cacheBasedPersistenceManager.cache.getIfPresent(key);
-        assertTrue(value != null);
+        CacheValue value = cacheBasedPersistenceManager.cache.get(key);
+        assertTrue(cacheBasedPersistenceManager.cacheSegment.get()
+                   .timeIndexOfAddition.get(value.timeOfAddition).contains(key));
     }
 
-    @Test
-    public void testRemoveMessageFromCache() throws Exception {
+    @Test(timeout=60000)
+    public void testRemoveMessageFromCache() {
         CacheKey key = new CacheKey(topic, 1);
-        cacheBasedPersistenceManager.addMessageToCache(key, messages.get(0));
-        cacheBasedPersistenceManager.removeMessageFromCache(key);
-        assertTrue(cacheBasedPersistenceManager.cache.size() == 0);
+        cacheBasedPersistenceManager.addMessageToCache(key, messages.get(0), MathUtils.now());
+        cacheBasedPersistenceManager.removeMessageFromCache(key, new Exception(), true, true);
+        assertTrue(cacheBasedPersistenceManager.cache.isEmpty());
+        assertTrue(cacheBasedPersistenceManager.orderedIndexOnSeqId.isEmpty());
+        assertTrue(cacheBasedPersistenceManager.cacheSegment.get()
+                   .timeIndexOfAddition.isEmpty());
     }
 
-    @Test
-    public void testCollectOldCacheEntries() throws Exception {
-        int n = 2;
-        myConf.maxCacheSize = n * MSG_SIZE;
-        PersistenceManagerWithRangeScan persistenceManager = new StubPersistenceManager();
-        ReadAheadCache cache = new MyReadAheadCache(persistenceManager, myConf).start();
-
+    @Test(timeout=60000)
+    public void testCollectOldCacheEntries() {
         int i = 1;
         for (Message m : messages) {
             CacheKey key = new CacheKey(topic, i);
-            cache.addMessageToCache(key, m);
+            cacheBasedPersistenceManager.addMessageToCache(key, m, i);
             i++;
         }
 
-        assertEquals(n, cache.cache.size());
+        int n = 2;
+        myConf.maxCacheSize = n * MSG_SIZE * myConf.getNumReadAheadCacheThreads();
+        cacheBasedPersistenceManager.reloadConf(myConf);
+        cacheBasedPersistenceManager.collectOldOrExpiredCacheEntries(
+                cacheBasedPersistenceManager.cacheSegment.get());
+        assertEquals(n, cacheBasedPersistenceManager.cache.size());
+        assertEquals(n, cacheBasedPersistenceManager.cacheSegment.get()
+                     .timeIndexOfAddition.size());
     }
+
+    @Test(timeout=60000)
+    public void testCollectExpiredCacheEntries() throws Exception {
+        int i = 1;
+        int n = 2;
+        long ttl = 5000L;
+        myConf.cacheEntryTTL = ttl;
+        long curTime = MathUtils.now();
+        cacheBasedPersistenceManager.reloadConf(myConf);
+        for (Message m : messages) {
+            CacheKey key = new CacheKey(topic, i);
+            cacheBasedPersistenceManager.addMessageToCache(key, m, curTime++);
+            if (i == NUM_MESSAGES - n) {
+                Thread.sleep(2 * ttl);
+                curTime += 2 * ttl;
+            }
+            i++;
+        }
+
+        assertEquals(n, cacheBasedPersistenceManager.cache.size());
+        assertEquals(n, cacheBasedPersistenceManager.cacheSegment.get()
+                     .timeIndexOfAddition.size());
+    }
+
 }

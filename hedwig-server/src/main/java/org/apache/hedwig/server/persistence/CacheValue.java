@@ -17,12 +17,16 @@
  */
 package org.apache.hedwig.server.persistence;
 
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
+import org.apache.hedwig.server.common.UnexpectedError;
 
 /**
  * This class is NOT thread safe. It need not be thread-safe because our
@@ -31,79 +35,70 @@ import org.apache.hedwig.protocol.PubSubProtocol.Message;
  */
 public class CacheValue {
 
+    static Logger logger = LoggerFactory.getLogger(ReadAheadCache.class);
+
     // Actually we don't care the order of callbacks
     // when a scan callback, it should be delivered to both callbacks
-    Set<ScanCallbackWithContext> callbacks;
-    AtomicReference<Message> messageRef;
+    Set<ScanCallbackWithContext> callbacks = new HashSet<ScanCallbackWithContext>();
+    Message message;
+    long timeOfAddition = 0;
 
     public CacheValue() {
-        this.callbacks = Collections.synchronizedSet(new HashSet<ScanCallbackWithContext>());
-        this.messageRef = new AtomicReference<Message>(null);
-    }
-
-    public CacheValue(Message message) {
-        this.messageRef = new AtomicReference<Message>(message);
     }
 
     public boolean isStub() {
-        return this.messageRef.get() == null;
+        return message == null;
     }
 
-    public boolean wasStub() {
-        return callbacks != null;
+    public long getTimeOfAddition() {
+        if (message == null) {
+            throw new UnexpectedError("Time of add requested from a stub");
+        }
+        return timeOfAddition;
     }
 
-    // Cache weight static (loading cache)
-    public int getCacheWeight() {
-        return wasStub()? 0 : messageRef.get().getBody().size();
-    }
-
-    public void setMessageAndInvokeCallbacks(Message message) {
-        if (!this.messageRef.compareAndSet(null, message)) {
+    public void setMessageAndInvokeCallbacks(Message message, long currTime) {
+        if (this.message != null) {
+            // Duplicate read for the same message coming back
             return;
         }
 
-        synchronized (callbacks) {
-            for (ScanCallbackWithContext callbackWithCtx : callbacks) {
-                if (null != callbackWithCtx) {
-                    callbackWithCtx.getScanCallback().messageScanned(callbackWithCtx.getCtx(), message);
-                }
+        this.message = message;
+        this.timeOfAddition = currTime;
+
+        logger.debug("Invoking {} callbacks for {} message added to cache", callbacks.size(), message);
+        for (ScanCallbackWithContext callbackWithCtx : callbacks) {
+            if (null != callbackWithCtx) {
+                callbackWithCtx.getScanCallback().messageScanned(callbackWithCtx.getCtx(), message);
             }
         }
     }
 
     public boolean removeCallback(ScanCallback callback, Object ctx) {
-        if (null == callbacks) {
-            return false;
-        }
         return callbacks.remove(new ScanCallbackWithContext(callback, ctx));
     }
 
     public void addCallback(ScanCallback callback, Object ctx) {
         if (!isStub()) {
+            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                    .NUM_CACHE_HITS).inc();
             // call the callback right away
-            callback.messageScanned(ctx, messageRef.get());
+            callback.messageScanned(ctx, message);
             return;
         }
-
         callbacks.add(new ScanCallbackWithContext(callback, ctx));
     }
 
     public Message getMessage() {
-        return messageRef.get();
+        return message;
     }
 
     public void setErrorAndInvokeCallbacks(Exception exception) {
-        if (this.messageRef.get() != null) {
-            return;
-        }
-
-        synchronized (callbacks) {
-            for (ScanCallbackWithContext callbackWithCtx : callbacks) {
-                if (null != callbackWithCtx) {
-                    callbackWithCtx.getScanCallback().scanFailed(callbackWithCtx.getCtx(), exception);
-                }
+        for (ScanCallbackWithContext callbackWithCtx : callbacks) {
+            if (null != callbackWithCtx) {
+                callbackWithCtx.getScanCallback().scanFailed(callbackWithCtx.getCtx(), exception);
             }
         }
     }
+
 }
