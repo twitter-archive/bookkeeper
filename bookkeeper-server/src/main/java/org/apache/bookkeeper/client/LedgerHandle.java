@@ -23,34 +23,30 @@ package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
-import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
-import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
-
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
+import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
-
-import com.google.common.util.concurrent.RateLimiter;
-
+import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.jboss.netty.buffer.ChannelBuffer;
+import com.google.common.util.concurrent.RateLimiter;
 
 /**
  * Ledger handle contains ledger metadata and is used to access the read and
@@ -515,7 +511,7 @@ public class LedgerHandle {
         final long currentLength;
         synchronized(this) {
             // synchronized on this to ensure that
-            // the ledger isn't closed between checking and 
+            // the ledger isn't closed between checking and
             // updating lastAddPushed
             if (metadata.isClosed()) {
                 LOG.warn("Attempt to add to closed ledger: " + ledgerId);
@@ -563,6 +559,7 @@ public class LedgerHandle {
 
     public void asyncReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
+                @Override
                 public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
                     if (rc == BKException.Code.OK) {
                         lastAddConfirmed = Math.max(lastAddConfirmed, data.lastAddConfirmed);
@@ -834,15 +831,14 @@ public class LedgerHandle {
          * </ul>
          */
         private boolean resolveConflict(LedgerMetadata newMeta) {
-            // close have changed, another client has opened
-            // the ledger, can't resolve this conflict.
-            if (metadata.getState() != newMeta.getState()) {
+            // make sure the metadata doesn't changed by other ones.
+            if (!metadata.resolveConflict(newMeta)) {
                 return false;
             }
             // update znode version
             metadata.setVersion(newMeta.getVersion());
-            // Resolve the conflicts if zk metadata still contains failed
-            // bookie.
+            // Specific resolve conflicts happened when multiple bookies failures
+            // in same ensemble.
             if (newMeta.currentEnsemble.get(ensembleInfo.bookieIndex).equals(
                     ensembleInfo.addr)) {
                 // Update ledger metadata in zk, if in-memory metadata doesn't
@@ -956,6 +952,7 @@ public class LedgerHandle {
          * @param ctx
          *          control object
          */
+        @Override
         public void readComplete(int rc, LedgerHandle lh,
                                  Enumeration<LedgerEntry> seq, Object ctx) {
 
@@ -984,6 +981,7 @@ public class LedgerHandle {
          * @param ctx
          *          control object
          */
+        @Override
         public void addComplete(int rc, LedgerHandle lh, long entry, Object ctx) {
             SyncCounter counter = (SyncCounter) ctx;
 
@@ -997,6 +995,7 @@ public class LedgerHandle {
         /**
          * Implementation of  callback interface for synchronous read last confirmed method.
          */
+        @Override
         public void readLastConfirmedComplete(int rc, long lastConfirmed, Object ctx) {
             LastConfirmedCtx lcCtx = (LastConfirmedCtx) ctx;
 
@@ -1016,6 +1015,7 @@ public class LedgerHandle {
          * @param lh
          * @param ctx
          */
+        @Override
         public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
             SyncCounter counter = (SyncCounter) ctx;
             counter.setrc(rc);
