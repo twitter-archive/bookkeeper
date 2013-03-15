@@ -797,6 +797,16 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Enable/disable group journal force writes
+     *
+     * @param enabled flag to enable/disable group journal force writes
+     */
+    public ServerConfiguration setJournalAdaptiveGroupWrites(boolean enabled) {
+        setProperty(JOURNAL_ADAPTIVE_GROUP_WRITES, enabled);
+        return this;
+    }
+
+    /**
      * Maximum latency to impose on a journal write to achieve grouping
      *
      * @return max wait for grouping
