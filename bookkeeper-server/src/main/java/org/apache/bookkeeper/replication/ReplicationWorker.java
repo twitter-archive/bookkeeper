@@ -247,6 +247,8 @@ public class ReplicationWorker implements Runnable {
                     Thread.currentThread().interrupt();
                     LOG.info("InterruptedException "
                             + "while replicating fragments", e);
+                } catch (BKNoSuchLedgerExistsException bknsle) {
+                    LOG.debug("Ledger was deleted, safe to continue", bknsle);
                 } catch (BKException e) {
                     LOG.error("BKException while fencing the ledger"
                             + " for rereplication of postponed ledgers", e);
