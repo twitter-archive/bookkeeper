@@ -69,6 +69,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     //ReadOnly mode support on all disk full
     protected final static String READ_ONLY_MODE_ENABLED = "readOnlyModeEnabled";
     protected final static String DISK_USAGE_THRESHOLD = "diskUsageThreshold";
+    protected final static String DISK_USAGE_WARN_THRESHOLD = "diskUsageWarnThreshold";
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
 
     // Worker Thread parameters.
@@ -880,6 +881,15 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public float getDiskUsageThreshold() {
         return getFloat(DISK_USAGE_THRESHOLD, 0.95f);
+    }
+
+    /**
+     * Returns the warning threshold for disk usage. If disk usage
+     * goes beyond this, a garbage collection cycle will be forced.
+     * @return
+     */
+    public float getDiskUsageWarnThreshold() {
+        return getFloat(DISK_USAGE_WARN_THRESHOLD, 0.90f);
     }
 
     /**

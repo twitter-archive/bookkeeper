@@ -344,6 +344,12 @@ public class IndexPersistenceMgr {
             }
 
             @Override
+            public void diskAlmostFull(File disk) {
+                // If the disk is getting almost full, try to relocate.
+                shouldRelocateIndexFile.set(true);
+            }
+
+            @Override
             public void diskFailed(File disk) {
                 // Nothing to handle here. Will be handled in Bookie
             }

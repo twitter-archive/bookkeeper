@@ -59,7 +59,7 @@ import org.slf4j.LoggerFactory;
  * </ul>
  * </p>
  */
-class FlatLedgerManager extends AbstractZkLedgerManager {
+public class FlatLedgerManager extends AbstractZkLedgerManager {
 
     static final Logger LOG = LoggerFactory.getLogger(FlatLedgerManager.class);
     // path prefix to store ledger znodes

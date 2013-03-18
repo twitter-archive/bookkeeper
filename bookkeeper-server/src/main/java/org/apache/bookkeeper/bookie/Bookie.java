@@ -707,6 +707,11 @@ public class Bookie extends BookieThread {
             }
 
             @Override
+            public void diskAlmostFull(File disk) {
+                // Nothing needs to be handled here.
+            }
+
+            @Override
             public void diskFailed(File disk) {
                 // Shutdown the bookie on disk failure.
                 triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);

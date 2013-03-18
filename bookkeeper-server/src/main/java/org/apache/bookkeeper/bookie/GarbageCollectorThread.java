@@ -87,6 +87,9 @@ public class GarbageCollectorThread extends Thread {
     // track the last scanned successfully log id
     long scannedLogId = 0;
 
+    // Boolean to trigger a forced GC.
+    final AtomicBoolean forceGarbageCollection = new AtomicBoolean(false);
+
     /**
      * A scanner wrapper to check whether a ledger is alive in an entry log file
      */
@@ -181,6 +184,15 @@ public class GarbageCollectorThread extends Thread {
         lastMinorCompactionTime = lastMajorCompactionTime = MathUtils.now();
     }
 
+    public void forceGC() {
+        if (forceGarbageCollection.compareAndSet(false, true)) {
+            LOG.info("Forced garbage collection triggered by thread: " + Thread.currentThread().getName());
+            synchronized (this) {
+                notify();
+            }
+        }
+    }
+
     @Override
     public void run() {
         while (running) {
@@ -191,6 +203,10 @@ public class GarbageCollectorThread extends Thread {
                     Thread.currentThread().interrupt();
                     continue;
                 }
+            }
+            boolean force = forceGarbageCollection.get();
+            if (force) {
+                LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
             }
 
             // Extract all of the ledger ID's that comprise all of the entry logs
@@ -204,8 +220,8 @@ public class GarbageCollectorThread extends Thread {
             doGcEntryLogs();
 
             long curTime = MathUtils.now();
-            if (enableMajorCompaction &&
-                curTime - lastMajorCompactionTime > majorCompactionInterval) {
+            if (force || (enableMajorCompaction &&
+                curTime - lastMajorCompactionTime > majorCompactionInterval)) {
                 // enter major compaction
                 ServerStatsProvider.getStatsLoggerInstance()
                         .getSimpleStatLogger(BookkeeperServerSimpleStatType.NUM_MAJOR_COMP)
@@ -218,8 +234,8 @@ public class GarbageCollectorThread extends Thread {
                 continue;
             }
 
-            if (enableMinorCompaction &&
-                curTime - lastMinorCompactionTime > minorCompactionInterval) {
+            if (force || (enableMinorCompaction &&
+                curTime - lastMinorCompactionTime > minorCompactionInterval)) {
                 // enter minor compaction
                 ServerStatsProvider.getStatsLoggerInstance()
                         .getSimpleStatLogger(BookkeeperServerSimpleStatType.NUM_MINOR_COMP)
@@ -228,6 +244,7 @@ public class GarbageCollectorThread extends Thread {
                 doCompactEntryLogs(minorCompactionThreshold);
                 lastMinorCompactionTime = MathUtils.now();
             }
+            forceGarbageCollection.set(false);
         }
     }
 

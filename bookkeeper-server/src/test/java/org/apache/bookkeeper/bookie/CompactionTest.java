@@ -26,9 +26,12 @@ import java.util.Enumeration;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.meta.FlatLedgerManager;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.TestUtils;
 
+import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -162,6 +165,38 @@ public class CompactionTest extends BookKeeperClusterTestCase {
             assertTrue("Not Found entry log file ([0,1].log that should have been compacted in ledgerDirectory: "
                             + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, false, 0, 1));
         }
+    }
+
+    @Test
+    public void testForceGarbageCollection() throws Exception {
+        baseConf.setGcWaitTime(60000);
+        baseConf.setMinorCompactionInterval(120000);
+        baseConf.setMajorCompactionInterval(240000);
+        LedgerDirsManager dirManager = new LedgerDirsManager(baseConf, tmpDirs.toArray(new File[tmpDirs.size()]));
+        CheckpointProgress cp = new CheckpointProgress() {
+            @Override
+            public CheckPoint requestCheckpoint() {
+                // Do nothing.
+                return null;
+            }
+
+            @Override
+            public void startCheckpoint(CheckPoint checkPoint) {
+                // Do nothing.
+            }
+        };
+        InterleavedLedgerStorage storage = new InterleavedLedgerStorage(baseConf,
+                new FlatLedgerManager(baseConf, zkc), dirManager, dirManager, cp);
+        storage.start();
+        long startTime = MathUtils.now();
+        Thread.sleep(2000);
+        storage.gcThread.forceGC();
+        Thread.sleep(1000);
+        // Minor and Major compaction times should be larger than when we started
+        // this test.
+        assertTrue("Minor or major compaction did not trigger even on forcing.",
+                storage.gcThread.lastMajorCompactionTime > startTime &&
+                storage.gcThread.lastMinorCompactionTime > startTime);
     }
 
     @Test

@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /**
  * A snapshotable map.
  */
-class SnapshotMap<K, V> {
+public class SnapshotMap<K, V> {
     // stores recent updates
     volatile Map<K, V> updates;
     volatile Map<K, V> updatesToMerge;

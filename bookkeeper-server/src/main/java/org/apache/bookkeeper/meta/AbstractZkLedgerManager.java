@@ -47,7 +47,7 @@ import org.apache.zookeeper.data.Stat;
 /**
  * Abstract ledger manager based on zookeeper, which provides common methods such as query zk nodes.
  */
-abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLedgerManager {
+public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLedgerManager {
 
     static Logger LOG = LoggerFactory.getLogger(AbstractZkLedgerManager.class);
 

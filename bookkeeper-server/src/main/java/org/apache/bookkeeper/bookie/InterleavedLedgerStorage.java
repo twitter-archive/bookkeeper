@@ -21,6 +21,7 @@
 
 package org.apache.bookkeeper.bookie;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.io.IOException;
 
@@ -28,6 +29,7 @@ import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -67,6 +69,37 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager);
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
                 activeLedgerManager, new EntryLogCompactionScanner());
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+    }
+
+    private LedgerDirsListener getLedgerDirsListener() {
+        return new LedgerDirsListener() {
+            @Override
+            public void diskFailed(File disk) {
+                // do nothing.
+            }
+
+            @Override
+            public void diskAlmostFull(File disk) {
+                gcThread.forceGC();
+            }
+
+            @Override
+            public void diskFull(File disk) {
+                gcThread.forceGC();
+            }
+
+            @Override
+            public void allDisksFull() {
+                gcThread.forceGC();
+            }
+
+            @Override
+            public void fatalError() {
+                // do nothing.
+            }
+        };
     }
 
     @Override

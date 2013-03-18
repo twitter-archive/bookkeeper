@@ -37,7 +37,7 @@ public class TestDiskChecker {
 
     @Before
     public void setup() {
-        diskChecker = new DiskChecker(0.95f);
+        diskChecker = new DiskChecker(0.95f, 0.95f);
     }
 
     /**

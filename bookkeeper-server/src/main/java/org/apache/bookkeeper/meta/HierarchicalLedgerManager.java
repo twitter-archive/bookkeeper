@@ -77,7 +77,7 @@ import org.slf4j.LoggerFactory;
  * node at a time to avoid consuming too much resources.
  * </p>
  */
-class HierarchicalLedgerManager extends AbstractZkLedgerManager {
+public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
 
     static final Logger LOG = LoggerFactory.getLogger(HierarchicalLedgerManager.class);
 
