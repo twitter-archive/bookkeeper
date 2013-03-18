@@ -544,6 +544,12 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                             cacheKey);
                 cacheValue = oldValue;
             }
+        } else {
+            if (cacheValue.isStub()) {
+                // We are replacing a stub.
+                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                        .NUM_CACHE_STUBS).dec();
+            }
         }
 
         CacheSegment segment = cacheSegment.get();
