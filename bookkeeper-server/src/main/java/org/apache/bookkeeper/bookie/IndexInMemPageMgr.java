@@ -159,16 +159,15 @@ public class IndexInMemPageMgr {
          *
          * @param ledgerId
          *          Ledger id
-         * @returns last entry in the in memory pages
+         * @returns last entry in the in memory pages.
          */
         private LinkedList<Long> getFirstEntryListToBeFlushed(long ledgerId) {
-            LinkedList<Long> firstEntryList;
             ConcurrentMap<Long, LedgerEntryPage> pageMap = pages.get(ledgerId);
             if (pageMap == null || pageMap.isEmpty()) {
                 return null;
             }
 
-            firstEntryList = new LinkedList<Long>();
+            LinkedList<Long> firstEntryList = new LinkedList<Long>();
             for(ConcurrentMap.Entry<Long, LedgerEntryPage> entry: pageMap.entrySet()) {
                 LedgerEntryPage lep = entry.getValue();
                 if (lep.isClean()) {
@@ -475,7 +474,7 @@ public class IndexInMemPageMgr {
         // flush ledger index file header if necessary
         indexPersistenceManager.flushLedgerHeader(ledger);
 
-        if (firstEntryList.size() == 0) {
+        if (null == firstEntryList || firstEntryList.size() == 0) {
             LOG.info("Nothing to flush for ledger {}.", ledger);
             // nothing to do
             return;
