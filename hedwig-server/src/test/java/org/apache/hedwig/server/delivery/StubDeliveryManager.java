@@ -19,6 +19,8 @@ package org.apache.hedwig.server.delivery;
 
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.google.protobuf.ByteString;
 import org.apache.hedwig.client.data.TopicSubscriber;
@@ -51,6 +53,7 @@ public class StubDeliveryManager implements DeliveryManager {
 
     }
 
+    ConcurrentMap<TopicSubscriber, DeliveryEndPoint> endPointMap = new ConcurrentHashMap<TopicSubscriber, DeliveryEndPoint>();
     public Queue<Object> lastRequest = new LinkedList<Object>();
 
     @Override
@@ -62,15 +65,22 @@ public class StubDeliveryManager implements DeliveryManager {
                                          Callback<Void> cb, Object ctx) {
         lastRequest.add(new StartServingRequest(topic, subscriberId, preferences,
                                                 seqIdToStartFrom, endPoint, filter));
+        endPointMap.put(new TopicSubscriber(topic, subscriberId), endPoint);
         cb.operationFinished(ctx, null);
     }
 
     @Override
     public void stopServingSubscriber(ByteString topic, ByteString subscriberId,
-                                      SubscriptionEvent event,
+                                      SubscriptionEvent event, DeliveryEndPoint endPoint,
                                       Callback<Void> cb, Object ctx) {
         lastRequest.add(new TopicSubscriber(topic, subscriberId));
+        endPointMap.remove(new TopicSubscriber(topic, subscriberId));
         cb.operationFinished(ctx, null);
+    }
+
+    @Override
+    public DeliveryEndPoint getDeliveryEndPoint(TopicSubscriber topicSub) {
+        return endPointMap.get(topicSub);
     }
 
     @Override

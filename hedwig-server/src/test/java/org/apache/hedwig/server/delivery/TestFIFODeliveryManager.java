@@ -17,11 +17,6 @@
  */
 package org.apache.hedwig.server.delivery;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -30,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.filter.PipelineFilter;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
@@ -37,16 +33,21 @@ import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
 import org.apache.hedwig.server.common.ServerConfiguration;
+import org.apache.hedwig.server.netty.WriteRecordingChannel;
 import org.apache.hedwig.server.persistence.PersistRequest;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.persistence.StubPersistenceManager;
 import org.apache.hedwig.server.subscriptions.AllToAllTopologyFilter;
 import org.apache.hedwig.util.Callback;
+import org.apache.hedwig.util.ConcurrencyUtils;
+import org.jboss.netty.channel.Channel;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
+
+import static org.junit.Assert.*;
 
 public class TestFIFODeliveryManager {
     static Logger logger = LoggerFactory.getLogger(TestFIFODeliveryManager.class);
@@ -108,6 +109,47 @@ public class TestFIFODeliveryManager {
         }
     }
 
+    @Test
+    public void testDifferentChannelRemoval() throws Exception {
+        ServerConfiguration conf = new ServerConfiguration();
+        PersistenceManager pm = new StubPersistenceManager();
+        FIFODeliveryManager fdm = new FIFODeliveryManager(pm, conf);
+        ByteString topic = ByteString.copyFromUtf8("test-topic");
+        ByteString subscriber = ByteString.copyFromUtf8("test-sub");
+        SubscriptionPreferences prefs = SubscriptionPreferences.newBuilder().build();
+        PipelineFilter filter = new PipelineFilter();
+        filter.addLast(new AllToAllTopologyFilter());
+        filter.initialize(conf.getConf());
+        filter.setSubscriptionPreferences(topic, subscriber, prefs);
+        MessageSeqId startId = MessageSeqId.newBuilder().setLocalComponent(1).build();
+        Channel ch1 = new WriteRecordingChannel();
+        Channel ch2 = new WriteRecordingChannel();
+        StubCallback<Void> callback = new StubCallback<Void>();
+
+        // Persist a message
+        CountDownLatch l = new CountDownLatch(1);
+        Message m = Message.newBuilder().setBody(ByteString.copyFromUtf8(String.valueOf(1))).build();
+        TestCallback cb = new TestCallback(l);
+        pm.persistMessage(new PersistRequest(topic, m, cb, null));
+        assertTrue("Persistence never finished", l.await(10, TimeUnit.SECONDS));
+
+        fdm.start();
+        fdm.startServingSubscription(topic, subscriber, prefs, startId, new ChannelEndPoint(ch1), filter,
+                callback, null);
+        logger.info("Started serving");
+        assertNull("Could not start serving subscription.", ConcurrencyUtils.take(callback.queue).right());
+        fdm.stopServingSubscriber(topic, subscriber, null, new ChannelEndPoint(ch2), callback, null);
+        // There should be no exception, but the DM should not remove it's subscriber state.
+        assertNull("Exception while stopping subscription with different channel.", ConcurrencyUtils
+                .take(callback.queue).right());
+        assertTrue("Removal using a different channel should not succeed.", fdm.subscriberStates.size() == 1);
+        // Removal with the same channel should succeed.
+        fdm.stopServingSubscriber(topic, subscriber, null, new ChannelEndPoint(ch1), callback, null);
+        assertNull("Exception while stopping subscription with same channel.", ConcurrencyUtils
+                .take(callback.queue).right());
+        assertTrue("Removal with the same channel should succeed.", fdm.subscriberStates.size() == 0);
+    }
+
     /**
      * Test that the FIFO delivery manager executes stopServing and startServing
      * in the correct order
@@ -149,7 +191,7 @@ public class TestFIFODeliveryManager {
                          oplatch.countDown();
                      }
                 }, null);
-        fdm.stopServingSubscriber(topic, subscriber, null,
+        fdm.stopServingSubscriber(topic, subscriber, null, null,
                 new Callback<Void>() {
                      @Override
                      public void operationFinished(Object ctx, Void result) {

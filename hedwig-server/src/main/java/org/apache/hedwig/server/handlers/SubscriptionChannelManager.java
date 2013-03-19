@@ -64,8 +64,9 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
         /**
          * Act on a particular topicSubscriber being disconnected
          * @param topicSubscriber
+         * @param channel
          */
-        public void onSubChannelDisconnected(TopicSubscriber topicSubscriber);
+        public void onSubChannelDisconnected(TopicSubscriber topicSubscriber, Channel channel);
     }
 
     final ConcurrentHashMap<TopicSubscriber, Channel> sub2Channel;
@@ -104,7 +105,7 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
                 // remove entry only currently mapped to given value.
                 remove(topicSubs, topicSub, channel);
                 for (SubChannelDisconnectedListener listener : listeners) {
-                    listener.onSubChannelDisconnected(topicSub);
+                    listener.onSubChannelDisconnected(topicSub, channel);
                 }
             }
         }

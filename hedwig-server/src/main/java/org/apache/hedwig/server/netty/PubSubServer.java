@@ -170,11 +170,11 @@ public class PubSubServer {
     }
 
     protected SubscriptionManager instantiateSubscriptionManager(TopicManager tm, PersistenceManager pm,
-                                                                 DeliveryManager dm) {
+                                                                 DeliveryManager dm, SubscriptionChannelManager subChannelMgr) {
         if (conf.isStandalone()) {
-            return new InMemorySubscriptionManager(conf, tm, pm, dm, scheduler);
+            return new InMemorySubscriptionManager(conf, tm, pm, dm, subChannelMgr, scheduler);
         } else {
-            return new MMSubscriptionManager(conf, mm, tm, pm, dm, scheduler);
+            return new MMSubscriptionManager(conf, mm, tm, pm, dm, subChannelMgr, scheduler);
         }
 
     }
@@ -541,12 +541,13 @@ public class PubSubServer {
 
                     instantiateZookeeperClient();
                     instantiateMetadataManagerFactory();
+                    SubscriptionChannelManager subChannelMgr = new SubscriptionChannelManager();
                     tm = instantiateTopicManager();
                     pm = instantiatePersistenceManager(tm);
                     dm = new FIFODeliveryManager(pm, conf);
                     dm.start();
 
-                    sm = instantiateSubscriptionManager(tm, pm, dm);
+                    sm = instantiateSubscriptionManager(tm, pm, dm, subChannelMgr);
                     rm = instantiateRegionManager(pm, scheduler);
                     sm.addListener(rm);
 
@@ -554,7 +555,6 @@ public class PubSubServer {
                     // Initialize the Netty Handlers (used by the
                     // UmbrellaHandler) once so they can be shared by
                     // both the SSL and non-SSL channels.
-                    SubscriptionChannelManager subChannelMgr = new SubscriptionChannelManager();
                     subChannelMgr.addSubChannelDisconnectedListener((SubChannelDisconnectedListener) dm);
                     Map<OperationType, Handler> handlers =
                         initializeNettyHandlers(tm, dm, pm, sm, subChannelMgr);

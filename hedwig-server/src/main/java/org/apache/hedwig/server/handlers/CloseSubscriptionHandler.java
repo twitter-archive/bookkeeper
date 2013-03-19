@@ -17,6 +17,7 @@
  */
 package org.apache.hedwig.server.handlers;
 
+import org.apache.hedwig.server.delivery.ChannelEndPoint;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.channel.ChannelFutureListener;
 
@@ -78,7 +79,7 @@ public class CloseSubscriptionHandler extends BaseHandler {
                 // we should not close the channel in delivery manager
                 // since client waits the response for closeSubscription request
                 // client side would close the channel
-                deliveryMgr.stopServingSubscriber(topic, subscriberId, null,
+                deliveryMgr.stopServingSubscriber(topic, subscriberId, null, new ChannelEndPoint(channel),
                 new Callback<Void>() {
                     @Override
                     public void operationFailed(Object ctx, PubSubException exception) {

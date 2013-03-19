@@ -27,6 +27,7 @@ import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.DeliveryManager;
+import org.apache.hedwig.server.handlers.SubscriptionChannelManager;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.meta.SubscriptionDataManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
@@ -45,9 +46,9 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
     public MMSubscriptionManager(ServerConfiguration cfg,
                                  MetadataManagerFactory metaManagerFactory,
                                  TopicManager topicMgr, PersistenceManager pm,
-                                 DeliveryManager dm,
+                                 DeliveryManager dm, SubscriptionChannelManager subChannelMgr,
                                  ScheduledExecutorService scheduler) {
-        super(cfg, topicMgr, pm, dm, scheduler);
+        super(cfg, topicMgr, pm, dm, subChannelMgr, scheduler);
         this.subManager = metaManagerFactory.newSubscriptionDataManager();
     }
 

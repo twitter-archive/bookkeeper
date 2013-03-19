@@ -18,6 +18,7 @@
 package org.apache.hedwig.server.delivery;
 
 import com.google.protobuf.ByteString;
+import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
@@ -63,13 +64,16 @@ public interface DeliveryManager {
      *          Subscriber Id
      * @param event
      *          Subscription event indicating the reason to stop the subscriber.
+     * @param endPoint
+     *          The endpoint for which you want to stop delivery. If this is null,
+     *          this parameter will be ignored.
      * @param callback
      *          Callback instance.
      * @param ctx
      *          Callback context.
      */
     public void stopServingSubscriber(ByteString topic, ByteString subscriberId,
-                                      SubscriptionEvent event,
+                                      SubscriptionEvent event, DeliveryEndPoint endPoint,
                                       Callback<Void> callback, Object ctx);
 
     /**
@@ -84,6 +88,13 @@ public interface DeliveryManager {
      */
     public void messageConsumed(ByteString topic, ByteString subscriberId,
                                 MessageSeqId consumedSeqId);
+
+    /**
+     * Get the delivery endpoint for the given TopicSubscriber
+     * @param topicSub
+     * @return null if there is no such TopicSubscriber.
+     */
+    public DeliveryEndPoint getDeliveryEndPoint(TopicSubscriber topicSub);
 
     /**
      * Stop delivery manager

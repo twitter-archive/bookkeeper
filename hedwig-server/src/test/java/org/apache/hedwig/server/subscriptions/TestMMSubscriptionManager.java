@@ -58,7 +58,7 @@ public class TestMMSubscriptionManager extends ZooKeeperTestBase {
         final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
         mm = MetadataManagerFactory.newMetadataManagerFactory(cfg, zk);
         sm = new MMSubscriptionManager(cfg, mm, new TrivialOwnAllTopicManager(cfg, scheduler),
-                                       LocalDBPersistenceManager.instance(), null, scheduler);
+                                       LocalDBPersistenceManager.instance(), null, null, scheduler);
         subDataCallback = new Callback<SubscriptionData>() {
             @Override
             public void operationFailed(Object ctx, final PubSubException exception) {

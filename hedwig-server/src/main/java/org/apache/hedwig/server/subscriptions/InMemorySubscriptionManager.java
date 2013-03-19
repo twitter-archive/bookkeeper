@@ -27,6 +27,7 @@ import org.apache.bookkeeper.versioning.Version;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.DeliveryManager;
+import org.apache.hedwig.server.handlers.SubscriptionChannelManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
@@ -38,9 +39,9 @@ public class InMemorySubscriptionManager extends AbstractSubscriptionManager {
 
     public InMemorySubscriptionManager(ServerConfiguration conf,
                                        TopicManager tm, PersistenceManager pm,
-                                       DeliveryManager dm,
+                                       DeliveryManager dm, SubscriptionChannelManager subChannelMgr,
                                        ScheduledExecutorService scheduler) {
-        super(conf, tm, pm, dm, scheduler);
+        super(conf, tm, pm, dm, subChannelMgr, scheduler);
     }
 
     @Override

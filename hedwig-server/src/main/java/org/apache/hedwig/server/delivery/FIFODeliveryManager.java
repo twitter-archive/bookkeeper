@@ -31,6 +31,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,7 @@ import org.apache.hedwig.server.persistence.ScanRequest;
 import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.util.Callback;
+
 import static org.apache.hedwig.util.VarArgs.va;
 
 public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChannelDisconnectedListener {
@@ -215,10 +217,20 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
         enqueueWithoutFailure(subscriber);
     }
 
+    @Override
     public void stopServingSubscriber(ByteString topic, ByteString subscriberId,
-                                      SubscriptionEvent event,
+                                      SubscriptionEvent event, DeliveryEndPoint endPoint,
                                       Callback<Void> cb, Object ctx) {
-        enqueueWithoutFailure(new StopServingSubscriber(topic, subscriberId, event, cb, ctx));
+        enqueueWithoutFailure(new StopServingSubscriber(topic, subscriberId, event, endPoint, cb, ctx));
+    }
+
+    @Override
+    public DeliveryEndPoint getDeliveryEndPoint(TopicSubscriber topicSub) {
+        ActiveSubscriberState subscriberState = subscriberStates.get(topicSub);
+        if (null != subscriberState) {
+            return subscriberState.getDeliveryEndPoint();
+        }
+        return null;
     }
 
     /**
@@ -433,6 +445,10 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
             }
             this.cb = cb;
             this.ctx = ctx;
+        }
+
+        public DeliveryEndPoint getDeliveryEndPoint() {
+            return deliveryEndPoint;
         }
 
         public void setNotConnected(SubscriptionEvent event) {
@@ -693,7 +709,7 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
             // the underlying channel is broken, the channel will
             // be closed in UmbrellaHandler when exception happened.
             // so we don't need to close the channel again
-            stopServingSubscriber(topic, subscriberId, null,
+            stopServingSubscriber(topic, subscriberId, null, deliveryEndPoint,
                                   NOP_CALLBACK, null);
         }
 
@@ -721,7 +737,7 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
                 // and also it cleans the old state of the active subscriber immediately.
                 SubscriptionEvent se;
                 if (deliveryEndPoint.equals(prevSubscriber.deliveryEndPoint)) {
-                    logger.debug("Subscriber {} replaced a duplicated subscriber {} at same delivery point {}.",
+                    logger.warn("Subscriber {} replaced a duplicated subscriber {} at same delivery point {}.",
                                  va(this, prevSubscriber, deliveryEndPoint));
                     se = null;
                 } else {
@@ -757,23 +773,30 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
     protected class StopServingSubscriber implements DeliveryManagerRequest {
         TopicSubscriber ts;
         SubscriptionEvent event;
+        // endPoint could be null
+        DeliveryEndPoint endPoint;
         final Callback<Void> cb;
         final Object ctx;
 
         public StopServingSubscriber(ByteString topic, ByteString subscriberId,
-                                     SubscriptionEvent event,
+                                     SubscriptionEvent event, DeliveryEndPoint endPoint,
                                      Callback<Void> callback, Object ctx) {
             this.ts = new TopicSubscriber(topic, subscriberId);
             this.event = event;
+            this.endPoint = endPoint;
             this.cb = callback;
             this.ctx = ctx;
         }
 
         @Override
         public void performRequest() {
-            ActiveSubscriberState subscriber = subscriberStates.remove(ts);
+            ActiveSubscriberState subscriber = subscriberStates.get(ts);
             if (null != subscriber) {
-                doStopServingSubscriber(subscriber, event);
+                if (null == this.endPoint || subscriber.getDeliveryEndPoint().equals(this.endPoint)) {
+                    // Else, remove this subscriber. This is safe as a single queue handles these updates.
+                    subscriberStates.remove(ts);
+                    doStopServingSubscriber(subscriber, event);
+                }
             }
             cb.operationFinished(ctx, null);
         }
@@ -879,9 +902,9 @@ public class FIFODeliveryManager implements Runnable, DeliveryManager, SubChanne
     }
 
     @Override
-    public void onSubChannelDisconnected(TopicSubscriber topicSubscriber) {
+    public void onSubChannelDisconnected(TopicSubscriber topicSubscriber, Channel channel) {
         stopServingSubscriber(topicSubscriber.getTopic(), topicSubscriber.getSubscriberId(),
-                null, NOP_CALLBACK, null);
+                null, new ChannelEndPoint(channel), NOP_CALLBACK, null);
     }
 
 }

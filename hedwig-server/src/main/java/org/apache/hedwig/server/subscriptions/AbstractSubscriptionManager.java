@@ -27,6 +27,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.bookkeeper.versioning.Version;
+import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
@@ -39,7 +40,10 @@ import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.common.TopicOpQueuer;
+import org.apache.hedwig.server.delivery.ChannelEndPoint;
+import org.apache.hedwig.server.delivery.DeliveryEndPoint;
 import org.apache.hedwig.server.delivery.DeliveryManager;
+import org.apache.hedwig.server.handlers.SubscriptionChannelManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerInternalOpStatType;
 import org.apache.hedwig.server.topics.TopicManager;
@@ -47,6 +51,7 @@ import org.apache.hedwig.server.topics.TopicOwnershipChangeListener;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.CallbackUtils;
 import org.apache.hedwig.util.ConcurrencyUtils;
+import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,6 +76,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     // Handle to the PersistenceManager for the server so we can pass along the
     // message consume pointers for each topic.
     private final PersistenceManager pm;
+    // The subscription channel manager that handles the actual endpoints of our subscriptions.
+    private final SubscriptionChannelManager subChannelMgr;
     // Timer for running a recurring thread task to get the minimum message
     // sequence ID for each topic that all subscribers for it have consumed
     // already. With that information, we can call the PersistenceManager to
@@ -95,6 +102,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
     public AbstractSubscriptionManager(ServerConfiguration cfg, TopicManager tm,
                                        PersistenceManager pm, DeliveryManager dm,
+                                       SubscriptionChannelManager subChannelMgr,
                                        ScheduledExecutorService scheduler) {
         this.cfg = cfg;
         localQueuer = new TopicOpQueuer(scheduler);
@@ -102,6 +110,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         tm.addTopicOwnershipChangeListener(this);
         this.pm = pm;
         this.dm = dm;
+        this.subChannelMgr = subChannelMgr;
         // Schedule the recurring MessagesConsumedTask only if a
         // PersistenceManager is passed.
         if (pm != null) {
@@ -286,14 +295,36 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     }
                     // no subscriptions now, it may be removed by other release ops
                     if (null != states) {
-                        for (ByteString subId : states.keySet()) {
+                        for (final ByteString subId : states.keySet()) {
                             if (logger.isDebugEnabled()) {
                                 logger.debug("Stop serving subscriber (" + topic.toStringUtf8() + ", "
                                            + subId.toStringUtf8() + ") when losing topic");
                             }
                             if (null != dm) {
-                                dm.stopServingSubscriber(topic, subId, SubscriptionEvent.TOPIC_MOVED,
-                                                         noopCallback, null);
+                                final DeliveryEndPoint endPoint = dm.getDeliveryEndPoint(new TopicSubscriber(topic, subId));
+                                dm.stopServingSubscriber(topic, subId, SubscriptionEvent.TOPIC_MOVED, endPoint,
+                                     new Callback<Void>() {
+                                         private void finish() {
+                                             if (null != endPoint && null != AbstractSubscriptionManager.this.subChannelMgr) {
+                                                 // Only if this is a ChannelEndPoint, we should let the subscription channel
+                                                 // manager know that it needs to remove the channel this endpoint encapsulates.
+                                                 Channel channel = ((ChannelEndPoint)endPoint).getChannel();
+                                                 if (null != channel) {
+                                                     AbstractSubscriptionManager.this.subChannelMgr
+                                                             .remove(new TopicSubscriber(topic, subId), channel);
+                                                 }
+                                             }
+                                         }
+                                         @Override
+                                         public void operationFinished(Object o, Void aVoid) {
+                                             finish();
+                                         }
+
+                                         @Override
+                                         public void operationFailed(Object o, PubSubException e) {
+                                             finish();
+                                         }
+                                     }, null);
                             }
                         }
                     }

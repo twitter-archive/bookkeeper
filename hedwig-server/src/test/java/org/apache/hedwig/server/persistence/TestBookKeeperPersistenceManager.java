@@ -288,7 +288,7 @@ public class TestBookKeeperPersistenceManager extends TestCase {
         tm = new TrivialOwnAllTopicManager(conf, scheduler);
         manager = new BookkeeperPersistenceManager(bktb.bk, metadataManagerFactory,
                                                    tm, conf, scheduler);
-        sm = new MMSubscriptionManager(conf, metadataManagerFactory, tm, manager, null, scheduler);
+        sm = new MMSubscriptionManager(conf, metadataManagerFactory, tm, manager, null, null, scheduler);
     }
 
     private void stopCluster() throws Exception {

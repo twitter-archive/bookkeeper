@@ -52,6 +52,8 @@ import org.apache.hedwig.server.topics.TrivialOwnAllTopicManager;
 import org.apache.hedwig.util.ConcurrencyUtils;
 
 import junit.framework.TestCase;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TestSubUnsubHandler extends TestCase {
 
@@ -66,7 +68,7 @@ public class TestSubUnsubHandler extends TestCase {
     PubSubRequest pubSubRequestPrototype;
     ByteString subscriberId;
     UnsubscribeHandler ush;
-
+    private static Logger logger = LoggerFactory.getLogger(TestSubUnsubHandler.class);
     @Override
     protected void setUp() throws Exception {
         super.setUp();
@@ -77,8 +79,8 @@ public class TestSubUnsubHandler extends TestCase {
         TopicManager tm = new TrivialOwnAllTopicManager(conf, executor);
         dm = new StubDeliveryManager();
         PersistenceManager pm = LocalDBPersistenceManager.instance();
-        sm = new StubSubscriptionManager(tm, pm, dm, conf, executor);
         subChannelMgr = new SubscriptionChannelManager();
+        sm = new StubSubscriptionManager(tm, pm, dm, subChannelMgr, conf, executor);
         sh = new SubscribeHandler(conf, tm, dm, pm, sm, subChannelMgr);
         channel = new WriteRecordingChannel();
 
@@ -97,6 +99,40 @@ public class TestSubUnsubHandler extends TestCase {
                                 channel);
         assertEquals(StatusCode.MALFORMED_REQUEST, ((PubSubResponse) channel.getMessagesWritten().get(0))
                      .getStatusCode());
+    }
+
+    @Test
+    public void testSubscriptionStateRemoval() throws Exception {
+        StubCallback<Void> callback = new StubCallback<Void>();
+        ByteString topic2 = ByteString.copyFromUtf8("topic-2");
+        // Take ownership of the topics
+        sm.acquiredTopic(topic, callback, null);
+        sm.acquiredTopic(topic2, callback, null);
+        assertNull(ConcurrencyUtils.take(callback.queue).right());
+        // Start serving a subscription and make sure it succeeded.
+        SubscribeRequest subReq1 = SubscribeRequest.newBuilder().setSubscriberId(ByteString.copyFromUtf8("sub1"))
+                .setCreateOrAttach(CreateOrAttach.CREATE).build();
+        SubscribeRequest subReq2 = SubscribeRequest.newBuilder().setSubscriberId(ByteString.copyFromUtf8("sub2"))
+                .setCreateOrAttach(CreateOrAttach.CREATE).build();
+        SubscribeRequest subReq3 = SubscribeRequest.newBuilder().setSubscriberId(ByteString.copyFromUtf8("sub2"))
+                .setCreateOrAttach(CreateOrAttach.CREATE).build();
+        PubSubRequest ps1 = PubSubRequest.newBuilder().setProtocolVersion(ProtocolVersion.VERSION_ONE).setType(
+                OperationType.SUBSCRIBE).setTxnId(0).setTopic(topic).setSubscribeRequest(subReq1).build();
+        PubSubRequest ps2 = PubSubRequest.newBuilder().setProtocolVersion(ProtocolVersion.VERSION_ONE).setType(
+                OperationType.SUBSCRIBE).setTxnId(1).setTopic(topic).setSubscribeRequest(subReq2).build();
+        // Different topic name
+        PubSubRequest ps3 = PubSubRequest.newBuilder().setProtocolVersion(ProtocolVersion.VERSION_ONE).setType(
+                OperationType.SUBSCRIBE).setTxnId(2).setTopic(ByteString.copyFromUtf8("topic-2")).setSubscribeRequest(subReq3).build();
+        sh.handleRequestAtOwner(ps1, channel);
+        sh.handleRequestAtOwner(ps2, channel);
+        sh.handleRequestAtOwner(ps3, channel);
+        logger.info("Num sub: " + subChannelMgr.getNumSubscriptions());
+        // The subscription channel manager seould have 3 subscriptions now.
+        assertTrue("Subscription Channel Manager should have 3 subscriptions.", subChannelMgr.getNumSubscriptions() == 3);
+        // Now release the topic.
+        sm.lostTopic(topic);
+        // The subscription channel manager should not have an entry for the previous subscription.
+        assertTrue("Subscription Channel Manager should have only 1 subscription after losing topic.", subChannelMgr.getNumSubscriptions() == 1);
     }
 
     @Test
