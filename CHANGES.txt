@@ -6,6 +6,26 @@ Trunk (unreleased changes)
 
     IMPROVEMENTS:
 
+  Backward compatible changes:
+
+    BUGFIXES:
+
+    IMPROVEMENTS:
+
+      BOOKKEEPER-526: multiple threads for delivery manager (sijie via ivank)
+
+      BOOKKEEPER-544: Modify hedwig server tests to allow client testcases to start/stop them as part of their tests (mridul via ivank)
+
+      BOOKKEEPER-312: Implementation of JMS provider (mridul via ivank)
+
+Release 4.2.0 - 2013-01-14
+
+  Non-backward compatible changes:
+
+    BUGFIXES:
+
+    IMPROVEMENTS:
+
       bookkeeper-server:
 
         BOOKKEEPER-203: improve ledger manager interface to remove zookeeper dependency on metadata operations. (sijie via ivank)

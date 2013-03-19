@@ -78,6 +78,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String REBALANCE_MAX_SHED = "rebalance_max_shed";
     protected final static String REBALANCE_INTERVAL_SEC = "rebalance_interval_sec";
     protected final static String NUM_READAHEAD_CACHE_THREADS = "num_readahead_cache_threads";
+    protected final static String NUM_DELIVERY_THREADS = "num_delivery_threads";
     protected final static String CACHE_ENTRY_OVERHEAD_BYTES = "cache_entry_overhead_bytes";
 
     // manager related settings
@@ -471,6 +472,15 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getNumReadAheadCacheThreads() {
         return conf.getInt(NUM_READAHEAD_CACHE_THREADS, Runtime.getRuntime().availableProcessors());
+    }
+
+    /**
+     * Get number of delivery threads
+     *
+     * @return number of delivery threads.
+     */
+    public int getNumDeliveryThreads() {
+        return conf.getInt(NUM_DELIVERY_THREADS, Runtime.getRuntime().availableProcessors());
     }
 
     /**
