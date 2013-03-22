@@ -491,6 +491,11 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
             // delete the stubs, so that when the time comes, we can schedule
             // another readahead request.
             if (reason != ReasonForFinish.NO_MORE_MESSAGES) {
+                // Update the stat by removing all installed stubs.
+                while (null != installedStubs.poll()) {
+                    ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
+                            .NUM_CACHE_STUBS).dec();
+                }
                 enqueueDeleteOfRemainingStubs(readAheadExceptionInstance);
             }
         }
@@ -543,12 +548,6 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 logger.warn("Weird! Should not have two threads adding message to cache key {} at the same time.",
                             cacheKey);
                 cacheValue = oldValue;
-            }
-        } else {
-            if (cacheValue.isStub()) {
-                // We are replacing a stub.
-                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
-                        .NUM_CACHE_STUBS).dec();
             }
         }
 
