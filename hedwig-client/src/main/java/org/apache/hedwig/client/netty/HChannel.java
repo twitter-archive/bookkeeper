@@ -45,6 +45,11 @@ public interface HChannel {
     public void close();
 
     /**
+     * True if the underlying channel is open.
+     */
+    public boolean isOpen();
+
+    /**
      * Close the channel
      *
      * @param wait

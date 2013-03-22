@@ -77,12 +77,24 @@ public class CleanupChannelMap<T> {
 
     /**
      * Returns the channel bound with <code>key</code>.
-     *
+     * Removes they channel if it is closed and returns null.
      * @param key Key
      * @return the channel bound with <code>key</code>.
      */
     public HChannel getChannel(T key) {
         return channels.get(key);
+    }
+
+    public HChannel getChannelRemoveIfClosed(T key) {
+        HChannel retChannel = getChannel(key);
+        if (null != retChannel && !retChannel.isOpen()) {
+            if (removeChannel(key, retChannel)) {
+                retChannel = null;
+            } else {
+                return getChannelRemoveIfClosed(key);
+            }
+        }
+        return retChannel;
     }
 
     /**

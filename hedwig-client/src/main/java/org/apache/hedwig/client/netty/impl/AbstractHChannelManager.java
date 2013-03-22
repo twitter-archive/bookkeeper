@@ -300,12 +300,12 @@ public abstract class AbstractHChannelManager implements HChannelManager {
 
     /**
      * Is there a {@link HChannel} existed for a given host.
-     *
+     * If the channel is not open, remove it and return null.
      * @param host
      *          Target host address.
      */
     private HChannel getNonSubscriptionChannel(InetSocketAddress host) {
-        return host2NonSubscriptionChannels.getChannel(host);
+        return host2NonSubscriptionChannels.getChannelRemoveIfClosed(host);
     }
 
     /**
@@ -385,7 +385,7 @@ public abstract class AbstractHChannelManager implements HChannelManager {
 
     /**
      * Is there a subscription {@link HChannel} existed for a given host.
-     *
+     * If the underlying netty channel is closed, return a null.
      * @param host
      *          Target host address.
      */

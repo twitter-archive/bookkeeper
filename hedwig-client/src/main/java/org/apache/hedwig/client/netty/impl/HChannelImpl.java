@@ -368,4 +368,8 @@ public class HChannelImpl implements HChannel {
         return handler;
     }
 
+    @Override
+    public boolean isOpen() {
+        return null != channel && channel.isOpen();
+    }
 }

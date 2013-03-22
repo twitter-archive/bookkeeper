@@ -118,7 +118,7 @@ public class SimpleHChannelManager extends AbstractHChannelManager {
 
     @Override
     protected HChannel getSubscriptionChannelByTopicSubscriber(TopicSubscriber subscriber) {
-        HChannel channel = topicSubscriber2Channel.getChannel(subscriber);
+        HChannel channel = topicSubscriber2Channel.getChannelRemoveIfClosed(subscriber);
         if (null != channel) {
             // there is no channel established for this subscription
             return channel;
