@@ -50,6 +50,7 @@ public abstract class PacketProcessorBaseV3 {
         BKPacketHeader.Builder header = BKPacketHeader.newBuilder();
         header.setVersion(ProtocolVersion.VERSION_THREE);
         header.setOperation(request.getHeader().getOperation());
+        header.setTxnId(request.getHeader().getTxnId());
         return header.build();
     }
 }

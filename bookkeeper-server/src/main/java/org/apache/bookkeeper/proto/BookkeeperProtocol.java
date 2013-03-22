@@ -255,6 +255,10 @@ public final class BookkeeperProtocol {
     // required .OperationType operation = 2;
     boolean hasOperation();
     org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType getOperation();
+    
+    // required uint64 txnId = 3;
+    boolean hasTxnId();
+    long getTxnId();
   }
   public static final class BKPacketHeader extends
       com.google.protobuf.GeneratedMessage
@@ -305,9 +309,20 @@ public final class BookkeeperProtocol {
       return operation_;
     }
     
+    // required uint64 txnId = 3;
+    public static final int TXNID_FIELD_NUMBER = 3;
+    private long txnId_;
+    public boolean hasTxnId() {
+      return ((bitField0_ & 0x00000004) == 0x00000004);
+    }
+    public long getTxnId() {
+      return txnId_;
+    }
+    
     private void initFields() {
       version_ = org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion.VERSION_ONE;
       operation_ = org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType.READ_ENTRY;
+      txnId_ = 0L;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -319,6 +334,10 @@ public final class BookkeeperProtocol {
         return false;
       }
       if (!hasOperation()) {
+        memoizedIsInitialized = 0;
+        return false;
+      }
+      if (!hasTxnId()) {
         memoizedIsInitialized = 0;
         return false;
       }
@@ -334,6 +353,9 @@ public final class BookkeeperProtocol {
       }
       if (((bitField0_ & 0x00000002) == 0x00000002)) {
         output.writeEnum(2, operation_.getNumber());
+      }
+      if (((bitField0_ & 0x00000004) == 0x00000004)) {
+        output.writeUInt64(3, txnId_);
       }
       getUnknownFields().writeTo(output);
     }
@@ -351,6 +373,10 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000002) == 0x00000002)) {
         size += com.google.protobuf.CodedOutputStream
           .computeEnumSize(2, operation_.getNumber());
+      }
+      if (((bitField0_ & 0x00000004) == 0x00000004)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeUInt64Size(3, txnId_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -480,6 +506,8 @@ public final class BookkeeperProtocol {
         bitField0_ = (bitField0_ & ~0x00000001);
         operation_ = org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType.READ_ENTRY;
         bitField0_ = (bitField0_ & ~0x00000002);
+        txnId_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000004);
         return this;
       }
       
@@ -526,6 +554,10 @@ public final class BookkeeperProtocol {
           to_bitField0_ |= 0x00000002;
         }
         result.operation_ = operation_;
+        if (((from_bitField0_ & 0x00000004) == 0x00000004)) {
+          to_bitField0_ |= 0x00000004;
+        }
+        result.txnId_ = txnId_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -548,6 +580,9 @@ public final class BookkeeperProtocol {
         if (other.hasOperation()) {
           setOperation(other.getOperation());
         }
+        if (other.hasTxnId()) {
+          setTxnId(other.getTxnId());
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
       }
@@ -558,6 +593,10 @@ public final class BookkeeperProtocol {
           return false;
         }
         if (!hasOperation()) {
+          
+          return false;
+        }
+        if (!hasTxnId()) {
           
           return false;
         }
@@ -607,6 +646,11 @@ public final class BookkeeperProtocol {
                 bitField0_ |= 0x00000002;
                 operation_ = value;
               }
+              break;
+            }
+            case 24: {
+              bitField0_ |= 0x00000004;
+              txnId_ = input.readUInt64();
               break;
             }
           }
@@ -659,6 +703,27 @@ public final class BookkeeperProtocol {
       public Builder clearOperation() {
         bitField0_ = (bitField0_ & ~0x00000002);
         operation_ = org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType.READ_ENTRY;
+        onChanged();
+        return this;
+      }
+      
+      // required uint64 txnId = 3;
+      private long txnId_ ;
+      public boolean hasTxnId() {
+        return ((bitField0_ & 0x00000004) == 0x00000004);
+      }
+      public long getTxnId() {
+        return txnId_;
+      }
+      public Builder setTxnId(long value) {
+        bitField0_ |= 0x00000004;
+        txnId_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearTxnId() {
+        bitField0_ = (bitField0_ & ~0x00000004);
+        txnId_ = 0L;
         onChanged();
         return this;
       }
@@ -4605,35 +4670,35 @@ public final class BookkeeperProtocol {
   static {
     java.lang.String[] descriptorData = {
       "\n\'src/main/proto/BookkeeperProtocol.prot" +
-      "o\"V\n\016BKPacketHeader\022!\n\007version\030\001 \002(\0162\020.P" +
+      "o\"e\n\016BKPacketHeader\022!\n\007version\030\001 \002(\0162\020.P" +
       "rotocolVersion\022!\n\toperation\030\002 \002(\0162\016.Oper" +
-      "ationType\"n\n\007Request\022\037\n\006header\030\001 \002(\0132\017.B" +
-      "KPacketHeader\022!\n\013readRequest\030d \001(\0132\014.Rea" +
-      "dRequest\022\037\n\naddRequest\030e \001(\0132\013.AddReques" +
-      "t\"~\n\013ReadRequest\022\037\n\004flag\030d \001(\0162\021.ReadReq" +
-      "uest.Flag\022\020\n\010ledgerId\030\001 \002(\003\022\017\n\007entryId\030\002" +
-      " \002(\003\022\021\n\tmasterKey\030\003 \001(\014\"\030\n\004Flag\022\020\n\014FENCE" +
-      "_LEDGER\020\001\"\212\001\n\nAddRequest\022\036\n\004flag\030d \001(\0162\020",
-      ".AddRequest.Flag\022\020\n\010ledgerId\030\001 \002(\003\022\017\n\007en" +
-      "tryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 \002(\014\022\014\n\004body\030\004" +
-      " \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_ADD\020\001\"\220\001\n\010Respo" +
-      "nse\022\037\n\006header\030\001 \002(\0132\017.BKPacketHeader\022\033\n\006" +
-      "status\030\002 \002(\0162\013.StatusCode\022#\n\014readRespons" +
-      "e\030d \001(\0132\r.ReadResponse\022!\n\013addResponse\030e " +
-      "\001(\0132\014.AddResponse\"\\\n\014ReadResponse\022\033\n\006sta" +
-      "tus\030\001 \002(\0162\013.StatusCode\022\020\n\010ledgerId\030\002 \002(\003" +
-      "\022\017\n\007entryId\030\003 \002(\003\022\014\n\004body\030\004 \001(\014\"M\n\013AddRe" +
-      "sponse\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n\010l",
-      "edgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003*F\n\017Protoc" +
-      "olVersion\022\017\n\013VERSION_ONE\020\001\022\017\n\013VERSION_TW" +
-      "O\020\002\022\021\n\rVERSION_THREE\020\003*\206\001\n\nStatusCode\022\007\n" +
-      "\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n\010ENOENTRY\020\223\003\022\014\n" +
-      "\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020\366\003\022\020\n\013EBADV" +
-      "ERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016\n\tEREADONLY\020\371\003*" +
-      "Y\n\rOperationType\022\016\n\nREAD_ENTRY\020\001\022\r\n\tADD_" +
-      "ENTRY\020\002\022\024\n\020RANGE_READ_ENTRY\020\003\022\023\n\017RANGE_A" +
-      "DD_ENTRY\020\004B\037\n\033org.apache.bookkeeper.prot" +
-      "oH\001"
+      "ationType\022\r\n\005txnId\030\003 \002(\004\"n\n\007Request\022\037\n\006h" +
+      "eader\030\001 \002(\0132\017.BKPacketHeader\022!\n\013readRequ" +
+      "est\030d \001(\0132\014.ReadRequest\022\037\n\naddRequest\030e " +
+      "\001(\0132\013.AddRequest\"~\n\013ReadRequest\022\037\n\004flag\030" +
+      "d \001(\0162\021.ReadRequest.Flag\022\020\n\010ledgerId\030\001 \002" +
+      "(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 \001(\014\"\030" +
+      "\n\004Flag\022\020\n\014FENCE_LEDGER\020\001\"\212\001\n\nAddRequest\022",
+      "\036\n\004flag\030d \001(\0162\020.AddRequest.Flag\022\020\n\010ledge" +
+      "rId\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030" +
+      "\003 \002(\014\022\014\n\004body\030\004 \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_" +
+      "ADD\020\001\"\220\001\n\010Response\022\037\n\006header\030\001 \002(\0132\017.BKP" +
+      "acketHeader\022\033\n\006status\030\002 \002(\0162\013.StatusCode" +
+      "\022#\n\014readResponse\030d \001(\0132\r.ReadResponse\022!\n" +
+      "\013addResponse\030e \001(\0132\014.AddResponse\"\\\n\014Read" +
+      "Response\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n" +
+      "\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003\022\014\n\004body" +
+      "\030\004 \001(\014\"M\n\013AddResponse\022\033\n\006status\030\001 \002(\0162\013.",
+      "StatusCode\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030" +
+      "\003 \002(\003*F\n\017ProtocolVersion\022\017\n\013VERSION_ONE\020" +
+      "\001\022\017\n\013VERSION_TWO\020\002\022\021\n\rVERSION_THREE\020\003*\206\001" +
+      "\n\nStatusCode\022\007\n\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n" +
+      "\010ENOENTRY\020\223\003\022\014\n\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003" +
+      "EUA\020\366\003\022\020\n\013EBADVERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016" +
+      "\n\tEREADONLY\020\371\003*Y\n\rOperationType\022\016\n\nREAD_" +
+      "ENTRY\020\001\022\r\n\tADD_ENTRY\020\002\022\024\n\020RANGE_READ_ENT" +
+      "RY\020\003\022\023\n\017RANGE_ADD_ENTRY\020\004B\037\n\033org.apache." +
+      "bookkeeper.protoH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -4645,7 +4710,7 @@ public final class BookkeeperProtocol {
           internal_static_BKPacketHeader_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_BKPacketHeader_descriptor,
-              new java.lang.String[] { "Version", "Operation", },
+              new java.lang.String[] { "Version", "Operation", "TxnId", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader.Builder.class);
           internal_static_Request_descriptor =
