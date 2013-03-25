@@ -108,7 +108,7 @@ public class MultiplexHChannelManager extends AbstractHChannelManager {
 
     @Override
     protected HChannel getSubscriptionChannel(InetSocketAddress host) {
-        return subscriptionChannels.getChannelRemoveIfClosed(host);
+        return subscriptionChannels.getChannel(host);
     }
 
     protected HChannel getSubscriptionChannel(TopicSubscriber subscriber) {
