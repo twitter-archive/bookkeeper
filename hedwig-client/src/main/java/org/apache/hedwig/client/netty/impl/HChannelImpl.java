@@ -370,6 +370,7 @@ public class HChannelImpl implements HChannel {
 
     @Override
     public boolean isOpen() {
-        return null != channel && channel.isOpen();
+        // If channel is null, it means that a connection is in progress.
+        return channel == null || channel.isOpen();
     }
 }
