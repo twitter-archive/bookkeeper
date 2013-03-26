@@ -491,12 +491,13 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
             // delete the stubs, so that when the time comes, we can schedule
             // another readahead request.
             if (reason != ReasonForFinish.NO_MORE_MESSAGES) {
+                enqueueDeleteOfRemainingStubs(readAheadExceptionInstance);
+            } else {
                 // Update the stat by removing all installed stubs.
                 while (null != installedStubs.poll()) {
                     ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
                             .NUM_CACHE_STUBS).dec();
                 }
-                enqueueDeleteOfRemainingStubs(readAheadExceptionInstance);
             }
         }
 
