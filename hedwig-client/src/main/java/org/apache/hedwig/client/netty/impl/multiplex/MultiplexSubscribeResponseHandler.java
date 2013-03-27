@@ -261,6 +261,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
                 new ResubscribeCallback(topicSubscriber, op,
                                         sChannelManager, retryWaitTime);
             op.setCallback(resubscribeCb);
+            op.shouldClaim = false;
             op.context = null;
             if (logger.isDebugEnabled()) {
                 logger.debug("Resubscribe {} with origSubData {}",
