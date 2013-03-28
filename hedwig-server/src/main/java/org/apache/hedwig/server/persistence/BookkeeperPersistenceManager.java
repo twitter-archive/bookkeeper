@@ -164,11 +164,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         int messageBound = UNLIMITED;
 
         /**
-         * Hint from the delivery manager about the last sequence id that has been delivered
+         * Hint from the delivery manager about the last sequence id that has been consumed
          * for this topic. We use this to log information about pending messages that need to
          * be delivered.
          */
-        long lastSeqIdDelivered = 0;
+        long lastSeqIdConsumed = 0;
     }
 
     Map<ByteString, TopicInfo> topicInfos = new ConcurrentHashMap<ByteString, TopicInfo>();
@@ -383,30 +383,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         queuer.pushAndMaybeRun(request.topic, new RangeScanOp(request, scanSeqId, numMsgsRead, totalSizeRead));
     }
 
-    public class DeliveredUntilOp extends TopicOpQueuer.SynchronousOp {
-        private final long seqId;
-
-        public DeliveredUntilOp(ByteString topic, long seqId) {
-            queuer.super(topic);
-            this.seqId = seqId;
-        }
-        @Override
-        public void runInternal() {
-            TopicInfo topicInfo = topicInfos.get(topic);
-            if (null != topicInfo) {
-                topicInfo.lastSeqIdDelivered = seqId;
-                // Set the pending value to the difference of the last pushed sequence id
-                // and the last sequence Id delivered.
-                long seqId = topicInfo.lastSeqIdPushed.getLocalComponent();
-                ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
-                        topic, seqId - topicInfo.lastSeqIdDelivered, false);
-            }
-        }
-    }
-
     @Override
     public void deliveredUntil(ByteString topic, Long seqId) {
-        queuer.pushAndMaybeRun(topic, new DeliveredUntilOp(topic, seqId));
+        // do nothing.
     }
 
     public class UpdateLedgerOp extends TopicOpQueuer.TimedAsynchronousOp<Void> {
@@ -486,6 +465,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 logger.error("Server is not responsible for topic!");
                 return;
             }
+            // Set the pending value to the difference of the last pushed sequence id
+            // and the last sequence Id delivered.
+            topicInfo.lastSeqIdConsumed = seqId;
+            long pushedSeqId = topicInfo.lastSeqIdPushed.getLocalComponent();
+            ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
+                    topic, pushedSeqId - seqId, false);
 
             final LinkedList<Long> ledgersToDelete = new LinkedList<Long>();
             for (Long endSeqIdIncluded : topicInfo.ledgerRanges.keySet()) {
@@ -769,7 +754,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 // Set the pending value to the difference of the last local sequence id
                 // and the last sequence Id delivered.
                 ServerStatsProvider.getStatsLoggerInstance().setPerTopicSeqId(PerTopicStatType.LOCAL_PENDING,
-                        topic, localSeqId - topicInfo.lastSeqIdDelivered, false);
+                        topic, localSeqId - topicInfo.lastSeqIdConsumed, false);
 
                 request.getCallback().operationFinished(ctx, responseSeqId);
                 // if this acked entry is the last entry of current ledger
