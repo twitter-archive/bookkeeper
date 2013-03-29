@@ -18,7 +18,6 @@
 package org.apache.hedwig.server.persistence;
 
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 import junit.framework.Test;
 import junit.framework.TestSuite;
@@ -26,6 +25,7 @@ import junit.framework.TestSuite;
 import org.junit.After;
 import org.junit.Before;
 
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.topics.TrivialOwnAllTopicManager;
@@ -64,7 +64,8 @@ public class TestBookKeeperPersistenceManagerBlackBox extends TestPersistenceMan
     @Override
     PersistenceManager instantiatePersistenceManager() throws Exception {
         ServerConfiguration conf = new ServerConfiguration();
-        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+        OrderedSafeExecutor scheduler = new OrderedSafeExecutor(conf.getNumSharedQueuerThreads());
 
         metadataManagerFactory =
             MetadataManagerFactory.newMetadataManagerFactory(conf, bktb.getZooKeeperClient());

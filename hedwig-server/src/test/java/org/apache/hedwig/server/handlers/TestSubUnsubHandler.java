@@ -20,10 +20,10 @@ package org.apache.hedwig.server.handlers;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import org.junit.Test;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -74,7 +74,7 @@ public class TestSubUnsubHandler extends TestCase {
         super.setUp();
 
         ServerConfiguration conf = new ServerConfiguration();
-        ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
+        OrderedSafeExecutor executor = new OrderedSafeExecutor(conf.getNumSharedQueuerThreads());
 
         TopicManager tm = new TrivialOwnAllTopicManager(conf, executor);
         dm = new StubDeliveryManager();

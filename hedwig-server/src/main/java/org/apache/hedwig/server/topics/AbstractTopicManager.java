@@ -24,19 +24,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ScheduledExecutorService;
 
-import org.apache.hedwig.server.stats.ServerStatsProvider;
-import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.common.TopicOpQueuer;
+import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
+import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.CallbackUtils;
 import org.apache.hedwig.util.HedwigSocketAddress;
@@ -59,7 +61,7 @@ public abstract class AbstractTopicManager implements TopicManager {
 
     protected TopicOpQueuer queuer;
     protected ServerConfiguration cfg;
-    protected ScheduledExecutorService scheduler;
+    protected ScheduledExecutorService retentionScheduler;
 
     private static final Logger logger = LoggerFactory.getLogger(AbstractTopicManager.class);
 
@@ -93,11 +95,15 @@ public abstract class AbstractTopicManager implements TopicManager {
         }
     }
 
-    public AbstractTopicManager(ServerConfiguration cfg, ScheduledExecutorService scheduler)
+    public AbstractTopicManager(ServerConfiguration cfg, OrderedSafeExecutor scheduler)
             throws UnknownHostException {
         this.cfg = cfg;
         this.queuer = new TopicOpQueuer(scheduler);
-        this.scheduler = scheduler;
+        // retention scheduler only used for topic retention, so for simple
+        // use a scheduled thread pool directly. we don't need to partition topics
+        // since it would just run an asynchronous op (releaseTopic) to enqueue to the
+        // real worker
+        this.retentionScheduler = Executors.newSingleThreadScheduledExecutor();
         addr = cfg.getServerAddr();
     }
 
@@ -118,7 +124,7 @@ public abstract class AbstractTopicManager implements TopicManager {
                             .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_TOPICS).inc();
                 }
                 if (cfg.getRetentionSecs() > 0) {
-                    scheduler.schedule(new Runnable() {
+                    retentionScheduler.schedule(new Runnable() {
                         @Override
                         public void run() {
                             // Enqueue a release operation. (Recall that release

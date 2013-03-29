@@ -18,7 +18,6 @@
 package org.apache.hedwig.server.subscriptions;
 
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 
 import org.junit.Assert;
@@ -26,6 +25,8 @@ import org.junit.Test;
 import org.junit.Before;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
@@ -55,15 +56,16 @@ public class TestMMSubscriptionManager extends ZooKeeperTestBase {
     public void setUp() throws Exception {
         super.setUp();
         cfg = new ServerConfiguration();
-        final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        final OrderedSafeExecutor scheduler =
+            new OrderedSafeExecutor(cfg.getNumSharedQueuerThreads());
         mm = MetadataManagerFactory.newMetadataManagerFactory(cfg, zk);
         sm = new MMSubscriptionManager(cfg, mm, new TrivialOwnAllTopicManager(cfg, scheduler),
                                        LocalDBPersistenceManager.instance(), null, null, scheduler);
         subDataCallback = new Callback<SubscriptionData>() {
             @Override
             public void operationFailed(Object ctx, final PubSubException exception) {
-                scheduler.execute(new Runnable() {
-                    public void run() {
+                scheduler.submit(new SafeRunnable() {
+                    public void safeRun() {
                         ConcurrencyUtils.put(subDataCallbackQueue, Either.of((SubscriptionData) null, exception));
                     }
                 });
@@ -71,8 +73,8 @@ public class TestMMSubscriptionManager extends ZooKeeperTestBase {
 
             @Override
             public void operationFinished(Object ctx, final SubscriptionData resultOfOperation) {
-                scheduler.execute(new Runnable() {
-                    public void run() {
+                scheduler.submit(new SafeRunnable() {
+                    public void safeRun() {
                         ConcurrencyUtils.put(subDataCallbackQueue, Either.of(resultOfOperation, (PubSubException) null));
                     }
                 });
@@ -82,8 +84,8 @@ public class TestMMSubscriptionManager extends ZooKeeperTestBase {
         voidCallback = new Callback<Void>() {
             @Override
             public void operationFailed(Object ctx, final PubSubException exception) {
-                scheduler.execute(new Runnable() {
-                    public void run() {
+                scheduler.submit(new SafeRunnable() {
+                    public void safeRun() {
                         ConcurrencyUtils.put(BooleanCallbackQueue, Either.of((Boolean) null, exception));
                     }
                 });
@@ -91,8 +93,8 @@ public class TestMMSubscriptionManager extends ZooKeeperTestBase {
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
-                scheduler.execute(new Runnable() {
-                    public void run() {
+                scheduler.submit(new SafeRunnable() {
+                    public void safeRun() {
                         ConcurrencyUtils.put(BooleanCallbackQueue, Either.of(true, (PubSubException) null));
                     }
                 });

@@ -20,9 +20,9 @@ package org.apache.hedwig.server.subscriptions;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.server.common.ServerConfiguration;
@@ -47,7 +47,7 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
                                  MetadataManagerFactory metaManagerFactory,
                                  TopicManager topicMgr, PersistenceManager pm,
                                  DeliveryManager dm, SubscriptionChannelManager subChannelMgr,
-                                 ScheduledExecutorService scheduler) {
+                                 OrderedSafeExecutor scheduler) {
         super(cfg, topicMgr, pm, dm, subChannelMgr, scheduler);
         this.subManager = metaManagerFactory.newSubscriptionDataManager();
     }

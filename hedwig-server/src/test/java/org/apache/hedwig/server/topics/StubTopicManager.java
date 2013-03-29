@@ -18,9 +18,9 @@
 package org.apache.hedwig.server.topics;
 
 import java.net.UnknownHostException;
-import java.util.concurrent.Executors;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.util.Callback;
@@ -40,7 +40,7 @@ public class StubTopicManager extends TrivialOwnAllTopicManager {
     }
 
     public StubTopicManager(ServerConfiguration conf) throws UnknownHostException {
-        super(conf, Executors.newSingleThreadScheduledExecutor());
+        super(conf, new OrderedSafeExecutor(conf.getNumSharedQueuerThreads()));
     }
 
     @Override

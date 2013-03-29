@@ -20,7 +20,6 @@ package org.apache.hedwig.server.persistence;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 import junit.framework.TestCase;
 
@@ -33,6 +32,7 @@ import org.junit.Test;
 import org.apache.hedwig.util.Either;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.HelperMethods;
 import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -56,7 +56,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
     BookkeeperPersistenceManager bkpm;
     MetadataManagerFactory mm;
     ServerConfiguration conf;
-    ScheduledExecutorService scheduler;
+    OrderedSafeExecutor scheduler;
     TopicManager tm;
     ByteString topic = ByteString.copyFromUtf8("topic0");
 
@@ -68,7 +68,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
         bktb.setUp();
 
         conf = new ServerConfiguration();
-        scheduler = Executors.newScheduledThreadPool(1);
+        scheduler = new OrderedSafeExecutor(conf.getNumSharedQueuerThreads());
         tm = new TrivialOwnAllTopicManager(conf, scheduler);
 
         mm = MetadataManagerFactory.newMetadataManagerFactory(conf, bktb.getZooKeeperClient());

@@ -19,11 +19,11 @@ package org.apache.hedwig.server.subscriptions;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
 
 import com.google.protobuf.ByteString;
 
 import org.apache.bookkeeper.versioning.Version;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionData;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.delivery.DeliveryManager;
@@ -40,7 +40,7 @@ public class InMemorySubscriptionManager extends AbstractSubscriptionManager {
     public InMemorySubscriptionManager(ServerConfiguration conf,
                                        TopicManager tm, PersistenceManager pm,
                                        DeliveryManager dm, SubscriptionChannelManager subChannelMgr,
-                                       ScheduledExecutorService scheduler) {
+                                       OrderedSafeExecutor scheduler) {
         super(conf, tm, pm, dm, subChannelMgr, scheduler);
     }
 

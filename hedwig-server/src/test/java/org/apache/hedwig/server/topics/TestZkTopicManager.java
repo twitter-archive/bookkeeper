@@ -18,7 +18,6 @@
 package org.apache.hedwig.server.topics;
 
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.Semaphore;
 
@@ -29,6 +28,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.CompositeException;
 import org.apache.hedwig.server.common.ServerConfiguration;
@@ -87,7 +87,7 @@ public class TestZkTopicManager extends ZooKeeperTestBase {
     protected ByteString topic = ByteString.copyFromUtf8("topic");
     protected ServerConfiguration cfg;
     protected HedwigSocketAddress me;
-    protected ScheduledExecutorService scheduler;
+    protected OrderedSafeExecutor scheduler;
 
     @Override
     @Before
@@ -95,7 +95,7 @@ public class TestZkTopicManager extends ZooKeeperTestBase {
         super.setUp();
         cfg = new ServerConfiguration();
         me = cfg.getServerAddr();
-        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler = new OrderedSafeExecutor(cfg.getNumSharedQueuerThreads());
         tm = new ZkTopicManager(zk, cfg, scheduler);
     }
 

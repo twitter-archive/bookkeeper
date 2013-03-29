@@ -20,7 +20,6 @@ package org.apache.hedwig.server.topics;
 import java.net.UnknownHostException;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 
 import org.slf4j.Logger;
@@ -35,6 +34,7 @@ import org.apache.bookkeeper.meta.ZkVersion;
 import org.apache.bookkeeper.versioning.Version.Occurred;
 
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.util.Callback;
@@ -101,7 +101,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
      *
      * @param zk
      */
-    public ZkTopicManager(final ZooKeeper zk, final ServerConfiguration cfg, ScheduledExecutorService scheduler)
+    public ZkTopicManager(final ZooKeeper zk, final ServerConfiguration cfg, OrderedSafeExecutor scheduler)
             throws UnknownHostException, PubSubException {
 
         super(cfg, scheduler);

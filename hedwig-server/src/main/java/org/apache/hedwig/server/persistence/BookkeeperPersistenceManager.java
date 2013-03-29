@@ -29,7 +29,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
@@ -39,6 +38,7 @@ import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -191,7 +191,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
      */
     public BookkeeperPersistenceManager(BookKeeper bk, MetadataManagerFactory metaManagerFactory,
                                         TopicManager tm, ServerConfiguration cfg,
-                                        ScheduledExecutorService executor) {
+                                        OrderedSafeExecutor executor) {
         this.bk = bk;
         this.tpManager = metaManagerFactory.newTopicPersistenceManager();
         this.cfg = cfg;

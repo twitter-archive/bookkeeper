@@ -17,9 +17,8 @@
  */
 package org.apache.hedwig.server.subscriptions;
 
-import java.util.concurrent.ScheduledExecutorService;
-
 import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
@@ -40,7 +39,7 @@ public class StubSubscriptionManager extends InMemorySubscriptionManager {
 
     public StubSubscriptionManager(TopicManager tm, PersistenceManager pm, DeliveryManager dm,
                                    SubscriptionChannelManager subChannelMgr,
-                                   ServerConfiguration conf, ScheduledExecutorService scheduler) {
+                                   ServerConfiguration conf, OrderedSafeExecutor scheduler) {
         super(conf, tm, pm, dm, subChannelMgr, scheduler);
     }
 
