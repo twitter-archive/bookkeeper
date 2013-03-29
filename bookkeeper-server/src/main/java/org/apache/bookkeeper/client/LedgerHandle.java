@@ -64,7 +64,7 @@ public class LedgerHandle {
     long length;
     final DigestManager macManager;
     final DistributionSchedule distributionSchedule;
-
+    final AtomicInteger refCount;
     final RateLimiter throttler;
 
     /**
@@ -80,6 +80,7 @@ public class LedgerHandle {
                  DigestType digestType, byte[] password)
             throws GeneralSecurityException, NumberFormatException {
         this.bk = bk;
+        this.refCount = new AtomicInteger(0);
         this.metadata = metadata;
 
         if (metadata.isClosed()) {
@@ -98,6 +99,13 @@ public class LedgerHandle {
         this.ledgerKey = MacDigestManager.genDigest("ledger", password);
         distributionSchedule = new RoundRobinDistributionSchedule(
                 metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), metadata.getEnsembleSize());
+    }
+
+    public void hintOpen() {
+        // Hint to the handle that an open operation was performed. This is so that the handle can handle refCounts accordingly.
+        if (refCount.getAndIncrement() == 0) {
+            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
+        }
     }
 
     /**
@@ -227,8 +235,20 @@ public class LedgerHandle {
      *          control object
      * @throws InterruptedException
      */
-    public void asyncClose(CloseCallback cb, Object ctx) {
-        asyncCloseInternal(cb, ctx, BKException.Code.LedgerClosedException);
+    public void asyncClose(final CloseCallback origCb, final Object origCtx) {
+        CloseCallback cb = new CloseCallback() {
+            @Override
+            public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
+                if (rc == BKException.Code.OK) {
+                    if (refCount.decrementAndGet() == 0) {
+                        // Closed a ledger
+                        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
+                    }
+                    origCb.closeComplete(rc, lh, origCtx);
+                }
+            }
+        };
+        asyncCloseInternal(cb, origCtx, BKException.Code.LedgerClosedException);
     }
 
     /**
@@ -244,11 +264,7 @@ public class LedgerHandle {
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
-                // Don't update the stat if you're closing an already closed ledger
-                if (!metadata.isClosed()) {
-                    // Closed a ledger
-                    bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
-                } else {
+                if (metadata.isClosed()) {
                     // if the metadata is already closed, we don't need to proceed the process
                     // otherwise, it might end up encountering bad version error log messages when updating metadata
                     cb.closeComplete(BKException.Code.LedgerClosedException, LedgerHandle.this, ctx);

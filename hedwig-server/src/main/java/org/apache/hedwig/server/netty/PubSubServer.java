@@ -128,6 +128,9 @@ public class PubSubServer {
 
     ZooKeeper zk; // null if we are in standalone mode
     BookKeeper bk; // null if we are in standalone mode
+    // This bookkeeper client is used only for reading from ledgers.
+    // TODO: Create a ReadOnlyBookkeeper that overrides create/delete/close operations.
+    BookKeeper readBk; // null if we are in standalone mode
 
     // we use executor to prevent long stack chains from building up in callbacks
     OrderedSafeExecutorFactory schedulerFactory;
@@ -160,11 +163,12 @@ public class PubSubServer {
                 // could potentially block (Region manager uses these).
                 // TODO:  http://jira.local.twitter.com/browse/DATASERV-1266
                 bk = new BookKeeper(bkConf, zk);
+                readBk = new BookKeeper(bkConf, zk);
             } catch (KeeperException e) {
                 logger.error("Could not instantiate bookkeeper client", e);
                 throw new IOException(e);
             }
-            underlyingPM = new BookkeeperPersistenceManager(bk, mm, topicMgr, conf,
+            underlyingPM = new BookkeeperPersistenceManager(bk, readBk, mm, topicMgr, conf,
                     schedulerFactory.getExecutor(ExecutorType.PERSISTENCEMANAGER,
                             conf.getNumPersistenceManagerQueuerThreads()));
 
@@ -347,6 +351,8 @@ public class PubSubServer {
         try {
             if (bk != null)
                 bk.close();
+            if (readBk != null)
+                readBk.close();
             if (zk != null)
                 zk.close();
         } catch (InterruptedException e) {

@@ -286,7 +286,7 @@ public class TestBookKeeperPersistenceManager extends TestCase {
 
         scheduler = new OrderedSafeExecutor(conf.getNumSharedQueuerThreads());
         tm = new TrivialOwnAllTopicManager(conf, scheduler);
-        manager = new BookkeeperPersistenceManager(bktb.bk, metadataManagerFactory,
+        manager = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, metadataManagerFactory,
                                                    tm, conf, scheduler);
         sm = new MMSubscriptionManager(conf, metadataManagerFactory, tm, manager, null, null, scheduler);
     }

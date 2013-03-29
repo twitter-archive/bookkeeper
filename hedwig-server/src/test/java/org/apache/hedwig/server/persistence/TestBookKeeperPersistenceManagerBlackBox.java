@@ -70,7 +70,7 @@ public class TestBookKeeperPersistenceManagerBlackBox extends TestPersistenceMan
         metadataManagerFactory =
             MetadataManagerFactory.newMetadataManagerFactory(conf, bktb.getZooKeeperClient());
 
-        return new BookkeeperPersistenceManager(bktb.bk, metadataManagerFactory,
+        return new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, metadataManagerFactory,
                                                 new TrivialOwnAllTopicManager(conf, scheduler),
                                                 conf, scheduler);
     }

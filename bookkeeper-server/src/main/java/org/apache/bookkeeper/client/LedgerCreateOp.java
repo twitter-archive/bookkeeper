@@ -133,18 +133,19 @@ class LedgerCreateOp implements GenericCallback<Long> {
             createComplete(BKException.Code.IncorrectParameterException, null);
             return;
         }
-        // Opened a new ledger
-        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
         // return the ledger handle back
         createComplete(BKException.Code.OK, lh);
     }
 
     private void createComplete(int rc, LedgerHandle lh) {
+        // Opened a new ledger
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CREATE)
                     .registerFailedEvent(MathUtils.elapsedMSec(startTime));
         } else {
-
+            if (null != lh) {
+                lh.hintOpen();
+            }
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CREATE)
                     .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
         }

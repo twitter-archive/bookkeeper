@@ -20,6 +20,7 @@ package org.apache.hedwig.server.persistence;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 import junit.framework.TestCase;
 
@@ -73,7 +74,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
 
         mm = MetadataManagerFactory.newMetadataManagerFactory(conf, bktb.getZooKeeperClient());
 
-        bkpm = new BookkeeperPersistenceManager(bktb.bk, mm, tm, conf, scheduler);
+        bkpm = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, mm, tm, conf, scheduler);
     }
 
     @Override
@@ -92,7 +93,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
         assertNull(ConcurrencyUtils.take(stubCallback.queue).right());
         // now abandon, and try another time, the prev ledger should be dirty
 
-        bkpm = new BookkeeperPersistenceManager(new BookKeeper(bktb.getZkHostPort()), mm, tm,
+        bkpm = new BookkeeperPersistenceManager(new BookKeeper(bktb.getZkHostPort()),new BookKeeper(bktb.getZkHostPort()), mm, tm,
                                                 conf, scheduler);
         bkpm.acquiredTopic(topic, stubCallback, null);
         assertNull(ConcurrencyUtils.take(stubCallback.queue).right());
@@ -163,7 +164,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
         List<Message> messages = HelperMethods.getRandomPublishedMessages(NUM_MESSAGES_TO_TEST,
                                  SIZE_OF_MESSAGES_TO_TEST);
 
-        bkpm = new BookkeeperPersistenceManager(bktb.bk, mm, tm,
+        bkpm = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, mm, tm,
                                                 new ChangeLedgerServerConfiguration(), scheduler);
 
         // acquire the topic
@@ -256,7 +257,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
         List<Message> messages = HelperMethods.getRandomPublishedMessages(NUM_MESSAGES_TO_TEST,
                                  SIZE_OF_MESSAGES_TO_TEST);
 
-        bkpm = new BookkeeperPersistenceManager(bktb.bk, mm, tm,
+        bkpm = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, mm, tm,
                                                 new ChangeLedgerServerConfiguration(), scheduler);
 
         // acquire the topic
@@ -337,7 +338,7 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
         List<Message> messages = HelperMethods.getRandomPublishedMessages(NUM_MESSAGES_TO_TEST,
                                  SIZE_OF_MESSAGES_TO_TEST);
 
-        bkpm = new BookkeeperPersistenceManager(bktb.bk, mm, tm,
+        bkpm = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, mm, tm,
                                                 new ChangeLedgerServerConfiguration(), scheduler);
 
         // acquire the topic
@@ -355,5 +356,62 @@ public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
                      ConcurrencyUtils.take(persistCallback.queue).left().getLocalComponent());
         assertEquals(maxEntriesPerLedger, persistCallback.numSuccess);
         assertEquals(NUM_MESSAGES_TO_TEST - maxEntriesPerLedger, persistCallback.numFailed);
+    }
+
+    @Test
+    public void testSeparateReads() throws Exception {
+        int NUM_MESSAGE = 15;
+        int SIZE_MESSAGE = 100;
+        bkpm = new BookkeeperPersistenceManager(bktb.bk, bktb.readBk, mm, tm,
+                new ServerConfiguration() {
+                    @Override
+                    public long getMaxEntriesPerLedger() {
+                        return 10;
+                    }
+                }, scheduler);
+        List<Message> messages = HelperMethods.getRandomPublishedMessages(NUM_MESSAGE, SIZE_MESSAGE);
+        StubCallback<Void> stubCallback = new StubCallback<Void>();
+        bkpm.acquiredTopic(topic, stubCallback, null);
+        assertNull(ConcurrencyUtils.take(stubCallback.queue).right());
+        assertEquals(0, bkpm.topicInfos.get(topic).ledgerRanges.size());
+
+        // Write 15 messages. The ledger should be changed after writing the first 10.
+        // The reads for the first 10 entries should later go to the read only handle.
+        long index = 0;
+        for (Message message : messages) {
+            index++;
+            StubCallback<MessageSeqId> persistCallback = new StubCallback<MessageSeqId>();
+            bkpm.persistMessage(new PersistRequest(topic, message, persistCallback, null));
+            assertEquals(index, ConcurrencyUtils.take(persistCallback.queue).left().getLocalComponent());
+        }
+
+        StubScanCallback scanCallback = new StubScanCallback();
+        // A scan for all messages should work now.
+        bkpm.scanMessages(new RangeScanRequest(topic, 1, NUM_MESSAGE, Long.MAX_VALUE, scanCallback, null));
+        for (int i = 0; i < NUM_MESSAGE; i++) {
+            assertEquals(i+1, ConcurrencyUtils.take(scanCallback.queue).left().getMsgId().getLocalComponent());
+        }
+        // Stub scan callback will enqueue an empty message when the scan finishes.
+        assertEquals(0, ConcurrencyUtils.take(scanCallback.queue).left().getMsgId().getLocalComponent());
+        // Close the read-write handle
+        bkpm.bk.close();
+        // A read for messages 1 to 10 should not result in an error because it goes through the read only
+        // handle.
+        int NUM_SCAN = 10;
+        bkpm.scanMessages(new RangeScanRequest(topic, 1, NUM_SCAN, Long.MAX_VALUE, scanCallback, null));
+        for (int i = 0; i < NUM_SCAN; i++) {
+            assertEquals(i+1, ConcurrencyUtils.take(scanCallback.queue).left().getMsgId().getLocalComponent());
+        }
+        // Stub scan callback will enqueue an empty message when the scan finishes.
+        assertEquals(0, ConcurrencyUtils.take(scanCallback.queue).left().getMsgId().getLocalComponent());
+        // Scanning message #11 should result in an error because the read-write handle is closed.
+        try {
+            bkpm.scanMessages(new RangeScanRequest(topic, 11, 1, Long.MAX_VALUE, scanCallback, null));
+            // Should not reach here as the handle is closed and should throw a RejectedExecutionException
+            // on trying to scan a message
+            fail("scanMessages succeeded although read-write client is closed.");
+        } catch (RejectedExecutionException e) {
+            // Expected
+        }
     }
 }

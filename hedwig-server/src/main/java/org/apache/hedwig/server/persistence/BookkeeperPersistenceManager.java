@@ -82,7 +82,9 @@ import com.google.protobuf.InvalidProtocolBufferException;
 public class BookkeeperPersistenceManager implements PersistenceManagerWithRangeScan, TopicOwnershipChangeListener {
     static Logger logger = LoggerFactory.getLogger(BookkeeperPersistenceManager.class);
     static byte[] passwd = "sillysecret".getBytes();
-    private final BookKeeper bk;
+    // Package visible for tests.
+    final BookKeeper bk;
+    final BookKeeper readBk;
     private final TopicPersistenceManager tpManager;
     private final ServerConfiguration cfg;
     final private ByteString myRegion;
@@ -95,7 +97,12 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
 
     static class InMemoryLedgerRange {
         LedgerRange range;
-        LedgerHandle handle;
+        // We maintain two separate handles so that any mutating operations go through only the first one.
+        // Use this handle for all writes. Also for reads from the ledger that is currently written to
+        LedgerHandle handle = null;
+        // Use this handle for reads if this ledger is closed. Initially, this value is null if the ledger
+        // is not in a closed state.
+        LedgerHandle readHandle = null;
 
         public InMemoryLedgerRange(LedgerRange range, LedgerHandle handle) {
             this.range = range;
@@ -109,6 +116,17 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         public long getStartSeqIdIncluded() {
             assert range.hasStartSeqIdIncluded();
             return range.getStartSeqIdIncluded();
+        }
+
+        public void closeHandles() {
+            if (null != handle) {
+                closeLedger(handle);
+                handle = null;
+            }
+            if (null != readHandle) {
+                closeLedger(readHandle);
+                readHandle = null;
+            }
         }
     }
 
@@ -189,10 +207,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
      * @param executor
      *            A executor
      */
-    public BookkeeperPersistenceManager(BookKeeper bk, MetadataManagerFactory metaManagerFactory,
+    public BookkeeperPersistenceManager(BookKeeper bk, BookKeeper readBk, MetadataManagerFactory metaManagerFactory,
                                         TopicManager tm, ServerConfiguration cfg,
                                         OrderedSafeExecutor executor) {
         this.bk = bk;
+        this.readBk = readBk;
         this.tpManager = metaManagerFactory.newTopicPersistenceManager();
         this.cfg = cfg;
         this.myRegion = ByteString.copyFromUtf8(cfg.getMyRegion());
@@ -243,7 +262,8 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             startReadingFrom(startSeqIdToScan < 0 ? request.startSeqId : startSeqIdToScan);
         }
 
-        protected void read(final InMemoryLedgerRange imlr, final long startSeqId, final long endSeqId) {
+        protected void read(final InMemoryLedgerRange imlr, final long startSeqId, final long endSeqId,
+                            final boolean isLedgerOpen) {
             // Verify whether startSeqId falls in ledger range.
             // Only the left endpoint of range needs to be checked.
             if (imlr.getStartSeqIdIncluded() > startSeqId) {
@@ -257,28 +277,78 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 lostTopic(topic);
                 return;
             }
-
-            if (imlr.handle == null) {
-
-                bk.asyncOpenLedger(imlr.range.getLedgerId(), DigestType.CRC32, passwd,
-                new SafeAsynBKCallback.OpenCallback() {
-                    @Override
-                    public void safeOpenComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
-                        if (rc == BKException.Code.OK) {
-                            imlr.handle = ledgerHandle;
-                            read(imlr, startSeqId, endSeqId);
-                            return;
-                        }
-                        BKException bke = BKException.create(rc);
-                        logger.error("Could not open ledger: " + imlr.range.getLedgerId() + " for topic: "
-                                     + topic);
-                        request.callback.scanFailed(ctx, new PubSubException.ServiceDownException(bke));
-                        return;
-                    }
-                }, request.ctx);
-                return;
+            if (logger.isDebugEnabled()) {
+                logger.debug("Read request for IMLR:" + imlr + " startSeqId:" + startSeqId + ", endSeqId:" + endSeqId + ", " +
+                        "ledgerIsOpen:" + isLedgerOpen);
             }
 
+            if (isLedgerOpen) {
+                if (imlr.handle == null) {
+                    bk.asyncOpenLedger(imlr.range.getLedgerId(), DigestType.CRC32, passwd,
+                    new SafeAsynBKCallback.OpenCallback() {
+                        @Override
+                        public void safeOpenComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
+                            if (rc == BKException.Code.OK) {
+                                imlr.handle = ledgerHandle;
+                                // Even if the ledger is closed, it's okay to let this request go through.
+                                read(imlr, startSeqId, endSeqId, true);
+                                return;
+                            }
+                            BKException bke = BKException.create(rc);
+                            logger.error("From read-write client, Could not open ledger: " + imlr.range.getLedgerId() + " for topic: "
+                                    + topic);
+                            request.callback.scanFailed(ctx, new PubSubException.ServiceDownException(bke));
+                            return;
+                        }
+                    }, request.ctx);
+                    return;
+                }
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Read issued from read-write ledger handle for currently open ledger:" + imlr.handle.getId());
+                }
+                readUsingLedgerHandle(imlr, startSeqId, endSeqId, false);
+            } else {
+                // Use the read only handle for the operation otherwise.
+                if (imlr.readHandle == null) {
+                    readBk.asyncOpenLedger(imlr.range.getLedgerId(), DigestType.CRC32, passwd,
+                    new SafeAsynBKCallback.OpenCallback() {
+                        @Override
+                        public void safeOpenComplete(int rc, LedgerHandle ledgerHandle, Object ctx) {
+                            if (rc == BKException.Code.OK) {
+                                imlr.readHandle = ledgerHandle;
+                                read(imlr, startSeqId, endSeqId, false);
+                                return;
+                            }
+                            BKException bke = BKException.create(rc);
+                            logger.error("From read-only client, Could not open ledger: " + imlr.range.getLedgerId() + " for topic: "
+                                    + topic);
+                            request.callback.scanFailed(ctx, new PubSubException.ServiceDownException(bke));
+                            return;
+                        }
+                    }, request.ctx);
+                    return;
+                }
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Read issued from read-only ledger handle for currently open ledger:" + imlr.handle.getId());
+                }
+                readUsingLedgerHandle(imlr, startSeqId, endSeqId, true);
+            }
+        }
+
+        /**
+         *
+         * @param imlr
+         * @param startSeqId
+         * @param endSeqId
+         * @param useReadHandle
+         *      If this is true, we will use the read handle for the read operations.
+         *
+         * Reads entries from the
+         */
+
+        protected void readUsingLedgerHandle(final InMemoryLedgerRange imlr, final long startSeqId, final long endSeqId, boolean useReadHandle) {
+            LedgerHandle ledgerHandle = useReadHandle ? imlr.readHandle : imlr.handle;
+            assert ledgerHandle != null;
             // ledger handle is not null, we can read from it
             long correctedEndSeqId = Math.min(startSeqId + request.messageLimit - numMessagesRead - 1, endSeqId);
 
@@ -288,7 +358,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                              + (correctedEndSeqId - imlr.getStartSeqIdIncluded()));
             }
 
-            imlr.handle.asyncReadEntries(startSeqId - imlr.getStartSeqIdIncluded(), correctedEndSeqId
+            ledgerHandle.asyncReadEntries(startSeqId - imlr.getStartSeqIdIncluded(), correctedEndSeqId
             - imlr.getStartSeqIdIncluded(), new SafeAsynBKCallback.ReadCallback() {
 
                 long expectedEntryId = startSeqId - imlr.getStartSeqIdIncluded();
@@ -365,9 +435,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     return;
                 }
 
-                read(topicInfo.currentLedgerRange, startSeqId, endSeqId);
+                read(topicInfo.currentLedgerRange, startSeqId, endSeqId, true);
             } else {
-                read(entry.getValue(), startSeqId, entry.getValue().range.getEndSeqIdIncluded().getLocalComponent());
+                // The ledger should be closed if it reaches here.
+                read(entry.getValue(), startSeqId, entry.getValue().range.getEndSeqIdIncluded().getLocalComponent(), false);
             }
 
         }
@@ -473,12 +544,16 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     topic, pushedSeqId - seqId, false);
 
             final LinkedList<Long> ledgersToDelete = new LinkedList<Long>();
-            for (Long endSeqIdIncluded : topicInfo.ledgerRanges.keySet()) {
+            for (Map.Entry<Long, InMemoryLedgerRange> entry : topicInfo.ledgerRanges.entrySet()) {
+                long endSeqIdIncluded = entry.getKey();
                 if (endSeqIdIncluded <= seqId) {
                     // This ledger's message entries have all been consumed already
                     // so it is safe to delete it from BookKeeper.
-                    long ledgerId = topicInfo.ledgerRanges.get(endSeqIdIncluded).range.getLedgerId();
+                    long ledgerId = entry.getValue().range.getLedgerId();
                     ledgersToDelete.add(ledgerId);
+                    // Also, close any open read ledger handles.
+                    InMemoryLedgerRange imlr = entry.getValue();
+                    closeImlrHandles(imlr);
                 } else {
                     break;
                 }
@@ -1235,9 +1310,16 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         queuer.pushAndMaybeRun(topic, new ChangeLedgerOp(topic, cb, ctx));
     }
 
-    public void closeLedger(LedgerHandle lh) {
+    public static void closeLedger(LedgerHandle lh) {
         logger.info("Issuing a close for ledger:" + lh.getId());
         lh.asyncClose(noOpCloseCallback, null);
+    }
+
+    public void closeImlrHandles(InMemoryLedgerRange imlr) {
+        if (null == imlr) {
+            return;
+        }
+        imlr.closeHandles();
     }
 
     class ReleaseOp extends TopicOpQueuer.TimedSynchronousOp {
@@ -1258,13 +1340,11 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             }
 
             for (InMemoryLedgerRange imlr : topicInfo.ledgerRanges.values()) {
-                if (imlr.handle != null) {
-                    closeLedger(imlr.handle);
-                }
+                closeImlrHandles(imlr);
             }
 
-            if (topicInfo.currentLedgerRange != null && topicInfo.currentLedgerRange.handle != null) {
-                closeLedger(topicInfo.currentLedgerRange.handle);
+            if (topicInfo.currentLedgerRange != null) {
+                closeImlrHandles(topicInfo.currentLedgerRange);
             }
         }
     }

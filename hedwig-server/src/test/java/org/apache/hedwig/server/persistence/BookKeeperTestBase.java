@@ -103,6 +103,8 @@ public class BookKeeperTestBase extends ZooKeeperTestBase {
     private final int numBookies;
     // BookKeeper client instance
     protected BookKeeper bk;
+    // The bookkeeper client for reads used by the BKPM
+    protected BookKeeper readBk;
 
     protected ServerConfiguration baseConf = newServerConfiguration();
     protected ClientConfiguration baseClientConf = new ClientConfiguration();
@@ -157,6 +159,7 @@ public class BookKeeperTestBase extends ZooKeeperTestBase {
 
         // Create the BookKeeper client
         bk = new BookKeeper(hostPort);
+        readBk = new BookKeeper(hostPort);
     }
 
     public String getZkHostPort() {
@@ -172,6 +175,7 @@ public class BookKeeperTestBase extends ZooKeeperTestBase {
         }
         // Close the BookKeeper client
         bk.close();
+        readBk.close();
         super.tearDown();
     }
 

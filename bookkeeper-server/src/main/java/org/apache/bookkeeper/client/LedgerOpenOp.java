@@ -194,16 +194,12 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
                     .registerFailedEvent(startTime);
-            if (doRecovery && rc == BKException.Code.LedgerRecoveryException) {
-                // Do this in case of error because the recover() function closes the ledger and as a result
-                // decrements this counter.
-                bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
-            }
         } else {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
                     .registerSuccessfulEvent(startTime);
-            // Increment the number indicates there is an opened ledger.
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
+            if (null != lh) {
+                lh.hintOpen();
+            }
         }
         cb.openComplete(rc, lh, ctx);
     }
