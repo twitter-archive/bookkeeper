@@ -18,6 +18,7 @@
 package org.apache.hedwig.server.topics;
 
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 
 import org.apache.zookeeper.KeeperException;
@@ -27,7 +28,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import com.google.protobuf.ByteString;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.CompositeException;
@@ -91,7 +91,7 @@ public class TestMMTopicManager extends MetadataManagerFactoryTestCase {
 
     protected ByteString topic = ByteString.copyFromUtf8("topic");
     protected HedwigSocketAddress me;
-    protected OrderedSafeExecutor scheduler;
+    protected ScheduledExecutorService scheduler;
 
     public TestMMTopicManager(String metaManagerCls) {
         super(metaManagerCls);
@@ -102,7 +102,7 @@ public class TestMMTopicManager extends MetadataManagerFactoryTestCase {
     public void setUp() throws Exception {
         super.setUp();
         me = conf.getServerAddr();
-        scheduler = new OrderedSafeExecutor(conf.getNumSharedQueuerThreads());
+        scheduler = Executors.newSingleThreadScheduledExecutor();
         tom = metadataManagerFactory.newTopicOwnershipManager();
         tm = new MMTopicManager(conf, zk, metadataManagerFactory, scheduler);
     }

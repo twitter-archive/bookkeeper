@@ -32,16 +32,35 @@ import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.client.BookKeeper;
+import com.google.protobuf.ByteString;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.stats.HTTPStatsExporter;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
-import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol;
+import org.apache.hedwig.server.stats.*;
+import org.apache.hedwig.util.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
+import org.jboss.netty.bootstrap.ServerBootstrap;
+import org.jboss.netty.channel.group.ChannelGroup;
+import org.jboss.netty.channel.group.DefaultChannelGroup;
+import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
+import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
+import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
+import org.jboss.netty.logging.InternalLoggerFactory;
+import org.jboss.netty.logging.Log4JLoggerFactory;
+
+import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.common.TerminateJVMExceptionHandler;
@@ -59,7 +78,6 @@ import org.apache.hedwig.server.handlers.UnsubscribeHandler;
 import org.apache.hedwig.server.jmx.HedwigMBeanRegistry;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.meta.ZkMetadataManagerFactory;
-import org.apache.hedwig.server.netty.OrderedSafeExecutorFactory.ExecutorType;
 import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
 import org.apache.hedwig.server.persistence.LocalDBPersistenceManager;
 import org.apache.hedwig.server.persistence.PersistenceManager;
@@ -69,39 +87,16 @@ import org.apache.hedwig.server.regions.HedwigHubClientFactory;
 import org.apache.hedwig.server.regions.RegionManager;
 import org.apache.hedwig.server.ssl.SslServerContextFactory;
 import org.apache.hedwig.server.stats.HedwigServerStatsLogger.PerTopicStatType;
-import org.apache.hedwig.server.stats.PerTopicCrossRegionStat;
-import org.apache.hedwig.server.stats.PerTopicPendingMessageStat;
-import org.apache.hedwig.server.stats.PerTopicStat;
-import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.server.subscriptions.InMemorySubscriptionManager;
-import org.apache.hedwig.server.subscriptions.MMSubscriptionManager;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
+import org.apache.hedwig.server.subscriptions.MMSubscriptionManager;
 import org.apache.hedwig.server.topics.MMTopicManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.server.topics.TrivialOwnAllTopicManager;
 import org.apache.hedwig.server.topics.ZkTopicManager;
 import org.apache.hedwig.util.ConcurrencyUtils;
 import org.apache.hedwig.util.Either;
-import org.apache.hedwig.util.Pair;
 import org.apache.hedwig.zookeeper.SafeAsyncCallback;
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
-import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.channel.group.ChannelGroup;
-import org.jboss.netty.channel.group.DefaultChannelGroup;
-import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
-import org.jboss.netty.channel.socket.ServerSocketChannelFactory;
-import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
-import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
-import org.jboss.netty.logging.InternalLoggerFactory;
-import org.jboss.netty.logging.Log4JLoggerFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.protobuf.ByteString;
 
 public class PubSubServer {
 
@@ -132,10 +127,7 @@ public class PubSubServer {
     // TODO: Create a ReadOnlyBookkeeper that overrides create/delete/close operations.
     BookKeeper readBk; // null if we are in standalone mode
 
-    // we use executor to prevent long stack chains from building up in callbacks
-    OrderedSafeExecutorFactory schedulerFactory;
-
-    // scheduled used to export http stats
+    // we use this to prevent long stack chains from building up in callbacks
     ScheduledExecutorService scheduler;
 
     // JMX Beans
@@ -168,9 +160,7 @@ public class PubSubServer {
                 logger.error("Could not instantiate bookkeeper client", e);
                 throw new IOException(e);
             }
-            underlyingPM = new BookkeeperPersistenceManager(bk, readBk, mm, topicMgr, conf,
-                    schedulerFactory.getExecutor(ExecutorType.PERSISTENCEMANAGER,
-                            conf.getNumPersistenceManagerQueuerThreads()));
+            underlyingPM = new BookkeeperPersistenceManager(bk, readBk, mm, topicMgr, conf, scheduler);
 
         }
 
@@ -185,20 +175,17 @@ public class PubSubServer {
 
     protected SubscriptionManager instantiateSubscriptionManager(TopicManager tm, PersistenceManager pm,
                                                                  DeliveryManager dm, SubscriptionChannelManager subChannelMgr) {
-        OrderedSafeExecutor executor =
-            schedulerFactory.getExecutor(ExecutorType.SUBSCRIPTIONMANAGER, conf.getNumSubscriptionManagerQueuerThreads());
         if (conf.isStandalone()) {
-            return new InMemorySubscriptionManager(conf, tm, pm, dm, subChannelMgr, executor);
+            return new InMemorySubscriptionManager(conf, tm, pm, dm, subChannelMgr, scheduler);
         } else {
-            return new MMSubscriptionManager(conf, mm, tm, pm, dm, subChannelMgr, executor);
+            return new MMSubscriptionManager(conf, mm, tm, pm, dm, subChannelMgr, scheduler);
         }
 
     }
 
-    protected RegionManager instantiateRegionManager(PersistenceManager pm) {
-        return new RegionManager(pm, conf, tm,
-                schedulerFactory.getExecutor(ExecutorType.REGIONMANAGER, conf.getNumRegionManagerQueuerThreads()),
-                new HedwigHubClientFactory(conf, clientConfiguration, clientChannelFactory));
+    protected RegionManager instantiateRegionManager(PersistenceManager pm, ScheduledExecutorService scheduler) {
+        return new RegionManager(pm, conf, tm, scheduler, new HedwigHubClientFactory(conf, clientConfiguration,
+                clientChannelFactory));
     }
 
     /**
@@ -256,21 +243,20 @@ public class PubSubServer {
 
     protected TopicManager instantiateTopicManager() throws IOException {
         TopicManager tm;
-        OrderedSafeExecutor executor = schedulerFactory.getExecutor(ExecutorType.TOPICMANAGER,
-                conf.getNumTopicManagerQueuerThreads());
+
         if (conf.isStandalone()) {
-            tm = new TrivialOwnAllTopicManager(conf, executor);
+            tm = new TrivialOwnAllTopicManager(conf, scheduler);
         } else {
             try {
                 if (conf.isMetadataManagerBasedTopicManagerEnabled()) {
-                    tm = new MMTopicManager(conf, zk, mm, executor);
+                    tm = new MMTopicManager(conf, zk, mm, scheduler);
                 } else {
                     if (!(mm instanceof ZkMetadataManagerFactory)) {
                         throw new IOException("Uses " + mm.getClass().getName() + " to store hedwig metadata, "
                                             + "but uses zookeeper ephemeral znodes to store topic ownership. "
                                             + "Check your configuration as this could lead to scalability issues.");
                     }
-                    tm = new ZkTopicManager(zk, conf, executor);
+                    tm = new ZkTopicManager(zk, conf, scheduler);
                 }
             } catch (PubSubException e) {
                 logger.error("Could not instantiate TopicOwnershipManager based topic manager", e);
@@ -366,7 +352,6 @@ public class PubSubServer {
         serverChannelFactory.releaseExternalResources();
         clientChannelFactory.releaseExternalResources();
         scheduler.shutdown();
-        schedulerFactory.shutdown();
 
         // unregister jmx
         unregisterJMX();
@@ -555,7 +540,6 @@ public class PubSubServer {
                     // Since zk is needed by almost everyone,try to see if we
                     // need that first
                     scheduler = Executors.newSingleThreadScheduledExecutor();
-                    schedulerFactory = new OrderedSafeExecutorFactory(conf);
                     serverChannelFactory = new NioServerSocketChannelFactory(Executors.newCachedThreadPool(), Executors
                             .newCachedThreadPool());
                     clientChannelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors
@@ -570,7 +554,7 @@ public class PubSubServer {
                     dm.start();
 
                     sm = instantiateSubscriptionManager(tm, pm, dm, subChannelMgr);
-                    rm = instantiateRegionManager(pm);
+                    rm = instantiateRegionManager(pm, scheduler);
                     sm.addListener(rm);
 
                     allChannels = new DefaultChannelGroup("hedwig");

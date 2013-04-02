@@ -24,8 +24,8 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
 
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -103,7 +103,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
     public AbstractSubscriptionManager(ServerConfiguration cfg, TopicManager tm,
                                        PersistenceManager pm, DeliveryManager dm,
                                        SubscriptionChannelManager subChannelMgr,
-                                       OrderedSafeExecutor scheduler) {
+                                       ScheduledExecutorService scheduler) {
         this.cfg = cfg;
         localQueuer = new TopicOpQueuer(scheduler);
         remoteQueuer = new TopicOpQueuer(scheduler);

@@ -22,9 +22,9 @@ package org.apache.hedwig.server.topics;
 
 import java.net.UnknownHostException;
 import java.io.IOException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -61,7 +61,7 @@ public class MMTopicManager extends AbstractTopicManager implements TopicManager
 
     public MMTopicManager(ServerConfiguration cfg, ZooKeeper zk,
                           MetadataManagerFactory mmFactory,
-                          OrderedSafeExecutor scheduler)
+                          ScheduledExecutorService scheduler)
             throws UnknownHostException, PubSubException {
         super(cfg, scheduler);
         // initialize topic ownership manager

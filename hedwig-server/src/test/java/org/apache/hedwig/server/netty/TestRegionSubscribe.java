@@ -17,27 +17,34 @@
  */
 package org.apache.hedwig.server.netty;
 
-import junit.framework.Assert;
+import java.net.InetSocketAddress;
 
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.apache.hedwig.client.HedwigClient;
-import org.apache.hedwig.client.api.Subscriber;
-import org.apache.hedwig.client.conf.ClientConfiguration;
-import org.apache.hedwig.exceptions.PubSubException;
-import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
-import org.apache.hedwig.server.common.ServerConfiguration;
-import org.apache.hedwig.server.netty.OrderedSafeExecutorFactory.ExecutorType;
-import org.apache.hedwig.server.topics.TopicManager;
-import org.apache.hedwig.server.topics.ZkTopicManager;
-import org.apache.hedwig.util.Callback;
-import org.apache.hedwig.util.HedwigSocketAddress;
-import org.apache.hedwig.zookeeper.ZooKeeperTestBase;
-import org.apache.zookeeper.ZooKeeper;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
+import org.junit.Before;
+import org.junit.After;
+import junit.framework.TestCase;
+import junit.framework.Assert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
+import org.apache.hedwig.client.HedwigClient;
+import org.apache.hedwig.client.api.Publisher;
+import org.apache.hedwig.exceptions.PubSubException;
+import org.apache.hedwig.client.conf.ClientConfiguration;
+import org.apache.hedwig.protocol.PubSubProtocol.Message;
+import org.apache.hedwig.server.common.ServerConfiguration;
+import org.apache.hedwig.util.Callback;
+import org.apache.zookeeper.ZooKeeper;
+import org.apache.hedwig.zookeeper.ZkUtils;
+import org.apache.hedwig.zookeeper.ZooKeeperTestBase;
+import org.apache.hedwig.client.api.Subscriber;
+import org.apache.hedwig.protocol.PubSubProtocol.SubscribeRequest;
+import org.apache.hedwig.server.topics.TopicManager;
+import org.apache.hedwig.server.topics.ZkTopicManager;
+import org.apache.hedwig.server.regions.RegionManager;
+import org.apache.hedwig.server.regions.HedwigHubClient;
+import org.apache.hedwig.util.HedwigSocketAddress;
 
 public class TestRegionSubscribe extends ZooKeeperTestBase {
     final int port = 4080;  // Local region port
@@ -55,10 +62,9 @@ public class TestRegionSubscribe extends ZooKeeperTestBase {
         @Override
         protected TopicManager instantiateTopicManager() throws java.io.IOException {
             TopicManager tm;
-            OrderedSafeExecutor executor = schedulerFactory.getExecutor(ExecutorType.TOPICMANAGER,
-                    conf.getNumSharedQueuerThreads());
+
             try {
-                tm = new ZkTopicManager(zk, conf, executor);
+                tm = new ZkTopicManager(zk, conf, scheduler);
             } catch (PubSubException e) {
                 logger.error("Could not instantiate Zk based topic manager", e);
                 throw new java.io.IOException(e);

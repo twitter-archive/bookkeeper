@@ -80,19 +80,11 @@ public class OrderedSafeExecutor {
 
     }
 
-    public void unsafeSubmit(Runnable r) {
-        chooseThread().submit(r);
-    }
-
     /**
      * schedules a one time action to execute
      */
     public void submit(SafeRunnable r) {
         chooseThread().submit(r);
-    }
-
-    public void unsafeSubmitOrdered(Object orderingKey, Runnable r) {
-        chooseThread(orderingKey).submit(r);
     }
 
     /**

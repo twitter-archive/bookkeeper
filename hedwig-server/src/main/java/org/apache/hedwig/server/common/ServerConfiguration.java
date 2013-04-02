@@ -27,15 +27,15 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
+
+import com.google.protobuf.ByteString;
+import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.hedwig.conf.AbstractConfiguration;
 import org.apache.hedwig.protocol.PubSubProtocol;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.util.HedwigSocketAddress;
-
-import com.google.protobuf.ByteString;
 
 public class ServerConfiguration extends AbstractConfiguration {
     public final static String REGION = "region";
@@ -79,13 +79,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String REBALANCE_INTERVAL_SEC = "rebalance_interval_sec";
     protected final static String NUM_READAHEAD_CACHE_THREADS = "num_readahead_cache_threads";
     protected final static String NUM_DELIVERY_THREADS = "num_delivery_threads";
-    protected final static String NUM_SHARED_QUEUER_THREADS = "num_shared_queuer_threads";
-    protected final static String NUM_TOPICMANAGER_QUEUER_THREADS = "num_topicmanager_queuer_threads";
-    protected final static String NUM_SUBSCRIPTIONMANAGER_QUEUER_THREADS = "num_subscriptionmanager_queuer_threads";
-    protected final static String NUM_PERSISTENCEMANAGER_QUEUER_THREADS = "num_persistencemanager_queuer_threads";
-    protected final static String NUM_REGIONMANAGER_QUEUER_THREADS = "num_regionmanager_queuer_threads";
     protected final static String CACHE_ENTRY_OVERHEAD_BYTES = "cache_entry_overhead_bytes";
-    protected final static String SHARED_EXECUTOR_ENABLED = "shared_executor_enabled";
 
     // manager related settings
     protected final static String METADATA_MANAGER_BASED_TOPIC_MANAGER_ENABLED = "metadata_manager_based_topic_manager_enabled";
@@ -294,7 +288,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     public boolean isSSLEnabled() {
         return conf.getBoolean(SSL_ENABLED, false);
     }
-
+    
     public boolean isSSLCompressionEnabled() {
         return conf.getBoolean(SSL_COMPRESSION_ENABLED, false);
     }
@@ -487,60 +481,6 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getNumDeliveryThreads() {
         return conf.getInt(NUM_DELIVERY_THREADS, Runtime.getRuntime().availableProcessors());
-    }
-
-    /**
-     * Get number of topic queuer threads. Used by a shared executor.
-     *
-     * @return number of topic queuer threads.
-     */
-    public int getNumSharedQueuerThreads() {
-        return conf.getInt(NUM_SHARED_QUEUER_THREADS, Runtime.getRuntime().availableProcessors());
-    }
-
-    /**
-     * Get number of topic manager queuer threads. Used by a dedicated executor for topic manager.
-     *
-     * @return number of queuer threads used for topic manager.
-     */
-    public int getNumTopicManagerQueuerThreads() {
-        return conf.getInt(NUM_TOPICMANAGER_QUEUER_THREADS, Runtime.getRuntime().availableProcessors());
-    }
-
-    /**
-     * Get number of subscription manager queuer threads. Used by a dedicated executor for subscription manager.
-     *
-     * @return number of queuer threads used for subscription manager.
-     */
-    public int getNumSubscriptionManagerQueuerThreads() {
-        return conf.getInt(NUM_SUBSCRIPTIONMANAGER_QUEUER_THREADS, 1);
-    }
-
-    /**
-     * Get number of persistence manager queuer threads. Used by a dedicated executor for persistence manager.
-     *
-     * @return number of queuer threads used for persistence manager.
-     */
-    public int getNumPersistenceManagerQueuerThreads() {
-        return conf.getInt(NUM_PERSISTENCEMANAGER_QUEUER_THREADS, Runtime.getRuntime().availableProcessors());
-    }
-
-    /**
-     * Get number of region manager queuer threads. Used by a dedicated executor for region manager.
-     *
-     * @return number of queuer threads used for region manager.
-     */
-    public int getNumRegionManagerQueuerThreads() {
-        return conf.getInt(NUM_REGIONMANAGER_QUEUER_THREADS, 1);
-    }
-
-    /**
-     * Is a shared executor used for all managers.
-     *
-     * @return true if a shared executor is used, otherwise false.
-     */
-    public boolean isSharedExecutorEnabled() {
-        return conf.getBoolean(SHARED_EXECUTOR_ENABLED, false);
     }
 
     /**

@@ -18,17 +18,17 @@
 package org.apache.hedwig.server.topics;
 
 import com.google.protobuf.ByteString;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.HedwigSocketAddress;
 import org.apache.hedwig.exceptions.PubSubException;
 
 import java.net.UnknownHostException;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class TrivialOwnAllTopicManager extends AbstractTopicManager {
 
-    public TrivialOwnAllTopicManager(ServerConfiguration cfg, OrderedSafeExecutor scheduler)
+    public TrivialOwnAllTopicManager(ServerConfiguration cfg, ScheduledExecutorService scheduler)
             throws UnknownHostException {
         super(cfg, scheduler);
     }

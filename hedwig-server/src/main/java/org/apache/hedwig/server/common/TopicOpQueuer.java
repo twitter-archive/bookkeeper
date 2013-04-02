@@ -17,41 +17,32 @@
  */
 package org.apache.hedwig.server.common;
 
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Queue;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.server.persistence.BookkeeperPersistenceManager;
 import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.util.Callback;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
 
 public class TopicOpQueuer {
-
-    static final Logger logger = LoggerFactory.getLogger(TopicOpQueuer.class);
-
     /**
      * Map from topic to the queue of operations for that topic.
      */
-    protected ConcurrentHashMap<ByteString, Queue<Runnable>> topic2ops =
-        new ConcurrentHashMap<ByteString, Queue<Runnable>>();
+    protected HashMap<ByteString, Queue<Runnable>> topic2ops = new HashMap<ByteString, Queue<Runnable>>();
 
-    protected final OrderedSafeExecutor scheduler;
+    protected final ScheduledExecutorService scheduler;
 
-    public TopicOpQueuer(OrderedSafeExecutor scheduler) {
+    public TopicOpQueuer(ScheduledExecutorService scheduler) {
         this.scheduler = scheduler;
     }
 
-    // We should not use SafeRunnable for Hedwig here
-    // since SafeRunnable will caught and ignore all potention throwable
-    // which is bad. Check 'TestPubSubServer' test cases for the reason.
     public interface Op extends Runnable {
     }
 
@@ -183,44 +174,22 @@ public class TopicOpQueuer {
         }
     }
 
-    protected void popAndRunNext(ByteString topic) {
-        // since we used concurrent hash map, we could
-        // get the queue without synchronized whole queue map
+    protected synchronized void popAndRunNext(ByteString topic) {
         Queue<Runnable> ops = topic2ops.get(topic);
-        if (null == ops) {
-            logger.error("No queuer found for topic {} to pop and run.", topic.toStringUtf8());
-            return;
-        }
-        synchronized (ops) {
-            if (!ops.isEmpty())
-                ops.remove();
-            if (!ops.isEmpty()) {
-                scheduler.unsafeSubmitOrdered(topic, ops.peek());
-            } else {
-                // it's unsafe to remove topic queue here
-                // since some other threads may already get ops
-                // queue instance, remove it may cause some problems
-                // TODO: need to think a better solution for it.
-                // topic2ops.remove(topic, ops);
-            }
-        }
+        if (!ops.isEmpty())
+            ops.remove();
+        if (!ops.isEmpty())
+            scheduler.submit(ops.peek());
     }
 
     public void pushAndMaybeRun(ByteString topic, Op op) {
         int size;
-        Queue<Runnable> ops = topic2ops.get(topic);
-        if (null == ops) {
-            Queue<Runnable> newOps = new LinkedList<Runnable>();
-            Queue<Runnable> oldOps = topic2ops.putIfAbsent(topic, newOps);
-            if (null == oldOps) {
-                // no queue associated with the topic
-                ops = newOps;
-            } else {
-                // someone already create a queue
-                ops = oldOps;
+        synchronized (this) {
+            Queue<Runnable> ops = topic2ops.get(topic);
+            if (ops == null) {
+                ops = new LinkedList<Runnable>();
+                topic2ops.put(topic, ops);
             }
-        }
-        synchronized (ops) {
             ops.add(op);
             // increment = true
             updatePersistQueueSize(op, true);
@@ -231,4 +200,7 @@ public class TopicOpQueuer {
         }
     }
 
+    public Runnable peek(ByteString topic) {
+        return topic2ops.get(topic).peek();
+    }
 }

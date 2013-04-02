@@ -25,6 +25,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.CountDownLatch;
 
 import org.slf4j.Logger;
@@ -32,7 +33,6 @@ import org.slf4j.LoggerFactory;
 import org.apache.hedwig.server.topics.TopicManager;
 
 import com.google.protobuf.ByteString;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.client.exceptions.AlreadyStartDeliveryException;
 import org.apache.hedwig.exceptions.PubSubException;
@@ -130,7 +130,7 @@ public class RegionManager implements SubscriptionEventListener {
     }
 
     public RegionManager(final PersistenceManager pm, final ServerConfiguration cfg, final TopicManager tm,
-                         OrderedSafeExecutor scheduler, HedwigHubClientFactory hubClientFactory) {
+                         ScheduledExecutorService scheduler, HedwigHubClientFactory hubClientFactory) {
         this.pm = pm;
         this.tm = tm;
         mySubId = ByteString.copyFromUtf8(SubscriptionStateUtils.HUB_SUBSCRIBER_PREFIX + cfg.getMyRegion());

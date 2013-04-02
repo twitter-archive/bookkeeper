@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.SynchronousQueue;
 
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
@@ -133,8 +132,7 @@ public class TestPubSubServer extends PubSubServerStandAloneTestBase {
 
             @Override
             public TopicManager instantiateTopicManager() throws IOException {
-                ServerConfiguration cfg = new ServerConfiguration();
-                return new AbstractTopicManager(cfg, new OrderedSafeExecutor(cfg.getNumSharedQueuerThreads())) {
+                return new AbstractTopicManager(new ServerConfiguration(), Executors.newSingleThreadScheduledExecutor()) {
                     @Override
                     public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
                                                                final Callback<Void> cb, final Object ctx,
@@ -184,8 +182,7 @@ public class TestPubSubServer extends PubSubServerStandAloneTestBase {
 
             @Override
             public TopicManager instantiateTopicManager() throws IOException {
-                ServerConfiguration cfg = new ServerConfiguration();
-                return new AbstractTopicManager(cfg, new OrderedSafeExecutor(cfg.getNumSharedQueuerThreads())) {
+                return new AbstractTopicManager(new ServerConfiguration(), Executors.newSingleThreadScheduledExecutor()) {
                     @Override
                     public void checkTopicSubscribedFromRegion(final ByteString topic, final String regionAddress,
                                                                final Callback<Void> cb, final Object ctx,
