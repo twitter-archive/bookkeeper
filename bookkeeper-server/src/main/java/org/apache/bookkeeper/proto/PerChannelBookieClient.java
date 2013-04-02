@@ -626,8 +626,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 header.getOperation()));
         if (null == completionValue) {
             // Unexpected response, so log it. The txnId should have been present.
-            LOG.error("Unexpected response received from bookie : " + addr + " for type : " + header.getOperation() +
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Unexpected response received from bookie : " + addr + " for type : " + header.getOperation() +
                     " and txnId : " + header.getTxnId());
+            }
 
         } else {
             long orderingKey = completionValue.ledgerId;
