@@ -244,8 +244,8 @@ public class LedgerHandle {
                         // Closed a ledger
                         bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
                     }
-                    origCb.closeComplete(rc, lh, origCtx);
                 }
+                origCb.closeComplete(rc, lh, origCtx);
             }
         };
         asyncCloseInternal(cb, origCtx, BKException.Code.LedgerClosedException);
