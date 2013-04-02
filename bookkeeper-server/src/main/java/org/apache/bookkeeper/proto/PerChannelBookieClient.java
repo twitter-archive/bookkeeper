@@ -21,15 +21,28 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayDeque;
 import java.util.Queue;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.PCBookieClientStatsLogger;
 import org.apache.bookkeeper.stats.PCBookieClientStatsLogger.PCBookieClientOp;
@@ -65,17 +78,7 @@ import org.jboss.netty.util.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
-import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
+import com.google.protobuf.ByteString;
 
 /**
  * This class manages all details of connection to a particular bookie. It also
@@ -113,14 +116,15 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * and errors out entries that have timed out.
      */
     private class TimeoutTask implements Runnable {
+        @Override
         public void run() {
-            errorOutTimedOutEntries();
+            errorOutTimedOutEntries(false);
         }
     }
 
     private enum ConnectionState {
         DISCONNECTED, CONNECTING, CONNECTED, CLOSED
-            };
+    };
 
     private volatile ConnectionState state;
     private final ClientConfiguration conf;
@@ -128,33 +132,51 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     /**
      * Error out any entries that have timed out.
      */
-    private void errorOutTimedOutEntries() {
+    private void errorOutTimedOutEntries(boolean isNettyTimeout) {
         int numAdd = 0, numRead = 0;
         int total = 0;
         for (CompletionKey key : PerChannelBookieClient.this.completionObjects.keySet()) {
             total++;
-            if (!key.shouldTimeout()) {
-                continue;
-            }
+            long elapsedTime = key.elapsedTime();
             try {
                 switch (key.operationType) {
                     case ADD_ENTRY:
+                        if (elapsedTime < conf.getAddEntryTimeout() * 1000) {
+                            continue;
+                        }
                         errorOutAddKey(key);
                         numAdd++;
+                        if (isNettyTimeout) {
+                            statsLogger.getOpStatsLogger(PCBookieClientOp.NETTY_TIMEOUT_ADD_ENTRY)
+                                    .registerSuccessfulEvent(elapsedTime);
+                        } else {
+                            statsLogger.getOpStatsLogger(PCBookieClientOp.TIMEOUT_ADD_ENTRY)
+                                    .registerSuccessfulEvent(elapsedTime);
+                        }
                         break;
                     case READ_ENTRY:
+                        if (elapsedTime < conf.getReadEntryTimeout() * 1000) {
+                            continue;
+                        }
                         errorOutReadKey(key);
                         numRead++;
+                        if (isNettyTimeout) {
+                            statsLogger.getOpStatsLogger(PCBookieClientOp.NETTY_TIMEOUT_READ_ENTRY)
+                                    .registerSuccessfulEvent(elapsedTime);
+                        } else {
+                            statsLogger.getOpStatsLogger(PCBookieClientOp.TIMEOUT_READ_ENTRY)
+                                    .registerSuccessfulEvent(elapsedTime);
+                        }
                         break;
                 }
             } catch (RuntimeException e) {
-                LOG.error("Caught RuntimeException while erroring out key:" + key.toString());
+                LOG.error("Caught RuntimeException while erroring out key " + key + " : ", e);
             }
         }
         if (numAdd + numRead > 0) {
-            LOG.warn("Timeout task iterated through a total of " + total + " keys.");
-            LOG.warn("Timeout Task errored out " + numAdd + " add entry requests");
-            LOG.warn("Timeout Task errored out " + numRead + " read entry requests");
+            LOG.warn("Timeout task iterated through a total of {} keys.", total);
+            LOG.warn("Timeout Task errored out {} add entry requests.", numAdd);
+            LOG.warn("Timeout Task errored out {} read entry requests.", numRead);
         }
     }
 
@@ -594,7 +616,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             return;
         }
         if (t instanceof ReadTimeoutException) {
-            errorOutTimedOutEntries();
+            errorOutTimedOutEntries(true);
             return;
         }
 
@@ -790,12 +812,12 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     class CompletionKey {
         public final long txnId;
         public final OperationType operationType;
-        public final long timeoutAt;
+        public final long requestAt;
 
         CompletionKey(long txnId, OperationType operationType) {
             this.txnId = txnId;
             this.operationType = operationType;
-            this.timeoutAt = MathUtils.now() + (conf.getReadTimeout()*1000);
+            this.requestAt = MathUtils.nowInNano();
         }
 
         @Override
@@ -812,12 +834,17 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             return ((int) txnId);
         }
 
+        @Override
         public String toString() {
             return String.format("TxnId(%d), OperationType(%s)", txnId, operationType);
         }
 
         public boolean shouldTimeout() {
-            return this.timeoutAt <= MathUtils.now();
+            return elapsedTime() >= conf.getReadTimeout() * 1000;
+        }
+
+        public long elapsedTime() {
+            return MathUtils.elapsedMSec(requestAt);
         }
     }
 

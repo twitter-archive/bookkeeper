@@ -21,12 +21,28 @@
 
 package org.apache.bookkeeper.conf;
 
-import org.apache.bookkeeper.conf.ServerConfiguration;
 
 public class TestBKConfiguration {
     public static ServerConfiguration newServerConfiguration() {
         ServerConfiguration confReturn = new ServerConfiguration();
         confReturn.setJournalFlushWhenQueueEmpty(true);
+        return confReturn;
+    }
+
+    public static ClientConfiguration newClientConfiguration() {
+        ClientConfiguration confReturn = new ClientConfiguration() {
+
+            @Override
+            public int getAddEntryTimeout() {
+                return getReadTimeout();
+            }
+
+            @Override
+            public int getReadEntryTimeout() {
+                return getReadTimeout();
+            }
+
+        };
         return confReturn;
     }
 }

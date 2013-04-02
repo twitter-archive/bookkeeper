@@ -21,16 +21,18 @@
 
 package org.apache.bookkeeper.test;
 
-import java.io.IOException;
 import java.io.File;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
-import org.apache.bookkeeper.bookie.BookieException;
+import junit.framework.TestCase;
+
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
@@ -42,11 +44,8 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.After;
 import org.junit.Before;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import junit.framework.TestCase;
 
 /**
  * A class runs several bookie servers for testing.
@@ -67,7 +66,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     protected BookKeeperTestClient bkc;
 
     protected ServerConfiguration baseConf = TestBKConfiguration.newServerConfiguration();
-    protected ClientConfiguration baseClientConf = new ClientConfiguration();
+    protected ClientConfiguration baseClientConf = TestBKConfiguration.newClientConfiguration();
 
     public BookKeeperClusterTestCase(int numBookies) {
         this.numBookies = numBookies;
@@ -287,6 +286,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {
                 Thread sleeper = new Thread() {
+                    @Override
                     public void run() {
                         try {
                             bookie.suspendProcessing();
