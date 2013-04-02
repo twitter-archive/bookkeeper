@@ -34,7 +34,7 @@
     <dependency>
       <groupId>com.twitter.common</groupId>
       <artifactId>stats</artifactId>
-      <version>0.0.51</version>
+      <version>0.0.64</version>
     </dependency>
     <dependency>
       <groupId>com.twitter.common</groupId>
@@ -51,13 +51,13 @@
     <dependency>
       <groupId>com.twitter.common</groupId>
       <artifactId>stats-time-series</artifactId>
-      <version>0.0.32</version>
+      <version>0.0.36</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>com.twitter.common</groupId>
       <artifactId>stats-jvm</artifactId>
-      <version>0.0.30</version>
+      <version>0.0.33</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
