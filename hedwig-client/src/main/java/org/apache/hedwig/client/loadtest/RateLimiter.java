@@ -34,6 +34,7 @@ public class RateLimiter implements Runnable {
     // transition from sleeping->awake->sleeping instead
     // of doing actual work. rate should not be less than this.
     private final int BATCH_SIZE = 100;
+    volatile long startMillis;
 
     public RateLimiter(int rate, int rampUpSec, int maxOutstanding) {
         this.rate = rate;
@@ -55,7 +56,7 @@ public class RateLimiter implements Runnable {
                 }
                 return;
             }
-            long startMillis = System.currentTimeMillis();
+            startMillis = System.currentTimeMillis();
             long rampUpMsec = TimeUnit.SECONDS.toMillis(this.rampUpSec);
             long currentRate = this.rate;
             while (true) {
@@ -88,6 +89,11 @@ public class RateLimiter implements Runnable {
         } catch (Exception e) {
             logger.error("Exception during token generation.", e);
         }
+    }
+
+    public void reset() {
+        // So that we start in ramp-up mode again.
+        this.startMillis = System.currentTimeMillis();
     }
 
     // Call this function before doing any rate limited operation.

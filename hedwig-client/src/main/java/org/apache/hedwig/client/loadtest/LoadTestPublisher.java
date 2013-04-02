@@ -89,6 +89,7 @@ public class LoadTestPublisher extends LoadTestBase {
                         long latencyMillis = MathUtils.now() - startTimeMillis;
                         stat.incErrors(TimeUnit.MILLISECONDS.toMicros(latencyMillis));
                         topicMap.remove(topic);
+                        rl.reset();
                     }
                 }, value);
             }
