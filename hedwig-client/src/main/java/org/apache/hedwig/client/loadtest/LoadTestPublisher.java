@@ -31,12 +31,20 @@ public class LoadTestPublisher extends LoadTestBase {
     private static Logger logger = LoggerFactory.getLogger(LoadTestPublisher.class);
     public LoadTestPublisher(TopicProvider topicProvider, LoadTestUtils ltUtil,
                              ClientConfiguration conf, int concurrency,
-                             int publishRate, int rampUpSec, int maxOutstanding, int messageSize) {
+                             int publishRate, int rampUpSec, int maxOutstanding, int messageSize,
+                             String distribution) {
         super(topicProvider, ltUtil, conf, "publish");
         this.concurrency = concurrency;
         this.rl = new RateLimiter(publishRate, rampUpSec, maxOutstanding);
-        this.mp = new MessageProvider(topicProvider,
-                messageSize, ltUtil);
+        if (distribution.equals("uniform")) {
+            this.mp = new UniformDistMessageProvider(topicProvider,
+                    messageSize, ltUtil);
+        } else if (distribution.equals("random")) {
+            this.mp = new RandomDistMessageProvider(topicProvider, messageSize,
+                    ltUtil);
+        } else {
+            throw new RuntimeException("Distribution type: " + distribution + " not supported");
+        }
         this.executor = Executors.newFixedThreadPool(concurrency);
     }
     private class SinglePublisher implements Runnable {

@@ -52,6 +52,8 @@ public class LoadTestMain {
                 "Default: 60 seconds.");
         options.addOption("pr", "publish_rate", true, "The number of publishes per second. 0 signifies " +
                 "that there is no rate control. Default: 0");
+        options.addOption("di", "distribution", true, "The publish message distribution. 'random' or " +
+                "'uniform' (without the quotes). Default: uniform");
         options.addOption("cn", "client_config_file", true, "The path for the client configuration" +
                 " file.");
         options.addOption("sp", "subscriber_prefix", true, "The prefix for subscriber ids. Default: subscriber.");
@@ -101,6 +103,7 @@ public class LoadTestMain {
         int subscriberStartIndex = Integer.valueOf(cmd.getOptionValue("subscriber_start_index", "0"));
         int numSubscribers = Integer.valueOf(cmd.getOptionValue("num_subscribers", "1"));
         int statPrintSec = Integer.valueOf(cmd.getOptionValue("stat_print_sec", "30"));
+        String distribution = cmd.getOptionValue("distribution", "uniform");
         String fileName = cmd.getOptionValue("stat_file", "hedwig-loadtest-stats.txt");
         int rampUpSec = Integer.valueOf(cmd.getOptionValue("ramp_up_sec", "0"));
         TopicProvider topicProvider = new TopicProvider(numTopics, topicStartIndex,
@@ -123,7 +126,7 @@ public class LoadTestMain {
                     numSubscribers, subscriberStartIndex);
         } else if (op.equals("publish")) {
             testBase = new LoadTestPublisher(topicProvider, ltUtil, conf,
-                    concurrency, publishRate, rampUpSec, maxOutstanding, messageSize);
+                    concurrency, publishRate, rampUpSec, maxOutstanding, messageSize, distribution);
         } else {
             throw new UnrecognizedOptionException("Operation not supported:" + op);
         }

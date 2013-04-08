@@ -17,10 +17,9 @@ import java.util.Random;
  *
  * For now, this uses UniformIntegerDistribution
  */
-public class MessageProvider {
+public abstract class MessageProvider {
     private LoadTestUtils ltUtil;
     private int messageSize;
-    private IntegerDistribution distribution;
     private List<ByteString> topicList;
     private ByteString retMessage;
     public MessageProvider(TopicProvider topicProvider, int messageSize,
@@ -29,26 +28,12 @@ public class MessageProvider {
         byte[] message = new byte[messageSize];
         new Random().nextBytes(message);
         this.retMessage = ByteString.copyFrom(message);
-        int numTopics = topicProvider.numTopics();
-        if (numTopics > 1) {
-            this.distribution = new UniformIntegerDistribution(0,
-                    topicProvider.numTopics() - 1);
-        } else {
-            // This is a hack because UniformIntegerDistribution doesn't support
-            // (0, 0)
-            this.distribution = new UniformIntegerDistribution(0, 2) {
-                @Override
-                public int sample() {
-                    return 0;
-                }
-            };
-        }
         this.topicList = topicProvider.getTopicList();
         this.ltUtil = ltUtil;
     }
 
     private ByteString getTopic() {
-        return topicList.get(distribution.sample());
+        return topicList.get(getDistribution().sample());
     }
 
     private LoadTestMessage getLoadTestMessage(int size) {
@@ -66,4 +51,6 @@ public class MessageProvider {
                 .build();
         return message;
     }
+
+    protected abstract IntegerDistribution getDistribution();
 }
