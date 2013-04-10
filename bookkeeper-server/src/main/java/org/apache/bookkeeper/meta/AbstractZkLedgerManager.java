@@ -20,29 +20,27 @@ package org.apache.bookkeeper.meta;
 import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.conf.AbstractConfiguration;
-import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.client.LedgerMetadata;
+import org.apache.bookkeeper.conf.AbstractConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.versioning.Version;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.AsyncCallback.DataCallback;
-import org.apache.zookeeper.AsyncCallback.VoidCallback;
 import org.apache.zookeeper.AsyncCallback.StatCallback;
+import org.apache.zookeeper.AsyncCallback.VoidCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Abstract ledger manager based on zookeeper, which provides common methods such as query zk nodes.
@@ -171,7 +169,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     metadata.setVersion(zv.setZnodeVersion(stat.getVersion()));
                     cb.operationComplete(BKException.Code.OK, null);
                 } else {
-                    LOG.warn("Conditional update ledger metadata failed: ", KeeperException.Code.get(rc));
+                    LOG.warn("Conditional update ledger " + ledgerId + "'s metadata failed: ",
+                            KeeperException.Code.get(rc));
                     cb.operationComplete(BKException.Code.ZKException, null);
                 }
             }
@@ -227,7 +226,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                         // convert the node path to ledger id according to different ledger manager implementation
                         allActiveLedgers.add(getLedgerId(path + "/" + ledgerNode));
                     } catch (IOException ie) {
-                        LOG.warn("Error extracting ledgerId from ZK ledger node: " + ledgerNode);
+                        LOG.warn("Error extracting ledgerId from ZK ledger node: " + ledgerNode, ie);
                         // This is a pretty bad error as it indicates a ledger node in ZK
                         // has an incorrect format. For now just continue and consider
                         // this as a non-existent ledger.

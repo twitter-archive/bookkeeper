@@ -38,7 +38,7 @@ public class ZooKeeperWatcherBase implements Watcher {
             .getLogger(ZooKeeperWatcherBase.class);
 
     private final int zkSessionTimeOut;
-    private CountDownLatch clientConnectLatch = new CountDownLatch(1);
+    private final CountDownLatch clientConnectLatch = new CountDownLatch(1);
 
     public ZooKeeperWatcherBase(int zkSessionTimeOut) {
         this.zkSessionTimeOut = zkSessionTimeOut;
@@ -57,10 +57,11 @@ public class ZooKeeperWatcherBase implements Watcher {
         // TODO: Needs to handle AuthFailed, SaslAuthenticated events
         switch (event.getState()) {
         case SyncConnected:
+            LOG.info("ZooKeeper client is connected now.");
             clientConnectLatch.countDown();
             break;
         case Disconnected:
-            LOG.debug("Ignoring Disconnected event from ZooKeeper server");
+            LOG.info("ZooKeeper client is disconnected from zookeeper now, but it is OK unless we received EXPIRED event.");
             break;
         case Expired:
             LOG.error("ZooKeeper client connection to the "
@@ -71,7 +72,7 @@ public class ZooKeeperWatcherBase implements Watcher {
 
     /**
      * Waiting for the SyncConnected event from the ZooKeeper server
-     * 
+     *
      * @throws KeeperException
      *             when there is no connection
      * @throws InterruptedException
