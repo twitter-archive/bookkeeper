@@ -61,12 +61,6 @@ public class MultiplexHChannelManager extends AbstractHChannelManager {
     // Find which HChannel that a given TopicSubscriber used.
     protected final CleanupChannelMap<InetSocketAddress> subscriptionChannels;
 
-    // Concurrent Map to store Message handler for each topic + sub id combination.
-    // Store it here instead of in SubscriberResponseHandler as we don't want to lose the handler
-    // user set when connection is recovered
-    protected final ConcurrentMap<TopicSubscriber, MessageHandler> topicSubscriber2MessageHandler
-        = new ConcurrentHashMap<TopicSubscriber, MessageHandler>();
-
     // PipelineFactory to create subscription netty channels to the appropriate server
     private final ClientChannelPipelineFactory subscriptionChannelPipelineFactory;
 
@@ -187,75 +181,10 @@ public class MultiplexHChannelManager extends AbstractHChannelManager {
         }
     }
 
-    @Override
-    public void startDelivery(TopicSubscriber topicSubscriber,
-                              MessageHandler messageHandler)
-        throws ClientNotSubscribedException, AlreadyStartDeliveryException {
-        startDelivery(topicSubscriber, messageHandler, false);
-    }
-
     protected void restartDelivery(TopicSubscriber topicSubscriber)
         throws ClientNotSubscribedException, AlreadyStartDeliveryException {
         startDelivery(topicSubscriber, null, true);
     }
-
-    private void startDelivery(TopicSubscriber topicSubscriber,
-                               MessageHandler messageHandler,
-                               boolean restart)
-        throws ClientNotSubscribedException, AlreadyStartDeliveryException {
-        // Make sure we know about this topic subscription on the client side
-        // exists. The assumption is that the client should have in memory the
-        // Channel created for the TopicSubscriber once the server has sent
-        // an ack response to the initial subscribe request.
-        SubscribeResponseHandler subscribeResponseHandler =
-            getSubscribeResponseHandler(topicSubscriber);
-        if (null == subscribeResponseHandler ||
-            !subscribeResponseHandler.hasSubscription(topicSubscriber)) {
-            logger.error("Client is not yet subscribed to {}.", topicSubscriber);
-            throw new ClientNotSubscribedException("Client is not yet subscribed to "
-                                                   + topicSubscriber);
-        }
-
-        MessageHandler existedMsgHandler = topicSubscriber2MessageHandler.get(topicSubscriber);
-        if (restart) {
-            // restart using existing msg handler 
-            messageHandler = existedMsgHandler;
-        } else {
-            // some has started delivery but not stop it
-            if (null != existedMsgHandler) {
-                throw new AlreadyStartDeliveryException("A message handler has been started for topic subscriber " + topicSubscriber);
-            }
-            if (messageHandler != null) {
-                if (null != topicSubscriber2MessageHandler.putIfAbsent(topicSubscriber, messageHandler)) {
-                    throw new AlreadyStartDeliveryException("Someone is also starting delivery for topic subscriber " + topicSubscriber);
-                }
-            }
-        }
-
-        // tell subscribe response handler to start delivering messages for topicSubscriber
-        subscribeResponseHandler.startDelivery(topicSubscriber, messageHandler);
-    }
-
-    public void stopDelivery(TopicSubscriber topicSubscriber)
-    throws ClientNotSubscribedException {
-        // Make sure we know that this topic subscription on the client side
-        // exists. The assumption is that the client should have in memory the
-        // Channel created for the TopicSubscriber once the server has sent
-        // an ack response to the initial subscribe request.
-        SubscribeResponseHandler subscribeResponseHandler =
-            getSubscribeResponseHandler(topicSubscriber);
-        if (null == subscribeResponseHandler ||
-            !subscribeResponseHandler.hasSubscription(topicSubscriber)) {
-            logger.error("Client is not yet subscribed to {}.", topicSubscriber);
-            throw new ClientNotSubscribedException("Client is not yet subscribed to "
-                                                   + topicSubscriber);
-        }
-
-        // tell subscribe response handler to stop delivering messages for a given topic subscriber
-        topicSubscriber2MessageHandler.remove(topicSubscriber);
-        subscribeResponseHandler.stopDelivery(topicSubscriber);
-    }
-                            
 
     @Override
     public void asyncCloseSubscription(final TopicSubscriber topicSubscriber,
