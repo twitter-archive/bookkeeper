@@ -33,8 +33,12 @@ import org.apache.hedwig.server.persistence.PersistRequest;
 import org.apache.hedwig.server.persistence.PersistenceManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class PublishHandler extends BaseHandler {
+
+    final static Logger logger = LoggerFactory.getLogger(PublishHandler.class);
 
     private PersistenceManager persistenceMgr;
     private final OpStatsLogger pubStatsLogger;
@@ -49,6 +53,8 @@ public class PublishHandler extends BaseHandler {
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
         final long requestTimeMillis = MathUtils.now();
         if (!request.hasPublishRequest()) {
+            logger.error("Received a request: {} on channel: {} without a Publish request.",
+                    request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing publish request data");
             pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
@@ -58,10 +64,13 @@ public class PublishHandler extends BaseHandler {
         Message msgToSerialize = Message.newBuilder(request.getPublishRequest().getMsg()).setSrcRegion(
                                      cfg.getMyRegionByteString()).build();
 
-        PersistRequest persistRequest = new PersistRequest(request.getTopic(), msgToSerialize,
+        final PersistRequest persistRequest = new PersistRequest(request.getTopic(), msgToSerialize,
         new Callback<PubSubProtocol.MessageSeqId>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Persist request: {} failed with exception: {}", request, exception);
+                }
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }

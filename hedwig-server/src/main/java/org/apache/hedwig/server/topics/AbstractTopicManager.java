@@ -113,6 +113,7 @@ public abstract class AbstractTopicManager implements TopicManager {
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
+                logger.info("Adding topic: {} to set of owned topics.", topic.toStringUtf8());
                 if (topics.add(topic)) {
                     ServerStatsProvider.getStatsLoggerInstance()
                             .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_TOPICS).inc();
@@ -148,13 +149,15 @@ public abstract class AbstractTopicManager implements TopicManager {
 
             @Override
             public void operationFailed(final Object ctx, final PubSubException exception) {
+                logger.error("Exception while notifying listeners for topic: {}", topic.toStringUtf8(),
+                        exception);
                 // TODO: optimization: we can release this as soon as we experience the first error.
                 Callback<Void> cb = new Callback<Void>() {
                     public void operationFinished(Object _ctx, Void _resultOfOperation) {
                         originalCallback.operationFailed(ctx, exception);
                     }
                     public void operationFailed(Object _ctx, PubSubException _exception) {
-                        logger.error("Exception releasing topic", _exception);
+                        logger.error("Exception releasing topic: {}", topic.toStringUtf8(), _exception);
                         originalCallback.operationFailed(ctx, exception);
                     }
                 };
@@ -163,7 +166,7 @@ public abstract class AbstractTopicManager implements TopicManager {
             }
         };
 
-        logger.info("Acquiring a topic: {}", topic.toStringUtf8());
+        logger.info("Acquiring topic: {}", topic.toStringUtf8());
         Callback<Void> mcb = CallbackUtils.multiCallback(listeners.size(), postCb, null);
         for (TopicOwnershipChangeListener listener : listeners) {
             listener.acquiredTopic(topic, mcb, null);
@@ -176,7 +179,7 @@ public abstract class AbstractTopicManager implements TopicManager {
                     .getSimpleStatLogger(HedwigServerSimpleStatType.NUM_TOPICS).dec();
         }
 
-        logger.info("Releasing a topic: {}", topic.toStringUtf8());
+        logger.info("Releasing topic: {}", topic.toStringUtf8());
         for (TopicOwnershipChangeListener listener : listeners) {
             listener.lostTopic(topic);
         }
@@ -266,6 +269,7 @@ public abstract class AbstractTopicManager implements TopicManager {
 
     @Override
     public void stop() {
+        logger.info("Stopping topic manager.");
         // do nothing now
     }
 }

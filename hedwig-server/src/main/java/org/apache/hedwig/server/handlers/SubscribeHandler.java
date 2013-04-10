@@ -89,6 +89,8 @@ public class SubscribeHandler extends BaseHandler {
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
         final long requestTimeMillis = MathUtils.now();
         if (!request.hasSubscribeRequest()) {
+            logger.error("Received a request: {} on channel: {} without a Subscribe request.",
+                    request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing subscribe request data");
             subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
@@ -137,6 +139,7 @@ public class SubscribeHandler extends BaseHandler {
                 TopicSubscriber topicSub = new TopicSubscriber(topic, subscriberId);
                 synchronized (channel) {
                     if (!channel.isConnected()) {
+                        logger.warn("Channel: {} disconnected while the hub was processing its subscription request: {}", channel, request);
                         // channel got disconnected while we were processing the
                         // subscribe request,
                         // nothing much we can do in this case
@@ -191,12 +194,14 @@ public class SubscribeHandler extends BaseHandler {
                     PubSubException pse = new PubSubException.TopicBusyException(
                         "Subscriber " + subscriberId.toStringUtf8() + " for topic " + topic.toStringUtf8()
                         + " is already being served on a different channel " + oldChannel + ".");
+                    logger.error("Topic busy exception as subscriber is being served on another channel: {} while handling " +
+                            "subscription request: {} on channel: {}", va(oldChannel, request, channel));
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
                     .addListener(ChannelFutureListener.CLOSE);
                     subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     return;
                 }
-
+                logger.info("Serve subscription request succeeded for request: {} on channel: {}. Issuing start delivery request.", request, channel);
                 // want to start 1 ahead of the consume ptr
                 MessageSeqId lastConsumedSeqId = subData.getState().getMsgId();
                 MessageSeqId seqIdToStartFrom = MessageSeqId.newBuilder(lastConsumedSeqId).setLocalComponent(
@@ -223,7 +228,8 @@ public class SubscribeHandler extends BaseHandler {
                             }
                             @Override
                             public void operationFailed(Object ctx, PubSubException exception) {
-                                // would not happened
+                                logger.error("Delivery manager failed to start serving subscription for request: {} on channel: {}",
+                                        va(request, channel), exception);
                             }
                         }, null);
             }

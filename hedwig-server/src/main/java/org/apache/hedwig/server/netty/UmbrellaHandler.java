@@ -46,6 +46,8 @@ import org.apache.hedwig.server.handlers.Handler;
 import org.apache.hedwig.server.stats.ServerStatsProvider;
 import org.apache.hedwig.server.stats.HedwigServerStatsLogger.HedwigServerSimpleStatType;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 @ChannelPipelineCoverage("all")
 public class UmbrellaHandler extends SimpleChannelHandler {
     static Logger logger = LoggerFactory.getLogger(UmbrellaHandler.class);
@@ -76,10 +78,11 @@ public class UmbrellaHandler extends SimpleChannelHandler {
         // receives a packet that is too big
         // 3. CorruptedFramException is thrown by the LengthBasedDecoder when
         // the length is negative etc.
+        logger.error("Exception on channel: {}", ctx.getChannel(), e.getCause());
         if (throwable instanceof IOException || throwable instanceof TooLongFrameException
                 || throwable instanceof CorruptedFrameException) {
             e.getChannel().close();
-            logger.debug("Uncaught exception", throwable);
+            logger.error("Uncaught exception received", throwable);
         } else {
             // call our uncaught exception handler, which might decide to
             // shutdown the system
@@ -94,6 +97,7 @@ public class UmbrellaHandler extends SimpleChannelHandler {
         // If SSL is NOT enabled, then we can add this channel to the
         // ChannelGroup. Otherwise, that is done when the channel is connected
         // and the SSL handshake has completed successfully.
+        logger.info("Opened channel: {}", ctx.getChannel());
         if (!isSSLEnabled) {
             allChannels.add(ctx.getChannel());
         }
@@ -101,11 +105,13 @@ public class UmbrellaHandler extends SimpleChannelHandler {
 
     @Override
     public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
+        // TODO: Revisit this if we're planning to use a VIP at any point.
+        logger.info("Channel connected: {}", ctx.getChannel());
         if (isSSLEnabled) {
             ctx.getPipeline().get(SslHandler.class).handshake(e.getChannel()).addListener(new ChannelFutureListener() {
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
-                        logger.debug("SSL handshake has completed successfully!");
+                        logger.info("SSL handshake has completed successfully!");
                         allChannels.add(future.getChannel());
                     } else {
                         future.getChannel().close();
@@ -118,13 +124,14 @@ public class UmbrellaHandler extends SimpleChannelHandler {
     @Override
     public void channelDisconnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
         Channel channel = ctx.getChannel();
+        logger.info("Channel disconnected: {}", channel);
         // subscribe handler needs to know about channel disconnects
         channelDisconnectListener.channelDisconnected(channel);
         channel.close();
     }
 
     public static void sendErrorResponseToMalformedRequest(Channel channel, long txnId, String msg) {
-        logger.debug("Malformed request from {}, msg = {}", channel.getRemoteAddress(), msg);
+        logger.error("Malformed request from {}, with txnId: {}, msg = {}", va(channel.getRemoteAddress(), txnId, msg));
         MalformedRequestException mre = new MalformedRequestException(msg);
         PubSubResponse response = PubSubResponseUtils.getResponseForException(mre, txnId);
         channel.write(response);

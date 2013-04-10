@@ -31,8 +31,11 @@ import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ConsumeHandler extends BaseHandler {
+    final static Logger logger = LoggerFactory.getLogger(ConsumeHandler.class);
 
     SubscriptionManager sm;
     final OpStatsLogger consumeStatsLogger = ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(OperationType.CONSUME);
@@ -41,6 +44,8 @@ public class ConsumeHandler extends BaseHandler {
     public void handleRequestAtOwner(PubSubRequest request, Channel channel) {
         final long requestTimeMillis = MathUtils.now();
         if (!request.hasConsumeRequest()) {
+            logger.error("Received a request: {} on channel: {} without a Consume request.",
+                    request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing consume request data");
             // We don't collect consume process time.

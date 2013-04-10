@@ -214,6 +214,7 @@ public class PubSubServer {
 
     protected void instantiateZookeeperClient() throws Exception {
         if (!conf.isStandalone()) {
+            logger.info("Instantiating zookeeper client to host: {}.", conf.getZkHost());
             final CountDownLatch signalZkReady = new CountDownLatch(1);
 
             zk = new ZooKeeper(conf.getZkHost(), conf.getZkTimeout(), new Watcher() {
@@ -238,17 +239,25 @@ public class PubSubServer {
         if (conf.isStandalone()) {
             return;
         }
+        logger.info("Instantiating metadata manager factory.");
         mm = MetadataManagerFactory.newMetadataManagerFactory(conf, zk);
+    }
+
+    protected DeliveryManager instantiateDeliveryManager(PersistenceManager pm) throws Exception {
+        logger.info("Instantiating FIFODeliveryManager.");
+        return new FIFODeliveryManager(pm, conf);
     }
 
     protected TopicManager instantiateTopicManager() throws IOException {
         TopicManager tm;
 
         if (conf.isStandalone()) {
+            logger.info("Instantiating TrivialOwnAllTopicManager.");
             tm = new TrivialOwnAllTopicManager(conf, scheduler);
         } else {
             try {
                 if (conf.isMetadataManagerBasedTopicManagerEnabled()) {
+                    logger.info("Instantiating MMTopicManager.");
                     tm = new MMTopicManager(conf, zk, mm, scheduler);
                 } else {
                     if (!(mm instanceof ZkMetadataManagerFactory)) {
@@ -256,6 +265,7 @@ public class PubSubServer {
                                             + "but uses zookeeper ephemeral znodes to store topic ownership. "
                                             + "Check your configuration as this could lead to scalability issues.");
                     }
+                    logger.info("Instantiating ZKTopicManager.");
                     tm = new ZkTopicManager(zk, conf, scheduler);
                 }
             } catch (PubSubException e) {
@@ -270,6 +280,7 @@ public class PubSubServer {
            TopicManager tm, DeliveryManager dm,
            PersistenceManager pm, SubscriptionManager sm,
            SubscriptionChannelManager subChannelMgr) {
+        logger.info("Initializing Netty Handlers.");
         Map<OperationType, Handler> handlers = new HashMap<OperationType, Handler>();
         handlers.put(OperationType.PUBLISH, new PublishHandler(tm, pm, conf));
         handlers.put(OperationType.SUBSCRIBE,
@@ -291,6 +302,7 @@ public class PubSubServer {
         ServerBootstrap bootstrap = new ServerBootstrap(serverChannelFactory);
         UmbrellaHandler umbrellaHandler =
             new UmbrellaHandler(allChannels, handlers, subChannelMgr, isSSLEnabled);
+        logger.info("Initializing pipeline factory with message size: {}, compression: {}", conf.getMaximumMessageSize(), conf.isCompressionEnabled());
         PubSubServerPipelineFactory pipeline =
             new PubSubServerPipelineFactory(umbrellaHandler, sslFactory,
             conf.getMaximumMessageSize(), conf.isCompressionEnabled(), conf.isSSLCompressionEnabled());
@@ -303,7 +315,7 @@ public class PubSubServer {
         // Bind and start to accept incoming connections.
         allChannels.add(bootstrap.bind(isSSLEnabled ? new InetSocketAddress(conf.getSSLServerPort())
                                        : new InetSocketAddress(conf.getServerPort())));
-        logger.info("Going into receive loop");
+        logger.info("Netty initialization complete. Waiting for incoming requests.");
     }
 
     public void shutdown() {
@@ -311,22 +323,29 @@ public class PubSubServer {
 
         // Stop topic manager first since it is core of Hub server
         tm.stop();
+        logger.info("Stopped Topic Manager.");
 
         // Stop the RegionManager.
+        logger.info("Stopped Region Manager.");
         rm.stop();
 
         // Stop the DeliveryManager and ReadAheadCache threads (if
         // applicable).
         dm.stop();
+        logger.info("Stopped Delivery Manager.");
+
         pm.stop();
+        logger.info("Stopped Persistence Manager.");
 
         // Stop the SubscriptionManager if needed.
         sm.stop();
+        logger.info("Stopped Subscription Manager.");
 
         // Shutdown metadata manager if needed
         if (null != mm) {
             try {
                 mm.shutdown();
+                logger.info("Stopped Metadata Manager Factory.");
             } catch (IOException ie) {
                 logger.error("Error while shutdown metadata manager factory!", ie);
             }
@@ -341,6 +360,7 @@ public class PubSubServer {
                 readBk.close();
             if (zk != null)
                 zk.close();
+            logger.info("Stopped Bookkeeper and Zookeeper clients.");
         } catch (InterruptedException e) {
             logger.error("Error while closing ZooKeeper client : ", e);
         } catch (BKException bke) {
@@ -349,19 +369,24 @@ public class PubSubServer {
 
         // Close and release the Netty channels and resources
         allChannels.close().awaitUninterruptibly();
+        logger.info("Closed all netty channels.");
         serverChannelFactory.releaseExternalResources();
+        logger.info("Released all server channel factory's external resources.");
         clientChannelFactory.releaseExternalResources();
+        logger.info("Released all client channel factory's external resources.");
         scheduler.shutdown();
-
+        logger.info("Shutdown of scheduler complete.");
         // unregister jmx
         unregisterJMX();
 
         // stop exporting stats
         try {
+            logger.info("Stopping Stats exporter.");
             stopStatsExporter();
         } catch (Exception e) {
             logger.error("Error while stopping the stats exporter");
         }
+        logger.info("Shutdown complete.");
     }
 
     protected void registerJMX(SubscriptionChannelManager subChannelMgr) {
@@ -490,13 +515,11 @@ public class PubSubServer {
     protected void stopStatsExporter() throws Exception {
         if (null != this.statsExporter) {
             this.statsExporter.stop();
+            logger.info("Stopped stats exporter.");
         }
     }
 
     /**
-     * Starts the hedwig server on the given port
-     *
-     * @param port
      * @throws ConfigurationException
      *             if there is something wrong with the given configuration
      * @throws IOException
@@ -550,7 +573,7 @@ public class PubSubServer {
                     SubscriptionChannelManager subChannelMgr = new SubscriptionChannelManager();
                     tm = instantiateTopicManager();
                     pm = instantiatePersistenceManager(tm);
-                    dm = new FIFODeliveryManager(pm, conf);
+                    dm = instantiateDeliveryManager(pm);
                     dm.start();
 
                     sm = instantiateSubscriptionManager(tm, pm, dm, subChannelMgr);

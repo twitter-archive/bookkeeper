@@ -239,6 +239,10 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         @Override
         public void operationFinished(Object ctx, PubSubProtocol.MessageSeqId resultOfOperation) {
             PersistRequest originalRequest = (PersistRequest) ctx;
+            if (logger.isDebugEnabled()) {
+                logger.debug("Persisted message: {} with message id: {} to underlying persistence manager.", originalRequest.getMessage(),
+                        resultOfOperation);
+            }
 
             // Lets call the original callback first so that the publisher can
             // hear success
@@ -335,6 +339,7 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
      */
     @Override
     public void stop() {
+        logger.info("Stopping readahead cache.");
         try {
             keepRunning = false;
             cacheWorkers.shutdown();
@@ -405,8 +410,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 logger.warn("It is unexpected that more than one threads are adding message to cache key {}"
                             +" at the same time.", cacheKey);
             }
-
-            logger.debug("Adding cache stub for: {}", cacheKey);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Adding cache stub for: {}", cacheKey);
+            }
             installedStubs.add(cacheKey);
             ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(HedwigServerStatsLogger.HedwigServerSimpleStatType
                     .NUM_CACHE_STUBS).inc();
@@ -454,7 +460,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
             // enqueue it
             CacheKey cacheKey = new CacheKey(topic, message.getMsgId().getLocalComponent());
             enqueueWithoutFailureByTopic(topic, new ScanResponse(cacheKey, message));
-
+            if (logger.isDebugEnabled()) {
+                logger.debug("Scanned message: {} for cachekey: {}", message, cacheKey);
+            }
             // Now lets see if this message is the one we were expecting
             CacheKey expectedKey = installedStubs.peek();
 
@@ -547,7 +555,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
      */
     protected void addMessageToCache(final CacheKey cacheKey,
                                      final Message message, final long currTime) {
-        logger.debug("Adding msg {} to readahead cache", cacheKey);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Adding message: {} to readahead cache for cachekey: {}", message, cacheKey);
+        }
 
         CacheValue cacheValue;
         if ((cacheValue = cache.get(cacheKey)) == null) {
@@ -578,6 +588,10 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
         synchronized (cacheValue) {
             // finally add the message to the cache
+            if (logger.isDebugEnabled()) {
+                logger.debug("Setting message and invoking callbacks for cachevalue: {} for cachekey: {}", cacheValue,
+                        cacheKey);
+            }
             cacheValue.setMessageAndInvokeCallbacks(message, currTime);
         }
 
@@ -600,6 +614,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
 
         if (cacheValue == null) {
             return;
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug("Removing message with cachekey: {} due to exception: {}", cacheKey, exception);
         }
 
         CacheSegment segment = cacheSegment.get();
@@ -665,7 +682,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
         for (Iterator<CacheKey> iter = oldCacheEntries.iterator(); iter.hasNext();) {
             final CacheKey cacheKey = iter.next();
 
-            logger.debug("Removing {} from cache because it's the oldest.", cacheKey);
+            if (logger.isDebugEnabled()) {
+                logger.debug("Removing cachekey: {} from cache because it's the oldest.", cacheKey);
+            }
             removeMessageFromCache(cacheKey, readAheadExceptionInstance, //
                                    // maintainTimeIndex=
                                    false,
@@ -700,6 +719,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
          */
         @Override
         public void performRequest() {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Exception: {} on cachekey: {}. Removing it from the cache.", exception, cacheKey);
+            }
             removeMessageFromCache(cacheKey, exception,
                                    // maintainTimeIndex=
                                    true,
@@ -752,6 +774,9 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
                 // cancel it. since it was treated as executed.
                 return;
             }
+            if (logger.isDebugEnabled()) {
+                logger.debug("Canceling outstanding scan request for cachekey: {}", cacheKey);
+            }
             cacheValue.removeCallback(request.getCallback(), request.getCtx());
         }
     }
@@ -799,9 +824,10 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
             for (Iterator<Long> iter = headSet.iterator(); iter.hasNext();) {
                 Long seqId = iter.next();
                 CacheKey cacheKey = new CacheKey(topic, seqId);
-
-                logger.debug("Removing {} from cache because every subscriber has moved past",
-                    cacheKey);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Removing {} from cache because every subscriber has moved past",
+                        cacheKey);
+                }
 
                 removeMessageFromCache(cacheKey, readAheadExceptionInstance, //
                                        // maintainTimeIndex=
@@ -855,6 +881,10 @@ public class ReadAheadCache implements PersistenceManager, HedwigJMXService {
             synchronized (cacheValue) {
                 // Add our callback to the stub. If the cache value was already a
                 // concrete message, the callback will be called right away
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Adding callback: {} to value associated with cachekey: {}", request.getCallback(),
+                            cacheKey);
+                }
                 cacheValue.addCallback(request.getCallback(), request.getCtx());
             }
 

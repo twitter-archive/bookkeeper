@@ -37,9 +37,13 @@ import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.apache.hedwig.util.VarArgs.va;
 
 public class UnsubscribeHandler extends BaseHandler {
+    final static Logger logger = LoggerFactory.getLogger(UnsubscribeHandler.class);
     SubscriptionManager subMgr;
     DeliveryManager deliveryMgr;
     SubscriptionChannelManager subChannelMgr;
@@ -62,6 +66,8 @@ public class UnsubscribeHandler extends BaseHandler {
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
         final long requestTimeMillis = MathUtils.now();
         if (!request.hasUnsubscribeRequest()) {
+            logger.error("Received a request: {} on channel: {} without a Unsubscribe request.",
+                    request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing unsubscribe request data");
             unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
@@ -72,15 +78,19 @@ public class UnsubscribeHandler extends BaseHandler {
         final ByteString topic = request.getTopic();
         final ByteString subscriberId = unsubRequest.getSubscriberId();
 
+        logger.info("Received unsubscribe request: {} on channel: {}.", request, channel);
         subMgr.unsubscribe(topic, subscriberId, new Callback<Void>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
+                logger.error("Unsubscribe request: {} on channel: {} failed.", request, channel);
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             }
 
             @Override
             public void operationFinished(Object ctx, Void resultOfOperation) {
+                logger.info("Unsubscribe request: {} on channel: {} succeeded. Issuing a stop delivery" +
+                        " request to the delivery manager.", request, channel);
                 // we should not close the channel in delivery manager
                 // since client waits the response for closeSubscription request
                 // client side would close the channel
@@ -88,12 +98,16 @@ public class UnsubscribeHandler extends BaseHandler {
                 new Callback<Void>() {
                     @Override
                     public void operationFailed(Object ctx, PubSubException exception) {
+                        logger.error("Failed to stop delivery for unsubscribe request: {} on channel: {}",
+                                request, channel);
                         channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                         unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     }
                     @Override
                     public void operationFinished(Object ctx, Void resultOfOperation) {
                         // remove the topic subscription from subscription channels
+                        logger.info("Stopped delivery. Unsubscribe request: {} on channel: {} is successful.",
+                                request, channel);
                         subChannelMgr.remove(new TopicSubscriber(topic, subscriberId),
                                              channel);
                         channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId()));

@@ -144,6 +144,7 @@ public class TopicBasedLoadShedder {
 
             @Override
             public void operationFailed(Object ctx, PubSubException e) {
+                logger.error("Failed to release topics to shed load.", e);
                 callback.operationFailed(ctx, e);
             }
         }, ctx);

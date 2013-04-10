@@ -57,6 +57,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.ByteString;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 public abstract class AbstractSubscriptionManager implements SubscriptionManager, TopicOwnershipChangeListener {
 
     static Logger logger = LoggerFactory.getLogger(AbstractSubscriptionManager.class);
@@ -158,6 +160,10 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     || (minConsumedFromMap != null && minConsumedFromMap < minConsumedMessage)
                     || (minConsumedFromMap == null && minConsumedMessage != 0)) {
                     topic2MinConsumedMessagesMap.put(topic, minConsumedMessage);
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Issuing consumed until request to persistence manager for topic: {} with min-id: {}",
+                                topic.toStringUtf8(), minConsumedMessage);
+                    }
                     pm.consumedUntil(topic, minConsumedMessage);
                 } else if (hasBound) {
                     pm.consumeToBound(topic);
@@ -178,16 +184,20 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                 cb.operationFinished(ctx, null);
                 return;
             }
-
+            logger.info("Handling topic Acquire op for topic: {}. Reading subscriptions.", topic.toStringUtf8());
             readSubscriptions(topic, new Callback<Map<ByteString, InMemorySubscriptionState>>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
+                    logger.error("Failed to read subscriptions while acquiring topic: {}", topic.toStringUtf8(), exception);
                     cb.operationFailed(ctx, exception);
                 }
 
                 @Override
                 public void operationFinished(final Object ctx,
                 final Map<ByteString, InMemorySubscriptionState> resultOfOperation) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Read subscription information while acquiring topic: {}", topic.toStringUtf8());
+                    }
                     // We've just inherited a bunch of subscriber for this
                     // topic, some of which may be local. If they are, then we
                     // need to (1) notify listeners of this and (2) record the
@@ -272,13 +282,11 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         public void run() {
             // Make sure we don't serve this subscription request later.
             final Map<ByteString, InMemorySubscriptionState> states = top2sub2seq.remove(topic);
-            if (logger.isDebugEnabled()) {
-                logger.debug("Try to update subscription states when losing topic " + topic.toStringUtf8());
-            }
+            logger.info("Try to update subscription states when losing topic: {}", topic.toStringUtf8());
             updateSubscriptionStates(states, topic, new Callback<Void>() {
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
-                    logger.info("Finished update subscription states when losting topic "
+                    logger.info("Finished update subscription states while releasing topic "
                               + topic.toStringUtf8());
                     finish();
                 }
@@ -296,10 +304,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     // no subscriptions now, it may be removed by other release ops
                     if (null != states) {
                         for (final ByteString subId : states.keySet()) {
-                            if (logger.isDebugEnabled()) {
-                                logger.debug("Stop serving subscriber (" + topic.toStringUtf8() + ", "
-                                           + subId.toStringUtf8() + ") when losing topic");
-                            }
+                            logger.info("Stop serving subscriber (" + topic.toStringUtf8() + ", "
+                                       + subId.toStringUtf8() + ") while releasing topic");
                             if (null != dm) {
                                 final DeliveryEndPoint endPoint = dm.getDeliveryEndPoint(new TopicSubscriber(topic, subId));
                                 dm.stopServingSubscriber(topic, subId, SubscriptionEvent.TOPIC_MOVED, endPoint,
@@ -317,20 +323,22 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                                          }
                                          @Override
                                          public void operationFinished(Object o, Void aVoid) {
+                                             logger.info("Successfully stopped serving subscriber: {} for topic: {}",
+                                                     subId.toStringUtf8(), topic.toStringUtf8());
                                              finish();
                                          }
 
                                          @Override
                                          public void operationFailed(Object o, PubSubException e) {
+                                             logger.error("Error while stopping serving subscriber: {} for topic: {}",
+                                                     subId.toStringUtf8(), topic.toStringUtf8());
                                              finish();
                                          }
                                      }, null);
                             }
                         }
                     }
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Stop serving topic " + topic.toStringUtf8());
-                    }
+                    logger.info("Stop serving topic: {}", topic.toStringUtf8());
                     cb.operationFinished(ctx, null);
                 }
             }, ctx);
@@ -397,6 +405,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                     .toStringUtf8());
             final Map<ByteString, InMemorySubscriptionState> topicSubscriptions = top2sub2seq.get(topic);
             if (topicSubscriptions == null) {
+                logger.warn("Received a subscription for a topic: {} that the server does not own.", topic.toStringUtf8());
                 cb.operationFailed(ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
                 return;
             }
@@ -484,6 +493,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
             createSubscriptionData(topic, subscriberId, subData, new Callback<Version>() {
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
+                    logger.error("Could not create subscription data: {} for topic: {} and subscriber: {}",
+                            va(subData, topic.toStringUtf8(), subscriberId.toStringUtf8()));
                     cb.operationFailed(ctx, exception);
                 }
 
@@ -517,13 +528,13 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
                         @Override
                         public void operationFinished(Object ctx, Void resultOfOperation) {
                             topicSubscriptions.put(subscriberId, new InMemorySubscriptionState(subData, version));
-
                             updateMessageBound(topic);
                             cb.operationFinished(ctx, subData);
                         }
 
                     };
-
+                    logger.info("Successfully created subscription data: {} for topic: {} and subscriber: {}",
+                            va(subData, topic.toStringUtf8(), subscriberId.toStringUtf8()));
                     // if this will be the first local subscription, notifySubscribe
                     if (!SubscriptionStateUtils.isHubSubscriber(subRequest.getSubscriberId())
                         && !hasLocalSubscriptions(topicSubscriptions)) {
@@ -593,6 +604,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         public void run() {
             Map<ByteString, InMemorySubscriptionState> topicSubs = top2sub2seq.get(topic);
             if (topicSubs == null) {
+                logger.warn("Received a Consume op for topic: {} that the server does not own.", topic.toStringUtf8());
                 cb.operationFinished(ctx, null);
                 return;
             }
@@ -679,11 +691,14 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
         public void run() {
             final Map<ByteString, InMemorySubscriptionState> topicSubscriptions = top2sub2seq.get(topic);
             if (topicSubscriptions == null) {
+                logger.warn("Received Unsubscribe op for topic: {} that the server does not own.", topic.toStringUtf8());
                 cb.operationFailed(ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
                 return;
             }
 
             if (!topicSubscriptions.containsKey(subscriberId)) {
+                logger.warn("Unsubscribe op received for topic: {} from subscriber: {}, but the client is not subscribed.",
+                        topic.toStringUtf8(), subscriberId.toStringUtf8());
                 cb.operationFailed(ctx, new PubSubException.ClientNotSubscribedException(""));
                 return;
             }
@@ -697,6 +712,8 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
 
                 @Override
                 public void operationFinished(Object ctx, Void resultOfOperation) {
+                    logger.info("Deleted subscription data for unsubscribe request for topic: {}, subscriber: {}",
+                            topic.toStringUtf8(), subscriberId.toStringUtf8());
                     topicSubscriptions.remove(subscriberId);
                     // Notify listeners if necessary.
                     if (!SubscriptionStateUtils.isHubSubscriber(subscriberId)
@@ -732,6 +749,7 @@ public abstract class AbstractSubscriptionManager implements SubscriptionManager
      */
     @Override
     public void stop() {
+        logger.info("Stopping Subscription manager");
         timer.cancel();
         try {
             final LinkedBlockingQueue<Boolean> queue = new LinkedBlockingQueue<Boolean>();

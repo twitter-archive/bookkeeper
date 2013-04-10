@@ -38,14 +38,16 @@ import org.apache.hedwig.server.netty.UmbrellaHandler;
 import org.apache.hedwig.server.subscriptions.SubscriptionManager;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.util.Callback;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CloseSubscriptionHandler extends BaseHandler {
+    final static Logger logger = LoggerFactory.getLogger(CloseSubscriptionHandler.class);
     SubscriptionManager subMgr;
     DeliveryManager deliveryMgr;
     SubscriptionChannelManager subChannelMgr;
     // op stats
     final OpStats closesubStats;
-
     public CloseSubscriptionHandler(ServerConfiguration cfg, TopicManager tm,
                                     SubscriptionManager subMgr,
                                     DeliveryManager deliveryMgr,
@@ -60,6 +62,8 @@ public class CloseSubscriptionHandler extends BaseHandler {
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
         if (!request.hasCloseSubscriptionRequest()) {
+            logger.error("Received a request: {} on channel: {} without a close subscription " +
+                    "request.", request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing closesubscription request data");
             closesubStats.incrementFailedOps();
@@ -72,7 +76,7 @@ public class CloseSubscriptionHandler extends BaseHandler {
         final ByteString subscriberId = closesubRequest.getSubscriberId();
 
         final long requestTime = System.currentTimeMillis();
-
+        logger.info("Handling close subscription request: {} from channel: {}", request, channel);
         subMgr.closeSubscription(topic, subscriberId, new Callback<Void>() {
             @Override
             public void operationFinished(Object ctx, Void result) {
@@ -83,11 +87,14 @@ public class CloseSubscriptionHandler extends BaseHandler {
                 new Callback<Void>() {
                     @Override
                     public void operationFailed(Object ctx, PubSubException exception) {
+                        logger.error("Stop subscriber request to delivery manager for channel: {} failed",
+                                channel, exception);
                         channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                         closesubStats.incrementFailedOps();
                     }
                     @Override
                     public void operationFinished(Object ctx, Void resultOfOperation) {
+                        logger.info("Stop subscriber request to delivery manager for channel: {} succeeded", channel);
                         // remove the topic subscription from subscription channels
                         subChannelMgr.remove(new TopicSubscriber(topic, subscriberId),
                                              channel);
@@ -98,6 +105,7 @@ public class CloseSubscriptionHandler extends BaseHandler {
             }
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
+                logger.error("Close subscription request from channel: {} failed.", channel, exception);
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 closesubStats.incrementFailedOps();
             }

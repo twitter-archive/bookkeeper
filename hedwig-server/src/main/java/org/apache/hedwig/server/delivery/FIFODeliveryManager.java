@@ -109,7 +109,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
     private class DeliveryWorker implements Runnable {
 
         BlockingQueue<DeliveryManagerRequest> requestQueue =
-            new LinkedBlockingQueue<DeliveryManagerRequest>();;
+            new LinkedBlockingQueue<DeliveryManagerRequest>();
 
         /**
          * The queue of all subscriptions that are facing a transient error either
@@ -139,6 +139,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
         }
 
         void start() {
+            logger.info("Starting delivery worker at index: {}", this.idx);
             workerThread.start();
         }
 
@@ -154,6 +155,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
          */
         void suspendProcessing() {
             synchronized(suspensionLock) {
+                logger.info("Suspending delivery worker at index: {}", this.idx);
                 suspended = true;
             }
         }
@@ -163,6 +165,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
          */
         void resumeProcessing() {
             synchronized(suspensionLock) {
+                logger.info("Resuming delivery worker at index: {}", this.idx);
                 suspended = false;
                 suspensionLock.notify();
             }
@@ -179,10 +182,12 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                     request = requestQueue.poll(1, TimeUnit.SECONDS);
                     synchronized(suspensionLock) {
                         while (suspended) {
+                            logger.info("Delivery Worker at index: {} waiting on suspension lock.", this.idx);
                             suspensionLock.wait();
                         }
                     }
                 } catch (InterruptedException e) {
+                    logger.warn("Delivery worker at index: {} interrupted while waiting for requests.", this.idx);
                     Thread.currentThread().interrupt();
                 }
 
@@ -200,6 +205,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
 
         protected void enqueueWithoutFailure(DeliveryManagerRequest request) {
             if (!requestQueue.offer(request)) {
+                logger.error("Delivery worker at index: {} could not offer request to request queue.", this.idx);
                 throw new UnexpectedError("Could not enqueue object: " + request
                     + " to request queue for delivery worker ." + idx);
             }
@@ -207,15 +213,18 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
 
         public void retryErroredSubscriberAfterDelay(ActiveSubscriberState subscriber) {
             subscriber.setLastScanErrorTime(MathUtils.now());
-
+            logger.warn("Queueing subscriber: {} to be retried after a configured delay.", subscriber);
             if (!retryQueue.offer(subscriber)) {
+                logger.error("Delivery worker at index: {} could not offer request to retry queue.", this.idx);
                 throw new UnexpectedError("Could not enqueue to retry queue for delivery worker " + idx);
             }
         }
 
         public void clearRetryDelayForSubscriber(ActiveSubscriberState subscriber) {
             subscriber.clearLastScanErrorTime();
+            logger.info("Clearing delay and queueing subscriber: {} to be retried.", subscriber.toString());
             if (!retryQueue.offer(subscriber)) {
+                logger.error("Delivery worker at index: {} could not offer request to retry queue.", this.idx);
                 throw new UnexpectedError("Could not enqueue to delivery manager retry queue");
             }
             // no request in request queue now
@@ -243,6 +252,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
 
                 // retry now
                 subscriber.deliverNextMessage();
+                logger.info("Removing subscriber: {} from the retry queue as we attempted to deliver a message.", subscriber);
                 retryQueue.poll();
             }
         }
@@ -252,6 +262,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
             // PubSubServer is shut down and we want to stop the DeliveryManager
             // thread.
             public void performRequest() {
+                logger.info("Shutting down Delivery worker at index: {}.", DeliveryWorker.this.idx);
                 keepRunning = false;
             }
         }
@@ -375,6 +386,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
         if (null != subscriberState) {
             return subscriberState.getDeliveryEndPoint();
         }
+        logger.warn("No delivery endpoint found for topic-subscriber: {}", topicSub);
         return null;
     }
 
@@ -397,9 +409,11 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
     @Override
     public void messageConsumed(ByteString topic, ByteString subscriberId,
                                 MessageSeqId consumedSeqId) {
-        ActiveSubscriberState subState =
-            subscriberStates.get(new TopicSubscriber(topic, subscriberId));
+        TopicSubscriber topicSub = new TopicSubscriber(topic, subscriberId);
+        ActiveSubscriberState subState = subscriberStates.get(topicSub);
         if (null == subState) {
+            logger.warn("messageConsumed invoked but we don't have an active subscriber state for topic-subscriber: {}",
+                    topicSub);
             return;
         }
         subState.messageConsumed(consumedSeqId.getLocalComponent()); 
@@ -428,7 +442,8 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
         SortedMap<Long, Set<ActiveSubscriberState>> deliveryPtrs = perTopicDeliveryPtrs.get(topic);
 
         if (deliveryPtrs == null && !isAbsenceOk) {
-            throw new UnexpectedError("No delivery pointers found while disconnecting " + "channel for topic:" + topic);
+            logger.error("No delivery pointer found while removing delivery pointer for topic: {}", topic.toStringUtf8());
+            throw new UnexpectedError("No delivery pointers found while disconnecting " + "channel for topic:" + topic.toStringUtf8());
         }
 
         if(null == deliveryPtrs) {
@@ -436,7 +451,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
         }
 
         if (!MapMethods.removeFromMultiMap(deliveryPtrs, seqId, subscriber) && !isAbsenceOk) {
-
+            logger.error("Could not find subscriber: {} at the expected delivery pointer.", subscriber);
             throw new UnexpectedError("Could not find subscriber:" + subscriber + " at the expected delivery pointer");
         }
 
@@ -514,6 +529,9 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                     messageWindowSize = UNLIMITED;
                 }
             }
+            logger.info("ActiveSubscriberState created for topic: {}, subscriber: {}, deliveryEndPoint: {}, " +
+                    "messageWindowSize: {}", va(topic.toStringUtf8(), subscriberId.toStringUtf8(), deliveryEndPoint,
+                    messageWindowSize));
             this.cb = cb;
             this.ctx = ctx;
         }
@@ -530,6 +548,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                     return;
                 }
                 this.connected = false;
+                logger.info("Setting subscriber: {} to not connected", this);
                 // put itself in ReadAhead queue to cancel outstanding scan request
                 // if outstanding scan request callback before cancel op executed,
                 // nothing it would cancel.
@@ -544,9 +563,11 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                 (SubscriptionEvent.TOPIC_MOVED == event ||
                  SubscriptionEvent.SUBSCRIPTION_FORCED_CLOSED == event)) {
                 // we should not close the channel now after enabling multiplexing
-                PubSubResponse response = PubSubResponseUtils.getResponseForSubscriptionEvent(
+                final PubSubResponse response = PubSubResponseUtils.getResponseForSubscriptionEvent(
                     topic, subscriberId, event
                 );
+                logger.warn("Sending response to deliveryEndpoint for subscriber: {} and event: {}",
+                        this, event);
                 deliveryEndPoint.send(response, new DeliveryCallback() {
                     @Override
                     public void sendingFinished() {
@@ -559,6 +580,8 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                     @Override
                     public void permanentErrorOnSend() {
                         // if channel is broken, close the channel
+                        logger.error("Permanent error on trying to send response: {} to deliveryEndPoint: {}",
+                                response, deliveryEndPoint);
                         deliveryEndPoint.close();
                     }
                 });
@@ -644,6 +667,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
 
         private void doDeliverNextMessage() {
             if (!connected) {
+                logger.warn("Tried to deliver message for subscriber: {} when not connected.", this);
                 return;
             }
 
@@ -722,7 +746,9 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                                       .setStatusCode(StatusCode.SUCCESS).setTxnId(0)
                                       .setMessage(message).setTopic(topic)
                                       .setSubscriberId(subscriberId).build();
-
+            if (logger.isDebugEnabled()) {
+                logger.debug("Sending response: {} for active subscriber: {}", response, this);
+            }
             deliveryEndPoint.send(response, //
                                   // callback =
                                   this);
@@ -733,7 +759,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
             if (!checkConnected()) {
                 return;
             }
-
+            logger.error("Scan failed for subscriber: {}. Retrying after delay", this, exception);
             // wait for some time and then retry
             retryErroredSubscriberAfterDelay(this);
         }
@@ -780,11 +806,13 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
             // the underlying channel is broken, the channel will
             // be closed in UmbrellaHandler when exception happened.
             // so we don't need to close the channel again
+            logger.error("Permanent error on send for subscriber: {} to deliveryEndPoint: {}", this, deliveryEndPoint);
             stopServingSubscriber(topic, subscriberId, null, deliveryEndPoint,
                                   NOP_CALLBACK, null);
         }
 
         public void transientErrorOnSend() {
+            logger.warn("Transient error on send for subscriber: {} to deliveryEndPoint: {}", this, deliveryEndPoint);
             retryErroredSubscriberAfterDelay(this);
         }
 
@@ -812,7 +840,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
                                  va(this, prevSubscriber, deliveryEndPoint));
                     se = null;
                 } else {
-                    logger.debug("Subscriber {} from delivery point {} forcelly closed delivery point {}.",
+                    logger.warn("Subscriber {} from delivery point {} forcelly closed delivery point {}.",
                                  va(this, deliveryEndPoint, prevSubscriber.deliveryEndPoint));
                     se = SubscriptionEvent.SUBSCRIPTION_FORCED_CLOSED;
                 }
@@ -884,6 +912,7 @@ public class FIFODeliveryManager implements DeliveryManager, SubChannelDisconnec
      *          Subscription Event for the stop reason
      */
     private void doStopServingSubscriber(ActiveSubscriberState subscriber, SubscriptionEvent event) {
+        logger.info("Stopping subscriber: {} due to event: {}", subscriber, event);
         // This will automatically stop delivery, and disconnect the channel
         subscriber.setNotConnected(event);
 

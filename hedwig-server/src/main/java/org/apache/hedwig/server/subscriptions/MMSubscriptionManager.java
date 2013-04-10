@@ -36,6 +36,8 @@ import org.apache.hedwig.util.Callback;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 /**
  * MetaManager-based subscription manager.
  */
@@ -58,6 +60,7 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
         subManager.readSubscriptions(topic, new Callback<Map<ByteString, Versioned<SubscriptionData>>>() {
             @Override
             public void operationFailed(Object ctx, PubSubException pse) {
+                logger.error("Failed to read subscriptions for topic: {}", topic.toStringUtf8(), pse);
                 cb.operationFailed(ctx, pse);
             }
             @Override
@@ -80,6 +83,10 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
             public void operationFinished(Object ctx,
                     Versioned<SubscriptionData> subData) {
                 if (null != subData) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Read subscription data: {} with version: {} for topic: {}",
+                                va(subData.getValue(), subData.getVersion(), topic));
+                    }
                     cb.operationFinished(ctx, 
                             new InMemorySubscriptionState(subData.getValue(), subData.getVersion()));
                 } else {
@@ -89,6 +96,8 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
             }
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
+                logger.error("Failed to read subscription data for topic: {}", topic.toStringUtf8(),
+                        exception);
                 cb.operationFailed(ctx, exception);
             }
         }, ctx);
@@ -125,6 +134,7 @@ public class MMSubscriptionManager extends AbstractSubscriptionManager {
 
     @Override
     public void stop() {
+        logger.info("Closing subscription manager.");
         super.stop();
         try {
             subManager.close();

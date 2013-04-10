@@ -119,6 +119,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         }
 
         public void closeHandles() {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Closing handles for LedgerRange: {}", range);
+            }
             if (null != handle) {
                 closeLedger(handle);
                 handle = null;
@@ -253,6 +256,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             topicInfo = topicInfos.get(topic);
 
             if (topicInfo == null) {
+                logger.warn("RangeScan op requested for topic: {} which the server doesn't own.", topic.toStringUtf8());
                 request.callback.scanFailed(request.ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
                 return;
             }
@@ -456,6 +460,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
 
     @Override
     public void deliveredUntil(ByteString topic, Long seqId) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("DeliveredUntil request for topic: {} till seqId: {}", topic.toStringUtf8(), seqId);
+        }
         // do nothing.
     }
 
@@ -472,7 +479,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         public void run() {
             final TopicInfo topicInfo = topicInfos.get(topic);
             if (topicInfo == null) {
-                logger.error("Server is not responsible for topic!");
+                logger.warn("UpdateLedger op requested for topic: {} which the server doesn't own.", topic.toStringUtf8());
                 cb.operationFailed(ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
                 return;
             }
@@ -504,6 +511,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     @Override
                     public void operationFinished(Object ctx, Version newVersion) {
                         // Finally, all done
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Finished updating ledger and writing topic persistence information for " +
+                                    "topic: {}", topic.toStringUtf8());
+                        }
                         for (Long k : keysToRemove) {
                             topicInfo.ledgerRanges.remove(k);
                         }
@@ -512,6 +523,8 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     }
                     @Override
                     public void operationFailed(Object ctx, PubSubException exception) {
+                        logger.error("Error while writing topic persistence information for topic: {}", topic.toStringUtf8(),
+                                exception);
                         cb.operationFailed(ctx, exception);
                     }
                 }, ctx);
@@ -533,7 +546,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         public void runInternal() {
             TopicInfo topicInfo = topicInfos.get(topic);
             if (topicInfo == null) {
-                logger.error("Server is not responsible for topic!");
+                logger.warn("ConsumeUntil op requested for topic: {} which the server doesn't own.", topic.toStringUtf8());
                 return;
             }
             // Set the pending value to the difference of the last pushed sequence id
@@ -578,6 +591,10 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 public void operationFinished(Object ctx, Void result) {
                     // do nothing, op is async to stop other ops
                     // occurring on the topic during the update
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Finished deleting ledgers and persisting information for topic: {} " +
+                                "and ledgers: {}", topic.toStringUtf8(), ledgersDeleted);
+                    }
                 }
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
@@ -600,6 +617,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             public void deleteComplete(int rc, Object ctx) {
                 if (BKException.Code.NoSuchLedgerExistsException == rc ||
                     BKException.Code.OK == rc) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Deleted ledger: {} for topic: {}", ledger, topic.toStringUtf8());
+                    }
                     ledgersDeleted.add(ledger);
                     deleteLedgersAndUpdateLedgersRange(topic, ledgersToDelete, ledgersDeleted);
                     return;
@@ -737,12 +757,14 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         final TopicInfo topicInfo = topicInfos.get(topic);
 
         if (topicInfo == null) {
+            logger.warn("Persist op requested for topic: {} which the server doesn't own.", topic.toStringUtf8());
             request.getCallback().operationFailed(request.ctx,
                                              new PubSubException.ServerNotResponsibleForTopicException(""));
             return;
         }
 
         if (topicInfo.doRelease.get()) {
+            logger.warn("Failing persist request for topic: {} as ownership is being released.", topic.toStringUtf8());
             request.getCallback().operationFailed(request.ctx, new PubSubException.ServiceDownException(
                 "The ownership of the topic is releasing due to unrecoverable issue."));
             return;
@@ -916,6 +938,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                 }
                 @Override
                 public void operationFailed(Object ctx, PubSubException exception) {
+                    logger.error("Failed to read topic info while acquiring topic: {}", topic, exception);
                     cb.operationFailed(ctx, exception);
                 }
             }, ctx);
@@ -1008,6 +1031,9 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             TopicInfo topicInfo = new TopicInfo();
             while (lrIterator.hasNext()) {
                 LedgerRange range = lrIterator.next();
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Processing LedgerRange: {} for topic: {}", range, topic);
+                }
 
                 if (range.hasEndSeqIdIncluded()) {
                     // this means it was a valid and completely closed ledger
@@ -1102,7 +1128,6 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                                     // means that there is no entries read, provide a meaningful exception
                                     rc = BKException.Code.NoSuchEntryException;
                                 }
-                                logger.info("Received error code {}", rc);
                                 BKException bke = BKException.create(rc);
                                 logger.error("While recovering ledger: " + ledgerId + " for topic: "
                                              + topic.toStringUtf8() + ", could not read last entry", bke);
@@ -1177,7 +1202,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
             AtomicBoolean processed = new AtomicBoolean(false);
 
             @Override
-            public void safeCreateComplete(int rc, LedgerHandle lh, Object ctx) {
+            public void safeCreateComplete(int rc, final LedgerHandle lh, Object ctx) {
                 if (!processed.compareAndSet(false, true)) {
                     return;
                 }
@@ -1211,18 +1236,21 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     builder.addRanges(imlr.range);
                 }
                 builder.addRanges(lastRange);
-
+                LedgerRanges ranges = builder.build();
+                logger.info("Opened new ledger for topic: {} and updated ranges to: {}", topic.toStringUtf8(), ranges);
                 tpManager.writeTopicPersistenceInfo(
-                    topic, builder.build(), expectedVersionOfLedgersNode, new Callback<Version>() {
+                    topic, ranges, expectedVersionOfLedgersNode, new Callback<Version>() {
                         @Override
                         public void operationFinished(Object ctx, Version newVersion) {
                             // Finally, all done
                             topicInfo.ledgerRangesVersion = newVersion;
                             topicInfos.put(topic, topicInfo);
+                            logger.info("Opened new ledger: {} and updated persistence info for topic: {}", lh.getId(), topic);
                             cb.operationFinished(ctx, null);
                         }
                         @Override
                         public void operationFailed(Object ctx, PubSubException exception) {
+                            logger.error("Failed to write topic persistence info for topic: {} after creating a new ledger.", topic.toStringUtf8());
                             cb.operationFailed(ctx, exception);
                         }
                     }, ctx);
@@ -1257,8 +1285,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
         public void run() {
             TopicInfo topicInfo = topicInfos.get(topic);
             if (null == topicInfo) {
-                logger.error("Weired! hub server doesn't own topic " + topic.toStringUtf8()
-                           + " when changing ledger to write.");
+                logger.warn("ChangeLedger op requested for topic: {} which the server doesn't own.", topic.toStringUtf8());
                 cb.operationFailed(ctx, new PubSubException.ServerNotResponsibleForTopicException(""));
                 return;
             }
@@ -1290,8 +1317,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
                     topicInfo.currentLedgerRange.range = lastRange;
                     // put current ledger to ledger ranges
                     topicInfo.ledgerRanges.put(endSeqId, topicInfo.currentLedgerRange);
-                    logger.info("Closed written ledger " + ledgerId + " for topic "
-                              + topic.toStringUtf8() + " to change ledger.");
+                    logger.info("Closed ledgerId: {} for topic: {} and proceeding to open a new one.", ledgerId, topic.toStringUtf8());
                     openNewTopicLedger(topic, topicInfo.ledgerRangesVersion,
                                        topicInfo, endSeqId + 1, true, cb, ctx);
                 }
@@ -1311,7 +1337,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
     }
 
     public static void closeLedger(LedgerHandle lh) {
-        logger.info("Issuing a close for ledger:" + lh.getId());
+        logger.info("Issuing a close for ledger: {}", lh.getId());
         lh.asyncClose(noOpCloseCallback, null);
     }
 
@@ -1330,6 +1356,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
 
         @Override
         public void runInternal() {
+            logger.info("Releasing topic: {}", topic.toStringUtf8());
             TopicInfo topicInfo = topicInfos.remove(topic);
             // Remove the mapped value for locally pending messages for this topic.
             ServerStatsProvider.getStatsLoggerInstance().removePerTopicLogger(PerTopicStatType.LOCAL_PENDING, topic);
@@ -1389,6 +1416,7 @@ public class BookkeeperPersistenceManager implements PersistenceManagerWithRange
 
     @Override
     public void stop() {
+        logger.info("Stopping topic manager.");
         try {
             tpManager.close();
         } catch (IOException ioe) {

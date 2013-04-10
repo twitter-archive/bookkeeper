@@ -111,15 +111,18 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
         this.hubManager.registerListener(new HubServerManager.ManagerListener() {
             @Override
             public void onSuspend() {
+                logger.info("Suspending the topic manager as the hub manager has been suspended.");
                 isSuspended = true;
             }
             @Override
             public void onResume() {
+                logger.info("Resuming topic manager as the hub manager has resumed operations.");
                 isSuspended = false;
             }
             @Override
             public void onShutdown() {
                 // if hub server manager can't work, we had to quit
+                logger.info("Shutting down the hub as the hub manager has shut down.");
                 Runtime.getRuntime().exit(1);
             }
         });
@@ -251,8 +254,9 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
             @Override
             public void safeProcessResult(int rc, String path, Object ctx, String name) {
                 if (rc == Code.OK.intValue()) {
-                    if (logger.isDebugEnabled())
+                    if (logger.isDebugEnabled()) {
                         logger.debug("region node: " + regionAddress + " has been created under topic: " + topic.toStringUtf8());
+                    }
                     updateZkNodeVersion(regionAddress, topic, 0);
                     assert getZkNodeVersion(regionAddress, topic) == 0;
                     cb.operationFinished(ctx, null);
@@ -265,8 +269,9 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
                         @Override
                         public void safeProcessResult(int rc, String path, Object ctx, Stat stat) {
                             if (rc == Code.OK.intValue()) {
-                                if (logger.isDebugEnabled())
+                                if (logger.isDebugEnabled()) {
                                     logger.debug("region node: " + regionAddress + " exists under topic: " + topic.toStringUtf8());
+                                }
                                 updateZkNodeVersion(regionAddress, topic, stat.getVersion());
                                 cb.operationFinished(ctx, null);
                             }
@@ -495,6 +500,7 @@ public class ZkTopicManager extends AbstractTopicManager implements TopicManager
 
     @Override
     public void stop() {
+        logger.info("Stopping Topic manager.");
         // we just unregister it with zookeeper to make it unavailable from hub servers list
         try {
             hubManager.unregisterSelf();

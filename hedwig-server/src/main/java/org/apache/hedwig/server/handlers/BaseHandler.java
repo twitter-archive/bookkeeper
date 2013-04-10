@@ -33,6 +33,8 @@ import org.apache.hedwig.util.HedwigSocketAddress;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 public abstract class BaseHandler implements Handler {
 
     private static final Logger logger = LoggerFactory.getLogger(BaseHandler.class);
@@ -51,6 +53,10 @@ public abstract class BaseHandler implements Handler {
         new Callback<HedwigSocketAddress>() {
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Get owner op for request: {} failed with exception: {}",
+                            request.toString(), exception);
+                }
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(request.getType())
                     .registerFailedEvent(MathUtils.now() - requestTimeMillis);
@@ -67,6 +73,10 @@ public abstract class BaseHandler implements Handler {
                             + " for topic: " + request.getTopic().toStringUtf8() + " from client: " + channel.getRemoteAddress()
                             + " to remote host: " + owner.toString());
                     return;
+                }
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Handling request of type: {} for topic: {} on channel: {}",
+                            va(request.getType(), request.getTopic().toStringUtf8(), channel.toString()));
                 }
                 handleRequestAtOwner(request, channel);
             }

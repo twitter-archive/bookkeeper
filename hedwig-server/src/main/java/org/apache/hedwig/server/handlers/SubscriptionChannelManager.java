@@ -53,7 +53,9 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
             if (!future.isSuccess()) {
                 logger.warn("Failed to write response to close old subscription {}.", ts);
             } else {
-                logger.debug("Close old subscription {} succeed.", ts);
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Close old subscription {} succeed.", ts);
+                }
             }
         }
     };
@@ -79,6 +81,7 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
     }
 
     public void addSubChannelDisconnectedListener(SubChannelDisconnectedListener listener) {
+        logger.info("Adding subscription disconnect listener: {}", listener);
         if (null != listener) {
             listeners.add(listener);
         }
@@ -100,8 +103,8 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
         }
         if (tempTopicSubs != null) {
             for (TopicSubscriber topicSub : tempTopicSubs) {
-                logger.info("Subscription channel {} for {} is disconnected.",
-                            va(channel.getRemoteAddress(), topicSub));
+                logger.info("Subscription channel {} for {} has been disconnected and will be" +
+                        " removed.", va(channel.getRemoteAddress(), topicSub));
                 // remove entry only currently mapped to given value.
                 remove(topicSubs, topicSub, channel);
                 for (SubChannelDisconnectedListener listener : listeners) {
@@ -214,6 +217,9 @@ public class SubscriptionChannelManager implements ChannelDisconnectListener {
      * Remove topicSub,channel from the specified set
      */
     private void remove(Set<TopicSubscriber> topicSubs, TopicSubscriber topicSub, Channel channel) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Removing channel: {} for topic-subscription: {}", channel, topicSub);
+        }
         synchronized (channel) {
             if (null != topicSubs) {
                 if (!topicSubs.remove(topicSub)) {

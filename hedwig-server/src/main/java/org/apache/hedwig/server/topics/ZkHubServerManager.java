@@ -310,6 +310,7 @@ class ZkHubServerManager implements HubServerManager {
                         callback.operationFinished(ctx, false);
                     }
                 } else {
+                    logger.error("Failed to check whether hub server: {} is alive", hub);
                     callback.operationFailed(ctx, new PubSubException.ServiceDownException(
                         "Failed to check whether hub server " + hub + " is alive!"));
                 }
@@ -350,7 +351,9 @@ class ZkHubServerManager implements HubServerManager {
                     if (rc == KeeperException.Code.OK.intValue()) {
                         try {
                             HubLoad load = HubLoad.parse(new String(data));
-                            logger.debug("Found server {} with load: {}", ctx, load);
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Found server {} with load: {}", ctx, load);
+                            }
                             int compareRes = load.compareTo(minLoad);
                             if (compareRes < 0 || (compareRes == 0 && rand.nextBoolean())) {
                                 minLoad = load;
@@ -366,12 +369,16 @@ class ZkHubServerManager implements HubServerManager {
 
                     if (numResponses == children.size()) {
                         if (leastLoaded == null) {
+                            logger.error("No hub available while choosing least loaded node.");
                             callback.operationFailed(ctx,
                                 new PubSubException.ServiceDownException("No hub available"));
                             return;
                         }
                         try {
                             HedwigSocketAddress owner = new HedwigSocketAddress(leastLoaded);
+                            if (logger.isDebugEnabled()) {
+                                logger.debug("Selecting least loaded node as: {}", owner);
+                            }
                             callback.operationFinished(ctx, new HubInfo(owner, leastLoadedCzxid));
                         } catch (Throwable t) {
                             callback.operationFailed(ctx,
@@ -430,6 +437,8 @@ class ZkHubServerManager implements HubServerManager {
                             if (numResponse == children.size()) {
                                 // We got less number of valid responses than the hubs we saw previously. Signal an error.
                                 if (loadMap.size() != numResponse) {
+                                    logger.error("Fewer OK responses: {} than the number of active hubs seen previously: {}", numResponse,
+                                            children.size());
                                     callback.operationFailed(originalCtx, new PubSubException.UnexpectedConditionException(
                                            "Fewer OK responses than the number of active hubs seen previously."));
                                     return;
