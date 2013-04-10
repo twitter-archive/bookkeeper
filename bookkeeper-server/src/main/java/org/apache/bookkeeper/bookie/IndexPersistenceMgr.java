@@ -24,20 +24,20 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
@@ -74,7 +74,7 @@ public class IndexPersistenceMgr {
         getActiveLedgers();
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
 
-        LOG.info("openFileLimit is " + openFileLimit);
+        LOG.info("openFileLimit is {}.", openFileLimit);
 
         Stats.export(new SampledStat<Integer>(ServerStatsProvider
             .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
@@ -445,6 +445,9 @@ public class IndexPersistenceMgr {
             for(int i = 0; i < entries.size(); i++) {
                 LedgerEntryPage lep = entries.get(i);
                 lep.setClean(versions[i]);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Flushed ledger {} with {} pages.", ledger, entries.size());
             }
         }
         finally {

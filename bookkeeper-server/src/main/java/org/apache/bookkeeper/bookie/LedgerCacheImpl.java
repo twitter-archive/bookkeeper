@@ -22,10 +22,9 @@
 package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
-import org.apache.bookkeeper.meta.ActiveLedgerManager;
-import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
-import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
+
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,8 +37,8 @@ public class LedgerCacheImpl implements LedgerCache {
     static final String IDX = ".idx";
     static final String RLOC = ".rloc";
 
-    private IndexInMemPageMgr indexPageManager;
-    IndexPersistenceMgr indexPersistenceManager;
+    private final IndexInMemPageMgr indexPageManager;
+    final IndexPersistenceMgr indexPersistenceManager;
     final int pageSize;
     final int entriesPerPage;
 
@@ -50,8 +49,8 @@ public class LedgerCacheImpl implements LedgerCache {
         this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager);
         this.indexPageManager = new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager);
 
-        LOG.info("maxMemory = " + Runtime.getRuntime().maxMemory());
-        LOG.info("PageSize is " + pageSize);
+        LOG.info("maxMemory = {}", Runtime.getRuntime().maxMemory());
+        LOG.info("PageSize is {}", pageSize);
     }
 
     /**
@@ -125,7 +124,7 @@ public class LedgerCacheImpl implements LedgerCache {
 
     @Override
     public boolean isFenced(long ledgerId) throws IOException {
-        return indexPersistenceManager.isFenced(ledgerId); 
+        return indexPersistenceManager.isFenced(ledgerId);
     }
 
     @Override

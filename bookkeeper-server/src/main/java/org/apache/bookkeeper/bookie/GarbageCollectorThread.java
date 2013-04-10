@@ -281,7 +281,7 @@ public class GarbageCollectorThread extends Thread {
             if (meta.isEmpty()) {
                 // This means the entry log is not associated with any active ledgers anymore.
                 // We can remove this entry log file now.
-                LOG.info("Deleting entryLogId " + entryLogId + " as it has no active ledgers!");
+                LOG.info("Deleting entryLogId {} as it has no active ledgers!", entryLogId);
                 removeEntryLog(entryLogId);
             }
         }
@@ -297,7 +297,7 @@ public class GarbageCollectorThread extends Thread {
      * </p>
      */
     private void doCompactEntryLogs(double threshold) {
-        LOG.info("Do compaction to compact those files lower than " + threshold);
+        LOG.info("Do compaction to compact those files lower than {}", threshold);
         // sort the ledger meta by occupied unused space
         Comparator<EntryLogMetadata> sizeComparator = new Comparator<EntryLogMetadata>() {
             @Override
@@ -410,7 +410,7 @@ public class GarbageCollectorThread extends Thread {
             return success;
         }
 
-        LOG.info("Compacting entry log : " + entryLogId);
+        LOG.info("Compacting entry log : {}.", entryLogId);
 
         try {
             entryLogger.scanEntryLog(entryLogId, new CompactionScanner(entryLogMeta));
@@ -559,8 +559,7 @@ public class GarbageCollectorThread extends Thread {
         ExtractionScanner scanner = new ExtractionScanner(entryLogMeta);
         // Read through the entry log file and extract the entry log meta
         entryLogger.scanEntryLog(entryLogId, scanner);
-        LOG.info("Retrieved entry log meta data entryLogId: "
-                 + entryLogId + ", meta: " + entryLogMeta);
+        LOG.info("Retrieved entry log meta data entryLogId: {}, meta: {}", entryLogId, entryLogMeta);
         return entryLogMeta;
     }
 }

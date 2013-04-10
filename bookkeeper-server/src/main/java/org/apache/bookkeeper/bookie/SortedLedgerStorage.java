@@ -20,6 +20,12 @@
  */
 package org.apache.bookkeeper.bookie;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
@@ -28,17 +34,11 @@ import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 public class SortedLedgerStorage extends InterleavedLedgerStorage
         implements LedgerStorage, CacheCallback, SkipListFlusher {
     private final static Logger LOG = LoggerFactory.getLogger(SortedLedgerStorage.class);
 
-    private EntryMemTable memTable;
+    private final EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
     private final CheckpointProgress checkpointer;
 
@@ -135,6 +135,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
         super.checkpoint(checkpoint);
     }
 
+    @Override
     public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
         processEntry(ledgerId, entryId, buffer, false);
     }
@@ -159,10 +160,14 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
             @Override
             public void run() {
                 try {
+                    LOG.info("Started flushing mem table before checkpoint {}.", cp);
                     memTable.flush(SortedLedgerStorage.this);
                     if (entryLogger.reachEntryLogLimit(0)) {
                         entryLogger.rollLog();
                         checkpointer.startCheckpoint(cp);
+                        LOG.info(
+                                "Rolling entry logger since it reached size limitation and start checkpointing at {}.",
+                                cp);
                     }
                 } catch (IOException e) {
                     // TODO: if we failed to flush data, we should switch the bookie back to readonly mode

@@ -30,8 +30,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -109,6 +109,7 @@ class Journal extends BookieThread {
          *
          * @throws IOException
          */
+        @Override
         public void checkpointComplete(boolean compact) throws IOException {
             mark.rollLog(mark);
             if (compact) {
@@ -152,13 +153,18 @@ class Journal extends BookieThread {
         public int hashCode() {
             return mark.hashCode();
         }
+
+        @Override
+        public String toString() {
+            return mark.toString();
+        }
     }
 
     /**
      * Last Log Mark
      */
     class LastLogMark {
-        private LogMark curMark;
+        private final LogMark curMark;
 
         LastLogMark(long logId, long logPosition) {
             this.curMark = new LogMark(logId, logPosition);
@@ -247,7 +253,7 @@ class Journal extends BookieThread {
         JournalRollingFilter(LastLogMark lastMark) {
             this.lastMark = lastMark;
         }
-        
+
         @Override
         public boolean accept(long journalId) {
             if (journalId < lastMark.getCurMark().getLogFileId()) {
@@ -302,19 +308,19 @@ class Journal extends BookieThread {
                     .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Acknowledge Ledger:" + ledgerId + " Entry:" + entryId);
+                LOG.debug("Acknowledge Ledger: {}, Entry: {}", ledgerId, entryId);
             }
             cb.writeComplete(0, ledgerId, entryId, null, ctx);
         }
     }
 
     private class ForceWriteRequest implements Runnable {
-        private JournalChannel logFile;
-        private LinkedList<QueueEntry> forceWriteWaiters;
+        private final JournalChannel logFile;
+        private final LinkedList<QueueEntry> forceWriteWaiters;
         private boolean shouldClose;
-        private boolean isMarker;
-        private long lastFlushedPosition;
-        private long logId;
+        private final boolean isMarker;
+        private final long lastFlushedPosition;
+        private final long logId;
 
         private ForceWriteRequest(JournalChannel logFile,
                           long logId,
@@ -355,6 +361,7 @@ class Journal extends BookieThread {
             }
         }
 
+        @Override
         public void run() {
             for (QueueEntry e : this.forceWriteWaiters) {
                 e.callback();    // Process cbs inline
@@ -525,7 +532,7 @@ class Journal extends BookieThread {
     LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
 
     volatile boolean running = true;
-    private LedgerDirsManager ledgerDirsManager;
+    private final LedgerDirsManager ledgerDirsManager;
 
     public Journal(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager) {
         super("BookieJournal-" + conf.getBookiePort());

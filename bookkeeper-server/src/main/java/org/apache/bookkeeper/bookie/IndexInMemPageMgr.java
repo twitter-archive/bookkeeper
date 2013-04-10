@@ -309,7 +309,7 @@ public class IndexInMemPageMgr {
     final InMemPageCollection pageMapAndList;
 
     // The number of pages that have actually been used
-    private AtomicInteger pageCount = new AtomicInteger(0);
+    private final AtomicInteger pageCount = new AtomicInteger(0);
 
     // The persistence manager that this page manager uses to
     // flush and read pages
@@ -440,7 +440,8 @@ public class IndexInMemPageMgr {
             if (null != lep) {
                 return lep;
             }
-
+            LOG.info("Could not grab a clean page for ledger {}, entry {}, force flushing dirty ledgers.",
+                    ledger, entry);
             flushOneOrMoreLedgers(false);
         }
     }
@@ -475,7 +476,7 @@ public class IndexInMemPageMgr {
         indexPersistenceManager.flushLedgerHeader(ledger);
 
         if (null == firstEntryList || firstEntryList.size() == 0) {
-            LOG.info("Nothing to flush for ledger {}.", ledger);
+            LOG.debug("Nothing to flush for ledger {}.", ledger);
             // nothing to do
             return;
         }

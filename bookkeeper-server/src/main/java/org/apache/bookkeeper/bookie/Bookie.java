@@ -23,8 +23,8 @@ package org.apache.bookkeeper.bookie;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.io.FilenameFilter;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -35,38 +35,35 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.LinkedBlockingQueue;
 
-import org.apache.bookkeeper.meta.ActiveLedgerManager;
-import org.apache.bookkeeper.meta.LedgerManagerFactory;
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
-import org.apache.bookkeeper.bookie.SortedLedgerStorage;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.meta.ActiveLedgerManager;
+import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.util.StringUtils;
+import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.commons.io.FileUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.Watcher.Event.EventType;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.ZooKeeper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -99,7 +96,7 @@ public class Bookie extends BookieThread {
     private final String bookieRegistrationPath;
     static final String CURRENT_DIR = "current";
 
-    private LedgerDirsManager ledgerDirsManager;
+    private final LedgerDirsManager ledgerDirsManager;
     private LedgerDirsManager indexDirsManager;
 
     // ZooKeeper client instance for the Bookie
@@ -124,7 +121,7 @@ public class Bookie extends BookieThread {
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
-        private long ledgerId;
+        private final long ledgerId;
         public NoLedgerException(long ledgerId) {
             super("Ledger " + ledgerId + " not found");
             this.ledgerId = ledgerId;
@@ -135,8 +132,8 @@ public class Bookie extends BookieThread {
     }
     public static class NoEntryException extends IOException {
         private static final long serialVersionUID = 1L;
-        private long ledgerId;
-        private long entryId;
+        private final long ledgerId;
+        private final long entryId;
         public NoEntryException(long ledgerId, long entryId) {
             this("Entry " + entryId + " not found in " + ledgerId, ledgerId, entryId);
         }
@@ -294,11 +291,11 @@ public class Bookie extends BookieThread {
                     ledgerStorage.flush();
                 }
             } catch (NoWritableLedgerDirException e) {
-                LOG.error("No writeable ledger directories");
+                LOG.error("No writeable ledger directories when flushing ledger storage : ", e);
                 flushFailed = true;
                 transitionToReadOnlyMode();
             } catch (IOException e) {
-                LOG.error("Exception flushing Ledger", e);
+                LOG.error("Exception flushing ledger storage : ", e);
                 flushFailed = true;
             }
 
@@ -309,12 +306,13 @@ public class Bookie extends BookieThread {
                     checkpoint.checkpointComplete(running);
                     completed = checkpoint;
                 } catch (IOException e) {
+                    LOG.error("Exception on completing checkpoint " + checkpoint + " : ", e);
                     transitionToReadOnlyMode();
                 }
             }
         }
 
-        private Object suspensionLock = new Object();
+        private final Object suspensionLock = new Object();
         private boolean suspended = false;
 
         /**
@@ -407,6 +405,7 @@ public class Bookie extends BookieThread {
 
             final AtomicBoolean oldDataExists = new AtomicBoolean(false);
             parent.list(new FilenameFilter() {
+                    @Override
                     public boolean accept(File dir, String name) {
                         if (name.endsWith(".txn") || name.endsWith(".idx") || name.endsWith(".log")) {
                             oldDataExists.set(true);
@@ -599,6 +598,7 @@ public class Bookie extends BookieThread {
     }
 
     void readJournal() throws IOException, BookieException {
+        long startTs = MathUtils.now();
         journal.replay(new JournalScanner() {
             @Override
             public void process(int journalVersion, long offset, ByteBuffer recBuff) throws IOException {
@@ -648,11 +648,14 @@ public class Bookie extends BookieThread {
                 }
             }
         });
+        long elapsedTs = MathUtils.now() - startTs;
+        LOG.info("Finished replaying journal in {} ms.", elapsedTs);
     }
 
+    @Override
     synchronized public void start() {
         setDaemon(true);
-        LOG.debug("I'm starting a bookie with journal directory {}", journalDirectory.getName());
+        LOG.info("I'm starting a bookie with journal directory {}", journalDirectory.getName());
         // replay journals
         try {
             readJournal();
@@ -830,6 +833,7 @@ public class Bookie extends BookieThread {
             // Create the ZK ephemeral node for this Bookie.
             zk.create(zkBookieRegPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
                     CreateMode.EPHEMERAL);
+            LOG.info("Registered myself in ZooKeeper at {}.", zkBookieRegPath);
         } catch (KeeperException ke) {
             LOG.error("ZK exception registering ephemeral Znode for Bookie!",
                     ke);
@@ -969,7 +973,9 @@ public class Bookie extends BookieThread {
     // because shutdown can be called from sync thread which would be
     // interrupted by shutdown call.
     void triggerBookieShutdown(final int exitCode) {
+        LOG.info("Trigger shutting down bookie server, exit code {}.", exitCode);
         Thread shutdownThread = new Thread() {
+            @Override
             public void run() {
                 Bookie.this.shutdown(exitCode);
             }
@@ -1163,6 +1169,7 @@ public class Bookie extends BookieThread {
     static class CounterCallback implements WriteCallback {
         int count;
 
+        @Override
         synchronized public void writeComplete(int rc, long l, long e, InetSocketAddress addr, Object ctx) {
             count--;
             if (count == 0) {

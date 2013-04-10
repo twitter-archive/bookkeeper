@@ -49,12 +49,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.google.common.collect.MapMaker;
 
 /**
@@ -80,8 +80,8 @@ public class EntryLogger {
     }
 
     volatile File currentDir;
-    private LedgerDirsManager ledgerDirsManager;
-    private AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
+    private final LedgerDirsManager ledgerDirsManager;
+    private final AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
 
     private volatile long leastUnflushedLogId;
     /**
@@ -216,7 +216,7 @@ public class EntryLogger {
      * These channels should be used only for reading. logChannel is the one
      * that is used for writes.
      */
-    private ThreadLocal<Map<Long, BufferedReadChannel>> logid2channel
+    private final ThreadLocal<Map<Long, BufferedReadChannel>> logid2channel
             = new ThreadLocal<Map<Long, BufferedReadChannel>>() {
         @Override
         public Map<Long, BufferedReadChannel> initialValue() {
@@ -234,7 +234,7 @@ public class EntryLogger {
      * and don't cause a change in the channel's position. We use this map to store the file channels. Each
      * file channel is mapped to a log id which represents an open log file.
      */
-    private ConcurrentMap<Long, FileChannel> logid2filechannel
+    private final ConcurrentMap<Long, FileChannel> logid2filechannel
             = new ConcurrentHashMap<Long, FileChannel>();
 
     /**
@@ -339,6 +339,8 @@ public class EntryLogger {
             // so the readers could access the data from filesystem.
             logChannel.flush(false);
             logChannelsToFlush.add(logChannel);
+            LOG.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
+                    logChannel.getLogId(), logChannelsToFlush);
             if (null != listener) {
                 listener.onRotateEntryLog();
             }
@@ -363,7 +365,7 @@ public class EntryLogger {
         synchronized BufferedLogChannel createNewLog() throws IOException {
             BufferedLogChannel bc;
             if (!entryLogPreAllocationEnabled || null == preallocation) {
-                // initialization time to create a new log 
+                // initialization time to create a new log
                 bc = allocateNewLog();
             } else {
                 // has a preallocated entry log
@@ -387,6 +389,7 @@ public class EntryLogger {
                     }
                 });
             }
+            LOG.info("Created new entry logger {}.", bc.getLogId());
             return bc;
         }
 
@@ -420,6 +423,7 @@ public class EntryLogger {
             for (File f : list) {
                 setLastLogId(f, preallocatedLogId);
             }
+            LOG.info("Preallocated entry logger {}.", preallocatedLogId);
             return logChannel;
         }
 
@@ -429,6 +433,7 @@ public class EntryLogger {
         void stop() {
             // wait until the preallocation finished.
             allocatorExecutor.shutdown();
+            LOG.info("Stopped entry logger preallocator.");
         }
     }
 
@@ -537,7 +542,7 @@ public class EntryLogger {
     void checkpoint() throws IOException {
         flushRotatedLogs();
     }
-    
+
     void flushRotatedLogs() throws IOException {
         List<BufferedLogChannel> channels = null;
         long flushedLogId = -1;
@@ -557,6 +562,7 @@ public class EntryLogger {
             if (channel.getLogId() > flushedLogId) {
                 flushedLogId = channel.getLogId();
             }
+            LOG.info("Synced entry logger {} to disk.", channel.getLogId());
         }
         // move the leastUnflushedLogId ptr
         leastUnflushedLogId = flushedLogId + 1;
@@ -566,10 +572,11 @@ public class EntryLogger {
         flushRotatedLogs();
         flushCurrentLog();
     }
-        
+
     synchronized void flushCurrentLog() throws IOException {
         if (logChannel != null) {
             logChannel.flush(true);
+            LOG.info("Flush and sync current entry logger {}.", logChannel.getLogId());
         }
     }
 
@@ -583,7 +590,7 @@ public class EntryLogger {
             boolean createNewLog = shouldCreateNewEntryLog.get();
             if (createNewLog || reachEntryLogLimit(entry.remaining() + 4)) {
                 createNewLog();
-    
+
                 // Reset the flag
                 if (createNewLog) {
                     shouldCreateNewEntryLog.set(false);
