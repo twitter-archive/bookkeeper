@@ -783,10 +783,9 @@ public class LedgerHandle {
                                        ensembleInfo));
                 return;
             } else if (rc != BKException.Code.OK) {
-                LOG.error("Could not persist ledger metadata while "
-                          + "changing ensemble to: "
-                          + ensembleInfo.newEnsemble
-                          + " , closing ledger");
+                LOG.error(
+                        "Could not persist ledger metadata while changing ensemble to: {}, closing ledger : {}.",
+                        ensembleInfo.newEnsemble, rc);
                 handleUnrecoverableErrorDuringAdd(rc);
                 return;
             }
@@ -822,14 +821,9 @@ public class LedgerHandle {
                 handleUnrecoverableErrorDuringAdd(rc);
             } else {
                 if (!resolveConflict(newMeta)) {
-                    LOG.error("Could not resolve ledger metadata conflict "
-                            + "while changing ensemble to: "
-                            + ensembleInfo.newEnsemble
-                            + ", old meta data is \n"
-                            + new String(metadata.serialize())
-                            + "\n, new meta data is \n"
-                            + new String(newMeta.serialize())
-                            + "\n ,closing ledger");
+                    LOG.error("Could not resolve ledger metadata conflict while changing ensemble to: {},"
+                            + " old meta data is \n {} \n, new meta data is \n {}, closing ledger",
+                            new Object[] { ensembleInfo.newEnsemble, metadata, newMeta });
                     handleUnrecoverableErrorDuringAdd(rc);
                 }
             };
@@ -861,13 +855,9 @@ public class LedgerHandle {
                 // contains the failed bookie.
                 if (!metadata.currentEnsemble.get(ensembleInfo.bookieIndex)
                         .equals(ensembleInfo.addr)) {
-                    LOG.info("Resolve ledger metadata conflict "
-                            + "while changing ensemble to: "
-                            + ensembleInfo.newEnsemble
-                            + ", old meta data is \n"
-                            + new String(metadata.serialize())
-                            + "\n, new meta data is \n"
-                            + new String(newMeta.serialize()));
+                    LOG.info("Resolve ledger metadata conflict while changing ensemble to: {},"
+                            + " old meta data is \n {} \n, new meta data is \n {}.", new Object[] {
+                            ensembleInfo.newEnsemble, metadata, newMeta });
                     writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
                 }
             } else {
@@ -931,7 +921,7 @@ public class LedgerHandle {
                 } else if (rc == BKException.Code.OK) {
                     new LedgerRecoveryOp(LedgerHandle.this, cb).initiate();
                 } else {
-                    LOG.error("Error writing ledger config " + rc + " of ledger " + ledgerId);
+                    LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
                 }
             }

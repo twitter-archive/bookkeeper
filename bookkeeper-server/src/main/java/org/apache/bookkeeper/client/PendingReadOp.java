@@ -21,30 +21,29 @@ package org.apache.bookkeeper.client;
  *
  */
 import java.net.InetSocketAddress;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.ScheduledFuture;
 import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.NoSuchElementException;
-import java.util.Queue;
 import java.util.BitSet;
-import java.util.Set;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
-
+import java.util.NoSuchElementException;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Sequence of entries of a ledger that represents a pending read operation.
@@ -242,6 +241,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             return complete.get();
         }
 
+        @Override
         public String toString() {
             return String.format("L%d-E%d", ledgerId, entryId);
         }
@@ -281,6 +281,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
         if (speculativeReadTimeout > 0) {
             speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
+                    @Override
                     public void run() {
                         int x = 0;
                         for (LedgerEntryRequest r : seq) {
@@ -332,7 +333,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     void sendReadTo(InetSocketAddress to, LedgerEntryRequest entry) throws InterruptedException {
         lh.throttler.acquire();
 
-        lh.bk.bookieClient.readEntry(to, lh.ledgerId, entry.entryId, 
+        lh.bk.bookieClient.readEntry(to, lh.ledgerId, entry.entryId,
                                      this, new ReadContext(to, entry));
     }
 
@@ -356,7 +357,8 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         if(numPendingEntries < 0)
-            LOG.error("Read too many values");
+            LOG.error("Read too many values for ledger {} : [{}, {}].", new Object[] { ledgerId,
+                    startEntryId, endEntryId });
     }
 
     private void submitCallback(int code) {
@@ -371,10 +373,12 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         cancelSpeculativeTask(true);
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);
     }
+    @Override
     public boolean hasMoreElements() {
         return !seq.isEmpty();
     }
 
+    @Override
     public LedgerEntry nextElement() throws NoSuchElementException {
         return seq.remove();
     }

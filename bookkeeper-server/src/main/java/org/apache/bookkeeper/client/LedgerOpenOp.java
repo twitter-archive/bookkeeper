@@ -29,7 +29,6 @@ import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.slf4j.Logger;
@@ -129,12 +128,12 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
 
             if (metadata.hasPassword()) {
                 if (!Arrays.equals(passwd, metadata.getPassword())) {
-                    LOG.error("Provided passwd does not match that in metadata");
+                    LOG.error("Provided passwd does not match that in ledger {}'s metadata.", ledgerId);
                     openComplete(BKException.Code.UnauthorizedAccessException, null);
                     return;
                 }
                 if (digestType != metadata.getDigestType()) {
-                    LOG.error("Provided digest does not match that in metadata");
+                    LOG.error("Provided digest does not match that in ledger {}'s metadata.", ledgerId);
                     openComplete(BKException.Code.DigestMatchException, null);
                     return;
                 }

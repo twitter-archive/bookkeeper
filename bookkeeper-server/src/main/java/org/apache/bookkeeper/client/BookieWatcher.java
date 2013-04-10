@@ -25,7 +25,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -35,16 +34,16 @@ import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs.Ids;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class is responsible for maintaining a consistent view of what bookies
@@ -72,7 +71,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             readBookies();
         }
     };
-    private ReadOnlyBookieWatcher readOnlyBookieWatcher;
+    private final ReadOnlyBookieWatcher readOnlyBookieWatcher;
 
     public BookieWatcher(ClientConfiguration conf,
                          ScheduledExecutorService scheduler,
@@ -135,7 +134,8 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             try {
                 bookieAddr = StringUtils.parseAddr(bookieAddrString);
             } catch (IOException e) {
-                logger.error("Could not parse bookie address: " + bookieAddrString + ", ignoring this bookie");
+                logger.error("Could not parse bookie address: " + bookieAddrString
+                        + ", ignoring this bookie : ", e);
                 continue;
             }
             newBookieAddrs.add(bookieAddr);
@@ -154,12 +154,13 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
         final LinkedBlockingQueue<Integer> queue = new LinkedBlockingQueue<Integer>();
         readBookies(new ChildrenCallback() {
+            @Override
             public void processResult(int rc, String path, Object ctx, List<String> children) {
                 try {
                     BookieWatcher.this.processResult(rc, path, ctx, children);
                     queue.put(rc);
                 } catch (InterruptedException e) {
-                    logger.error("Interruped when trying to read bookies in a blocking fashion");
+                    logger.error("Interruped when trying to read bookies in a blocking fashion : ", e);
                     throw new RuntimeException(e);
                 }
             }
@@ -240,8 +241,8 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
         private final static Logger LOG = LoggerFactory.getLogger(ReadOnlyBookieWatcher.class);
         private HashSet<InetSocketAddress> readOnlyBookies = new HashSet<InetSocketAddress>();
-        private BookKeeper bk;
-        private String readOnlyBookieRegPath;
+        private final BookKeeper bk;
+        private final String readOnlyBookieRegPath;
 
         public ReadOnlyBookieWatcher(ClientConfiguration conf, BookKeeper bk) throws KeeperException,
                 InterruptedException {
@@ -268,6 +269,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
             final LinkedBlockingQueue<Integer> queue = new LinkedBlockingQueue<Integer>();
             readROBookies(new ChildrenCallback() {
+                @Override
                 public void processResult(int rc, String path, Object ctx, List<String> children) {
                     try {
                         ReadOnlyBookieWatcher.this.processResult(rc, path, ctx, children);

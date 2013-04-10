@@ -19,24 +19,25 @@ package org.apache.bookkeeper.client;
  */
 
 import java.io.BufferedReader;
-import java.io.StringReader;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.Arrays;
 
-import org.apache.bookkeeper.versioning.Version;
-import com.google.protobuf.TextFormat;
-import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat;
 import org.apache.bookkeeper.util.StringUtils;
+import org.apache.bookkeeper.versioning.Version;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.protobuf.ByteString;
+import com.google.protobuf.TextFormat;
 
 /**
  * This class encapsulates all the ledger metadata that is persistently stored
@@ -319,7 +320,6 @@ public class LedgerMetadata {
         if (versionLine == null) {
             throw new IOException("Invalid metadata. Content missing");
         }
-        int i = 0;
         if (versionLine.startsWith(VERSION_KEY)) {
             String parts[] = versionLine.split(tSplitter);
             lc.metadataFormatVersion = new Integer(parts[1]);
@@ -414,7 +414,7 @@ public class LedgerMetadata {
 
     /**
      * Updates the version of this metadata.
-     * 
+     *
      * @param v Version
      */
     public void setVersion(Version v) {
@@ -423,7 +423,7 @@ public class LedgerMetadata {
 
     /**
      * Returns the last version.
-     * 
+     *
      * @return version
      */
     public Version getVersion() {
@@ -488,5 +488,12 @@ public class LedgerMetadata {
         ensembles = newMeta.ensembles;
         version = newMeta.version;
         return true;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(meta:").append(new String(serialize())).append(", version:").append(version).append(")");
+        return sb.toString();
     }
 }
