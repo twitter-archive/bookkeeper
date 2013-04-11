@@ -241,6 +241,11 @@ class Journal extends BookieThread {
                 }
             }
         }
+
+        @Override
+        public String toString() {
+            return curMark.toString();
+        }
     }
 
     /**
