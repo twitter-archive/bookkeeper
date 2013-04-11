@@ -105,8 +105,7 @@ public class SubscribeHandler extends BaseHandler {
         try {
             seqId = persistenceMgr.getCurrentSeqIdForTopic(topic);
         } catch (ServerNotResponsibleForTopicException e) {
-            channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId())).addListener(
-                ChannelFutureListener.CLOSE);
+            channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId()));
             subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
             ServerStatsProvider.getStatsLoggerInstance()
                     .getSimpleStatLogger(HedwigServerSimpleStatType.TOTAL_REQUESTS_REDIRECT).inc();
@@ -126,8 +125,7 @@ public class SubscribeHandler extends BaseHandler {
 
             @Override
             public void operationFailed(Object ctx, PubSubException exception) {
-                channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId())).addListener(
-                    ChannelFutureListener.CLOSE);
+                channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 logger.error("Error serving subscribe request (" + request.getTxnId() + ") for (topic: "
                            + topic.toStringUtf8() + " , subscriber: " + subscriberId.toStringUtf8() + ")", exception);
                 subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
@@ -180,8 +178,7 @@ public class SubscribeHandler extends BaseHandler {
                     logger.error(errMsg, t);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, t);
                     subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
-                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
-                    .addListener(ChannelFutureListener.CLOSE);
+                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
                     return;
                 }
                 boolean forceAttach = false;
@@ -196,8 +193,7 @@ public class SubscribeHandler extends BaseHandler {
                         + " is already being served on a different channel " + oldChannel + ".");
                     logger.error("Topic busy exception as subscriber is being served on another channel: {} while handling " +
                             "subscription request: {} on channel: {}", va(oldChannel, request, channel));
-                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()))
-                    .addListener(ChannelFutureListener.CLOSE);
+                    channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
                     subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
                     return;
                 }
