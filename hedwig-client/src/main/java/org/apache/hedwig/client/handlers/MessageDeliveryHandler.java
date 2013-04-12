@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import static org.apache.hedwig.util.VarArgs.va;
 
 /**
  * This class maintains a queue of outstanding messages to be delivered to a particular MessageHandler. If the message handler
@@ -87,9 +88,11 @@ public class MessageDeliveryHandler {
         // First put the message in the queue so that we don't lose it.
         if (!messageQueue.offer(message)) {
             // We should never reach here since the queue is unbounded.
-            logger.error("Could not add message:" + message.toString() + " to an unbounded queue while delivering" +
-                    " messages for topic:" + this.origSubData.topic.toStringUtf8() + " to" +
-                    " subscriber:" + this.origSubData.subscriberId.toStringUtf8());
+            logger.error("Could not add message: {} to an unbounded queue while delivering" +
+                    " messages for topic:{} to subscriber:{}",
+                va(message.toString(),
+                    this.origSubData.topic.toStringUtf8(),
+                    this.origSubData.subscriberId.toStringUtf8()));
             throw new MessageDeliveryException("Couldn't add message to an unbounded queue in the MessageDeliveryHandler.") ;
         }
         return tryDelivery();
@@ -124,9 +127,10 @@ public class MessageDeliveryHandler {
                     messageQueue.poll();
                     numDelivered++;
                 } catch (RuntimeException e) {
-                   logger.error("RuntimeException thrown while calling deliver on message:" + messageConsumeDataToDeliver.msg.toString()
-                            + " for topic:" + origSubData.topic.toStringUtf8()
-                            + " , subscriber:" + origSubData.subscriberId.toStringUtf8() + ", Exception:" + e);
+                   logger.error("RuntimeException thrown while calling deliver on message:{} for topic:{}, subscriber:{}, Exception: {}",
+                       va(messageConsumeDataToDeliver.msg.toString(),
+                           origSubData.topic.toStringUtf8(),
+                           origSubData.subscriberId.toStringUtf8()),e);
                     // We don't set delivering to false in case we throw an exception so as to stop anyone else
                     // from accidentally delivering messages while the exception is handled.
                     throw new MessageDeliveryException("RuntimeException while delivering message");
@@ -139,8 +143,8 @@ public class MessageDeliveryHandler {
 
         // If we did not delivery because the handler was not set, log this.
         if (null == handler && numDelivered == 0) {
-            logger.warn("Could not attempt delivery for topic:" + origSubData.topic.toStringUtf8() + ", subscriber:"
-                    + origSubData.subscriberId.toStringUtf8() + " because a message handler was not set.");
+            logger.warn("Could not attempt delivery for topic: {}, subscriber: {} because a message handler was not set.",
+                origSubData.topic.toStringUtf8(), origSubData.subscriberId.toStringUtf8());
         }
         return numDelivered;
     }

@@ -268,7 +268,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
         try {
             deliveryHandler.offerAndOptionallyDeliver(messageConsumeData);
         } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-            logger.error("Caught exception while trying to deliver messages to the message handler." + e);
+            logger.error("Caught exception while trying to deliver messages to the message handler. {}", e);
             // We close the channel so that this subscription is closed and retried later resulting in a new response handler.
             // We want the state to be cleared so we don't close the channel explicitly.
             closeSubscribeChannel();
@@ -360,7 +360,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
         try {
             deliveryHandler.setMessageHandlerOptionallyDeliver(messageHandler);
         } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-            logger.error("Error while starting delivering outstanding messages : ", e);
+            logger.error("Error while starting delivering outstanding messages : {}", e);
             closeSubscribeChannel();
             // if failed to deliver messages, re-estabilish subscription channel
             // we don't need to go thru following logic to make channel readable
@@ -399,7 +399,7 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
         try {
             deliveryHandler.setMessageHandlerOptionallyDeliver(null);
         } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-            logger.error("Error while stopping delivering outstanding messages : ", e);
+            logger.error("Error while stopping delivering outstanding messages : {}", e);
             closeSubscribeChannel();
             // if failed, re-estabilish subscription channel
             // we don't need to go thru following logic to make channel unreadable

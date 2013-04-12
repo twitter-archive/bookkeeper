@@ -102,8 +102,7 @@ public class MessageConsumeCallback implements Callback<Void> {
         // callback to the HChannelHandler to try the async MessageHandler
         // Consume logic again.
         MessageConsumeData messageConsumeData = (MessageConsumeData) ctx;
-        logger.error("Message was not consumed successfully by client MessageHandler: {}",
-                     messageConsumeData);
+        logger.error("Message was not consumed successfully by client MessageHandler Data: {}", messageConsumeData, exception);
 
         // Sleep a pre-configured amount of time (in milliseconds) before we
         // do the retry. In the future, we can have more dynamic logic on

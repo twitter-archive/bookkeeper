@@ -160,7 +160,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
             try {
                 deliveryHandler.setMessageHandlerOptionallyDeliver(messageHandler);
             } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-                logger.error("Error while starting delivering outstanding messages : ", e);
+                logger.error("Error while starting delivering outstanding messages", e);
                 handleMessageDeliveryException();
             }
         }
@@ -169,7 +169,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
             try {
                 deliveryHandler.setMessageHandlerOptionallyDeliver(null);
             } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-                logger.error("Error while stopping delivering outstanding messages : ", e);
+                logger.error("Error while stopping delivering outstanding messages", e);
                 handleMessageDeliveryException();
             }
         }
@@ -184,7 +184,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
             try {
                 deliveryHandler.offerAndOptionallyDeliver(messageConsumeData);
             } catch (MessageDeliveryHandler.MessageDeliveryException e) {
-                logger.error("Caught exception while trying to deliver messages to the message handler." + e);
+                logger.error("Caught exception while trying to deliver messages to the message handler", e);
                 handleMessageDeliveryException(); 
             }
         }
@@ -397,7 +397,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
         default:
             // Consider all other status codes as errors, operation failed
             // cases.
-            logger.error("Unexpected error response from server for PubSubResponse: " + response);
+            logger.error("Unexpected error response from server for PubSubResponse: {}", response);
             pubSubData.getCallback().operationFailed(pubSubData.context, new ServiceDownException(
                                                      "Server responded with a status code of: " + response.getStatusCode()));
             break;
