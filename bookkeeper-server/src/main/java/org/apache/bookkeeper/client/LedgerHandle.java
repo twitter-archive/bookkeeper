@@ -842,11 +842,9 @@ public class LedgerHandle {
          */
         private boolean resolveConflict(LedgerMetadata newMeta) {
             // make sure the metadata doesn't changed by other ones.
-            if (!metadata.resolveConflict(newMeta)) {
+            if (metadata.getState() != newMeta.getState()) {
                 return false;
             }
-            // update znode version
-            metadata.setVersion(newMeta.getVersion());
             // Specific resolve conflicts happened when multiple bookies failures
             // in same ensemble.
             if (newMeta.currentEnsemble.get(ensembleInfo.bookieIndex).equals(
@@ -855,6 +853,12 @@ public class LedgerHandle {
                 // contains the failed bookie.
                 if (!metadata.currentEnsemble.get(ensembleInfo.bookieIndex)
                         .equals(ensembleInfo.addr)) {
+                    // make sure the metadata doesn't changed by other ones.
+                    if (!metadata.resolveConflict(newMeta)) {
+                        return false;
+                    }
+                    // update znode version
+                    metadata.setVersion(newMeta.getVersion());
                     LOG.info("Resolve ledger metadata conflict while changing ensemble to: {},"
                             + " old meta data is \n {} \n, new meta data is \n {}.", new Object[] {
                             ensembleInfo.newEnsemble, metadata, newMeta });
