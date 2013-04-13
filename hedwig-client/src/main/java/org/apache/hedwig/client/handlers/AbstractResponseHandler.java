@@ -94,8 +94,8 @@ public abstract class AbstractResponseHandler {
             // We've already exceeded the maximum number of server redirects
             // so consider this as an error condition for the client.
             // Invoke the operationFailed callback and just return.
-            logger.debug("Exceeded the number of server redirects ({}) so error out.",
-                         curNumServerRedirects);
+            logger.warn("Exceeded the number of server redirects ({}) for {} so error out.",
+                         curNumServerRedirects, pubSubData);
             PubSubException exception = new ServiceDownException(
                 new TooManyServerRedirectsException("Already reached max number of redirects: "
                                                     + curNumServerRedirects));

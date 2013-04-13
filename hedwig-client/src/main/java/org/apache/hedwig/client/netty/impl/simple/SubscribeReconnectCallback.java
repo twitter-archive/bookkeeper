@@ -74,6 +74,7 @@ class SubscribeReconnectCallback implements Callback<ResponseBody> {
             retrySubscribeRequest();
         } catch (AlreadyStartDeliveryException asde) {
             // should not reach here
+            logger.error("Unexpected Exception", asde);
         }
     }
 

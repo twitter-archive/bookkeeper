@@ -572,6 +572,7 @@ public abstract class AbstractHChannelManager implements HChannelManager {
                         HChannelImpl.getHChannelHandlerFromChannel(channel.getChannel());
                     channelHandler.checkTimeoutRequests();
                 } catch (NoResponseHandlerException nrhe) {
+                    logger.debug("No Response Handler found for channel {}, Ignore and Continue", channel);
                     continue;
                 }
             }
@@ -690,10 +691,12 @@ public abstract class AbstractHChannelManager implements HChannelManager {
         } else {
             // some has started delivery but not stop it
             if (null != existedMsgHandler) {
+                logger.warn("A message handler has been started for topic subscriber {}", topicSubscriber);
                 throw new AlreadyStartDeliveryException("A message handler has been started for topic subscriber " + topicSubscriber);
             }
             if (messageHandler != null) {
                 if (null != topicSubscriber2MessageHandler.putIfAbsent(topicSubscriber, messageHandler)) {
+                    logger.warn("Someone is also starting delivery for topic subscriber {}", topicSubscriber);
                     throw new AlreadyStartDeliveryException("Someone is also starting delivery for topic subscriber " + topicSubscriber);
                 }
             }

@@ -233,6 +233,7 @@ public class SimpleHChannelManager extends AbstractHChannelManager {
                     HChannelImpl.getHChannelHandlerFromChannel(channel.getChannel());
                 channelHandler.checkTimeoutRequests();
             } catch (NoResponseHandlerException nrhe) {
+                logger.debug("No Response Handler found for channel {}, Ignore and Continue", channel);
                 continue;
             }
         }

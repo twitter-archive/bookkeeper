@@ -71,6 +71,7 @@ class ResubscribeCallback implements Callback<ResponseBody> {
                          va(origTopicSubscriber, e.getMessage()));
             retrySubscribeRequest();
         } catch (AlreadyStartDeliveryException asde) {
+            logger.error("Unexpected Exception", asde);
             // should not reach here
         }
     }

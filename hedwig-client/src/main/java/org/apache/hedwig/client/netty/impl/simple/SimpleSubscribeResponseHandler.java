@@ -328,7 +328,8 @@ public class SimpleSubscribeResponseHandler extends SubscribeResponseHandler {
         synchronized (this) {
             MessageHandler existedMsgHandler = deliveryHandler.getMessageHandler();
             if (null != existedMsgHandler) {
-                    throw new AlreadyStartDeliveryException("A message handler " + existedMsgHandler
+                logger.warn("A message handler {} has been started for {}", existedMsgHandler, topicSubscriber);
+                throw new AlreadyStartDeliveryException("A message handler " + existedMsgHandler
                         + " has been started for " + topicSubscriber);
             }
             // instantiante a message handler

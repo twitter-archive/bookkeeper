@@ -186,6 +186,7 @@ public class HedwigSubscriber implements Subscriber {
         // Validate that the format of the subscriberId is valid either as a
         // local or hub subscriber.
         if (!isValidSubscriberId(subscriberId, isHub)) {
+            logger.error("SubscriberId passed is not valid: {}, isHub: {}", subscriberId.toStringUtf8(), isHub);
             throw new InvalidSubscriberIdException("SubscriberId passed is not valid: " + subscriberId.toStringUtf8()
                                                    + ", isHub: " + isHub);
         }
