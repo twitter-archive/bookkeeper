@@ -17,20 +17,12 @@
  */
 package org.apache.hedwig.client.netty.impl.multiplex;
 
+import static org.apache.hedwig.util.VarArgs.va;
+
 import java.net.InetSocketAddress;
-import java.util.LinkedList;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import com.google.protobuf.ByteString;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelFuture;
-import org.jboss.netty.channel.ChannelFutureListener;
 
 import org.apache.hedwig.client.api.MessageHandler;
 import org.apache.hedwig.client.conf.ClientConfiguration;
@@ -40,10 +32,10 @@ import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.client.exceptions.AlreadyStartDeliveryException;
 import org.apache.hedwig.client.handlers.MessageDeliveryHandler;
 import org.apache.hedwig.client.handlers.SubscribeResponseHandler;
-import org.apache.hedwig.client.netty.HChannelManager;
-import org.apache.hedwig.client.netty.HChannel;
-import org.apache.hedwig.client.netty.NetUtils;
 import org.apache.hedwig.client.netty.FilterableMessageHandler;
+import org.apache.hedwig.client.netty.HChannel;
+import org.apache.hedwig.client.netty.HChannelManager;
+import org.apache.hedwig.client.netty.NetUtils;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.ClientAlreadySubscribedException;
 import org.apache.hedwig.exceptions.PubSubException.ClientNotSubscribedException;
@@ -56,7 +48,6 @@ import org.apache.hedwig.protocol.PubSubProtocol.OperationType;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubRequest;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
 import org.apache.hedwig.protocol.PubSubProtocol.ResponseBody;
-import org.apache.hedwig.protocol.PubSubProtocol.StatusCode;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscribeResponse;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionEvent;
 import org.apache.hedwig.protocol.PubSubProtocol.SubscriptionPreferences;
@@ -64,11 +55,17 @@ import org.apache.hedwig.protoextensions.MessageIdUtils;
 import org.apache.hedwig.protoextensions.SubscriptionStateUtils;
 import org.apache.hedwig.util.Callback;
 import org.apache.hedwig.util.SubscriptionListener;
-import static org.apache.hedwig.util.VarArgs.va;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.ChannelFutureListener;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.protobuf.ByteString;
 
 public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler {
 
-    private static Logger logger =
+    private static final Logger logger =
         LoggerFactory.getLogger(MultiplexSubscribeResponseHandler.class);
 
     class ActiveSubscriber implements SubscriptionListener {
@@ -185,14 +182,14 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
                 deliveryHandler.offerAndOptionallyDeliver(messageConsumeData);
             } catch (MessageDeliveryHandler.MessageDeliveryException e) {
                 logger.error("Caught exception while trying to deliver messages to the message handler", e);
-                handleMessageDeliveryException(); 
+                handleMessageDeliveryException();
             }
         }
 
         void consume(final MessageSeqId messageSeqId) {
             PubSubRequest.Builder pubsubRequestBuilder =
                 NetUtils.buildConsumeRequest(sChannelManager.nextTxnId(),
-                                             topicSubscriber, messageSeqId);  
+                                             topicSubscriber, messageSeqId);
 
             // For Consume requests, we will send them from the client in a fire and
             // forget manner. We are not expecting the server to send back an ack
@@ -285,7 +282,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
 
     // the underlying subscription channel
     volatile HChannel hChannel;
-    InetSocketAddress host; 
+    InetSocketAddress host;
     protected final ConcurrentMap<TopicSubscriber, ActiveSubscriber> subscriptions
         = new ConcurrentHashMap<TopicSubscriber, ActiveSubscriber>();
     private final MultiplexHChannelManager sChannelManager;
@@ -332,7 +329,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
                                                      pubSubData.subscriberId);
             SubscriptionPreferences preferences = null;
             if (response.hasResponseBody()) {
-                ResponseBody respBody = response.getResponseBody(); 
+                ResponseBody respBody = response.getResponseBody();
                 if (respBody.hasSubscribeResponse()) {
                     SubscribeResponse resp = respBody.getSubscribeResponse();
                     if (resp.hasPreferences()) {
@@ -502,7 +499,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
             logger.debug("Start delivering message for {} using message handler {}",
                          va(topicSubscriber, messageHandler));
         }
-        ss.startDelivery(messageHandler); 
+        ss.startDelivery(messageHandler);
     }
 
     @Override
@@ -568,7 +565,7 @@ public class MultiplexSubscribeResponseHandler extends SubscribeResponseHandler 
                            MessageIdUtils.msgIdToReadableString(messageSeqId)));
             return;
         }
-        ss.consume(messageSeqId); 
+        ss.consume(messageSeqId);
     }
 
     @Override

@@ -26,30 +26,29 @@ import java.util.concurrent.ScheduledExecutorService;
 import junit.framework.TestCase;
 
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.hedwig.protocol.PubSubProtocol;
-import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.apache.hedwig.util.Either;
-
-import com.google.protobuf.ByteString;
 import org.apache.hedwig.HelperMethods;
 import org.apache.hedwig.StubCallback;
 import org.apache.hedwig.exceptions.PubSubException;
+import org.apache.hedwig.protocol.PubSubProtocol;
 import org.apache.hedwig.protocol.PubSubProtocol.Message;
+import org.apache.hedwig.protocol.PubSubProtocol.MessageSeqId;
 import org.apache.hedwig.server.common.ServerConfiguration;
 import org.apache.hedwig.server.meta.MetadataManagerFactory;
 import org.apache.hedwig.server.topics.TopicManager;
 import org.apache.hedwig.server.topics.TrivialOwnAllTopicManager;
 import org.apache.hedwig.util.ConcurrencyUtils;
-
+import org.apache.hedwig.util.Either;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.protobuf.ByteString;
+
 public class TestBookkeeperPersistenceManagerWhiteBox extends TestCase {
 
-    protected static Logger logger =
+    protected static final Logger logger =
         LoggerFactory.getLogger(TestBookkeeperPersistenceManagerWhiteBox.class);
 
     BookKeeperTestBase bktb;

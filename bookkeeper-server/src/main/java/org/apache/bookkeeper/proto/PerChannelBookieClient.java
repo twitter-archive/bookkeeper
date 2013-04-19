@@ -42,7 +42,6 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.PCBookieClientStatsLogger;
 import org.apache.bookkeeper.stats.PCBookieClientStatsLogger.PCBookieClientOp;
@@ -89,7 +88,7 @@ import com.google.protobuf.ByteString;
 @ChannelPipelineCoverage("one")
 public class PerChannelBookieClient extends SimpleChannelHandler implements ChannelPipelineFactory {
 
-    public final Logger LOG = LoggerFactory.getLogger(PerChannelBookieClient.class);
+    private final static Logger LOG = LoggerFactory.getLogger(PerChannelBookieClient.class);
     public static final int MAX_FRAME_LENGTH = 2 * 1024 * 1024; // 2M
     // TODO: txnId generator per bookie?
     public static final AtomicLong txnIdGenerator = new AtomicLong(0);

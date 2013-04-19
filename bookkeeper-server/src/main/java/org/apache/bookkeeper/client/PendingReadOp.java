@@ -1,5 +1,3 @@
-package org.apache.bookkeeper.client;
-
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,6 +18,8 @@ package org.apache.bookkeeper.client;
  * under the License.
  *
  */
+package org.apache.bookkeeper.client;
+
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
-    Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
+    private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
     final int speculativeReadTimeout;
     final private ScheduledExecutorService scheduler;

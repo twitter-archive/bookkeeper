@@ -1,5 +1,3 @@
-package org.apache.bookkeeper.client;
-
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,22 +18,22 @@ package org.apache.bookkeeper.client;
  * under the License.
  *
  */
+package org.apache.bookkeeper.client;
 
 import java.io.IOException;
 import java.io.InputStream;
 
+import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.jboss.netty.buffer.ChannelBufferInputStream;
 
 /**
  * Ledger entry. Its a simple tuple containing the ledger id, the entry-id, and
  * the entry content.
  *
  */
-
 public class LedgerEntry {
-    Logger LOG = LoggerFactory.getLogger(LedgerEntry.class);
+    private static final Logger LOG = LoggerFactory.getLogger(LedgerEntry.class);
 
     long ledgerId;
     long entryId;

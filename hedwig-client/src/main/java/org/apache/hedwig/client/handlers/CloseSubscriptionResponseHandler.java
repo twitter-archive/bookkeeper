@@ -17,25 +17,19 @@
  */
 package org.apache.hedwig.client.handlers;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.jboss.netty.channel.Channel;
-
 import org.apache.hedwig.client.conf.ClientConfiguration;
 import org.apache.hedwig.client.data.PubSubData;
-import org.apache.hedwig.client.data.TopicSubscriber;
 import org.apache.hedwig.client.netty.HChannelManager;
-import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.ClientNotSubscribedException;
 import org.apache.hedwig.exceptions.PubSubException.ServiceDownException;
 import org.apache.hedwig.protocol.PubSubProtocol.PubSubResponse;
-import org.apache.hedwig.protocol.PubSubProtocol.ResponseBody;
-import org.apache.hedwig.util.Callback;
-import static org.apache.hedwig.util.VarArgs.va;
+import org.jboss.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CloseSubscriptionResponseHandler extends AbstractResponseHandler {
 
-    private static Logger logger =
+    private static final Logger logger =
         LoggerFactory.getLogger(CloseSubscriptionResponseHandler.class);
 
     public CloseSubscriptionResponseHandler(ClientConfiguration cfg,

@@ -21,9 +21,8 @@ package org.apache.bookkeeper.test;
  *
  */
 
-import java.net.InetSocketAddress;
 import java.io.IOException;
-import java.lang.InterruptedException;
+import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.concurrent.Executors;
 
@@ -32,21 +31,17 @@ import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class tests BookieClient. It just sends the a new entry to itself.
- *
- *
- *
  */
-
 class LoopbackClient implements WriteCallback {
-    Logger LOG = LoggerFactory.getLogger(LoopbackClient.class);
+    private static final Logger LOG = LoggerFactory.getLogger(LoopbackClient.class);
     BookieClient client;
     static int recvTimeout = 2000;
     long begin = 0;
@@ -82,6 +77,7 @@ class LoopbackClient implements WriteCallback {
         client.addEntry(addr, ledgerId, passwd, entry, ChannelBuffers.wrappedBuffer(data), cb, ctx, BookieProtocol.FLAG_NONE);
     }
 
+    @Override
     public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
         Counter counter = (Counter) ctx;
         counter.increment();

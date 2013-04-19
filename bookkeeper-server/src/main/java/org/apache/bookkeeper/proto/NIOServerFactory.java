@@ -35,7 +35,6 @@ import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,14 +47,14 @@ import com.google.common.annotations.VisibleForTesting;
  */
 public class NIOServerFactory extends Thread {
 
+    private static final Logger LOG = LoggerFactory.getLogger(NIOServerFactory.class);
+
     public interface PacketProcessor {
         public void processPacket(ByteBuffer packet, Cnxn src);
         public void shutdown();
     }
 
     ServerStats stats = new ServerStats();
-
-    Logger LOG = LoggerFactory.getLogger(NIOServerFactory.class);
 
     ServerSocketChannel ss;
 
@@ -78,7 +77,7 @@ public class NIOServerFactory extends Thread {
 
     ServerConfiguration conf;
 
-    private Object suspensionLock = new Object();
+    private final Object suspensionLock = new Object();
     private boolean suspended = false;
 
     public NIOServerFactory(ServerConfiguration conf, PacketProcessor processor) throws IOException {
@@ -210,7 +209,7 @@ public class NIOServerFactory extends Thread {
 
         private SocketChannel sock;
 
-        private SelectionKey sk;
+        private final SelectionKey sk;
 
         boolean initialized;
 
@@ -553,7 +552,7 @@ public class NIOServerFactory extends Thread {
             }
         }
 
-        private CnxnStats cnxnStats = new CnxnStats();
+        private final CnxnStats cnxnStats = new CnxnStats();
 
         public CnxnStats getStats() {
             return cnxnStats;
