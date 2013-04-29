@@ -17,8 +17,7 @@
  */
 package org.apache.hedwig.client.netty.impl.multiplex;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.apache.hedwig.util.VarArgs.va;
 
 import org.apache.hedwig.client.data.PubSubData;
 import org.apache.hedwig.client.data.TopicSubscriber;
@@ -26,8 +25,10 @@ import org.apache.hedwig.client.exceptions.AlreadyStartDeliveryException;
 import org.apache.hedwig.exceptions.PubSubException;
 import org.apache.hedwig.exceptions.PubSubException.ClientNotSubscribedException;
 import org.apache.hedwig.protocol.PubSubProtocol.ResponseBody;
+import org.apache.hedwig.protocol.PubSubProtocol.StatusCode;
 import org.apache.hedwig.util.Callback;
-import static org.apache.hedwig.util.VarArgs.va;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class is used when a Subscribe channel gets disconnected and we attempt
@@ -78,6 +79,10 @@ class ResubscribeCallback implements Callback<ResponseBody> {
 
     @Override
     public void operationFailed(Object ctx, PubSubException exception) {
+        if (StatusCode.CLIENT_ALREADY_SUBSCRIBED == exception.getCode()) {
+            logger.warn("Stopped resubscribe for {} since it was subscribed already.");
+            return;
+        }
         // If the resubscribe fails, just keep retrying the subscribe
         // request. There isn't a way to flag to the application layer that
         // a topic subscription has failed. So instead, we'll just keep
