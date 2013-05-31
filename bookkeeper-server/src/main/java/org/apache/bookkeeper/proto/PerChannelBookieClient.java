@@ -74,6 +74,7 @@ import org.jboss.netty.handler.timeout.ReadTimeoutException;
 import org.jboss.netty.handler.timeout.ReadTimeoutHandler;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timer;
+import java.nio.channels.ClosedChannelException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -208,7 +209,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     private void connect() {
-        LOG.info("Connecting to bookie: {}", addr);
+        LOG.debug("Connecting to bookie: {}", addr);
 
         // Set up the ClientBootStrap so we can create a new Channel connection
         // to the bookie.
@@ -228,7 +229,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 synchronized (PerChannelBookieClient.this) {
 
                     if (future.isSuccess() && state == ConnectionState.CONNECTING) {
-                        LOG.info("Successfully connected to bookie: " + addr);
+                        LOG.debug("Successfully connected to bookie: " + addr);
                         rc = BKException.Code.OK;
                         channel = future.getChannel();
                         state = ConnectionState.CONNECTED;
@@ -306,6 +307,17 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
     }
 
+    // In case of tear down several exceptions maybe expected and as such should not pollute the log with
+    // warning messages. Each such explicitly white-listed exceptions would have their own return code and
+    // can be handled without generating any noise in the log
+    //
+    private interface ChannelRequestCompletionCode {
+        int OK = 0;
+        int ChannelClosedException = -1;
+        int UnknownError = -2;
+    }
+
+
     /**
      * @param channel
      * @param request
@@ -318,11 +330,15 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 @Override
                 public void operationComplete(ChannelFuture channelFuture) throws Exception {
                     if (!channelFuture.isSuccess()) {
-                        LOG.warn("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed",
+                        if (!(channelFuture.getCause() instanceof ClosedChannelException)) {
+                            cb.operationComplete(ChannelRequestCompletionCode.ChannelClosedException, null);
+                        } else {
+                            LOG.info("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed",
                                  channelFuture.getCause());
-                        cb.operationComplete(-1, null);
+                            cb.operationComplete(ChannelRequestCompletionCode.UnknownError, null);
+                        }
                     } else {
-                        cb.operationComplete(0, null);
+                        cb.operationComplete(ChannelRequestCompletionCode.OK, null);
                     }
                 }
             });
@@ -365,7 +381,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    LOG.warn("Add entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    if (rc == ChannelRequestCompletionCode.UnknownError) {
+                        LOG.warn("Add entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    }
                     errorOutAddKey(completionKey);
                 } else {
                     // Success
@@ -402,7 +420,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    LOG.warn("Read entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    if (rc == ChannelRequestCompletionCode.UnknownError) {
+                        LOG.warn("Read entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    }
                     errorOutReadKey(completionKey);
                 } else {
                     // Success
@@ -441,7 +461,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    LOG.warn("Read entry and fence operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    if (rc == ChannelRequestCompletionCode.UnknownError) {
+                        LOG.warn("Read entry and fence operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
+                    }
                     errorOutReadKey(completionKey);
                 } else {
                     // Success
@@ -586,7 +608,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     @Override
     public void channelDisconnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
-        LOG.info("Disconnected from bookie: " + addr);
+        LOG.debug("Disconnected from bookie: " + addr);
         errorOutOutstandingEntries();
         Channel c = this.channel;
         if (c != null) {

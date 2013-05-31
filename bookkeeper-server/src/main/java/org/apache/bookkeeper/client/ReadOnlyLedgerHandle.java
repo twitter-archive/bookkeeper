@@ -84,7 +84,7 @@ class ReadOnlyLedgerHandle extends LedgerHandle {
             try {
                 if (!metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
                     // ensemble has already changed, failure of this addr is immaterial
-                    LOG.warn("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
+                    LOG.info("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
                              addr, bookieIndex);
                     blockAddCompletions.decrementAndGet();
                     return;
