@@ -198,7 +198,9 @@ class JournalChannel implements Closeable {
                 NativeIO.bestEffortRemoveFromPageCache(randomAccessFile.getFD(),
                     lastForceWritePosition, (int)(newForceWritePosition - lastForceWritePosition));
             }
-            lastForceWritePosition = newForceWritePosition;
+            synchronized (this) {
+                lastForceWritePosition = newForceWritePosition;
+            }
         }
     }
 }

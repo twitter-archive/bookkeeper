@@ -20,6 +20,8 @@ package org.apache.bookkeeper.conf;
 import java.io.File;
 import java.util.List;
 
+import com.google.common.annotations.Beta;
+
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 
@@ -848,6 +850,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      *
      * @return remove pages from cache
      */
+    @Beta
     public boolean getJournalRemovePagesFromCache() {
         return getBoolean(JOURNAL_REMOVE_FROM_PAGE_CACHE, false);
     }
