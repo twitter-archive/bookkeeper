@@ -217,7 +217,8 @@ public class LedgerHandle {
         asyncClose(new SyncCloseCallback(), counter);
 
         counter.block(0);
-        if (counter.getrc() != BKException.Code.OK) {
+        if ((counter.getrc() != BKException.Code.OK) &&
+            (counter.getrc() != BKException.Code.LedgerClosedException)) {
             throw BKException.create(counter.getrc());
         }
     }
