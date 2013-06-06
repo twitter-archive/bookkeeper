@@ -141,8 +141,15 @@ public class LocalBookKeeper {
             bsConfs[i].setBookiePort(initialPort + i);
             bsConfs[i].setZkServers(InetAddress.getLocalHost().getHostAddress() + ":"
                                   + ZooKeeperDefaultPort);
-            bsConfs[i].setJournalDirName(tmpDirs[i].getPath());
-            bsConfs[i].setLedgerDirNames(new String[] { tmpDirs[i].getPath() });
+
+            if (null == bsConfs[i].getJournalDirNameWithoutDefault()) {
+                bsConfs[i].setJournalDirName(tmpDirs[i].getPath());
+            }
+
+            String [] ledgerDirs = bsConfs[i].getLedgerDirWithoutDefault();
+            if ((null == ledgerDirs) || (0 == ledgerDirs.length)) {
+                bsConfs[i].setLedgerDirNames(new String[] { tmpDirs[i].getPath() });
+            }
 
             bs[i] = new BookieServer(bsConfs[i]);
             bs[i].start();
