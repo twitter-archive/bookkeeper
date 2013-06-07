@@ -330,10 +330,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 @Override
                 public void operationComplete(ChannelFuture channelFuture) throws Exception {
                     if (!channelFuture.isSuccess()) {
-                        if (!(channelFuture.getCause() instanceof ClosedChannelException)) {
+                        if (channelFuture.getCause() instanceof ClosedChannelException) {
                             cb.operationComplete(ChannelRequestCompletionCode.ChannelClosedException, null);
                         } else {
-                            LOG.info("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed",
+                            LOG.warn("Writing a request:" + request.toString() + " to channel:" + channel.toString() + " failed",
                                  channelFuture.getCause());
                             cb.operationComplete(ChannelRequestCompletionCode.UnknownError, null);
                         }
