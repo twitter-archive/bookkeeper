@@ -491,15 +491,19 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     private void closeInternal(boolean permanent) {
+        ChannelFuture closedChannelFuture = null;
         synchronized (this) {
             if (permanent) {
                 state = ConnectionState.CLOSED;
             } else if (state != ConnectionState.CLOSED) {
                 state = ConnectionState.DISCONNECTED;
             }
+            if (null != channel) {
+                closedChannelFuture = channel.close();
+            }
         }
-        if (channel != null) {
-            channel.close().awaitUninterruptibly();
+        if (null != closedChannelFuture) {
+            closedChannelFuture.awaitUninterruptibly();
         }
         if (readTimeoutTimer != null) {
             readTimeoutTimer.stop();
