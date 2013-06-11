@@ -267,13 +267,12 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         boolean completeOpNow = false;
         int opRc = BKException.Code.OK;
         // common case without lock first
-        if (channel != null && state == ConnectionState.CONNECTED) {
+        if (state == ConnectionState.CONNECTED && channel != null && channel.isOpen()) {
             completeOpNow = true;
         } else {
-
             synchronized (this) {
                 // check the channel status again under lock
-                if (channel != null && state == ConnectionState.CONNECTED) {
+                if (channel != null && channel.isOpen() && state == ConnectionState.CONNECTED) {
                     completeOpNow = true;
                     opRc = BKException.Code.OK;
                 } else if (state == ConnectionState.CLOSED) {
@@ -491,23 +490,29 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     private void closeInternal(boolean permanent) {
-        ChannelFuture closedChannelFuture = null;
+        Channel channelToClose = null;
+        Timer timerToStop = null;
+
         synchronized (this) {
             if (permanent) {
                 state = ConnectionState.CLOSED;
             } else if (state != ConnectionState.CLOSED) {
                 state = ConnectionState.DISCONNECTED;
             }
+
             if (null != channel) {
-                closedChannelFuture = channel.close();
+                channelToClose = channel;
+                timerToStop = readTimeoutTimer;
+                readTimeoutTimer = null;
             }
         }
-        if (null != closedChannelFuture) {
-            closedChannelFuture.awaitUninterruptibly();
+
+        if (null != channelToClose) {
+            channelToClose.close().awaitUninterruptibly();
         }
-        if (readTimeoutTimer != null) {
-            readTimeoutTimer.stop();
-            readTimeoutTimer = null;
+
+        if (null != timerToStop) {
+            timerToStop.stop();
         }
     }
 
@@ -614,18 +619,27 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     public void channelDisconnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
         LOG.debug("Disconnected from bookie: " + addr);
         errorOutOutstandingEntries();
-        Channel c = this.channel;
-        if (c != null) {
-            c.close();
-        }
-        synchronized (this) {
-            if (state != ConnectionState.CLOSED) {
-                state = ConnectionState.DISCONNECTED;
-            }
-        }
-
+        reactToDisconnectedChannel(e.getChannel());
         // we don't want to reconnect right away. If someone sends a request to
         // this address, we will reconnect.
+    }
+
+    private void reactToDisconnectedChannel(Channel disconnectedChannel) {
+        if (null == disconnectedChannel) {
+            return;
+        }
+
+        disconnectedChannel.close();
+
+        // If the channel being closed is the same as the current channel then mark the state as
+        // disconnected forcing the next request to connect
+        synchronized (this) {
+            if (disconnectedChannel.equals(channel)) {
+                if (state != ConnectionState.CLOSED) {
+                    state = ConnectionState.DISCONNECTED;
+                }
+            }
+        }
     }
 
     /**
