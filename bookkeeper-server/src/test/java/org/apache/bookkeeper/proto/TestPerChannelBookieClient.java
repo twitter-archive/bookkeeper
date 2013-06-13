@@ -24,14 +24,17 @@ package org.apache.bookkeeper.proto;
 import org.junit.*;
 import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.proto.PerChannelBookieClient.ConnectionState;
 
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import org.jboss.netty.channel.Channel;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +78,85 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
                 });
             client.close();
         }
+        channelFactory.releaseExternalResources();
+        executor.shutdown();
+    }
+
+    @Test(timeout=60000)
+    public void testDisconnectRace() throws Exception {
+        final GenericCallback<Void> nullop = new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                // do nothing, we don't care about doing anything with the connection,
+                // we just want to trigger it connecting.
+            }
+        };
+        ClientSocketChannelFactory channelFactory
+            = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
+            Executors.newCachedThreadPool());
+        OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
+        InetSocketAddress addr = getBookie(0);
+
+        AtomicLong bytesOutstanding = new AtomicLong(0);
+        final PerChannelBookieClient client = new PerChannelBookieClient(executor,
+            channelFactory, addr, bytesOutstanding);
+        final AtomicBoolean inconsistent = new AtomicBoolean(false);
+        final AtomicBoolean running = new AtomicBoolean(true);
+        Thread connectThread = new Thread() {
+            public void run() {
+                while (running.get()) {
+                    client.connectIfNeededAndDoOp(nullop);
+                }
+            }
+        };
+        Thread disconnectThread = new Thread() {
+            public void run() {
+                while (running.get()) {
+                    client.disconnect();
+                    try {
+                        Thread.sleep(100);
+                    } catch (Exception exc) {
+                        //
+                    }
+                }
+            }
+        };
+        Thread checkThread = new Thread() {
+            public void run() {
+                ConnectionState state;
+                Channel channel;
+                while (running.get()) {
+                    synchronized (client) {
+                        state = client.state;
+                        channel = client.channel;
+                    }
+                    if (state == ConnectionState.CONNECTED
+                        && !channel.isConnected()) {
+                        inconsistent.set(true);
+                    } else if (state != ConnectionState.CONNECTED
+                        && channel.isConnected()) {
+                        inconsistent.set(true);
+                    }
+                    try {
+                        Thread.sleep(1);
+                    } catch (Exception exc) {
+                      //
+                    }
+                }
+            }
+        };
+        connectThread.start();
+        disconnectThread.start();
+        checkThread.start();
+
+        Thread.sleep(5000);
+        running.set(false);
+        connectThread.join();
+        disconnectThread.join();
+        checkThread.join();
+        assertFalse("state and channel inconsistent", inconsistent.get());
+
+        client.close();
         channelFactory.releaseExternalResources();
         executor.shutdown();
     }
