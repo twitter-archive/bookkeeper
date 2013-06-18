@@ -229,10 +229,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 synchronized (PerChannelBookieClient.this) {
 
                     if (future.isSuccess() && state == ConnectionState.CONNECTING) {
-                        LOG.info("Successfully connected to bookie: {} with channel {}", addr, channel);
                         rc = BKException.Code.OK;
                         channel = future.getChannel();
                         state = ConnectionState.CONNECTED;
+                        LOG.info("Successfully connected to bookie: {} with channel {}", addr, channel);
                     } else if (future.isSuccess() && state == ConnectionState.CONNECTED) {
                         LOG.info("Already connected with another channel {}, so close the new channel {}", channel, future.getChannel());
                         rc = BKException.Code.OK;
