@@ -77,9 +77,20 @@ public class BookieServer {
         } else {
             this.statsExporter = null;
         }
-
-        this.bookie = newBookie(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
+
+        // Restart sequence
+        // 1. First instantiate the server factory and bind to the port
+        //    --- if using ephemeral ports this is where a port will be picked and
+        //        used for rest of the startup
+        // 2. Initialise the bookie - using the port that the connection bound to
+        // 3. Set the packet processor in the server (this is only used after the server starts running
+        // 4. Start the bookie - read the journal, replay, recover
+        // 5. Start the server and accept connections
+        //
+        nioServerFactory = new NIOServerFactory(conf);
+        this.bookie = newBookie(conf);
+        nioServerFactory.setProcessor(new MultiPacketProcessor(this.conf, this.bookie));
     }
 
     protected Bookie newBookie(ServerConfiguration conf)
@@ -88,10 +99,7 @@ public class BookieServer {
     }
 
     public void start() throws IOException {
-        nioServerFactory = new NIOServerFactory(conf, new MultiPacketProcessor(this.conf, this.bookie));
-
         bookie.start();
-
         nioServerFactory.start();
 
         // Start stats exporter.
@@ -344,10 +352,10 @@ public class BookieServer {
                            "Hello, I'm your bookie, listening on port %1$s. ZKServers are on %2$s. Journals are in %3$s. Ledgers are stored in %4$s.",
                            conf.getBookiePort(), conf.getZkServers(),
                            conf.getJournalDirName(), sb);
-        LOG.info(hello);
         try {
             final BookieServer bs = new BookieServer(conf);
             bs.start();
+            LOG.info(hello);
             Runtime.getRuntime().addShutdownHook(new Thread() {
                 @Override
                 public void run() {

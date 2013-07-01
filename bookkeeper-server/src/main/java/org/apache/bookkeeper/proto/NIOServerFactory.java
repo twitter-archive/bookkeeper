@@ -81,14 +81,30 @@ public class NIOServerFactory extends Thread {
     private boolean suspended = false;
 
     public NIOServerFactory(ServerConfiguration conf, PacketProcessor processor) throws IOException {
+        this(conf);
+        setProcessor(processor);
+    }
+
+    public NIOServerFactory(ServerConfiguration conf) throws IOException {
         super("NIOServerFactory-" + conf.getBookiePort());
         setDaemon(true);
-        this.processor = processor;
         this.conf = conf;
         this.ss = ServerSocketChannel.open();
-        ss.socket().bind(new InetSocketAddress(conf.getBookiePort()));
+
+        if (0 == conf.getBookiePort()) {
+            // If using ephemeral ports we should update the bookie port once we have bound to it
+            ss.socket().bind(null);
+            conf.setBookiePort(ss.socket().getLocalPort());
+        } else {
+            ss.socket().bind(new InetSocketAddress(conf.getBookiePort()));
+            assert(ss.socket().getLocalPort() == conf.getBookiePort());
+        }
         ss.configureBlocking(false);
         ss.register(selector, SelectionKey.OP_ACCEPT);
+    }
+
+    public void setProcessor(PacketProcessor processor) {
+        this.processor = processor;
     }
 
     public InetSocketAddress getLocalAddress() {
