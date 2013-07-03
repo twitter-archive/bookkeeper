@@ -164,7 +164,14 @@ public class LocalBookKeeper {
             }
 
             bsConfs[i] = new ServerConfiguration(baseConf);
-            bsConfs[i].setBookiePort(initialPort + i);
+
+            // If the caller specified ephemeral ports then use ephemeral ports for all
+            // the bookies else use numBookie ports starting at initialPort
+            if (0 == initialPort) {
+                bsConfs[i].setBookiePort(0);
+            } else {
+                bsConfs[i].setBookiePort(initialPort + i);
+            }
 
             if (null == baseConf.getZkServers()) {
                 bsConfs[i].setZkServers(InetAddress.getLocalHost().getHostAddress() + ":"
