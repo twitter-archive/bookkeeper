@@ -1242,6 +1242,18 @@ public class Bookie extends BookieThread {
                 return false;
             }
         }
+
+        // Clean up index directories if they are separate from the ledger dirs
+        File[] indexDirs = conf.getIndexDirs();
+        if (null != indexDirs) {
+            for (File dir : indexDirs) {
+                if (!cleanDir(dir)) {
+                    LOG.error("Formatting ledger directory " + dir + " failed");
+                    return false;
+                }
+            }
+        }
+
         LOG.info("Bookie format completed successfully");
         return true;
     }
