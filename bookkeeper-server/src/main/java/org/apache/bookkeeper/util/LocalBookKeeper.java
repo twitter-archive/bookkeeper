@@ -196,8 +196,9 @@ public class LocalBookKeeper {
         throws IOException, KeeperException, InterruptedException, BookieException {
         LocalBookKeeper lb = new LocalBookKeeper(numBookies, initialBookiePort, zkHost, zkPort);
 
+        ConnectedZKServer zks = null;
         if (shouldStartZK) {
-            LocalBookKeeper.runZookeeper(1000, zkPort);
+            zks = LocalBookKeeper.runZookeeper(1000, zkPort);
         }
 
         lb.initializeZookeper();
@@ -210,6 +211,9 @@ public class LocalBookKeeper {
         } catch (InterruptedException ie) {
             if (stopOnExit) {
                 lb.shutdownBookies();
+                if (null != zks) {
+                    zks.getZks().shutdown();
+                }
             }
             throw ie;
         }
