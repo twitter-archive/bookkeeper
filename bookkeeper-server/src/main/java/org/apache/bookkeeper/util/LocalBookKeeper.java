@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.CreateMode;
@@ -90,7 +91,7 @@ public class LocalBookKeeper {
     static Integer BookieDefaultInitialPort = 5000;
 
     //BookKeeper variables
-    File tmpDirs[];
+    File journalDirs[];
     BookieServer bs[];
     ServerConfiguration bsConfs[];
     Integer initialPort = 5000;
@@ -153,14 +154,45 @@ public class LocalBookKeeper {
         LOG.info("Starting Bookie(s)");
         // Create Bookie Servers (B1, B2, B3)
 
-        tmpDirs = new File[numberOfBookies];
+        journalDirs = new File[numberOfBookies];
         bs = new BookieServer[numberOfBookies];
         bsConfs = new ServerConfiguration[numberOfBookies];
 
         for(int i = 0; i < numberOfBookies; i++) {
-            tmpDirs[i] = File.createTempFile("bookie" + Integer.toString(i), "test");
-            if (!tmpDirs[i].delete() || !tmpDirs[i].mkdir()) {
-                throw new IOException("Couldn't create bookie dir " + tmpDirs[i]);
+            if (null == baseConf.getJournalDirNameWithoutDefault()) {
+                journalDirs[i] = File.createTempFile("bookie" + Integer.toString(i), "test");
+            } else {
+                journalDirs[i] = new File(baseConf.getJournalDirName(), "bookie" + Integer.toString(i));
+            }
+            if (journalDirs[i].exists()) {
+                if (journalDirs[i].isDirectory()) {
+                    FileUtils.deleteDirectory(journalDirs[i]);
+                } else if (!journalDirs[i].delete()) {
+                    throw new IOException("Couldn't cleanup bookie journal dir " + journalDirs[i]);
+                }
+            }
+            if (!journalDirs[i].mkdirs()) {
+                throw new IOException("Couldn't create bookie journal dir " + journalDirs[i]);
+            }
+
+            String [] ledgerDirs = baseConf.getLedgerDirWithoutDefault();
+            if ((null == ledgerDirs) || (0 == ledgerDirs.length)) {
+                ledgerDirs = new String[] { journalDirs[i].getPath() };
+            } else {
+                for (int l = 0; l < ledgerDirs.length; l++) {
+                    File dir = new File(ledgerDirs[l], "bookie" + Integer.toString(i));
+                    if (dir.exists()) {
+                        if (dir.isDirectory()) {
+                            FileUtils.deleteDirectory(dir);
+                        } else if (!dir.delete()) {
+                            throw new IOException("Couldn't cleanup bookie ledger dir " + dir);
+                        }
+                    }
+                    if (!dir.mkdirs()) {
+                        throw new IOException("Couldn't create bookie ledger dir " + dir);
+                    }
+                    ledgerDirs[l] = dir.getPath();
+                }
             }
 
             bsConfs[i] = new ServerConfiguration(baseConf);
@@ -178,14 +210,8 @@ public class LocalBookKeeper {
                                   + ZooKeeperDefaultPort);
             }
 
-            if (null == bsConfs[i].getJournalDirNameWithoutDefault()) {
-                bsConfs[i].setJournalDirName(tmpDirs[i].getPath());
-            }
-
-            String [] ledgerDirs = bsConfs[i].getLedgerDirWithoutDefault();
-            if ((null == ledgerDirs) || (0 == ledgerDirs.length)) {
-                bsConfs[i].setLedgerDirNames(new String[] { tmpDirs[i].getPath() });
-            }
+            bsConfs[i].setJournalDirName(journalDirs[i].getPath());
+            bsConfs[i].setLedgerDirNames(ledgerDirs);
 
             bs[i] = new BookieServer(bsConfs[i]);
             bs[i].start();
