@@ -139,8 +139,7 @@ public class ReplicationWorker implements Runnable {
             UnavailableException {
         long ledgerIdToReplicate = underreplicationManager
                 .getLedgerToRereplicate();
-        LOG.info("Going to replicate the fragments of the ledger: "
-                + ledgerIdToReplicate);
+        LOG.debug("Going to replicate the fragments of the ledger: {}", ledgerIdToReplicate);
         LedgerHandle lh;
         try {
             lh = admin.openLedgerNoRecovery(ledgerIdToReplicate);
@@ -170,8 +169,7 @@ public class ReplicationWorker implements Runnable {
             return;
         }
         Set<LedgerFragment> fragments = getUnderreplicatedFragments(lh);
-        LOG.info("Founds fragments " + fragments
-                + " for replication from ledger: " + ledgerIdToReplicate);
+        LOG.debug("Founds fragments {} for replication from ledger: {}", fragments, ledgerIdToReplicate);
 
         boolean foundOpenFragments = false;
         for (LedgerFragment ledgerFragment : fragments) {
@@ -180,9 +178,8 @@ public class ReplicationWorker implements Runnable {
                 continue;
             } else if (isTargetBookieExistsInFragmentEnsemble(lh,
                     ledgerFragment)) {
-                LOG.info("Target Bookie[" + targetBookie
-                        + "] found in the fragment ensemble:"
-                        + ledgerFragment.getEnsemble());
+                LOG.debug("Target Bookie[{}] found in the fragment ensemble: {}", targetBookie,
+                        ledgerFragment.getEnsemble());
                 continue;
             }
             try {
