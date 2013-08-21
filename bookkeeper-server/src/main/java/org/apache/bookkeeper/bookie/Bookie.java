@@ -89,13 +89,13 @@ import org.slf4j.LoggerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.SettableFuture;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Implements a bookie.
  *
  */
 public class Bookie extends BookieCriticalThread {
-    public static final String INSTANCEID = "INSTANCEID";
-    public static final String READONLY = "readonly";
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
 
@@ -117,8 +117,6 @@ public class Bookie extends BookieCriticalThread {
     // ZK registration path for this bookie
     private final String bookieRegistrationPath;
     private final String bookieReadonlyRegistrationPath;
-
-    static final String CURRENT_DIR = "current";
 
     private final LedgerDirsManager ledgerDirsManager;
     private LedgerDirsManager indexDirsManager;
@@ -427,7 +425,7 @@ public class Bookie extends BookieCriticalThread {
     public static void checkDirectoryStructure(File dir) throws IOException {
         if (!dir.exists()) {
             File parent = dir.getParentFile();
-            File preV3versionFile = new File(dir.getParent(), Cookie.VERSION_FILENAME);
+            File preV3versionFile = new File(dir.getParent(), VERSION_FILENAME);
 
             final AtomicBoolean oldDataExists = new AtomicBoolean(false);
             parent.list(new FilenameFilter() {

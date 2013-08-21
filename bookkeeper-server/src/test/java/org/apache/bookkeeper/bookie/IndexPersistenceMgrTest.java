@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 import static org.junit.Assert.*;
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -70,8 +71,8 @@ public class IndexPersistenceMgrTest {
         txnDir = IOUtils.createTempDir("index-persistence-mgr", "txn");
         ledgerDir = IOUtils.createTempDir("index-persistence-mgr", "ledger");
         // create current dir
-        new File(txnDir, Bookie.CURRENT_DIR).mkdir();
-        new File(ledgerDir, Bookie.CURRENT_DIR).mkdir();
+        new File(txnDir, CURRENT_DIR).mkdir();
+        new File(ledgerDir, CURRENT_DIR).mkdir();
 
         conf = new ServerConfiguration();
         conf.setZkServers(null);

@@ -27,7 +27,6 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.BufferedWriter;
@@ -52,6 +51,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.TextFormat;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * When a bookie starts for the first time it generates  a cookie, and stores
  * the cookie in zookeeper as well as in the each of the local filesystem
@@ -69,8 +70,6 @@ class Cookie {
     static Logger LOG = LoggerFactory.getLogger(Cookie.class);
 
     static final int CURRENT_COOKIE_LAYOUT_VERSION = 4;
-    static final String COOKIE_NODE = "cookies";
-    static final String VERSION_FILENAME = "VERSION";
     private int layoutVersion = 0;
     private String bookieHost = null;
     private String journalDir = null;

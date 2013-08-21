@@ -56,6 +56,8 @@ import java.util.regex.Matcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * ZooKeeper implementation of underreplication manager.
  * This is implemented in a heirarchical fashion, so it'll work with
@@ -73,8 +75,6 @@ import org.slf4j.LoggerFactory;
  */
 public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationManager {
     static final Logger LOG = LoggerFactory.getLogger(ZkLedgerUnderreplicationManager.class);
-    public static final String UNDER_REPLICATION_NODE = "underreplication";
-    static final String DISABLE_NODE = "disable";
     static final String LAYOUT="BASIC";
     static final int LAYOUT_VERSION=1;
 
@@ -103,9 +103,8 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
 
     public ZkLedgerUnderreplicationManager(AbstractConfiguration conf, ZooKeeper zkc)
             throws KeeperException, InterruptedException, ReplicationException.CompatibilityException {
-        basePath = conf.getZkLedgersRootPath() + '/'
-                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE;
-        layoutZNode = basePath + '/' + LedgerLayout.LAYOUT_ZNODE;
+        basePath = conf.getZkLedgersRootPath() + '/' + UNDER_REPLICATION_NODE;
+        layoutZNode = basePath + '/' + LAYOUT_ZNODE;
         urLedgerPath = basePath + "/ledgers";
         urLockPath = basePath + "/locks";
 
@@ -471,9 +470,8 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             throws ReplicationException.UnavailableException {
         LOG.debug("disableLedegerReplication()");
         try {
-            ZkUtils.createFullPathOptimistic(zkc, basePath + '/'
-                    + ZkLedgerUnderreplicationManager.DISABLE_NODE, ""
-                    .getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            ZkUtils.createFullPathOptimistic(zkc, basePath + '/' + DISABLE_NODE,
+                    "".getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             LOG.info("Auto ledger re-replication is disabled!");
         } catch (KeeperException.NodeExistsException ke) {
             LOG.warn("AutoRecovery is already disabled!", ke);
@@ -495,8 +493,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             throws ReplicationException.UnavailableException {
         LOG.debug("enableLedegerReplication()");
         try {
-            zkc.delete(basePath + '/'
-                    + ZkLedgerUnderreplicationManager.DISABLE_NODE, -1);
+            zkc.delete(basePath + '/' + DISABLE_NODE, -1);
             LOG.info("Resuming automatic ledger re-replication");
         } catch (KeeperException.NoNodeException ke) {
             LOG.warn("AutoRecovery is already enabled!", ke);

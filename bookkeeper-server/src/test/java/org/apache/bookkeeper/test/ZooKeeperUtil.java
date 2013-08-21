@@ -28,6 +28,7 @@ import java.net.InetSocketAddress;
 
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.commons.io.FileUtils;
 
 import java.util.concurrent.CountDownLatch;
@@ -126,6 +127,16 @@ public class ZooKeeperUtil {
             }
         }
         throw new IOException("ZooKeeper thread not found");
+    }
+
+    public void expireSession(ZooKeeper zk) throws Exception {
+        long id = zk.getSessionId();
+        byte[] password = zk.getSessionPasswd();
+        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(10000);
+        ZooKeeper zk2 = new ZooKeeper(getZooKeeperConnectString(),
+                zk.getSessionTimeout(), w, id, password);
+        w.waitForConnection();
+        zk2.close();
     }
 
     public void stopServer() throws Exception {

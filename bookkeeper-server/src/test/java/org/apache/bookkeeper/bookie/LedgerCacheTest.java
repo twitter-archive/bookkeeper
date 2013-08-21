@@ -46,6 +46,8 @@ import org.slf4j.LoggerFactory;
 
 import junit.framework.TestCase;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * LedgerCache related test cases
  */
@@ -69,7 +71,7 @@ public class LedgerCacheTest extends TestCase {
         txnDir = IOUtils.createTempDir("ledgercache", "txn");
         ledgerDir = IOUtils.createTempDir("ledgercache", "ledger");
         // create current dir
-        new File(ledgerDir, Bookie.CURRENT_DIR).mkdir();
+        new File(ledgerDir, CURRENT_DIR).mkdir();
 
         conf = new ServerConfiguration();
         conf.setZkServers(null);

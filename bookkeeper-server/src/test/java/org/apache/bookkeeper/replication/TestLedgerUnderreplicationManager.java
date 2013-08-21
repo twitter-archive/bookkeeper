@@ -67,6 +67,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.TextFormat;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Test the zookeeper implementation of the ledger replication manager
  */
@@ -101,8 +103,7 @@ public class TestLedgerUnderreplicationManager {
                 zkUtil.getZooKeeperConnectString(), 10000);
         lmf1 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc1);
         lmf2 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc2);
-        basePath = conf.getZkLedgersRootPath() + '/'
-                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE;
+        basePath = conf.getZkLedgersRootPath() + '/' + UNDER_REPLICATION_NODE;
         urLedgerPath = basePath + "/ledgers";
     }
 
@@ -549,7 +550,7 @@ public class TestLedgerUnderreplicationManager {
                     LOG.debug("Recieved node creation event for the zNodePath:"
                             + event.getPath());
                 }
-                
+
             }});
         // getLedgerToRereplicate is waiting until enable rereplication
         Thread thread1 = new Thread() {

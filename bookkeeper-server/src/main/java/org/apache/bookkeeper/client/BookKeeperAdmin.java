@@ -23,6 +23,7 @@ package org.apache.bookkeeper.client;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -36,7 +37,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.RecoverCallback;
 import org.apache.bookkeeper.client.BookKeeper.SyncOpenCallback;
@@ -60,14 +60,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * Admin client for BookKeeper clusters
  */
 public class BookKeeperAdmin {
     private static Logger LOG = LoggerFactory.getLogger(BookKeeperAdmin.class);
-
-    static final String COLON = ":";
 
     // ZK client instance
     private ZooKeeper zk;
@@ -158,6 +157,37 @@ public class BookKeeperAdmin {
     public void close() throws InterruptedException, BKException {
         bkc.close();
         zk.close();
+    }
+
+    /**
+     * Get a list of the available bookies.
+     *
+     * @return a collection of bookie addresses
+     */
+    public Collection<InetSocketAddress> getAvailableBookies()
+            throws BKException {
+        return bkc.bookieWatcher.getBookies();
+    }
+
+    /**
+     * Get a list of readonly bookies
+     *
+     * @return a collection of bookie addresses
+     */
+    public Collection<InetSocketAddress> getReadOnlyBookies() {
+        return bkc.bookieWatcher.getReadOnlyBookies();
+    }
+
+    /**
+     * Notify when the available list of bookies changes.
+     * This is a one-shot notification. To receive subsequent notifications
+     * the listener must be registered again.
+     *
+     * @param listener the listener to notify
+     */
+    public void notifyBookiesChanged(final BookiesListener listener)
+            throws BKException {
+        bkc.bookieWatcher.notifyBookiesChanged(listener);
     }
 
     /**
@@ -944,14 +974,14 @@ public class BookKeeperAdmin {
 
             // Clear the INSTANCEID
             try {
-                zkc.delete(conf.getZkLedgersRootPath() + "/" + Bookie.INSTANCEID, -1);
+                zkc.delete(conf.getZkLedgersRootPath() + "/" + INSTANCEID, -1);
             } catch (KeeperException.NoNodeException e) {
                 LOG.debug("INSTANCEID not exists in zookeeper to delete");
             }
 
             // create INSTANCEID
             String instanceId = UUID.randomUUID().toString();
-            zkc.create(conf.getZkLedgersRootPath() + "/" + Bookie.INSTANCEID,
+            zkc.create(conf.getZkLedgersRootPath() + "/" + INSTANCEID,
                     instanceId.getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE,
                     CreateMode.PERSISTENT);
 

@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
@@ -42,9 +43,12 @@ import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * This class is responsible for maintaining a consistent view of what bookies
@@ -86,14 +90,44 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         readOnlyBookieWatcher = new ReadOnlyBookieWatcher(conf, bk);
     }
 
-    public Collection<InetSocketAddress> getBookies() {
+    void notifyBookiesChanged(final BookiesListener listener) throws BKException {
+        try {
+            bk.getZkHandle().getChildren(this.bookieRegistrationPath,
+                    new Watcher() {
+                        public void process(WatchedEvent event) {
+                            // listen children changed event from ZooKeeper
+                            if (event.getType() == EventType.NodeChildrenChanged) {
+                                listener.availableBookiesChanged();
+                            }
+                        }
+                    });
+        } catch (KeeperException ke) {
+            logger.error("Error registering watcher with zookeeper", ke);
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted registering watcher with zookeeper", ie);
+            throw new BKException.BKInterruptedException();
+        }
+    }
+
+    public Collection<InetSocketAddress> getBookies() throws BKException {
         try {
             List<String> children = bk.getZkHandle().getChildren(this.bookieRegistrationPath, false);
+            children.remove(BookKeeperConstants.READONLY);
             return convertToBookieAddresses(children);
-        } catch (Exception e) {
-            logger.error("Failed to get bookies : ", e);
-            return new HashSet<InetSocketAddress>();
+        } catch (KeeperException ke) {
+            logger.error("Failed to get bookie list : ", ke);
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted reading bookie list", ie);
+            throw new BKException.BKInterruptedException();
         }
+    }
+
+    Collection<InetSocketAddress> getReadOnlyBookies() {
+        return new HashSet<InetSocketAddress>(readOnlyBookieWatcher.getReadOnlyBookies());
     }
 
     public void readBookies() {
@@ -125,7 +159,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
         // Just exclude the 'readonly' znode to exclude r-o bookies from
         // available nodes list.
-        children.remove(Bookie.READONLY);
+        children.remove(READONLY);
 
         HashSet<InetSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
 
@@ -236,7 +270,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         public ReadOnlyBookieWatcher(ClientConfiguration conf, BookKeeper bk) throws KeeperException,
                 InterruptedException {
             this.bk = bk;
-            readOnlyBookieRegPath = conf.getZkAvailableBookiesPath() + "/" + Bookie.READONLY;
+            readOnlyBookieRegPath = conf.getZkAvailableBookiesPath() + "/" + READONLY;
             if (null == bk.getZkHandle().exists(readOnlyBookieRegPath, false)) {
                 try {
                     bk.getZkHandle().create(readOnlyBookieRegPath, new byte[0], Ids.OPEN_ACL_UNSAFE,

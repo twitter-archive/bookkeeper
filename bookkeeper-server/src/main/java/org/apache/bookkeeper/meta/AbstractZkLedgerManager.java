@@ -31,7 +31,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.AbstractConfiguration;
@@ -53,6 +52,8 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Abstract ledger manager based on zookeeper, which provides common methods such as query zk nodes.
  */
@@ -62,11 +63,6 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
 
     static final int ZK_CONNECT_BACKOFF_MS_MIN = 200;
     static final int ZK_CONNECT_BACKOFF_MS_MAX = 2000;
-
-    // Ledger Node Prefix
-    static public final String LEDGER_NODE_PREFIX = "L";
-    static final String AVAILABLE_NODE = "available";
-    static final String COOKIES_NODE = "cookies";
 
     protected final AbstractConfiguration conf;
     protected final ZooKeeper zk;
@@ -557,10 +553,10 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
      */
     protected boolean isSpecialZnode(String znode) {
         if (AVAILABLE_NODE.equals(znode)
-                || COOKIES_NODE.equals(znode)
-                || LedgerLayout.LAYOUT_ZNODE.equals(znode)
-                || Bookie.INSTANCEID.equals(znode)
-                || ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE
+                || COOKIE_NODE.equals(znode)
+                || LAYOUT_ZNODE.equals(znode)
+                || INSTANCEID.equals(znode)
+                || UNDER_REPLICATION_NODE
                         .equals(znode)) {
             return true;
         }

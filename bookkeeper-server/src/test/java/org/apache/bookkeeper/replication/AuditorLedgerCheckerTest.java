@@ -151,7 +151,7 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
 
         /*
          * Sample data format present in the under replicated ledger path
-         * 
+         *
          * {4=replica: "10.18.89.153:5002"}
          */
         assertTrue("Ledger is not marked as underreplicated:" + ledgerId,
@@ -198,7 +198,7 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
 
         /*
          * Sample data format present in the under replicated ledger path
-         * 
+         *
          * {4=replica: "10.18.89.153:5002", 5=replica: "10.18.89.153:5003"}
          */
         for (Long ledgerId : ledgerList) {
@@ -298,6 +298,29 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
             assertTrue("AutoRecovery is not enabled previously!",
                     e.getCause() instanceof KeeperException.NoNodeException);
         }
+    }
+
+    /**
+     * Test Auditor should consider Readonly bookie as available bookie. Should not publish ur ledgers for
+     * readonly bookies.
+     */
+    @Test(timeout = 20000)
+    public void testReadOnlyBookieExclusionFromURLedgersCheck() throws Exception {
+        LedgerHandle lh = createAndAddEntriesToLedger();
+        ledgerList.add(lh.getId());
+        LOG.debug("Created following ledgers : " + ledgerList);
+
+        int count = ledgerList.size();
+        final CountDownLatch underReplicaLatch = registerUrLedgerWatcher(count);
+
+        ServerConfiguration bookieConf = bsConfs.get(2);
+        BookieServer bk = bs.get(2);
+        bookieConf.setReadOnlyModeEnabled(true);
+        bk.getBookie().doTransitionToReadOnlyMode();
+
+        // grace period for publishing the bk-ledger
+        LOG.debug("Waiting for Auditor to finish ledger check.");
+        assertFalse("latch should not have completed", underReplicaLatch.await(5, TimeUnit.SECONDS));
     }
 
     private CountDownLatch registerUrLedgerWatcher(int count)

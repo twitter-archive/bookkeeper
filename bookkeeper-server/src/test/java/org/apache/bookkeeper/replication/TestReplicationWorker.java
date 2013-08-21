@@ -37,6 +37,7 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
+import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.zookeeper.KeeperException;
@@ -44,6 +45,8 @@ import org.apache.zookeeper.ZooKeeper;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * Test the ReplicationWroker, where it has to replicate the fragments from
@@ -67,7 +70,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         baseConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
         baseClientConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
         basePath = baseClientConf.getZkLedgersRootPath() + '/'
-                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE
+                + UNDER_REPLICATION_NODE
                 + "/ledgers";
         baseConf.setRereplicationEntryBatchSize(3);
     }
@@ -482,6 +485,46 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             underReplicationManager.close();
         }
 
+    }
+
+    /**
+     * Test that if the local bookie turns out to be readonly, then no point in running RW. So RW should shutdown.
+     */
+    @Test(timeout = 20000)
+    public void testRWShutdownOnLocalBookieReadonlyTransition() throws Exception {
+        LedgerHandle lh = bkc.createLedger(3, 3, BookKeeper.DigestType.CRC32, TESTPASSWD);
+
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(data);
+        }
+        InetSocketAddress replicaToKill = LedgerHandleAdapter.getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
+
+        LOG.info("Killing Bookie", replicaToKill);
+        killBookie(replicaToKill);
+
+        int newBkPort = startNewBookie();
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(data);
+        }
+
+        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), newBkPort);
+        LOG.info("New Bookie addr :" + newBkAddr);
+
+        ReplicationWorker rw = new ReplicationWorker(zkc, baseConf, newBkAddr);
+
+        rw.start();
+        try {
+            BookieServer newBk = bs.get(bs.size() - 1);
+            bsConfs.get(bsConfs.size() - 1).setReadOnlyModeEnabled(true);
+            newBk.getBookie().doTransitionToReadOnlyMode();
+            underReplicationManager.markLedgerUnderreplicated(lh.getId(), replicaToKill.toString());
+            while (ReplicationTestUtil.isLedgerInUnderReplication(zkc, lh.getId(), basePath) && rw.isRunning()) {
+                Thread.sleep(100);
+            }
+            assertFalse("RW should shutdown if the bookie is readonly", rw.isRunning());
+        } finally {
+            rw.shutdown();
+        }
     }
 
     /**

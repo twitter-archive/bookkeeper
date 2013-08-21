@@ -31,6 +31,8 @@ import org.apache.bookkeeper.util.ReflectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Abstract configuration
  */
@@ -52,7 +54,6 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
     protected final static String LEDGER_MANAGER_FACTORY_CLASS = "ledgerManagerFactoryClass";
     protected final static String ZK_LEDGERS_ROOT_PATH = "zkLedgersRootPath";
     protected final static String ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
-    protected final static String AVAILABLE_NODE = "available";
     protected final static String REREPLICATION_ENTRY_BATCH_SIZE = "rereplicationEntryBatchSize";
     protected final static String ASYNC_PROCESS_LEDGERS_CONCURRENCY = "asyncProcessLedgersConcurrency";
 
