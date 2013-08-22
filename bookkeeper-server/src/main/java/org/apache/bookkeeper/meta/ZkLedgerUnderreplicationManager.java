@@ -21,6 +21,7 @@ package org.apache.bookkeeper.meta;
 import org.apache.bookkeeper.replication.ReplicationEnableCb;
 import org.apache.bookkeeper.replication.ReplicationException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerRereplicationLayoutFormat;
@@ -470,8 +471,8 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             throws ReplicationException.UnavailableException {
         LOG.debug("disableLedegerReplication()");
         try {
-            ZkUtils.createFullPathOptimistic(zkc, basePath + '/' + DISABLE_NODE,
-                    "".getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+            String znode = basePath + '/' + BookKeeperConstants.DISABLE_NODE;
+            zkc.create(znode, "".getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             LOG.info("Auto ledger re-replication is disabled!");
         } catch (KeeperException.NodeExistsException ke) {
             LOG.warn("AutoRecovery is already disabled!", ke);

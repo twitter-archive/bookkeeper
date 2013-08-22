@@ -107,7 +107,7 @@ public class FlatLedgerManager extends AbstractZkLedgerManager {
                 }
             }
         };
-        ZkUtils.createFullPathOptimistic(zk, ledgerPrefix, metadata.serialize(),
+        ZkUtils.asyncCreateFullPathOptimistic(zk, ledgerPrefix, metadata.serialize(),
             Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL, scb, null);
     }
 
