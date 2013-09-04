@@ -184,12 +184,10 @@ public class GarbageCollectorThread extends Thread {
         lastMinorCompactionTime = lastMajorCompactionTime = MathUtils.now();
     }
 
-    public void forceGC() {
+    public synchronized void forceGC() {
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: " + Thread.currentThread().getName());
-            synchronized (this) {
-                notify();
-            }
+            notify();
         }
     }
 
