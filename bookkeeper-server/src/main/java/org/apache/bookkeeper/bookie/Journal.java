@@ -40,15 +40,13 @@ import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirExcepti
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.twitter.common.stats.SampledStat;
-import com.twitter.common.stats.Stats;
 
 /**
  * Provide journal related management.
@@ -410,27 +408,38 @@ class Journal extends BookieThread {
             this.enableGroupForceWrites = enableGroupForceWrites;
             this.groupingFactor = 0;
 
-            // Export sampled stats for journal grouping efficiency.
-            Stats.export(new SampledStat<Integer>(ServerStatsProvider
-                .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
-                    .JOURNAL_FORCE_WRITE_GROUPING_COUNT), 0) {
-                @Override
-                public Integer doSample() {
-                    return groupingFactor;
-                }
-            });
+            // Export journal grouping efficiency.
+            ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                    BookkeeperServerStatsLogger.BookkeeperServerGauge.JOURNAL_FORCE_WRITE_GROUPING_COUNT,
+                    new Gauge<Integer>() {
+                        @Override
+                        public Integer getDefaultValue() {
+                            return 0;
+                        }
 
-            // Export sampled stats for journal grouping efficiency.
-            Stats.export(new SampledStat<Integer>(ServerStatsProvider
-                .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
-                    .JOURNAL_FORCE_WRITE_QUEUE_SIZE), 0) {
-                @Override
-                public Integer doSample() {
-                    return forceWriteRequests.size();
-                }
-            });
+                        @Override
+                        public Integer getSample() {
+                            return groupingFactor;
+                        }
+                    }
+            );
+            // Export journal forcewrite queue size.
+            ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                    BookkeeperServerStatsLogger.BookkeeperServerGauge.JOURNAL_FORCE_WRITE_QUEUE_SIZE,
+                    new Gauge<Integer>() {
+                        @Override
+                        public Integer getDefaultValue() {
+                            return 0;
+                        }
 
+                        @Override
+                        public Integer getSample() {
+                            return forceWriteRequests.size();
+                        }
+                    }
+            );
         }
+
         @Override
         public void run() {
             LOG.info("ForceWrite Thread started");
@@ -677,8 +686,8 @@ class Journal extends BookieThread {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_QUEUE_SIZE)
             .inc();
         queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx, MathUtils.nowInNano()));
     }
@@ -750,21 +759,21 @@ class Journal extends BookieThread {
                         // 1. If the oldest pending entry has been pending for longer than the max wait time
                         if (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec)) {
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
+                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
                         } else if ((bc.position() > lastFlushPosition + bufferedWritesThreshold)) {
                             // 2. If we have buffered more than the buffWriteThreshold
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
+                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
                         } else if (qe == null) {
                             // We should get here only if we flushWhenQueueEmpty is true else we would wait
                             // for timeout that would put is past the maxWait threshold
                             // 3. If the queue is empty i.e. no benefit of grouping. This happens when we have one
                             // publish at a time - common case in tests.
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FLUSH_EMPTY_QUEUE).inc();
+                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_EMPTY_QUEUE).inc();
                         }
 
                         // toFlush is non null and not empty so should be safe to access getFirst
@@ -798,11 +807,11 @@ class Journal extends BookieThread {
                 if (qe == null) { // no more queue entry
                     continue;
                 }
-                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_WRITE_BYTES)
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                        BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_WRITE_BYTES)
                         .add(qe.entry.remaining());
-                ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_QUEUE_SIZE)
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                        BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_QUEUE_SIZE)
                         .dec();
 
                 lenBuff.clear();

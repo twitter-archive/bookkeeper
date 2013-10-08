@@ -1,18 +1,19 @@
-package org.apache.bookkeeper.stats;
+package org.apache.bookkeeper.stats.twitter.science;
 
 import com.twitter.common.stats.Rate;
 import com.twitter.common.stats.Stats;
+import org.apache.bookkeeper.stats.Counter;
 
 import java.util.concurrent.atomic.AtomicLong;
 /**
- * This will export the value and the rate (per sec) to {@link Stats}
+ * This will export the value and the rate (per sec) to {@link org.apache.bookkeeper.stats.Stats}
  */
-public class SimpleStatImpl implements SimpleStat {
+public class CounterImpl implements Counter {
     // The name used to export this stat
     private String name;
     private AtomicLong value;
 
-    public SimpleStatImpl(String name) {
+    public CounterImpl(String name) {
         this.name = name;
         value = new AtomicLong(0);
         setUpStatsExport();

@@ -32,43 +32,9 @@
   </properties>
   <dependencies>
     <dependency>
-      <groupId>com.twitter.common</groupId>
-      <artifactId>stats</artifactId>
-      <version>0.0.64</version>
-    </dependency>
-    <dependency>
-      <groupId>com.twitter.common</groupId>
-      <artifactId>net-http-handlers</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>javax.servlet</groupId>
-          <artifactId>servlet-api</artifactId>
-        </exclusion>
-      </exclusions>
-      <version>0.0.39</version>
-      <scope>compile</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.twitter.common</groupId>
-      <artifactId>stats-time-series</artifactId>
-      <version>0.0.36</version>
-      <scope>compile</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.twitter.common</groupId>
-      <artifactId>stats-jvm</artifactId>
-      <version>0.0.33</version>
-      <scope>compile</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-server</artifactId>
-      <version>8.0.0.M0</version>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.jetty</groupId>
-      <artifactId>jetty-servlet</artifactId>
-      <version>8.0.0.M0</version>
+      <groupId>org.apache.bookkeeper.stats</groupId>
+      <artifactId>bookkeeper-stats-api</artifactId>
+      <version>${project.parent.version}</version>
     </dependency>
     <dependency>
       <groupId>com.google.protobuf</groupId>
@@ -295,5 +261,15 @@
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>twitter-science-provider</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.bookkeeper.stats</groupId>
+          <artifactId>twitter-science-provider</artifactId>
+          <version>${project.parent.version}</version>
+        </dependency>
+      </dependencies>
+    </profile> 
   </profiles>
 </project>

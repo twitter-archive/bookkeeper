@@ -20,12 +20,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
@@ -36,17 +30,23 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * BookKeeper client. We assume there is one single writer to a ledger at any
@@ -71,7 +71,7 @@ public class BookKeeper {
     final ClientSocketChannelFactory channelFactory;
 
     // The stats logger for this client.
-    private final BookkeeperClientStatsLogger statsLogger = ClientStatsProvider.getStatsLoggerInstance();
+    private final BookkeeperClientStatsLogger statsLogger;
 
     // whether the socket factory is one we created, or is owned by whoever
     // instantiated us
@@ -128,6 +128,11 @@ public class BookKeeper {
      */
     public BookKeeper(final ClientConfiguration conf)
             throws IOException, InterruptedException, KeeperException {
+        this(conf, NullStatsLogger.INSTANCE);
+    }
+
+    public BookKeeper(final ClientConfiguration conf, StatsLogger statsLogger)
+            throws IOException, InterruptedException, KeeperException {
         this.conf = conf;
         ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
         this.zk = ZkUtils
@@ -136,9 +141,10 @@ public class BookKeeper {
         this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
                                                                 Executors.newCachedThreadPool());
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
 
         mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
-        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool);
+        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, this);
         bookieWatcher.readBookiesBlocking();
 
@@ -189,6 +195,12 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory)
             throws IOException, InterruptedException, KeeperException {
+        this(conf, zk, channelFactory, NullStatsLogger.INSTANCE);
+    }
+
+    public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
+                      StatsLogger statsLogger)
+            throws IOException, InterruptedException, KeeperException {
         if (zk == null || channelFactory == null) {
             throw new NullPointerException();
         }
@@ -200,9 +212,10 @@ public class BookKeeper {
         this.zk = zk;
         this.channelFactory = channelFactory;
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
 
         mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
-        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool);
+        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, this);
         bookieWatcher.readBookiesBlocking();
 
@@ -633,9 +646,9 @@ public class BookKeeper {
         public void openComplete(int rc, LedgerHandle lh, Object ctx) {
             SyncCounter counter = (SyncCounter) ctx;
             counter.setLh(lh);
-            
+
             LOG.debug("Open complete: {}", rc);
-            
+
             counter.setrc(rc);
             counter.dec();
         }
@@ -656,7 +669,5 @@ public class BookKeeper {
             counter.dec();
         }
     }
-
-
 
 }

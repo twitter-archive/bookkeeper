@@ -17,9 +17,12 @@
  */
 package org.apache.bookkeeper.stats;
 
-public class BookkeeperServerStatsImpl extends BaseStatsImpl implements BookkeeperServerStatsLogger {
-
-    public BookkeeperServerStatsImpl(String name) {
-        super(name, BookkeeperServerOp.values(), BookkeeperServerSimpleStatType.values());
-    }
+/**
+ * A guage is a value that has only one value at a specific point in time.
+ * An example is the number of elements in a queue. The value of T must be
+ * some numeric type.
+ */
+public interface Gauge<T extends Number> {
+    public T getDefaultValue();
+    public T getSample();
 }

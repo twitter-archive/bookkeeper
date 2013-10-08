@@ -17,19 +17,29 @@
  */
 package org.apache.bookkeeper.stats;
 
-public interface BookkeeperServerStatsLogger extends StatsLogger {
+public class BookkeeperServerStatsLogger extends BookkeeperStatsLogger {
     public static enum BookkeeperServerOp {
         ADD_ENTRY, READ_ENTRY, JOURNAL_ADD_ENTRY, JOURNAL_FORCE_WRITE_LATENCY,
         STORAGE_GET_OFFSET, STORAGE_GET_ENTRY,
         SKIP_LIST_GET_ENTRY, SKIP_LIST_PUT_ENTRY, SKIP_LIST_SNAPSHOT
     }
 
-    public static enum BookkeeperServerSimpleStatType {
-        JOURNAL_WRITE_BYTES, JOURNAL_QUEUE_SIZE, READ_BYTES, WRITE_BYTES, NUM_INDEX_PAGES,
-        NUM_OPEN_LEDGERS, NUM_MINOR_COMP, NUM_MAJOR_COMP,
+    public static enum BookkeeperServerCounter {
+        JOURNAL_WRITE_BYTES, JOURNAL_QUEUE_SIZE, READ_BYTES, WRITE_BYTES,
+        NUM_MINOR_COMP, NUM_MAJOR_COMP,
         BUFFERED_READER_NUM_READ_REQUESTS, BUFFERED_READER_NUM_READ_CACHE_HITS,
-        JOURNAL_FORCE_WRITE_QUEUE_SIZE, JOURNAL_FORCE_WRITE_GROUPING_COUNT, JOURNAL_NUM_FORCE_WRITES,
+        JOURNAL_NUM_FORCE_WRITES,
         JOURNAL_NUM_FLUSH_EMPTY_QUEUE, JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES, JOURNAL_NUM_FLUSH_MAX_WAIT,
         SKIP_LIST_FLUSH_BYTES, SKIP_LIST_THROTTLING
+    }
+
+    public static enum BookkeeperServerGauge {
+        NUM_INDEX_PAGES, NUM_OPEN_LEDGERS,
+        JOURNAL_FORCE_WRITE_QUEUE_SIZE, JOURNAL_FORCE_WRITE_GROUPING_COUNT,
+    }
+
+    public BookkeeperServerStatsLogger(StatsLogger underlying) {
+        super(underlying, BookkeeperServerOp.values(), BookkeeperServerCounter.values(),
+                BookkeeperServerGauge.values());
     }
 }

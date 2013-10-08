@@ -1,6 +1,8 @@
-package org.apache.bookkeeper.stats;
+package org.apache.bookkeeper.stats.twitter.science;
 
 import com.twitter.common.stats.*;
+import org.apache.bookkeeper.stats.OpStatsData;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -11,11 +13,9 @@ import java.util.concurrent.TimeUnit;
  * Internals use twitter.common.stats for exporting metrics.
  */
 public class OpStatsLoggerImpl implements OpStatsLogger {
-    private final String name;
     private final RequestStats events;
 
     public OpStatsLoggerImpl(String name) {
-        this.name = name;
         this.events = new RequestStats(name);
     }
 

@@ -5,7 +5,7 @@ package org.apache.bookkeeper.stats;
  * functions on a Long. Metrics like the number of topics, persist queue size
  * etc. should use this.
  */
-public interface SimpleStat {
+public interface Counter {
     /**
      * Clear this stat.
      */

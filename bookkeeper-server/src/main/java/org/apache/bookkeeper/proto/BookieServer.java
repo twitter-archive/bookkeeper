@@ -20,63 +20,51 @@
  */
 package org.apache.bookkeeper.proto;
 
+import com.google.common.annotations.VisibleForTesting;
+import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.ExitCode;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsProvider;
+import org.apache.commons.cli.*;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.zookeeper.KeeperException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
 
-import org.apache.zookeeper.KeeperException;
-
-import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.bookie.ExitCode;
-import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.jmx.BKMBeanRegistry;
-import org.apache.bookkeeper.stats.HTTPStatsExporter;
-
-import com.google.common.annotations.VisibleForTesting;
-
-import org.apache.commons.configuration.ConfigurationException;
-import org.apache.commons.cli.BasicParser;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.ParseException;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * Implements the server-side part of the BookKeeper protocol.
  *
  */
 public class BookieServer {
+    static Logger LOG = LoggerFactory.getLogger(BookieServer.class);
+
     final ServerConfiguration conf;
     NIOServerFactory nioServerFactory;
     private volatile boolean running = false;
     Bookie bookie;
     DeathWatcher deathWatcher;
 
-    private HTTPStatsExporter statsExporter;
-    static Logger LOG = LoggerFactory.getLogger(BookieServer.class);
-
     int exitCode = ExitCode.OK;
 
     // operation stats
+    final private StatsProvider statsProvider;
     final BKStats bkStats = BKStats.getInstance();
     final boolean isStatsEnabled;
     protected BookieServerBean jmxBkServerBean;
 
-    public BookieServer(ServerConfiguration conf) 
+    public BookieServer(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
         this.conf = conf;
-
-        if (conf.getStatsExport()) {
-            this.statsExporter = new HTTPStatsExporter(conf.getStatsHttpPort());
-        } else {
-            this.statsExporter = null;
-        }
+        this.statsProvider = ServerStatsProvider.initialize(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
 
         // Restart sequence
@@ -102,14 +90,8 @@ public class BookieServer {
         bookie.start();
         nioServerFactory.start();
 
-        // Start stats exporter.
-        try {
-            if (null != statsExporter) {
-                statsExporter.start();
-            }
-        } catch (Exception e) {
-            LOG.error("Exception while starting stats exporter", e);
-        }
+        // Start stats provider.
+        statsProvider.start(conf);
 
         running = true;
         deathWatcher = new DeathWatcher(conf);
@@ -155,13 +137,7 @@ public class BookieServer {
         nioServerFactory.shutdown();
 
         // Stop stats exporter.
-        try {
-            if (null != statsExporter) {
-                statsExporter.stop();
-            }
-        } catch (Exception e) {
-            LOG.error("Exception while shutting down stats exporter.");
-        }
+        statsProvider.stop();
 
         exitCode = bookie.shutdown();
         running = false;

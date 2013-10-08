@@ -21,18 +21,14 @@
 
 package org.apache.bookkeeper.bookie;
 
-import org.apache.bookkeeper.bookie.BufferedChannelBase;
-
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.lang.Math;
-
-
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 
 /**
  * A Buffered channel without a write buffer. Only reads are buffered.
@@ -107,11 +103,11 @@ public class BufferedReadChannel extends BufferedChannelBase {
     }
 
     protected void finalize () {
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.BUFFERED_READER_NUM_READ_REQUESTS)
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.BUFFERED_READER_NUM_READ_REQUESTS)
             .add(invocationCount);
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.BUFFERED_READER_NUM_READ_CACHE_HITS)
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.BUFFERED_READER_NUM_READ_CACHE_HITS)
             .add(cacheHitCount);
     }
 }

@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
@@ -222,7 +222,7 @@ public class GarbageCollectorThread extends Thread {
                 curTime - lastMajorCompactionTime > majorCompactionInterval)) {
                 // enter major compaction
                 ServerStatsProvider.getStatsLoggerInstance()
-                        .getSimpleStatLogger(BookkeeperServerSimpleStatType.NUM_MAJOR_COMP)
+                        .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MAJOR_COMP)
                         .inc();
                 LOG.info("Enter major compaction");
                 doCompactEntryLogs(majorCompactionThreshold);
@@ -236,7 +236,7 @@ public class GarbageCollectorThread extends Thread {
                 curTime - lastMinorCompactionTime > minorCompactionInterval)) {
                 // enter minor compaction
                 ServerStatsProvider.getStatsLoggerInstance()
-                        .getSimpleStatLogger(BookkeeperServerSimpleStatType.NUM_MINOR_COMP)
+                        .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MINOR_COMP)
                         .inc();
                 LOG.info("Enter minor compaction");
                 doCompactEntryLogs(minorCompactionThreshold);

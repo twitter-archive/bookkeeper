@@ -28,7 +28,6 @@ import java.io.IOException;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
-import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
@@ -151,8 +150,8 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         long entryId = entry.getLong();
         entry.rewind();
         // TODO: Move this to the function calling addEntry
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.WRITE_BYTES)
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
                 .add(entry.remaining());
         processEntry(ledgerId, entryId, entry);
         return entryId;
@@ -178,8 +177,8 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                 .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.READ_BYTES)
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
                 .add(retBytes.length);
         return ByteBuffer.wrap(retBytes);
     }

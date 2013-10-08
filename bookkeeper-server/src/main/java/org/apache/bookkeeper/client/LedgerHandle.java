@@ -39,7 +39,6 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientSimpleStatType;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -104,7 +103,7 @@ public class LedgerHandle {
     public void hintOpen() {
         // Hint to the handle that an open operation was performed. This is so that the handle can handle refCounts accordingly.
         if (refCount.getAndIncrement() == 0) {
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).inc();
+            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).inc();
         }
     }
 
@@ -243,7 +242,7 @@ public class LedgerHandle {
                 if (rc == BKException.Code.OK) {
                     if (refCount.decrementAndGet() == 0) {
                         // Closed a ledger
-                        bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_OPEN_LEDGERS).dec();
+                        bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).dec();
                     }
                 }
                 origCb.closeComplete(rc, lh, origCtx);
@@ -545,7 +544,7 @@ public class LedgerHandle {
             entryId = ++lastAddPushed;
             currentLength = addToLength(length);
             op.setEntryId(entryId);
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).inc();
+            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).inc();
             pendingAddOps.add(op);
         }
 
@@ -675,7 +674,7 @@ public class LedgerHandle {
     void errorOutPendingAdds(int rc) {
         PendingAddOp pendingAddOp;
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).dec();
+            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
             pendingAddOp.submitCallback(rc);
         }
     }
@@ -690,7 +689,7 @@ public class LedgerHandle {
                 return;
             }
             pendingAddOps.remove();
-            bk.getStatsLogger().getSimpleStatLogger(BookkeeperClientSimpleStatType.NUM_PENDING_ADD).dec();
+            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
             lastAddConfirmed = pendingAddOp.entryId;
             pendingAddOp.submitCallback(BKException.Code.OK);
         }
@@ -783,8 +782,8 @@ public class LedgerHandle {
             if (rc == BKException.Code.MetadataVersionException) {
                 // We changed the ensemble, but got a version exception. We
                 // should still consider this as an ensemble change
-                bk.getStatsLogger().getSimpleStatLogger(
-                        BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
+                bk.getStatsLogger().getCounter(
+                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
                 rereadMetadata(new ReReadLedgerMetadataCb(rc,
                                        ensembleInfo));
                 return;
@@ -798,8 +797,8 @@ public class LedgerHandle {
             blockAddCompletions.decrementAndGet();
 
             // We've successfully changed an ensemble
-            bk.getStatsLogger().getSimpleStatLogger(
-                    BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
+            bk.getStatsLogger().getCounter(
+                    BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
             // the failed bookie has been replaced
             unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
         }
@@ -865,7 +864,7 @@ public class LedgerHandle {
             if (0 != diff) {
                 if (-1 == diff) {
                     // Case 1: metadata is changed by other ones (e.g. Recovery)
-                    return updateMetadataIfPossible(newMeta); 
+                    return updateMetadataIfPossible(newMeta);
                 }
                 return false;
             }
@@ -884,12 +883,12 @@ public class LedgerHandle {
                 // update ensemble changed metadata again.
                 if (!metadata.currentEnsemble.get(ensembleInfo.bookieIndex)
                         .equals(ensembleInfo.addr)) {
-                    return updateMetadataIfPossible(newMeta); 
+                    return updateMetadataIfPossible(newMeta);
                 }
             } else {
                 // We've successfully changed an ensemble
-                bk.getStatsLogger().getSimpleStatLogger(
-                        BookkeeperClientSimpleStatType.NUM_ENSEMBLE_CHANGE).inc();
+                bk.getStatsLogger().getCounter(
+                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
                 blockAddCompletions.decrementAndGet();
                 unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);

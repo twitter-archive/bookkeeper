@@ -21,28 +21,19 @@
 
 package org.apache.bookkeeper.bookie;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.twitter.common.stats.SampledStat;
-import com.twitter.common.stats.Stats;
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class IndexInMemPageMgr {
     private final static Logger LOG = LoggerFactory.getLogger(IndexInMemPageMgr.class);
@@ -337,14 +328,19 @@ public class IndexInMemPageMgr {
         }
 
         // Export sampled stats for index pages, ledgers.
-        Stats.export(new SampledStat<Integer>(ServerStatsProvider
-            .getStatsLoggerInstance().getStatName(BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType
-                .NUM_INDEX_PAGES), 0) {
-            @Override
-            public Integer doSample() {
-                return getNumUsedPages();
-            }
-        });
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_INDEX_PAGES,
+                new Gauge<Integer>() {
+                    @Override
+                    public Integer getDefaultValue() {
+                        return 0;
+                    }
+                    @Override
+                    public Integer getSample() {
+                        return getNumUsedPages();
+                    }
+                }
+        );
     }
 
     /**

@@ -190,8 +190,8 @@ class JournalChannel implements Closeable {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Journal ForceWrite");
         }
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-            BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType.JOURNAL_NUM_FORCE_WRITES).inc();
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FORCE_WRITES).inc();
         long newForceWritePosition = bc.forceWrite(forceMetadata);
         if (newForceWritePosition > lastForceWritePosition) {
             if (fRemoveFromPageCache) {

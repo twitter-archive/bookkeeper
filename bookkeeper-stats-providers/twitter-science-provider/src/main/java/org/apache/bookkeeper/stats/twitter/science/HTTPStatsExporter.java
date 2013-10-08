@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.bookkeeper.stats;
+package org.apache.bookkeeper.stats.twitter.science;
 
 import com.twitter.common.application.ShutdownRegistry;
 import com.twitter.common.base.Supplier;

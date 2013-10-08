@@ -20,7 +20,7 @@
 package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerSimpleStatType;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
@@ -221,8 +221,8 @@ public class EntryMemTable {
                             }
                         }
                     }
-                    ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(
-                            BookkeeperServerSimpleStatType.SKIP_LIST_FLUSH_BYTES).add(size);
+                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                            BookkeeperServerStatsLogger.BookkeeperServerCounter.SKIP_LIST_FLUSH_BYTES).add(size);
                     clearSnapshot(keyValues);
                 }
             }
@@ -258,7 +258,7 @@ public class EntryMemTable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getSimpleStatLogger(BookkeeperServerSimpleStatType
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter
                 .SKIP_LIST_THROTTLING).inc();
     }
 
