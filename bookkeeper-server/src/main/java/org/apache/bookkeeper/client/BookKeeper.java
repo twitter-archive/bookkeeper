@@ -171,8 +171,13 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk)
         throws IOException, InterruptedException, KeeperException {
+        this(conf, zk, NullStatsLogger.INSTANCE);
+    }
+
+    public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger)
+            throws IOException, InterruptedException, KeeperException {
         this(conf, zk, new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
-                Executors.newCachedThreadPool()));
+                Executors.newCachedThreadPool()), statsLogger);
         ownChannelFactory = true;
     }
 

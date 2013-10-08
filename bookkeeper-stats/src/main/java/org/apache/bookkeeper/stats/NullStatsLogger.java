@@ -77,8 +77,4 @@ public class NullStatsLogger implements StatsLogger {
         return this;
     }
 
-    @Override
-    public void clear() {
-        // do nothing
-    }
 }

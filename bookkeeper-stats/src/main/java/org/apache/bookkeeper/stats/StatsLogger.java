@@ -36,8 +36,4 @@ public interface StatsLogger {
      */
     public StatsLogger scope(String name);
 
-    /**
-     * Clear state
-     */
-    public void clear();
 }

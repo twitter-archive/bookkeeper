@@ -53,8 +53,4 @@ public class TwitterStatsLoggerImpl implements StatsLogger {
         return new TwitterStatsLoggerImpl(scopeName);
     }
 
-    @Override
-    public void clear() {
-        // nop
-    }
 }
