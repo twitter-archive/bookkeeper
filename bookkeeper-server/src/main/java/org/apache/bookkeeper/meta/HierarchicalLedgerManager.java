@@ -89,9 +89,6 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
     // Path to generate global id
     private final String idGenPath;
 
-    // we use this to prevent long stack chains from building up in callbacks
-    ScheduledExecutorService scheduler;
-
     /**
      * Constructor
      *
@@ -104,18 +101,7 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
         super(conf, zk);
 
         this.idGenPath = ledgerRootPath + IDGENERATION_PREFIX;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
         LOG.debug("Using HierarchicalLedgerManager with root path : {}", ledgerRootPath);
-    }
-
-    @Override
-    public void close() {
-        try {
-            scheduler.shutdown();
-        } catch (Exception e) {
-            LOG.warn("Error when closing HierarchicalLedgerManager : ", e);
-        }
-        super.close();
     }
 
     @Override
