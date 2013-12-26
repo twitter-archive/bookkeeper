@@ -129,7 +129,8 @@ public class LedgerChecker {
 
         public void readEntryComplete(int rc, long ledgerId, long entryId,
                                       ChannelBuffer buffer, Object ctx) {
-            if (rc != BKException.Code.NoSuchEntryException) {
+            if (BKException.Code.NoSuchEntryException != rc &&
+                BKException.Code.NoSuchLedgerExistsException != rc) {
                 entryMayExist.set(true);
             }
 

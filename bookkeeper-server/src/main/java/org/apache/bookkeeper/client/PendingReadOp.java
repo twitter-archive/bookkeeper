@@ -186,12 +186,14 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 BKException.Code.NoSuchEntryException == firstError) {
                 firstError = rc;
             } else if (BKException.Code.BookieHandleNotAvailableException == firstError &&
-                       BKException.Code.NoSuchEntryException != rc) {
+                       BKException.Code.NoSuchEntryException != rc &&
+                       BKException.Code.NoSuchLedgerExistsException != rc) {
                 // if other exception rather than NoSuchEntryException is returned
                 // we need to update firstError to indicate that it might be a valid read but just failed.
                 firstError = rc;
             }
-            if (BKException.Code.NoSuchEntryException == rc) {
+            if (rc == BKException.Code.NoSuchLedgerExistsException ||
+                BKException.Code.NoSuchEntryException == rc) {
                 ++numMissedEntryReads;
             }
 

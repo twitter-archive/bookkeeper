@@ -238,7 +238,7 @@ public class BookieClientTest extends TestCase {
         synchronized (arc) {
             bc.readEntry(addr, 2, 13, recb, arc);
             arc.wait(1000);
-            assertEquals(BKException.Code.NoSuchEntryException, arc.rc);
+            assertEquals(BKException.Code.NoSuchLedgerExistsException, arc.rc);
         }
     }
 }
