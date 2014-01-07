@@ -192,10 +192,10 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     void openComplete(int rc, LedgerHandle lh) {
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
-                    .registerFailedEvent(startTime);
+                    .registerFailedEvent(MathUtils.elapsedMSec(startTime));
         } else {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_OPEN)
-                    .registerSuccessfulEvent(startTime);
+                    .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
             if (null != lh) {
                 lh.hintOpen();
             }
