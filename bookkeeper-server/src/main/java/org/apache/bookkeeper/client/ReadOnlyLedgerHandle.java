@@ -52,7 +52,7 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
             Version.Occurred occurred =
                     ReadOnlyLedgerHandle.this.metadata.getVersion().compare(this.m.getVersion());
             if (Version.Occurred.BEFORE == occurred) {
-                LOG.info("Updated ledger metadata for ledger {} to {}.", ledgerId, this.m);
+                LOG.debug("Updated ledger metadata for ledger {} to {}.", ledgerId, this.m);
                 ReadOnlyLedgerHandle.this.metadata = this.m;
             }
         }
@@ -134,7 +134,7 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
 
     @Override
     public void onChanged(long lid, LedgerMetadata newMetadata) {
-        LOG.info("Received ledger metadata update on {} : {}", lid, newMetadata);
+        LOG.debug("Received ledger metadata update on {} : {}", lid, newMetadata);
         if (this.ledgerId != lid) {
             return;
         }
@@ -143,7 +143,7 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
         }
         Version.Occurred occurred =
                 this.metadata.getVersion().compare(newMetadata.getVersion());
-        LOG.info("Try to update metadata from {} to {} : {}",
+        LOG.debug("Try to update metadata from {} to {} : {}",
                 new Object[] { this.metadata, newMetadata, occurred });
         if (Version.Occurred.BEFORE == occurred) { // the metadata is updated
             try {

@@ -216,7 +216,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         rc = BKException.Code.OK;
                         channel = future.getChannel();
                         state = ConnectionState.CONNECTED;
-                        LOG.info("Successfully connected to bookie: {} with channel {}", addr, channel);
+                        LOG.debug("Successfully connected to bookie: {} with channel {}", addr, channel);
                     } else if (future.isSuccess() && state == ConnectionState.CONNECTED) {
                         LOG.info("Already connected with another channel {}, so close the new channel {}", channel, future.getChannel());
                         rc = BKException.Code.OK;
@@ -229,7 +229,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         rc = BKException.Code.BookieHandleNotAvailableException;
                         channel = null;
                     } else {
-                        LOG.error("Could not connect to bookie: " + addr);
+                        LOG.warn("Could not connect to bookie: " + addr);
                         rc = BKException.Code.BookieHandleNotAvailableException;
                         channel = null;
                         if (state != ConnectionState.CLOSED) {
