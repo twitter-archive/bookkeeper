@@ -28,7 +28,7 @@ import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
-
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,9 +88,9 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                         metadataForRecovery = new LedgerMetadata(lh.getLedgerMetadata());
                         doRecoveryRead();
                     } else if (rc == BKException.Code.UnauthorizedAccessException) {
-                        cb.operationComplete(rc, null);
+                        submitCallback(rc);
                     } else {
-                        cb.operationComplete(BKException.Code.ReadException, null);
+                        submitCallback(BKException.Code.ReadException);
                     }
                 }
                 });
@@ -101,6 +101,21 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
          * from writing to it.
          */
         rlcop.initiateWithFencing();
+    }
+
+    private void submitCallback(int rc) {
+        if (BKException.Code.OK == rc) {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_ADD_ENTRIES)
+                    .registerSuccessfulEvent(writeCount.get());
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_READ_ENTRIES)
+                    .registerSuccessfulEvent(readCount.get());
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_ADD_ENTRIES)
+                    .registerFailedEvent(writeCount.get());
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_READ_ENTRIES)
+                    .registerFailedEvent(readCount.get());
+        }
+        cb.operationComplete(rc, null);
     }
 
     /**
@@ -124,9 +139,9 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                 public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
                     if (rc != KeeperException.Code.OK.intValue()) {
                         LOG.warn("Close failed: " + BKException.getMessage(rc));
-                        cb.operationComplete(BKException.Code.ZKException, null);
+                        submitCallback(BKException.Code.ZKException);
                     } else {
-                        cb.operationComplete(BKException.Code.OK, null);
+                        submitCallback(BKException.Code.OK);
                         LOG.debug("After closing length is: {}", lh.getLength());
                     }
                 }
@@ -165,7 +180,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
         // otherwise, some other error, we can't handle
         LOG.error("Failure " + BKException.getMessage(rc) + " while reading entry: " + (entryToRead)
                   + " ledger: " + lh.ledgerId + " while recovering ledger");
-        cb.operationComplete(rc, null);
+        submitCallback(rc);
         return;
     }
 
@@ -176,7 +191,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
                     + " ledger: " + lh.ledgerId + " while recovering ledger");
             if (callbackDone.compareAndSet(false, true)) {
                 // Give up, we can't recover from this error
-                cb.operationComplete(rc, null);
+                submitCallback(rc);
             }
             return;
         }

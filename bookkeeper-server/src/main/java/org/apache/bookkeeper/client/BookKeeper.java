@@ -27,6 +27,7 @@ import org.apache.bookkeeper.client.BKException.Code;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.meta.TimedLedgerManager;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
@@ -149,7 +150,7 @@ public class BookKeeper {
         bookieWatcher.readBookiesBlocking();
 
         ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
-        ledgerManager = ledgerManagerFactory.newLedgerManager();
+        ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
 
         ownChannelFactory = true;
         ownZKHandle = true;
@@ -225,7 +226,7 @@ public class BookKeeper {
         bookieWatcher.readBookiesBlocking();
 
         ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
-        ledgerManager = ledgerManagerFactory.newLedgerManager();
+        ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
     }
 
     LedgerManager getLedgerManager() {

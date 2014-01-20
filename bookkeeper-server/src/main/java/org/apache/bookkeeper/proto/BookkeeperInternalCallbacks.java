@@ -26,6 +26,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.LedgerMetadata;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
@@ -72,6 +74,31 @@ public class BookkeeperInternalCallbacks {
     public interface ReadEntryCallbackCtx {
         void setLastAddConfirmed(long lac);
         long getLastAddConfirmed();
+    }
+
+    public static class TimedGenericCallback<T> implements GenericCallback<T> {
+
+        final GenericCallback<T> cb;
+        final int successRc;
+        final OpStatsLogger statsLogger;
+        final long startTime;
+
+        public TimedGenericCallback(GenericCallback<T> cb, int successRc, OpStatsLogger statsLogger) {
+            this.cb = cb;
+            this.successRc = successRc;
+            this.statsLogger = statsLogger;
+            this.startTime = MathUtils.nowInNano();
+        }
+
+        @Override
+        public void operationComplete(int rc, T result) {
+            if (successRc == rc) {
+                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+            } else {
+                statsLogger.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+            }
+            cb.operationComplete(rc, result);
+        }
     }
 
     /**

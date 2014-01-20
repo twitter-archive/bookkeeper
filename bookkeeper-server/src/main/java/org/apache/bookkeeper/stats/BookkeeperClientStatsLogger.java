@@ -9,7 +9,9 @@ public class BookkeeperClientStatsLogger extends BookkeeperStatsLogger {
      * An enum for the operations that can be logged by this logger.
      */
     public static enum BookkeeperClientOp {
-        ADD_ENTRY, READ_ENTRY, ENSEMBLE_CHANGE, LEDGER_CREATE, LEDGER_OPEN, LEDGER_DELETE
+        ADD_ENTRY, READ_ENTRY, READ_LAST_CONFIRMED,
+        ENSEMBLE_CHANGE, LEDGER_CREATE, LEDGER_OPEN, LEDGER_OPEN_RECOVERY, LEDGER_DELETE, LEDGER_CLOSE,
+        LEDGER_RECOVER, LEDGER_RECOVER_READ_ENTRIES, LEDGER_RECOVER_ADD_ENTRIES,
     }
 
     public static enum BookkeeperClientCounter {

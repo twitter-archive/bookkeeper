@@ -21,6 +21,8 @@ import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -35,6 +37,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
     int numResponsesPending;
     RecoveryData maxRecoveredData;
     volatile boolean completed = false;
+    final long requestTimeNano;
 
     LastConfirmedDataCallback cb;
     final DistributionSchedule.QuorumCoverageSet coverageSet;
@@ -52,6 +55,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
         this.lh = lh;
         this.numResponsesPending = lh.metadata.getEnsembleSize();
         this.coverageSet = lh.distributionSchedule.getCoverageSet();
+        this.requestTimeNano = MathUtils.nowInNano();
     }
 
     public void initiate() {
@@ -71,6 +75,18 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
                                                        BookieProtocol.LAST_ADD_CONFIRMED,
                                                        this, i);
         }
+    }
+
+    private void submitCallback(int rc) {
+        long latencyMs = MathUtils.elapsedMSec(requestTimeNano);
+        if (BKException.Code.OK == rc) {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
+                    .registerFailedEvent(latencyMs);
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
+                    .registerSuccessfulEvent(latencyMs);
+        }
+        cb.readLastConfirmedDataComplete(rc, maxRecoveredData);
     }
 
     public synchronized void readEntryComplete(final int rc, final long ledgerId, final long entryId,
@@ -101,7 +117,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
         }
 
         if (rc == BKException.Code.UnauthorizedAccessException  && !completed) {
-            cb.readLastConfirmedDataComplete(rc, maxRecoveredData);
+            submitCallback(rc);
             completed = true;
         }
         // other return codes dont count as valid responses
@@ -112,14 +128,14 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
             LOG.debug("Read Complete with enough validResponses for ledger: {}, entry: {}",
                 ledgerId, entryId);
 
-            cb.readLastConfirmedDataComplete(BKException.Code.OK, maxRecoveredData);
+            submitCallback(BKException.Code.OK);
             return;
         }
 
         if (numResponsesPending == 0 && !completed) {
             // Have got all responses back but was still not enough, just fail the operation
             LOG.error("While readLastConfirmed ledger: " + ledgerId + " did not hear success responses from all quorums");
-            cb.readLastConfirmedDataComplete(BKException.Code.LedgerRecoveryException, maxRecoveredData);
+            submitCallback(BKException.Code.LedgerRecoveryException);
         }
 
     }

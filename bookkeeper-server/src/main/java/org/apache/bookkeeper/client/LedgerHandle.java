@@ -37,9 +37,12 @@ import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.TimedGenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientCounter;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -261,11 +264,27 @@ public class LedgerHandle {
      * additional parameter which is the return code to hand to all the pending
      * add ops
      *
-     * @param cb
+     * @param finalCb
      * @param ctx
      * @param rc
      */
-    void asyncCloseInternal(final CloseCallback cb, final Object ctx, final int rc) {
+    void asyncCloseInternal(final CloseCallback finalCb, final Object ctx, final int rc) {
+        final CloseCallback cb = new CloseCallback() {
+
+            final long startTime = MathUtils.nowInNano();
+
+            @Override
+            public void closeComplete(int newRc, LedgerHandle newLh, Object newCtx) {
+                if (BKException.Code.OK == newRc) {
+                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
+                        .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                } else {
+                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
+                        .registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                }
+                finalCb.closeComplete(newRc, newLh, newCtx);
+            }
+        };
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
@@ -958,7 +977,9 @@ public class LedgerHandle {
         bk.getLedgerManager().readLedgerMetadata(ledgerId, cb);
     }
 
-    synchronized void recover(final GenericCallback<Void> cb) {
+    synchronized void recover(GenericCallback<Void> finalCb) {
+        final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
+                this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
         if (metadata.isClosed()) {
             lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
             length = metadata.getLength();
