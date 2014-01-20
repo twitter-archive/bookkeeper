@@ -205,6 +205,10 @@ public class LedgerHandle {
         bk.getLedgerManager().writeLedgerMetadata(ledgerId, metadata, writeCb);
     }
 
+    synchronized public boolean isClosed() {
+        return metadata.isClosed();
+    }
+
     /**
      * Close this ledger synchronously.
      * @see #asyncClose
@@ -575,6 +579,10 @@ public class LedgerHandle {
      */
 
     public void asyncReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
+        if (isClosed()) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+            return;
+        }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
                 @Override
                 public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
@@ -590,6 +598,10 @@ public class LedgerHandle {
     }
 
     public void asyncTryReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
+        if (isClosed()) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+            return;
+        }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
             volatile boolean completed = false;
             @Override
