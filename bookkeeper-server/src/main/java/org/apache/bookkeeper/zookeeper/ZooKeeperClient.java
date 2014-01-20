@@ -188,11 +188,31 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
         return client;
     }
 
+    public static ZooKeeperClient createConnectedZooKeeperClient(
+            String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
+            RetryPolicy connectRetryPolicy, RetryPolicy operationRetryPolicy)
+            throws KeeperException, InterruptedException, IOException {
+        ZooKeeperWatcherBase watcherManager =
+                new ZooKeeperWatcherBase(sessionTimeoutMs, childWatchers);
+        ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
+                connectRetryPolicy, operationRetryPolicy);
+        try {
+            watcherManager.waitForConnection();
+        } catch (KeeperException ke) {
+            client.close();
+            throw ke;
+        } catch (InterruptedException ie) {
+            client.close();
+            throw ie;
+        }
+        return client;
+    }
+
     ZooKeeperClient(String connectString, int sessionTimeoutMs, ZooKeeperWatcherBase watcherManager,
             RetryPolicy operationRetryPolicy) throws IOException {
         this(connectString, sessionTimeoutMs, watcherManager,
-                new BoundExponentialBackoffRetryPolicy(6000, 60000, Integer.MAX_VALUE),
-                operationRetryPolicy);
+             new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE),
+             operationRetryPolicy);
     }
 
     private ZooKeeperClient(String connectString, int sessionTimeoutMs,
