@@ -23,6 +23,8 @@ package org.apache.bookkeeper.zookeeper;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -40,18 +42,25 @@ class ZooWorker {
     long startTimeMs;
     long elapsedTimeMs = 0L;
     final RetryPolicy retryPolicy;
+    final OpStatsLogger statsLogger;
 
-    ZooWorker(RetryPolicy retryPolicy) {
+    ZooWorker(RetryPolicy retryPolicy, OpStatsLogger statsLogger) {
         this.retryPolicy = retryPolicy;
+        this.statsLogger = statsLogger;
         this.startTimeMs = MathUtils.now();
     }
 
     public boolean allowRetry(int rc) {
+        elapsedTimeMs = MathUtils.now() - startTimeMs;
         if (!ZooWorker.isRecoverableException(rc)) {
+            if (KeeperException.Code.OK.intValue() == rc) {
+                statsLogger.registerSuccessfulEvent(elapsedTimeMs);
+            } else {
+                statsLogger.registerFailedEvent(elapsedTimeMs);
+            }
             return false;
         }
         ++attempts;
-        elapsedTimeMs = MathUtils.now() - startTimeMs;
         return retryPolicy.allowRetry(attempts, elapsedTimeMs);
     }
 
@@ -107,7 +116,7 @@ class ZooWorker {
      * @throws InterruptedException the operation is interrupted.
      */
     public static<T> T syncCallWithRetries(
-            ZooKeeperClient client, ZooCallable<T> proc, RetryPolicy retryPolicy)
+            ZooKeeperClient client, ZooCallable<T> proc, RetryPolicy retryPolicy, OpStatsLogger statsLogger)
     throws KeeperException, InterruptedException {
         T result = null;
         boolean isDone = false;
@@ -121,6 +130,7 @@ class ZooWorker {
                 logger.debug("Execute {} at {} retry attempt.", proc, attempts);
                 result = proc.call();
                 isDone = true;
+                statsLogger.registerSuccessfulEvent(MathUtils.now() - startTimeMs);
             } catch (KeeperException e) {
                 ++attempts;
                 boolean rethrow = true;
@@ -130,6 +140,7 @@ class ZooWorker {
                     rethrow = false;
                 }
                 if (rethrow) {
+                    statsLogger.registerFailedEvent(MathUtils.now() - startTimeMs);
                     logger.debug("Stopped executing {} after {} attempts.", proc, attempts);
                     throw e;
                 }
@@ -142,8 +153,9 @@ class ZooWorker {
     }
 
     static<T> T syncCallWithRetries(
-            ZooCallable<T> proc, RetryPolicy retryPolicy) throws KeeperException, InterruptedException {
-        return syncCallWithRetries(null, proc, retryPolicy);
+            ZooCallable<T> proc, RetryPolicy retryPolicy, OpStatsLogger statsLogger)
+            throws KeeperException, InterruptedException {
+        return syncCallWithRetries(null, proc, retryPolicy, statsLogger);
     }
 
 }

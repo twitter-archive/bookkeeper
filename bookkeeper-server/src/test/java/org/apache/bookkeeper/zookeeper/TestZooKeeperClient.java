@@ -28,6 +28,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.ZooKeeperUtil;
 import org.apache.zookeeper.AsyncCallback.Children2Callback;
 import org.apache.zookeeper.AsyncCallback.DataCallback;
@@ -106,7 +107,7 @@ public class TestZooKeeperClient extends TestCase {
 
         ShutdownZkServerClient(String connectString, int sessionTimeoutMs,
                 ZooKeeperWatcherBase watcher, RetryPolicy operationRetryPolicy)throws IOException {
-            super(connectString, sessionTimeoutMs, watcher, operationRetryPolicy);
+            super(connectString, sessionTimeoutMs, watcher, operationRetryPolicy, NullStatsLogger.INSTANCE);
         }
 
         @Override
@@ -159,7 +160,7 @@ public class TestZooKeeperClient extends TestCase {
 
         Assert.assertFalse("Client doesn't receive expire event from ZooKeeper.",
                 client.getState().isConnected());
-        
+
         try {
             client.exists("/tmp", false);
             Assert.fail("Should fail due to connection loss.");
