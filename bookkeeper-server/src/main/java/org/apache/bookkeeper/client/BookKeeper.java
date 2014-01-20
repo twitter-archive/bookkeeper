@@ -34,6 +34,7 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ZkUtils;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -134,9 +135,8 @@ public class BookKeeper {
     public BookKeeper(final ClientConfiguration conf, StatsLogger statsLogger)
             throws IOException, InterruptedException, KeeperException {
         this.conf = conf;
-        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
-        this.zk = ZkUtils
-                .createConnectedZookeeperClient(conf.getZkServers(), w);
+        this.zk = ZooKeeperClient.createConnectedZooKeeperClient(
+                conf.getZkServers(), conf.getZkTimeout());
 
         this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
                                                                 Executors.newCachedThreadPool());
