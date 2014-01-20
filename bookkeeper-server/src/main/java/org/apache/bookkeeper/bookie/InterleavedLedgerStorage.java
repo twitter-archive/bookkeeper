@@ -145,15 +145,37 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     }
 
     @Override
+    public long getLastAddConfirmed(long ledgerId) throws IOException {
+        Long lac = ledgerCache.getLastAddConfirmed(ledgerId);
+        if (lac == null) {
+            ByteBuffer bb = getEntry(ledgerId, BookieProtocol.LAST_ADD_CONFIRMED);
+            if (null == bb) {
+                return BookieProtocol.INVALID_ENTRY_ID;
+            } else {
+                bb.getLong(); // ledger id
+                bb.getLong(); // entry id
+                lac = bb.getLong();
+                lac = ledgerCache.updateLastAddConfirmed(ledgerId, lac);
+            }
+        }
+        return lac;
+    }
+
+    @Override
     public long addEntry(ByteBuffer entry) throws IOException {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
+        long lac = entry.getLong();
         entry.rewind();
         // TODO: Move this to the function calling addEntry
         ServerStatsProvider.getStatsLoggerInstance().getCounter(
                 BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
                 .add(entry.remaining());
         processEntry(ledgerId, entryId, entry);
+        // after adding the entry, update the lac
+        // TODO: do we need to get last add confirmed first to ensure lac is loaded?
+        // ledgerCache.getLastAddConfirmed(ledgerId);
+        ledgerCache.updateLastAddConfirmed(ledgerId, lac);
         return entryId;
     }
 

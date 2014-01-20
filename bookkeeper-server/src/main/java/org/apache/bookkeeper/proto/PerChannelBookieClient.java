@@ -22,6 +22,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallbackCtx;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.*;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
@@ -766,7 +767,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                     + " with code:" + status);
             rcToRet = BKException.Code.ReadException;
         }
-
+        if (response.hasMaxLAC() && (rc.ctx instanceof ReadEntryCallbackCtx)) {
+            ((ReadEntryCallbackCtx) rc.ctx).setLastAddConfirmed(response.getMaxLAC());
+        }
         rc.cb.readEntryComplete(rcToRet, ledgerId, entryId, buffer.slice(), rc.ctx);
     }
 

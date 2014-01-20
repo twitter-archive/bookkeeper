@@ -37,6 +37,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallbackCtx;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
@@ -322,13 +324,24 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         } while (i <= endEntryId);
     }
 
-    private static class ReadContext {
+    private static class ReadContext implements ReadEntryCallbackCtx {
         final InetSocketAddress to;
         final LedgerEntryRequest entry;
+        long lac = LedgerHandle.INVALID_ENTRY_ID;
 
         ReadContext(InetSocketAddress to, LedgerEntryRequest entry) {
             this.to = to;
             this.entry = entry;
+        }
+
+        @Override
+        public void setLastAddConfirmed(long lac) {
+            this.lac = lac;
+        }
+
+        @Override
+        public long getLastAddConfirmed() {
+            return lac;
         }
     }
 
@@ -354,6 +367,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         if (entry.complete(rctx.to, buffer)) {
             numPendingEntries--;
             if (numPendingEntries == 0) {
+                lh.updateLastConfirmed(rctx.getLastAddConfirmed(), 0L);
                 submitCallback(BKException.Code.OK);
             }
         }

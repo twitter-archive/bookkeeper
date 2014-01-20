@@ -13,7 +13,7 @@ public class BookkeeperClientStatsLogger extends BookkeeperStatsLogger {
     }
 
     public static enum BookkeeperClientCounter {
-        NUM_ENSEMBLE_CHANGE, NUM_OPEN_LEDGERS, NUM_PENDING_ADD
+        NUM_ENSEMBLE_CHANGE, NUM_OPEN_LEDGERS, NUM_PENDING_ADD, LAC_UPDATE_HITS, LAC_UPDATE_MISSES
     }
 
     public BookkeeperClientStatsLogger(StatsLogger underlying) {

@@ -116,6 +116,11 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
             logger.error("Unauthorized access to ledger:" + ledgerId +
                     " while writing entry:" + entryId);
             status = StatusCode.EUA;
+        } catch (Throwable t) {
+            logger.error("Unexpected exception while writing {}@{} : ",
+                    new Object[] { entryId, ledgerId, t });
+            // some bad request which cause unexpected exception
+            status = StatusCode.EBADREQ;
         }
 
         // If everything is okay, we return null so that the calling function

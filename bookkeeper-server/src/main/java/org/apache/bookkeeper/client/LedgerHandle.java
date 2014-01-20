@@ -39,6 +39,7 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientCounter;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -397,27 +398,11 @@ public class LedgerHandle {
             cb.readComplete(BKException.Code.ReadException, this, null, ctx);
             return;
         }
-        asyncReadEntriesWithoutCheck(firstEntry, lastEntry, cb, ctx);
+        doAsyncReadEntries(firstEntry, lastEntry, cb, ctx);
     }
 
-    /**
-     * Even if we want to read past lastAddConfirmed, allow it.
-     * @param firstEntry
-     * @param lastEntry
-     * @param cb
-     * @param ctx
-     */
-    public void asyncForceReadEntries(long firstEntry, long lastEntry,
-                                         ReadCallback cb, Object ctx) {
-        if (firstEntry < 0 || firstEntry > lastEntry) {
-            cb.readComplete(BKException.Code.ReadException, this, null, ctx);
-            return;
-        }
-        asyncReadEntriesWithoutCheck(firstEntry, lastEntry, cb, ctx);
-    }
-
-    private void asyncReadEntriesWithoutCheck(long firstEntry, long lastEntry,
-                                              ReadCallback cb, Object ctx) {
+    private void doAsyncReadEntries(long firstEntry, long lastEntry,
+                                    ReadCallback cb, Object ctx) {
         try {
             new PendingReadOp(this, bk.scheduler,
                     firstEntry, lastEntry, cb, ctx).initiate();
@@ -563,6 +548,17 @@ public class LedgerHandle {
         }
     }
 
+    void updateLastConfirmed(long lac, long len) {
+        if (lac > lastAddConfirmed) {
+            lastAddConfirmed = lac;
+            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_HITS).inc();
+        } else {
+            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_MISSES).inc();
+        }
+        lastAddPushed = Math.max(lastAddPushed, lac);
+        length = Math.max(length, len);
+    }
+
     /**
      * Obtains asynchronously the last confirmed write from a quorum of bookies. This
      * call obtains the the last add confirmed each bookie has received for this ledger
@@ -583,9 +579,7 @@ public class LedgerHandle {
                 @Override
                 public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
                     if (rc == BKException.Code.OK) {
-                        lastAddConfirmed = Math.max(lastAddConfirmed, data.lastAddConfirmed);
-                        lastAddPushed = Math.max(lastAddPushed, data.lastAddConfirmed);
-                        length = Math.max(length, data.length);
+                        updateLastConfirmed(data.lastAddConfirmed, data.length);
                         cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
                     } else {
                         cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
@@ -601,9 +595,7 @@ public class LedgerHandle {
             @Override
             public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
                 if (rc == BKException.Code.OK) {
-                    lastAddConfirmed = Math.max(lastAddConfirmed, data.lastAddConfirmed);
-                    lastAddPushed = Math.max(lastAddPushed, data.lastAddConfirmed);
-                    length = Math.max(length, data.length);
+                    updateLastConfirmed(data.lastAddConfirmed, data.length);
                     if (!completed) {
                         cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
                         completed = true;

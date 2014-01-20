@@ -95,7 +95,7 @@ public class BookieClientTest extends TestCase {
     }
 
     static class ResultStruct {
-        int rc;
+        int rc = -123456;
         ByteBuffer entry;
     }
 
@@ -105,11 +105,11 @@ public class BookieClientTest extends TestCase {
             ResultStruct rs = (ResultStruct) ctx;
             synchronized (rs) {
                 rs.rc = rc;
-                if (bb != null) {
-                    bb.readerIndex(16);
+                if (BKException.Code.OK == rc && bb != null) {
+                    bb.readerIndex(24);
                     rs.entry = bb.toByteBuffer();
-                    rs.notifyAll();
                 }
+                rs.notifyAll();
             }
         }
 
@@ -119,6 +119,10 @@ public class BookieClientTest extends TestCase {
         public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
             if (ctx != null) {
                 synchronized (ctx) {
+                    if (ctx instanceof ResultStruct) {
+                        ResultStruct rs = (ResultStruct) ctx;
+                        rs.rc = rc;
+                    }
                     ctx.notifyAll();
                 }
             }
@@ -139,6 +143,7 @@ public class BookieClientTest extends TestCase {
         bc.addEntry(addr, 1, passwd, 1, bb, wrcb, arc, BookieProtocol.FLAG_NONE);
         synchronized (arc) {
             arc.wait(1000);
+            assertEquals(0, arc.rc);
             bc.readEntry(addr, 1, 1, recb, arc);
             arc.wait(1000);
             assertEquals(0, arc.rc);
@@ -222,9 +227,10 @@ public class BookieClientTest extends TestCase {
 
     private ChannelBuffer createByteBuffer(int i, long lid, long eid) {
         ByteBuffer bb;
-        bb = ByteBuffer.allocate(4 + 16);
+        bb = ByteBuffer.allocate(4 + 24);
         bb.putLong(lid);
         bb.putLong(eid);
+        bb.putLong(eid-1);
         bb.putInt(i);
         bb.flip();
         return ChannelBuffers.wrappedBuffer(bb);

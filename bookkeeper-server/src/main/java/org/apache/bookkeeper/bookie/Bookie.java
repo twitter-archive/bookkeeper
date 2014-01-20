@@ -1165,6 +1165,11 @@ public class Bookie extends BookieThread {
         return handle.readEntry(entryId);
     }
 
+    public long readLastAddConfirmed(long ledgerId) throws IOException {
+        LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
+        return handle.getLastAddConfirmed();
+    }
+
     // The rest of the code is test stuff
     static class CounterCallback implements WriteCallback {
         int count;

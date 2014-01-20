@@ -97,6 +97,8 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                 }
             } else {
                 readResponse.setBody(ByteString.copyFrom(entryBody));
+                long knownLAC = bookie.readLastAddConfirmed(ledgerId);
+                readResponse.setMaxLAC(knownLAC);
                 status = StatusCode.EOK;
             }
         } catch (Bookie.NoLedgerException e) {

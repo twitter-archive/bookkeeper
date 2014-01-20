@@ -90,8 +90,10 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     public long addEntry(ByteBuffer entry) throws IOException {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
+        long lac = entry.getLong();
         entry.rewind();
         memTable.addEntry(ledgerId, entryId, entry, this);
+        ledgerCache.updateLastAddConfirmed(ledgerId, lac);
         return entryId;
     }
 
@@ -136,7 +138,8 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
-    public void process(long ledgerId, long entryId, ByteBuffer buffer) throws IOException {
+    public void process(long ledgerId, long entryId,
+                        ByteBuffer buffer) throws IOException {
         processEntry(ledgerId, entryId, buffer, false);
     }
 
