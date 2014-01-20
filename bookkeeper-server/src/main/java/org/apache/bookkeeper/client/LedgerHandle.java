@@ -595,6 +595,29 @@ public class LedgerHandle {
         new ReadLastConfirmedOp(this, innercb).initiate();
     }
 
+    public void asyncTryReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
+        ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
+            volatile boolean completed = false;
+            @Override
+            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
+                if (rc == BKException.Code.OK) {
+                    lastAddConfirmed = Math.max(lastAddConfirmed, data.lastAddConfirmed);
+                    lastAddPushed = Math.max(lastAddPushed, data.lastAddConfirmed);
+                    length = Math.max(length, data.length);
+                    if (!completed) {
+                        cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
+                        completed = true;
+                    }
+                } else {
+                    if (!completed) {
+                        cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
+                        completed = true;
+                    }
+                }
+            }
+        };
+        new TryReadLastConfirmedOp(this, innercb, getLastAddConfirmed()).initiate();
+    }
 
     /**
      * Context objects for synchronous call to read last confirmed.
