@@ -992,7 +992,8 @@ public class LedgerHandle {
         // if metadata is already in recover, dont try to write again,
         // just do the recovery from the starting point
         if (metadata.isInRecovery()) {
-            new LedgerRecoveryOp(LedgerHandle.this, cb).initiate();
+            new LedgerRecoveryOp(LedgerHandle.this, cb)
+                    .parallelRead(bk.getConf().getEnableParallelRecoveryRead()).initiate();
             return;
         }
 
@@ -1015,7 +1016,8 @@ public class LedgerHandle {
                         }
                     });
                 } else if (rc == BKException.Code.OK) {
-                    new LedgerRecoveryOp(LedgerHandle.this, cb).initiate();
+                    new LedgerRecoveryOp(LedgerHandle.this, cb)
+                            .parallelRead(bk.getConf().getEnableParallelRecoveryRead()).initiate();
                 } else {
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);

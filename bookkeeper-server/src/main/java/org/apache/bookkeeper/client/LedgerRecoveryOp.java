@@ -51,6 +51,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
     GenericCallback<Void> cb;
     // keep a copy of metadata for recovery.
     LedgerMetadata metadataForRecovery;
+    boolean parallelRead = false;
 
     class RecoveryReadOp extends PendingReadOp {
 
@@ -73,6 +74,11 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
         callbackDone = new AtomicBoolean(false);
         this.cb = cb;
         this.lh = lh;
+    }
+
+    LedgerRecoveryOp parallelRead(boolean enabled) {
+        this.parallelRead = enabled;
+        return this;
     }
 
     public void initiate() {
@@ -125,7 +131,7 @@ class LedgerRecoveryOp implements ReadCallback, AddCallback {
         if (!callbackDone.get()) {
             entryToRead++;
             try {
-                new RecoveryReadOp(lh, lh.bk.scheduler, entryToRead, entryToRead, this, null).initiate();
+                new RecoveryReadOp(lh, lh.bk.scheduler, entryToRead, entryToRead, this, null).parallelRead(parallelRead).initiate();
             } catch (InterruptedException e) {
                 readComplete(BKException.Code.InterruptedException, lh, null, null);
             }

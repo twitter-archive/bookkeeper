@@ -48,6 +48,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String CLIENT_TCP_NODELAY = "clientTcpNoDelay";
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
+    protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     // Timeout Setting
     protected final static String ADD_ENTRY_TIMEOUT_SEC = "addEntryTimeoutSec";
     protected final static String READ_ENTRY_TIMEOUT_SEC = "readEntryTimeoutSec";
@@ -385,6 +386,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setSpeculativeReadTimeout(int timeout) {
         setProperty(SPECULATIVE_READ_TIMEOUT, timeout);
+        return this;
+    }
+
+    /**
+     * Whether to enable parallel reading in recovery read.
+     *
+     * @return true if enable parallel reading in recovery read. otherwise, return false.
+     */
+    public boolean getEnableParallelRecoveryRead() {
+        return getBoolean(ENABLE_PARALLEL_RECOVERY_READ, false);
+    }
+
+    /**
+     * Enable/Disable parallel reading in recovery read.
+     *
+     * @param enabled
+     *          flag to enable/disable parallel reading in recovery read.
+     * @return client configuration.
+     */
+    public ClientConfiguration setEnableParallelRecoveryRead(boolean enabled) {
+        setProperty(ENABLE_PARALLEL_RECOVERY_READ, enabled);
         return this;
     }
 }

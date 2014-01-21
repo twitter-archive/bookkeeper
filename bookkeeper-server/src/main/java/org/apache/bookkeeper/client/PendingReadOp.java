@@ -37,7 +37,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallbackCtx;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
@@ -70,6 +69,8 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long endEntryId;
     long requestTimeMillis;
     final int maxMissedReadsAllowed;
+    boolean parallelRead = false;
+    final AtomicBoolean complete = new AtomicBoolean(false);
 
     abstract class LedgerEntryRequest extends LedgerEntry {
 
@@ -120,6 +121,22 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                  * Consequently, we have to subtract 8 from METADATA_LENGTH to get the length.
                  */
                 length = buffer.getLong(DigestManager.METADATA_LENGTH - 8);
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        /**
+         * Fail the request with given result code <i>rc</i>.
+         *
+         * @param rc
+         *          result code to fail the request.
+         * @return true if we managed to fail the entry; otherwise return false if it already failed or completed.
+         */
+        boolean fail(int rc) {
+            if (complete.compareAndSet(false, true)) {
+                submitCallback(rc);
                 return true;
             } else {
                 return false;
@@ -181,6 +198,52 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         @Override
         public String toString() {
             return String.format("L%d-E%d", ledgerId, entryId);
+        }
+    }
+
+    class ParallelReadRequest extends LedgerEntryRequest {
+
+        int numPendings;
+
+        ParallelReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+            super(ensemble, lId, eId);
+            numPendings = writeSet.size();
+        }
+
+        @Override
+        void read() {
+            for (int bookieIndex : writeSet) {
+                InetSocketAddress to = ensemble.get(bookieIndex);
+                try {
+                    sendReadTo(to, this);
+                } catch (InterruptedException ie) {
+                    LOG.error("Interrupted reading entry {} : ", this, ie);
+                    Thread.currentThread().interrupt();
+                    fail(BKException.Code.InterruptedException);
+                    return;
+                }
+            }
+        }
+
+        @Override
+        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(host, errMsg, rc);
+            --numPendings;
+            // if received all responses or this entry doesn't meet quorum write, complete the request.
+            if (numMissedEntryReads > maxMissedReadsAllowed || numPendings == 0) {
+                if (BKException.Code.BookieHandleNotAvailableException == firstError &&
+                    numMissedEntryReads > maxMissedReadsAllowed) {
+                    firstError = BKException.Code.NoSuchEntryException;
+                }
+
+                fail(firstError);
+            }
+        }
+
+        @Override
+        InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+            // no speculative read
+            return null;
         }
     }
 
@@ -273,7 +336,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                     firstError = BKException.Code.NoSuchEntryException;
                 }
 
-                submitCallback(firstError);
+                fail(firstError);
                 return null;
             }
 
@@ -289,7 +352,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted reading entry " + this, ie);
                 Thread.currentThread().interrupt();
-                submitCallback(BKException.Code.ReadException);
+                fail(BKException.Code.InterruptedException);
                 return null;
             }
         }
@@ -338,12 +401,17 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
     }
 
+    PendingReadOp parallelRead(boolean enabled) {
+        this.parallelRead = enabled;
+        return this;
+    }
+
     public void initiate() throws InterruptedException {
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeMillis = MathUtils.now();
         ArrayList<InetSocketAddress> ensemble = null;
 
-        if (speculativeReadTimeout > 0) {
+        if (speculativeReadTimeout > 0 && !parallelRead) {
             speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
                     @Override
                     public void run() {
@@ -376,7 +444,12 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 ensemble = getLedgerMetadata().getEnsemble(i);
                 nextEnsembleChange = getLedgerMetadata().getNextEnsembleChange(i);
             }
-            LedgerEntryRequest entry = new SequenceReadRequest(ensemble, lh.ledgerId, i);
+            LedgerEntryRequest entry;
+            if (parallelRead) {
+                entry = new ParallelReadRequest(ensemble, lh.ledgerId, i);
+            } else {
+                entry = new SequenceReadRequest(ensemble, lh.ledgerId, i);
+            }
             seq.add(entry);
             i++;
 
@@ -438,6 +511,10 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     }
 
     private void submitCallback(int code) {
+        // ensure callback once
+        if (!complete.compareAndSet(false, true)) {
+            return;
+        }
         long latencyMillis = MathUtils.now() - requestTimeMillis;
         if (code != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
