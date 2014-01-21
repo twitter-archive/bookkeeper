@@ -71,24 +71,129 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long requestTimeMillis;
     final int maxMissedReadsAllowed;
 
-    class LedgerEntryRequest extends LedgerEntry {
-        final static int NOT_FOUND = -1;
-        int nextReplicaIndexToReadFrom = 0;
-        AtomicBoolean complete = new AtomicBoolean(false);
+    abstract class LedgerEntryRequest extends LedgerEntry {
+
+        final AtomicBoolean complete = new AtomicBoolean(false);
 
         int firstError = BKException.Code.OK;
         int numMissedEntryReads = 0;
 
         final ArrayList<InetSocketAddress> ensemble;
         final List<Integer> writeSet;
-        final BitSet sentReplicas;
-        final BitSet erroredReplicas;
 
         LedgerEntryRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
             super(lId, eId);
 
             this.ensemble = ensemble;
             this.writeSet = lh.distributionSchedule.getWriteSet(entryId);
+        }
+
+        /**
+         * Execute the read request.
+         */
+        abstract void read();
+
+        /**
+         * Complete the read request from <i>host</i>.
+         *
+         * @param host
+         *          host that respond the read
+         * @param buffer
+         *          the data buffer
+         * @return return true if we managed to complete the entry;
+         *         otherwise return false if the read entry is not complete or it is already completed before
+         */
+        boolean complete(InetSocketAddress host, final ChannelBuffer buffer) {
+            ChannelBufferInputStream is;
+            try {
+                is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
+            } catch (BKDigestMatchException e) {
+                logErrorAndReattemptRead(host, "Mac mismatch", BKException.Code.DigestMatchException);
+                return false;
+            }
+
+            if (!complete.getAndSet(true)) {
+                entryDataStream = is;
+
+                /*
+                 * The length is a long and it is the last field of the metadata of an entry.
+                 * Consequently, we have to subtract 8 from METADATA_LENGTH to get the length.
+                 */
+                length = buffer.getLong(DigestManager.METADATA_LENGTH - 8);
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        /**
+         * Log error <i>errMsg</i> and reattempt read from <i>host</i>.
+         *
+         * @param host
+         *          host that just respond
+         * @param errMsg
+         *          error msg to log
+         * @param rc
+         *          read result code
+         */
+        void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+            if (BKException.Code.OK == firstError ||
+                BKException.Code.NoSuchEntryException == firstError ||
+                BKException.Code.NoSuchLedgerExistsException == firstError) {
+                firstError = rc;
+            } else if (BKException.Code.BookieHandleNotAvailableException == firstError &&
+                       BKException.Code.NoSuchEntryException != rc &&
+                       BKException.Code.NoSuchLedgerExistsException != rc) {
+                // if other exception rather than NoSuchEntryException is returned
+                // we need to update firstError to indicate that it might be a valid read but just failed.
+                firstError = rc;
+            }
+            if (BKException.Code.NoSuchEntryException == rc ||
+                BKException.Code.NoSuchLedgerExistsException == rc) {
+                ++numMissedEntryReads;
+            }
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
+                        + host);
+            }
+        }
+
+        /**
+         * Send to next replica speculatively, if required and possible.
+         * This returns the host we may have sent to for unit testing.
+         *
+         * @param heardFromHosts
+         *      the set of hosts that we already received responses.
+         * @return host we sent to if we sent. null otherwise.
+         */
+        abstract InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts);
+
+        /**
+         * Whether the read request completed.
+         *
+         * @return true if the read request is completed.
+         */
+        boolean isComplete() {
+            return complete.get();
+        }
+
+        @Override
+        public String toString() {
+            return String.format("L%d-E%d", ledgerId, entryId);
+        }
+    }
+
+    class SequenceReadRequest extends LedgerEntryRequest {
+        final static int NOT_FOUND = -1;
+        int nextReplicaIndexToReadFrom = 0;
+
+        final BitSet sentReplicas;
+        final BitSet erroredReplicas;
+
+        SequenceReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+            super(ensemble, lId, eId);
+
             this.sentReplicas = new BitSet(lh.getLedgerMetadata().getWriteQuorumSize());
             this.erroredReplicas = new BitSet(lh.getLedgerMetadata().getWriteQuorumSize());
         }
@@ -132,6 +237,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * This returns the host we may have sent to for unit testing.
          * @return host we sent to if we sent. null otherwise.
          */
+        @Override
         synchronized InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getWriteQuorumSize()) {
                 return null;
@@ -148,6 +254,11 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             } else {
                 return null;
             }
+        }
+
+        @Override
+        void read() {
+            sendNextRead();
         }
 
         synchronized InetSocketAddress sendNextRead() {
@@ -183,26 +294,9 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             }
         }
 
+        @Override
         synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            if (BKException.Code.OK == firstError ||
-                BKException.Code.NoSuchEntryException == firstError) {
-                firstError = rc;
-            } else if (BKException.Code.BookieHandleNotAvailableException == firstError &&
-                       BKException.Code.NoSuchEntryException != rc &&
-                       BKException.Code.NoSuchLedgerExistsException != rc) {
-                // if other exception rather than NoSuchEntryException is returned
-                // we need to update firstError to indicate that it might be a valid read but just failed.
-                firstError = rc;
-            }
-            if (rc == BKException.Code.NoSuchLedgerExistsException ||
-                BKException.Code.NoSuchEntryException == rc) {
-                ++numMissedEntryReads;
-            }
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug(errMsg + " while reading entry: " + entryId + " ledgerId: " + lh.ledgerId + " from bookie: "
-                        + host);
-            }
+            super.logErrorAndReattemptRead(host, errMsg, rc);
 
             int replica = getReplicaIndex(host);
             if (replica == NOT_FOUND) {
@@ -214,40 +308,6 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             if (!readsOutstanding()) {
                 sendNextRead();
             }
-        }
-
-        // return true if we managed to complete the entry
-        // return false if the read entry is not complete or it is already completed before
-        boolean complete(InetSocketAddress host, final ChannelBuffer buffer) {
-            ChannelBufferInputStream is;
-            try {
-                is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
-            } catch (BKDigestMatchException e) {
-                logErrorAndReattemptRead(host, "Mac mismatch", BKException.Code.DigestMatchException);
-                return false;
-            }
-
-            if (!complete.getAndSet(true)) {
-                entryDataStream = is;
-
-                /*
-                 * The length is a long and it is the last field of the metadata of an entry.
-                 * Consequently, we have to subtract 8 from METADATA_LENGTH to get the length.
-                 */
-                length = buffer.getLong(DigestManager.METADATA_LENGTH - 8);
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-        boolean isComplete() {
-            return complete.get();
-        }
-
-        @Override
-        public String toString() {
-            return String.format("L%d-E%d", ledgerId, entryId);
         }
     }
 
@@ -316,11 +376,11 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 ensemble = getLedgerMetadata().getEnsemble(i);
                 nextEnsembleChange = getLedgerMetadata().getNextEnsembleChange(i);
             }
-            LedgerEntryRequest entry = new LedgerEntryRequest(ensemble, lh.ledgerId, i);
+            LedgerEntryRequest entry = new SequenceReadRequest(ensemble, lh.ledgerId, i);
             seq.add(entry);
             i++;
 
-            entry.sendNextRead();
+            entry.read();
         } while (i <= endEntryId);
     }
 
