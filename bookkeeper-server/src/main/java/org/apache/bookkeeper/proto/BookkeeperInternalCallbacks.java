@@ -25,6 +25,8 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
@@ -109,6 +111,25 @@ public class BookkeeperInternalCallbacks {
      */
     public interface ReadEntryCallback {
         void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx);
+    }
+
+    /**
+     * Listener on entries responded.
+     */
+    public interface ReadEntryListener {
+        /**
+         * On given <i>entry</i> completed.
+         *
+         * @param rc
+         *          result code of reading this entry.
+         * @param lh
+         *          ledger handle.
+         * @param entry
+         *          ledger entry.
+         * @param ctx
+         *          callback context.
+         */
+        void onEntryComplete(int rc, LedgerHandle lh, LedgerEntry entry, Object ctx);
     }
 
     /**
