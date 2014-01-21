@@ -46,9 +46,11 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // NIO Parameters
     protected final static String CLIENT_TCP_NODELAY = "clientTcpNoDelay";
+    // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
+    protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
     // Timeout Setting
     protected final static String ADD_ENTRY_TIMEOUT_SEC = "addEntryTimeoutSec";
     protected final static String READ_ENTRY_TIMEOUT_SEC = "readEntryTimeoutSec";
@@ -407,6 +409,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setEnableParallelRecoveryRead(boolean enabled) {
         setProperty(ENABLE_PARALLEL_RECOVERY_READ, enabled);
+        return this;
+    }
+
+    /**
+     * Get Recovery Read Batch Size.
+     *
+     * @return recovery read batch size.
+     */
+    public int getRecoveryReadBatchSize() {
+        return getInt(RECOVERY_READ_BATCH_SIZE, 1);
+    }
+
+    /**
+     * Set Recovery Read Batch Size.
+     *
+     * @param batchSize
+     *          recovery read batch size.
+     * @return client configuration.
+     */
+    public ClientConfiguration setRecoveryReadBatchSize(int batchSize) {
+        setProperty(RECOVERY_READ_BATCH_SIZE, batchSize);
         return this;
     }
 }

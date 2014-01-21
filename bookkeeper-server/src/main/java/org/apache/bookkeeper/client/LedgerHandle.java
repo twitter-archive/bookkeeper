@@ -1,5 +1,3 @@
-package org.apache.bookkeeper.client;
-
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,6 +18,7 @@ package org.apache.bookkeeper.client;
  * under the License.
  *
  */
+package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
@@ -237,9 +236,9 @@ public class LedgerHandle {
      * of the ledger is. This ensures that, once the ledger has been closed, all
      * reads from the ledger will return the same set of entries.
      *
-     * @param cb
+     * @param origCb
      *          callback implementation
-     * @param ctx
+     * @param origCtx
      *          control object
      * @throws InterruptedException
      */
@@ -426,13 +425,7 @@ public class LedgerHandle {
 
     private void doAsyncReadEntries(long firstEntry, long lastEntry,
                                     ReadCallback cb, Object ctx) {
-        try {
-            new PendingReadOp(this, bk.scheduler,
-                    firstEntry, lastEntry, cb, ctx).initiate();
-        } catch (InterruptedException e) {
-            cb.readComplete(BKException.Code.InterruptedException, this, null, ctx);
-        }
-
+        new PendingReadOp(this, bk.scheduler, firstEntry, lastEntry, cb, ctx).initiate();
     }
     /**
      * Add entry synchronously to an open ledger.
@@ -993,7 +986,9 @@ public class LedgerHandle {
         // just do the recovery from the starting point
         if (metadata.isInRecovery()) {
             new LedgerRecoveryOp(LedgerHandle.this, cb)
-                    .parallelRead(bk.getConf().getEnableParallelRecoveryRead()).initiate();
+                    .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
+                    .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
+                    .initiate();
             return;
         }
 
@@ -1017,7 +1012,9 @@ public class LedgerHandle {
                     });
                 } else if (rc == BKException.Code.OK) {
                     new LedgerRecoveryOp(LedgerHandle.this, cb)
-                            .parallelRead(bk.getConf().getEnableParallelRecoveryRead()).initiate();
+                            .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
+                            .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
+                            .initiate();
                 } else {
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
@@ -1049,8 +1046,8 @@ public class LedgerHandle {
          *
          * @param rc
          *          return code
-         * @param leder
-         *          ledger identifier
+         * @param lh
+         *          ledger handle
          * @param seq
          *          sequence of entries
          * @param ctx
@@ -1078,8 +1075,8 @@ public class LedgerHandle {
          *
          * @param rc
          *          return code
-         * @param leder
-         *          ledger identifier
+         * @param lh
+         *          ledger handle
          * @param entry
          *          entry identifier
          * @param ctx
