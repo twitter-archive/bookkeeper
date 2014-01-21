@@ -34,6 +34,10 @@ public class TimedLedgerManager implements LedgerManager {
         writeStats = scopedStatsLogger.getOpStatsLogger("write_metadata");
     }
 
+    public LedgerManager getUnderlying() {
+        return underlying;
+    }
+
     @Override
     public void createLedger(LedgerMetadata metadata, GenericCallback<Long> cb) {
         underlying.createLedger(metadata, new TimedGenericCallback<Long>(cb, BKException.Code.OK, createStats));

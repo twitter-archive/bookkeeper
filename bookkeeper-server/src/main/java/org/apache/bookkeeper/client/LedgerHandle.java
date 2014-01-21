@@ -425,7 +425,8 @@ public class LedgerHandle {
 
     private void doAsyncReadEntries(long firstEntry, long lastEntry,
                                     ReadCallback cb, Object ctx) {
-        new PendingReadOp(this, bk.scheduler, firstEntry, lastEntry, cb, ctx).initiate();
+        new PendingReadOp(this, bk.scheduler, firstEntry, lastEntry, cb, ctx)
+                .enablePiggybackLAC(true).initiate();
     }
     /**
      * Add entry synchronously to an open ledger.
@@ -988,16 +989,24 @@ public class LedgerHandle {
             new LedgerRecoveryOp(LedgerHandle.this, cb)
                     .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                     .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
+                    .setCouldClose(true)
                     .initiate();
             return;
         }
 
         metadata.markLedgerInRecovery();
 
+        final LedgerRecoveryOp recoveryOp = new LedgerRecoveryOp(LedgerHandle.this, cb)
+                .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
+                .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
+                .setCouldClose(false);
+        // Issue the recovery op & update ledger config in parallel.
+        recoveryOp.initiate();
         writeLedgerConfig(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
             @Override
             public void safeOperationComplete(final int rc, Void result) {
                 if (rc == BKException.Code.MetadataVersionException) {
+                    recoveryOp.cancel();
                     rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(bk.mainWorkerPool,
                                                                                   ledgerId) {
                         @Override
@@ -1011,11 +1020,9 @@ public class LedgerHandle {
                         }
                     });
                 } else if (rc == BKException.Code.OK) {
-                    new LedgerRecoveryOp(LedgerHandle.this, cb)
-                            .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
-                            .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                            .initiate();
+                    recoveryOp.notifyClose();
                 } else {
+                    recoveryOp.cancel();
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
                 }

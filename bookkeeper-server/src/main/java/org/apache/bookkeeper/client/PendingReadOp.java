@@ -70,6 +70,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long requestTimeMillis;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
+    boolean enablePiggybackLAC = true;
     final AtomicBoolean complete = new AtomicBoolean(false);
 
     abstract class LedgerEntryRequest extends LedgerEntry {
@@ -418,6 +419,11 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         return this;
     }
 
+    PendingReadOp enablePiggybackLAC(boolean enabled) {
+        this.enablePiggybackLAC = enabled;
+        return this;
+    }
+
     public void initiate() {
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeMillis = MathUtils.now();
@@ -512,7 +518,9 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         heardFromHosts.add(rctx.to);
 
         if (entry.complete(rctx.to, buffer)) {
-            lh.updateLastConfirmed(rctx.getLastAddConfirmed(), 0L);
+            if (enablePiggybackLAC) {
+                lh.updateLastConfirmed(rctx.getLastAddConfirmed(), 0L);
+            }
             submitCallback(BKException.Code.OK);
         }
 

@@ -45,6 +45,8 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
     final AtomicLong readCount, writeCount;
     final AtomicBoolean readDone;
     final AtomicBoolean callbackDone;
+    final AtomicBoolean cancelled;
+    final AtomicBoolean couldClose;
     volatile long startEntryToRead;
     volatile long endEntryToRead;
     final GenericCallback<Void> cb;
@@ -59,6 +61,8 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
                        long startEntryId, long endEntryId,
                        ReadEntryListener cb, Object ctx) {
             super(lh, scheduler, startEntryId, endEntryId, cb, ctx);
+            // disable piggyback lac when recovering
+            enablePiggybackLAC(false);
         }
 
         @Override
@@ -73,6 +77,8 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
         writeCount = new AtomicLong(0);
         readDone = new AtomicBoolean(false);
         callbackDone = new AtomicBoolean(false);
+        cancelled = new AtomicBoolean(false);
+        couldClose = new AtomicBoolean(false);
         this.cb = cb;
         this.lh = lh;
     }
@@ -84,6 +90,11 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
 
     LedgerRecoveryOp readBatchSize(int batchSize) {
         this.readBatchSize = batchSize;
+        return this;
+    }
+
+    LedgerRecoveryOp setCouldClose(boolean could) {
+        this.couldClose.set(could);
         return this;
     }
 
@@ -116,6 +127,9 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
     }
 
     private void submitCallback(int rc) {
+        if (cancelled.get()) {
+            return;
+        }
         if (BKException.Code.OK == rc) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_ADD_ENTRIES)
                     .registerSuccessfulEvent(writeCount.get());
@@ -134,6 +148,9 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
      * Try to read past the last confirmed.
      */
     private void doRecoveryRead() {
+        if (cancelled.get()) {
+            return;
+        }
         if (!callbackDone.get()) {
             startEntryToRead = endEntryToRead + 1;
             endEntryToRead = endEntryToRead + readBatchSize;
@@ -143,7 +160,10 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
     }
 
     private void closeAndCallback() {
-        if (callbackDone.compareAndSet(false, true)) {
+        if (cancelled.get()) {
+            return;
+        }
+        if (couldClose.get() && callbackDone.compareAndSet(false, true)) {
             lh.asyncCloseInternal(new CloseCallback() {
                 @Override
                 public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
@@ -161,6 +181,9 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
 
     @Override
     public void onEntryComplete(int rc, LedgerHandle lh, LedgerEntry entry, Object ctx) {
+        if (cancelled.get()) {
+            return;
+        }
         if (!readDone.get() && rc == BKException.Code.OK) {
             readCount.incrementAndGet();
             byte[] data = entry.getEntry();
@@ -198,6 +221,9 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
 
     @Override
     public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
+        if (cancelled.get()) {
+            return;
+        }
         if (rc != BKException.Code.OK) {
             LOG.error("Failure " + BKException.getMessage(rc) + " while writing entry: " + (entryId + 1)
                     + " ledger: " + lh.ledgerId + " while recovering ledger");
@@ -209,6 +235,23 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
         }
         long numAdd = writeCount.incrementAndGet();
         if (readDone.get() && readCount.get() == numAdd) {
+            closeAndCallback();
+        }
+    }
+
+    /**
+     * Cancel recovery operation.
+     */
+    void cancel() {
+        cancelled.set(true);
+    }
+
+    /**
+     * Notify ledger metadata updated.
+     */
+    void notifyClose() {
+        if (couldClose.compareAndSet(false, true) && readDone.get()
+                && readCount.get() == writeCount.get()) {
             closeAndCallback();
         }
     }

@@ -478,7 +478,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
                 success.set(BKException.Code.OK == rc);
                 recoverLatch.countDown();
             }
-        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize());
+        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize()).setCouldClose(true);
         recoveryOp.initiate();
         recoverLatch.await(10, TimeUnit.SECONDS);
         assertTrue(success.get());
