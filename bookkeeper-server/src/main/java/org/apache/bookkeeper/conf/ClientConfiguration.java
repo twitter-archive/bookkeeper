@@ -66,6 +66,9 @@ public class ClientConfiguration extends AbstractConfiguration {
         super();
     }
 
+    // Stats
+    protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
+
     /**
      * Construct a client-side configuration using a base configuration
      *
@@ -430,6 +433,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setRecoveryReadBatchSize(int batchSize) {
         setProperty(RECOVERY_READ_BATCH_SIZE, batchSize);
+        return this;
+    }
+
+    /**
+     * Whether to enable per host stats?
+     *
+     * @return flag to enable/disable per host stats
+     */
+    public boolean getEnablePerHostStats() {
+        return getBoolean(ENABLE_PER_HOST_STATS, false);
+    }
+
+    /**
+     * Enable/Disable per host stats.
+     *
+     * @param enabled
+     *          flag to enable/disable per host stats.
+     * @return
+     */
+    public ClientConfiguration setEnablePerHostStats(boolean enabled) {
+        setProperty(ENABLE_PER_HOST_STATS, enabled);
         return this;
     }
 }

@@ -1,5 +1,7 @@
 package org.apache.bookkeeper.stats;
 
+import org.apache.bookkeeper.conf.ClientConfiguration;
+
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -21,8 +23,12 @@ public class ClientStatsProvider {
      * @param addr
      * @return Get the instance of the per channel bookie client logger responsible for this addr.
      */
-    public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(InetSocketAddress addr,
+    public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(ClientConfiguration conf,
+                                                                           InetSocketAddress addr,
                                                                            StatsLogger parentStatsLogger) {
+        if (!conf.getEnablePerHostStats()) {
+            return new PCBookieClientStatsLogger(parentStatsLogger.scope("per_channel_bookie_client"));
+        }
         PCBookieClientStatsLogger statsLogger = pcbookieLoggerMap.get(addr);
         if (null == statsLogger) {
             StringBuilder nameBuilder = new StringBuilder();

@@ -184,7 +184,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         this.channelFactory = channelFactory;
         this.state = ConnectionState.DISCONNECTED;
         this.readTimeoutTimer = null;
-        this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(addr, parentStatsLogger);
+        this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(conf, addr, parentStatsLogger);
         this.timeoutExecutor = timeoutExecutor;
         // Schedule the timeout task
         if (null != this.timeoutExecutor) {
