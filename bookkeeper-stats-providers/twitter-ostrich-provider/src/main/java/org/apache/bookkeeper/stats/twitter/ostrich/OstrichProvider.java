@@ -21,6 +21,7 @@ public class OstrichProvider implements StatsProvider {
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
 
     private com.twitter.ostrich.admin.AdminHttpService statsExporter = null;
+    private final String collectionName;
 
     private static <T> List<T> list(T ... ts) {
         List<T> result = List$.MODULE$.empty();
@@ -33,6 +34,14 @@ public class OstrichProvider implements StatsProvider {
     private static <K, V> Map<K, V> emptyMap() {
         Map<K, V> result = Map$.MODULE$.empty();
         return result;
+    }
+
+    public OstrichProvider() {
+        this("");
+    }
+
+    public OstrichProvider(String collectionName) {
+        this.collectionName = collectionName;
     }
 
     @Override
@@ -57,6 +66,6 @@ public class OstrichProvider implements StatsProvider {
 
     @Override
     public StatsLogger getStatsLogger(String scope) {
-        return new OstrichStatsLoggerImpl(scope, com.twitter.ostrich.stats.Stats.get(""));
+        return new OstrichStatsLoggerImpl(scope, com.twitter.ostrich.stats.Stats.get(collectionName));
     }
 }
