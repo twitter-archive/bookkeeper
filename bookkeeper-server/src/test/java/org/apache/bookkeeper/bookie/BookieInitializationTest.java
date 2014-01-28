@@ -36,9 +36,8 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.test.ZooKeeperUtil;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.io.FileUtils;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.apache.zookeeper.KeeperException;
@@ -80,7 +79,7 @@ public class BookieInitializationTest {
         }
 
         void testRegisterBookie(ServerConfiguration conf) throws IOException {
-            super.registerBookie(conf);
+            super.doRegisterBookie();
         }
     }
 
@@ -263,21 +262,7 @@ public class BookieInitializationTest {
     private void createNewZKClient() throws Exception {
         // create a zookeeper client
         LOG.debug("Instantiate ZK Client");
-        final CountDownLatch latch = new CountDownLatch(1);
-        newzk = new ZooKeeper(zkutil.getZooKeeperConnectString(), 10000,
-                new Watcher() {
-                    @Override
-                    public void process(WatchedEvent event) {
-                        // handle session disconnects and expires
-                        if (event.getState().equals(
-                                Watcher.Event.KeeperState.SyncConnected)) {
-                            latch.countDown();
-                        }
-                    }
-                });
-        if (!latch.await(10000, TimeUnit.MILLISECONDS)) {
-            newzk.close();
-            fail("Could not connect to zookeeper server");
-        }
+        newzk = ZooKeeperClient.createConnectedZooKeeperClient(
+                zkutil.getZooKeeperConnectString(), 10000);
     }
 }

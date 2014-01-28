@@ -47,7 +47,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
      */
     public void testBookieShouldServeAsReadOnly() throws Exception {
         killBookie(0);
-        baseConf.setReadOnlyModeEnabled(true);
+        baseConf.setReadOnlyModeEnabled(true).setDiskCheckInterval(1000);
         startNewBookie();
         LedgerHandle ledger = bkc.createLedger(2, 2, DigestType.MAC,
                 "".getBytes());
@@ -66,6 +66,8 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         // Now add the current ledger dir to filled dirs list
         ledgerDirsManager.addToFilledDirs(new File(ledgerDirs[0], "current"));
 
+        // wait until ledger dirs monitor turn the bookie to readonly
+        Thread.sleep(baseConf.getDiskCheckInterval() * 2);
         try {
             ledger.addEntry("data".getBytes());
         } catch (BKException.BKNotEnoughBookiesException e) {
@@ -177,7 +179,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         killBookie(1);
         baseConf.setReadOnlyModeEnabled(true);
         startNewBookie();
-        bs.get(1).getBookie().transitionToReadOnlyMode();
+        bs.get(1).getBookie().doTransitionToReadOnlyMode();
         try {
             bkc.readBookiesBlocking();
             bkc.createLedger(2, 2, DigestType.CRC32, "".getBytes());

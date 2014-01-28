@@ -196,7 +196,6 @@ public class TestLedgerManager extends BookKeeperClusterTestCase {
             this.factoryCls = factoryCls;
             this.barrier = barrier;
             this.root = root;
-            final CountDownLatch latch = new CountDownLatch(1);
             zkc = ZooKeeperClient.createConnectedZooKeeperClient(zkConnectString, 10000);
         }
 

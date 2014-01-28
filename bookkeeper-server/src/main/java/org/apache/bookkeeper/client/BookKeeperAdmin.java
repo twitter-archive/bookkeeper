@@ -39,8 +39,8 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.util.IOUtils;
-import org.apache.bookkeeper.util.ZkUtils;
-import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -119,8 +119,7 @@ public class BookKeeperAdmin {
      */
     public BookKeeperAdmin(ClientConfiguration conf) throws IOException, InterruptedException, KeeperException {
         // Create the ZooKeeper client instance
-        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
-        zk = ZkUtils.createConnectedZookeeperClient(conf.getZkServers(), w);
+        zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout()); 
         // Create the bookie path
         bookiesPath = conf.getZkAvailableBookiesPath();
         // Create the BookKeeper client instance
@@ -698,9 +697,10 @@ public class BookKeeperAdmin {
      */
     public static boolean format(ClientConfiguration conf,
             boolean isInteractive, boolean force) throws Exception {
-        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout());
-        ZooKeeper zkc = ZkUtils.createConnectedZookeeperClient(
-                conf.getZkServers(), w);
+        ZooKeeper zkc = ZooKeeperClient.createConnectedZooKeeperClient(
+                conf.getZkServers(), conf.getZkTimeout(),
+                new BoundExponentialBackoffRetryPolicy(conf.getZkTimeout(),
+                        3 * conf.getZkTimeout(), Integer.MAX_VALUE));
         BookKeeper bkc = null;
         try {
             boolean ledgerRootExists = null != zkc.exists(

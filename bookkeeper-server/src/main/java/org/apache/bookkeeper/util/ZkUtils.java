@@ -95,31 +95,6 @@ public class ZkUtils {
     }
 
     /**
-     * Get new ZooKeeper client. Waits till the connection is complete. If
-     * connection is not successful within timeout, then throws back exception.
-     * 
-     * @param servers
-     *            ZK servers connection string.
-     * @param timeout
-     *            Session timeout.
-     */
-    public static ZooKeeper createConnectedZookeeperClient(String servers,
-            ZooKeeperWatcherBase w) throws IOException, InterruptedException,
-            KeeperException {
-        if (servers == null || servers.isEmpty()) {
-            throw new IllegalArgumentException("servers cannot be empty");
-        }
-        final ZooKeeper newZk = new ZooKeeper(servers, w.getZkSessionTimeOut(),
-                w);
-        w.waitForConnection();
-        // Re-checking zookeeper connection status
-        if (!newZk.getState().isConnected()) {
-            throw KeeperException.create(KeeperException.Code.CONNECTIONLOSS);
-        }
-        return newZk;
-    }
-
-    /**
      * Utility to create the complete znode path synchronously
      * 
      * @param zkc

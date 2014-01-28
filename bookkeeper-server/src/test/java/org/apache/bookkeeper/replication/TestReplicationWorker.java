@@ -38,8 +38,7 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
-import org.apache.bookkeeper.util.ZkUtils;
-import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.Test;
@@ -225,9 +224,8 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         InetSocketAddress newBkAddr2 = new InetSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie2);
         LOG.info("New Bookie addr :" + newBkAddr2);
-        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(10000);
-        ZooKeeper zkc1 = ZkUtils.createConnectedZookeeperClient(
-                zkUtil.getZooKeeperConnectString(), w);
+        ZooKeeper zkc1 = ZooKeeperClient.createConnectedZooKeeperClient(
+                zkUtil.getZooKeeperConnectString(), 10000);
         ReplicationWorker rw2 = new ReplicationWorker(zkc1, baseConf,
                 newBkAddr2);
         rw1.start();

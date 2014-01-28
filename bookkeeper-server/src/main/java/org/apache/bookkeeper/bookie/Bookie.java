@@ -30,14 +30,20 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -52,18 +58,20 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.StringUtils;
-import org.apache.bookkeeper.util.ZkUtils;
-import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
+import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
-import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.ZooDefs.Ids;
+import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +81,6 @@ import com.google.common.annotations.VisibleForTesting;
  * Implements a bookie.
  *
  */
-
 public class Bookie extends BookieThread {
     public static final String INSTANCEID = "INSTANCEID";
     public static final String READONLY = "readonly";
@@ -96,6 +103,8 @@ public class Bookie extends BookieThread {
 
     // ZK registration path for this bookie
     private final String bookieRegistrationPath;
+    private final String bookieReadonlyRegistrationPath;
+
     static final String CURRENT_DIR = "current";
 
     private final LedgerDirsManager ledgerDirsManager;
@@ -118,8 +127,11 @@ public class Bookie extends BookieThread {
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
 
     final private String zkBookieRegPath;
+    final private String zkReadonlyRegPath;
 
     final private AtomicBoolean readOnly = new AtomicBoolean(false);
+    // executor to manage the state changes for a bookie.
+    final ExecutorService stateService = Executors.newSingleThreadExecutor();
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -557,6 +569,8 @@ public class Bookie extends BookieThread {
             throws IOException, KeeperException, InterruptedException, BookieException {
         super("Bookie-" + conf.getBookiePort());
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath() + "/";
+        this.bookieReadonlyRegistrationPath =
+            this.bookieRegistrationPath + READONLY;
         this.conf = conf;
         this.journalDirectory = getCurrentDirectory(conf.getJournalDir());
         this.ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
@@ -592,6 +606,8 @@ public class Bookie extends BookieThread {
 
         // ZK ephemeral node for this Bookie.
         zkBookieRegPath = this.bookieRegistrationPath + getMyId();
+        zkReadonlyRegPath =
+            this.bookieReadonlyRegistrationPath + "/" + getMyId();
     }
 
     private String getMyId() throws UnknownHostException {
@@ -686,9 +702,9 @@ public class Bookie extends BookieThread {
         // if setting it in bookie thread, the watcher might run before bookie thread.
         running = true;
         try {
-            registerBookie(conf);
-        } catch (IOException e) {
-            LOG.error("Couldn't register bookie with zookeeper, shutting down", e);
+            registerBookie().get();
+        } catch (Exception ie) {
+            LOG.error("Couldn't register bookie with zookeeper, shutting down : ", ie);
             shutdown(ExitCode.ZK_REG_FAIL);
         }
     }
@@ -798,15 +814,30 @@ public class Bookie extends BookieThread {
     /**
      * Register as an available bookie
      */
-    protected void registerBookie(ServerConfiguration conf) throws IOException {
+    protected Future<Void> registerBookie() {
+        return stateService.submit(new Callable<Void>() {
+            @Override
+            public Void call() {
+                try {
+                    doRegisterBookie();
+                } catch (IOException ie) {
+                    LOG.error("Couldn't register bookie with zookeeper, shutting down", ie);
+                    shutdown(ExitCode.ZK_REG_FAIL);
+                }
+                return (Void)null;
+            }
+        });
+    }
+
+    protected void doRegisterBookie() throws IOException {
         if (null == zk) {
             // zookeeper instance is null, means not register itself to zk
             return;
         }
 
+        String regPath = readOnly.get() ? zkReadonlyRegPath : zkBookieRegPath;
+
         // ZK ephemeral node for this Bookie.
-        String zkBookieRegPath = this.bookieRegistrationPath
-            + StringUtils.addrToString(getBookieAddress(conf));
         final CountDownLatch prevNodeLatch = new CountDownLatch(1);
         try{
             Watcher zkPrevRegNodewatcher = new Watcher() {
@@ -819,7 +850,15 @@ public class Bookie extends BookieThread {
                     }
                 }
             };
-            if (null != zk.exists(zkBookieRegPath, zkPrevRegNodewatcher)) {
+            Stat prevNodeState = zk.exists(regPath, zkPrevRegNodewatcher);
+            // when exists call returned, we should already have a new session
+            // it is safe to check whether the owner session is current session or not
+            // if it was not current session, wait for session timeout.
+            if (null != prevNodeState) {
+                if (readOnly.get() && prevNodeState.getEphemeralOwner() == zk.getSessionId()) {
+                    // the znode is created by transition to readOnly, do nothing just quit
+                    return;
+                }
                 LOG.info("Previous bookie registration znode: "
                         + zkBookieRegPath
                         + " exists, so waiting zk sessiontimeout: "
@@ -855,8 +894,18 @@ public class Bookie extends BookieThread {
     /*
      * Transition the bookie to readOnly mode
      */
+    private Future<Void> transitionToReadOnlyMode() {
+        return stateService.submit(new Callable<Void>() {
+            @Override
+            public Void call() {
+                doTransitionToReadOnlyMode();
+                return (Void)null;
+            }
+        });
+    }
+
     @VisibleForTesting
-    public void transitionToReadOnlyMode() {
+    public void doTransitionToReadOnlyMode() {
         if (!readOnly.compareAndSet(false, true)) {
             return;
         }
@@ -870,35 +919,35 @@ public class Bookie extends BookieThread {
         }
         LOG.info("Transitioning Bookie to ReadOnly mode,"
                 + " and will serve only read requests from clients!");
+        // change zookeeper state only when using zookeeper
+        if (null == zk) {
+            return;
+        }
         try {
-            if (null == zk.exists(this.bookieRegistrationPath + READONLY, false)) {
+            if (null == zk.exists(this.bookieReadonlyRegistrationPath, false)) {
                 try {
-                    zk.create(this.bookieRegistrationPath + READONLY,
-                            new byte[0], Ids.OPEN_ACL_UNSAFE,
-                            CreateMode.PERSISTENT);
+                    zk.create(this.bookieReadonlyRegistrationPath, new byte[0],
+                              Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
                 } catch (NodeExistsException e) {
                     // this node is just now created by someone.
                 }
             }
             // Create the readonly node
-            zk.create(this.bookieRegistrationPath + READONLY + "/" + getMyId(), new byte[0], Ids.OPEN_ACL_UNSAFE,
-                    CreateMode.EPHEMERAL);
-            // Clear the current registered node
-            zk.delete(zkBookieRegPath, -1);
-        } catch (IOException e) {
-            LOG.error("Error in transition to ReadOnly Mode."
-                    + " Shutting down", e);
-            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
-            return;
+            zk.create(this.zkReadonlyRegPath,
+                      new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+            try {
+                // Clear the current registered node
+                zk.delete(zkBookieRegPath, -1);
+            } catch (NoNodeException nne) {
+                // this node is remove due to session expired.
+            }
         } catch (KeeperException e) {
             LOG.error("Error in transition to ReadOnly Mode."
                     + " Shutting down", e);
             triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
-            return;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.warn("Interrupted Exception while transitioning to ReadOnly Mode.");
-            return;
         }
     }
 
@@ -932,19 +981,27 @@ public class Bookie extends BookieThread {
     private ZooKeeper newZookeeper(final String zkServers,
             final int sessionTimeout) throws IOException, InterruptedException,
             KeeperException {
-        ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(conf.getZkTimeout()) {
+        Set<Watcher> watchers = new HashSet<Watcher>();
+        watchers.add(new Watcher() {
             @Override
             public void process(WatchedEvent event) {
+                if (!running) {
+                    // do nothing until first registration
+                    return;
+                }
                 // Check for expired connection.
-                if (event.getState().equals(Watcher.Event.KeeperState.Expired)) {
-                    LOG.error("ZK client connection to the ZK server has expired!");
-                    shutdown(ExitCode.ZK_EXPIRED);
-                } else {
-                    super.process(event);
+                if (event.getType().equals(EventType.None) &&
+                    event.getState().equals(KeeperState.Expired)) {
+                    // schedule a re-register operation
+                    registerBookie();
                 }
             }
-        };
-        return ZkUtils.createConnectedZookeeperClient(zkServers, w);
+        });
+        // TODO: user could customize backoff time?
+        long baseBackoffTime = sessionTimeout;
+        return ZooKeeperClient.createConnectedZooKeeperClient(
+            zkServers, sessionTimeout, watchers,
+            new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime, Integer.MAX_VALUE));
     }
 
     public boolean isRunning() {
@@ -959,7 +1016,9 @@ public class Bookie extends BookieThread {
             journal.start();
             // wait until journal quits
             journal.join();
+            LOG.info("Journal thread quits.");
         } catch (InterruptedException ie) {
+            LOG.warn("Interrupted on running journal thread : ", ie);
         }
         // if the journal thread quits due to shutting down, it is ok
         if (!shuttingdown) {
@@ -1007,8 +1066,7 @@ public class Bookie extends BookieThread {
                 // mark bookie as in shutting down progress
                 shuttingdown = true;
 
-                // Shutdown the ZK client
-                if(zk != null) zk.close();
+
 
                 // Shutdown Sync thread
                 syncThread.shutdown();
@@ -1033,6 +1091,13 @@ public class Bookie extends BookieThread {
                 } catch (IOException ie) {
                     LOG.error("Failed to close active ledger manager : ", ie);
                 }
+
+                // Shutdown the ZK client
+                if(zk != null) zk.close();
+
+                // Shutdown State Service
+                stateService.shutdown();
+
                 // setting running to false here, so watch thread in bookie server know it only after bookie shut down
                 running = false;
             }
