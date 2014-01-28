@@ -78,6 +78,7 @@ message Request {
 message ReadRequest {
     enum Flag {
         FENCE_LEDGER = 1;
+        ENTRY_PIGGYBACK = 2;
     }
     optional Flag flag = 100;
     required int64 ledgerId = 1;

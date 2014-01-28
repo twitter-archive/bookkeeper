@@ -143,6 +143,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     }
 
     public void shutdown() {
+        this.longPollTimer.stop();
         this.readThreadPool.shutdownNow();
         this.writeThreadPool.shutdownNow();
     }

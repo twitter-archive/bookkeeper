@@ -2,6 +2,7 @@ package org.apache.bookkeeper.proto;
 
 import com.google.protobuf.ByteString;
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
@@ -33,7 +34,7 @@ import java.util.concurrent.ExecutorService;
 
 public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Observer {
     private final long requestEnqueueTimeNanos;
-    private long waitStartTimeNanos;
+    private long lastPhaseStartTimeNanos;
     private final HashedWheelTimer longPollTimer;
     private final ExecutorService threadPool;
     private Long previousLAC = null;
@@ -46,6 +47,7 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
         this.threadPool = threadPool;
         this.longPollTimer = longPollTimer;
         this.requestEnqueueTimeNanos = MathUtils.nowInNano();
+        lastPhaseStartTimeNanos = requestEnqueueTimeNanos;
     }
 
     private ReadResponse getReadResponse() {
@@ -63,8 +65,9 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
             return readResponse.build();
         }
 
-        StatusCode status;
+        StatusCode status = StatusCode.EBADREQ;
         ByteBuffer entryBody = null;
+        boolean readLACPiggyBack = false;
         try {
             Future<Boolean> fenceResult = null;
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
@@ -91,9 +94,10 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                         .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_PRE_WAIT)
                         .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
-                    waitStartTimeNanos = MathUtils.nowInNano();
+                    lastPhaseStartTimeNanos = MathUtils.nowInNano();
 
                     if (readRequest.hasTimeOut()) {
+                        logger.trace("Waiting For LAC Update {}: Timeout {}", previousLAC, readRequest.getTimeOut());
                         expirationTimerTask = longPollTimer.newTimeout(new TimerTask() {
                             @Override
                             public void run(Timeout timeout) throws Exception {
@@ -107,54 +111,95 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                 }
             } else {
                 if (logger.isTraceEnabled()) {
-                    logger.trace("previousLAC: {} fenceResult: {} hasPreviousLAC: {}", new Object[]{previousLAC, fenceResult, readRequest.hasPreviousLAC()});
+                    logger.trace("previousLAC: {} fenceResult: {} hasPreviousLAC: {}",
+                        new Object[]{previousLAC, fenceResult, readRequest.hasPreviousLAC()});
                 }
             }
 
-            entryBody = bookie.readEntry(ledgerId, entryId);
-            if (null != fenceResult) {
-                // TODO:
-                // currently we don't have readCallback to run in separated read
-                // threads. after BOOKKEEPER-429 is complete, we could improve
-                // following code to make it not wait here
-                //
-                // For now, since we only try to wait after read entry. so writing
-                // to journal and read entry are executed in different thread
-                // it would be fine.
-                try {
-                    Boolean fenced = fenceResult.get(1000, TimeUnit.MILLISECONDS);
-                    if (null == fenced || !fenced) {
-                        // if failed to fence, fail the read request to make it retry.
-                        status = StatusCode.EIO;
+            boolean shouldReadEntry = true;
+
+            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
+                if (!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
+                    // This is not a valid request - client bug?
+                    logger.error("Incorrect read request, entry piggyback requested incorrectly for ledgerId {} entryId {}", ledgerId, entryId);
+                    status = StatusCode.EBADREQ;
+                    shouldReadEntry = false;
+                } else {
+                    long knownLAC = bookie.readLastAddConfirmed(ledgerId);
+                    readResponse = readResponse.setMaxLAC(knownLAC);
+                    if (knownLAC > previousLAC) {
+                        readLACPiggyBack = true;
+                        entryId = previousLAC + 1;
+                        readResponse = readResponse.setMaxLAC(knownLAC);
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("ReadLAC Piggy Back reading entry:{} from ledger: {}", entryId, ledgerId);
+                        }
                     } else {
                         status = StatusCode.EOK;
-                        readResponse.setBody(ByteString.copyFrom(entryBody));
+                        shouldReadEntry = false;
                     }
-                } catch (InterruptedException ie) {
-                    logger.error("Interrupting fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", ie);
-                    status = StatusCode.EIO;
-                } catch (ExecutionException ee) {
-                    logger.error("Failed to fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", ee);
-                    status = StatusCode.EIO;
-                } catch (TimeoutException te) {
-                    logger.error("Timeout to fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", te);
-                    status = StatusCode.EIO;
                 }
-            } else {
-                readResponse.setBody(ByteString.copyFrom(entryBody));
-                long knownLAC = bookie.readLastAddConfirmed(ledgerId);
-                readResponse.setMaxLAC(knownLAC);
-                status = StatusCode.EOK;
+            }
+
+            if (shouldReadEntry) {
+                entryBody = bookie.readEntry(ledgerId, entryId);
+                if (null != fenceResult) {
+                    // TODO:
+                    // currently we don't have readCallback to run in separated read
+                    // threads. after BOOKKEEPER-429 is complete, we could improve
+                    // following code to make it not wait here
+                    //
+                    // For now, since we only try to wait after read entry. so writing
+                    // to journal and read entry are executed in different thread
+                    // it would be fine.
+                    try {
+                        Boolean fenced = fenceResult.get(1000, TimeUnit.MILLISECONDS);
+                        if (null == fenced || !fenced) {
+                            // if failed to fence, fail the read request to make it retry.
+                            status = StatusCode.EIO;
+                        } else {
+                            status = StatusCode.EOK;
+                            readResponse.setBody(ByteString.copyFrom(entryBody));
+                        }
+                    } catch (InterruptedException ie) {
+                        logger.error("Interrupting fence read entry (lid:" + ledgerId
+                                  + ", eid:" + entryId + ") :", ie);
+                        status = StatusCode.EIO;
+                    } catch (ExecutionException ee) {
+                        logger.error("Failed to fence read entry (lid:" + ledgerId
+                                  + ", eid:" + entryId + ") :", ee);
+                        status = StatusCode.EIO;
+                    } catch (TimeoutException te) {
+                        logger.error("Timeout to fence read entry (lid:" + ledgerId
+                                  + ", eid:" + entryId + ") :", te);
+                        status = StatusCode.EIO;
+                    }
+                } else {
+                    readResponse.setBody(ByteString.copyFrom(entryBody));
+                    if (readLACPiggyBack) {
+                        readResponse.setEntryId(entryId);
+                    } else {
+                        long knownLAC = bookie.readLastAddConfirmed(ledgerId);
+                        readResponse.setMaxLAC(knownLAC);
+                    }
+                    status = StatusCode.EOK;
+                }
             }
         } catch (Bookie.NoLedgerException e) {
             status = StatusCode.ENOLEDGER;
             logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +
                     ledgerId);
         } catch (Bookie.NoEntryException e) {
-            status = StatusCode.ENOENTRY;
+            // piggy back is best effort and this request can fail genuinely because of striping
+            // entries across the ensemble
+            if (readLACPiggyBack) {
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                    BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_LAST_ENTRY_NOENTRY_ERROR)
+                    .inc();
+                status = StatusCode.EOK;
+            } else {
+                status = StatusCode.ENOENTRY;
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("No entry found while reading entry:" + entryId + " from ledger:" +
                         ledgerId);
@@ -194,6 +239,11 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
 
     @Override
     public void run() {
+        ServerStatsProvider
+            .getStatsLoggerInstance()
+            .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY)
+            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
+
         ReadResponse readResponse = getReadResponse();
         if (null != readResponse) {
             Response.Builder response = Response.newBuilder()
@@ -238,13 +288,14 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                 ServerStatsProvider
                     .getStatsLoggerInstance()
                     .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(waitStartTimeNanos));
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
             } else {
                 ServerStatsProvider
                     .getStatsLoggerInstance()
                     .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(waitStartTimeNanos));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
             }
+            lastPhaseStartTimeNanos = MathUtils.nowInNano();
         }
     }
 
