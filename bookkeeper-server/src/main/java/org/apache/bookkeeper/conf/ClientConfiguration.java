@@ -59,15 +59,15 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Number Woker Threads
     protected final static String NUM_WORKER_THREADS = "numWorkerThreads";
 
+    // Stats
+    protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
+
     /**
      * Construct a default client-side configuration
      */
     public ClientConfiguration() {
         super();
     }
-
-    // Stats
-    protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
 
     /**
      * Construct a client-side configuration using a base configuration
@@ -442,7 +442,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return flag to enable/disable per host stats
      */
     public boolean getEnablePerHostStats() {
-        return getBoolean(ENABLE_PER_HOST_STATS, false);
+        return getBoolean(ENABLE_PER_HOST_STATS, true);
     }
 
     /**

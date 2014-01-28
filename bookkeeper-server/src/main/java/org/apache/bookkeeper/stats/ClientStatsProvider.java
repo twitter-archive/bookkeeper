@@ -32,7 +32,7 @@ public class ClientStatsProvider {
         PCBookieClientStatsLogger statsLogger = pcbookieLoggerMap.get(addr);
         if (null == statsLogger) {
             StringBuilder nameBuilder = new StringBuilder();
-            nameBuilder.append(addr.getHostName().replace('.', '_').replace('-', '_'))
+            nameBuilder.append(addr.getAddress().getHostAddress().replace('.', '_').replace('-', '_'))
                 .append("_").append(addr.getPort());
             StatsLogger underlying =
                 parentStatsLogger.scope("per_channel_bookie_client").scope(nameBuilder.toString());
