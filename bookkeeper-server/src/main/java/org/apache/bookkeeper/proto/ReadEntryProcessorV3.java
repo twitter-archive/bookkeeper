@@ -2,6 +2,9 @@ package org.apache.bookkeeper.proto;
 
 import com.google.protobuf.ByteString;
 
+import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,7 +15,6 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.PacketProcessorBaseV3;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
@@ -22,19 +24,33 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.Observable;
+import java.util.Observer;
+import java.util.concurrent.ExecutorService;
 
-public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
+public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Observer {
+    private final long requestEnqueueTimeNanos;
+    private long waitStartTimeNanos;
+    private final HashedWheelTimer longPollTimer;
+    private final ExecutorService threadPool;
+    private Long previousLAC = null;
+    private Timeout expirationTimerTask = null;
+    private Future<?> deferredTask = null;
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessorV3.class);
 
-    public ReadEntryProcessorV3(Request request, Cnxn srcConn, Bookie bookie) {
+    public ReadEntryProcessorV3(Request request, Cnxn srcConn, Bookie bookie, ExecutorService threadPool, HashedWheelTimer longPollTimer) {
         super(request, srcConn, bookie);
+        this.threadPool = threadPool;
+        this.longPollTimer = longPollTimer;
+        this.requestEnqueueTimeNanos = MathUtils.nowInNano();
     }
 
     private ReadResponse getReadResponse() {
         final long startTimeNanos = MathUtils.nowInNano();
-        ReadRequest readRequest = request.getReadRequest();
+        final ReadRequest readRequest = request.getReadRequest();
         long ledgerId = readRequest.getLedgerId();
         long entryId = readRequest.getEntryId();
 
@@ -63,6 +79,38 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
                     fenceResult = bookie.fenceLedger(ledgerId, masterKey);
                 }
             }
+            if ((null == previousLAC) && (null == fenceResult) && (readRequest.hasPreviousLAC())) {
+                previousLAC = readRequest.getPreviousLAC();
+                logger.trace("Waiting For LAC Update {}", previousLAC);
+                final Observable observable = bookie.waitForLastAddConfirmedUpdate(ledgerId,
+                    readRequest.getPreviousLAC(), this);
+
+                if (null != observable) {
+                    ServerStatsProvider
+                        .getStatsLoggerInstance()
+                        .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_PRE_WAIT)
+                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+
+                    waitStartTimeNanos = MathUtils.nowInNano();
+
+                    if (readRequest.hasTimeOut()) {
+                        expirationTimerTask = longPollTimer.newTimeout(new TimerTask() {
+                            @Override
+                            public void run(Timeout timeout) throws Exception {
+                                // When the timeout expires just get whatever is the current
+                                // readLastConfirmed
+                                ReadEntryProcessorV3.this.scheduleDeferredRead(observable, true);
+                            }
+                        }, readRequest.getTimeOut(), TimeUnit.MILLISECONDS);
+                    }
+                    return null;
+                }
+            } else {
+                if (logger.isTraceEnabled()) {
+                    logger.trace("previousLAC: {} fenceResult: {} hasPreviousLAC: {}", new Object[]{previousLAC, fenceResult, readRequest.hasPreviousLAC()});
+                }
+            }
+
             entryBody = bookie.readEntry(ledgerId, entryId);
             if (null != fenceResult) {
                 // TODO:
@@ -121,12 +169,20 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
             status = StatusCode.EUA;
         }
 
+        Enum op = BookkeeperServerOp.READ_ENTRY;
+        if (readRequest.hasPreviousLAC()) {
+            op = BookkeeperServerOp.READ_ENTRY_LONG_POLL_READ;
+        }
         if (status.equals(StatusCode.EOK)) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            ServerStatsProvider
+                .getStatsLoggerInstance()
+                .getOpStatsLogger(op)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         } else {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            ServerStatsProvider
+                .getStatsLoggerInstance()
+                .getOpStatsLogger(op)
+                .registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         }
 
         // Finally set status and return. The body would have been updated if
@@ -139,10 +195,67 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
     @Override
     public void run() {
         ReadResponse readResponse = getReadResponse();
-        Response.Builder response = Response.newBuilder()
-                .setHeader(getHeader())
-                .setStatus(readResponse.getStatus())
-                .setReadResponse(readResponse);
-        srcConn.sendResponse(encodeResponse(response.build()));
+        if (null != readResponse) {
+            Response.Builder response = Response.newBuilder()
+                    .setHeader(getHeader())
+                    .setStatus(readResponse.getStatus())
+                    .setReadResponse(readResponse);
+            srcConn.sendResponse(encodeResponse(response.build()));
+            Enum op = BookkeeperServerOp.READ_ENTRY_REQUEST;
+            if (null != previousLAC) {
+                op = BookkeeperServerOp.READ_ENTRY_LONG_POLL_REQUEST;
+            }
+            if (readResponse.getStatus().equals(StatusCode.EOK)) {
+                ServerStatsProvider
+                    .getStatsLoggerInstance()
+                    .getOpStatsLogger(op)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestEnqueueTimeNanos));
+            } else {
+                ServerStatsProvider
+                    .getStatsLoggerInstance()
+                    .getOpStatsLogger(op)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestEnqueueTimeNanos));
+            }
+        }
+    }
+
+    private synchronized void scheduleDeferredRead(Observable observable, boolean timeout) {
+        if (null == deferredTask) {
+            if (logger.isTraceEnabled()) {
+                logger.trace("Deferred Task, expired: {}, request: {}", timeout, request);
+            }
+            observable.deleteObserver(this);
+            try {
+                deferredTask = threadPool.submit(this);
+            } catch (RejectedExecutionException exc) {
+                // If the threadPool has been shutdown, simply drop the task
+            }
+            if (null != expirationTimerTask) {
+                expirationTimerTask.cancel();
+            }
+
+            if (timeout) {
+                ServerStatsProvider
+                    .getStatsLoggerInstance()
+                    .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(waitStartTimeNanos));
+            } else {
+                ServerStatsProvider
+                    .getStatsLoggerInstance()
+                    .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(waitStartTimeNanos));
+            }
+        }
+    }
+
+    @Override
+    public void update(Observable observable, Object o) {
+        Long newLAC = (Long)o;
+        if (newLAC > previousLAC) {
+            if (logger.isTraceEnabled()) {
+                logger.trace("Last Add Confirmed Advanced to {} for request {}", newLAC, request);
+            }
+            scheduleDeferredRead(observable, false);
+        }
     }
 }

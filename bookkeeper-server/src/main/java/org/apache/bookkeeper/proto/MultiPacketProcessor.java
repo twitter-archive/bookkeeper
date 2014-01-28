@@ -23,6 +23,7 @@ import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,11 +78,17 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
      */
     private final ExecutorService writeThreadPool;
 
+    /**
+     * The Timer used to time out requests for long polling
+     */
+    private final HashedWheelTimer longPollTimer;
+
     public MultiPacketProcessor(ServerConfiguration serverCfg, Bookie bookie) {
         this.serverCfg = serverCfg;
         this.bookie = bookie;
         this.readThreadPool = Executors.newFixedThreadPool(this.serverCfg.getNumReadWorkerThreads());
         this.writeThreadPool = Executors.newFixedThreadPool(this.serverCfg.getNumAddWorkerThreads());
+        this.longPollTimer = new HashedWheelTimer();
     }
 
     /**
@@ -102,7 +109,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
                     writeThreadPool.submit(new WriteEntryProcessorV3(request, srcConn, bookie));
                     break;
                 case READ_ENTRY:
-                    readThreadPool.submit(new ReadEntryProcessorV3(request, srcConn, bookie));
+                    readThreadPool.submit(new ReadEntryProcessorV3(request, srcConn, bookie, readThreadPool, longPollTimer));
                     break;
                 default:
                     Response.Builder response = Response.newBuilder()

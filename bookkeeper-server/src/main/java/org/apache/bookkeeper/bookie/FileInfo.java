@@ -27,6 +27,8 @@ import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.BufferUnderflowException;
 import java.nio.channels.FileChannel;
+import java.util.Observable;
+import java.util.Observer;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -50,7 +52,7 @@ import org.slf4j.LoggerFactory;
  * <b>Index page</b> is a fixed-length page, which contains serveral entries which point to the offsets of data stored in entry loggers.
  * </p>
  */
-class FileInfo {
+class FileInfo extends Observable {
     static Logger LOG = LoggerFactory.getLogger(FileInfo.class);
 
     static final int NO_MASTER_KEY = -1;
@@ -93,11 +95,26 @@ class FileInfo {
         return lac;
     }
 
-    synchronized long setLastAddConfirmed(long lac) {
-        if (null == this.lac || this.lac < lac) {
-            this.lac = lac;
+    long setLastAddConfirmed(long lac) {
+        synchronized (this) {
+            if (null == this.lac || this.lac < lac) {
+                this.lac = lac;
+                setChanged();
+            }
         }
+        LOG.trace("Updating LAC {} , {}", this.lac, lac);
+        notifyObservers(this.lac);
         return this.lac;
+    }
+
+    synchronized Observable waitForLastAddConfirmedUpdate(long previousLAC, Observer observe) {
+        if (lac > previousLAC || isClosed || ((stateBits & STATE_FENCED_BIT) == STATE_FENCED_BIT)) {
+            LOG.trace("Wait For LAC {} , {}", this.lac, previousLAC);
+            return null;
+        }
+
+        addObserver(observe);
+        return this;
     }
 
     public File getLf() {
@@ -208,6 +225,10 @@ class FileInfo {
             // not fenced yet
             stateBits |= STATE_FENCED_BIT;
             needFlushHeader = true;
+            synchronized (this) {
+                setChanged();
+            }
+            notifyObservers(Long.MAX_VALUE);
             return true;
         } else {
             return false;
@@ -264,6 +285,10 @@ class FileInfo {
     synchronized public void close(boolean force) throws IOException {
         isClosed = true;
         checkOpen(force);
+        synchronized (this) {
+            setChanged();
+        }
+        notifyObservers(Long.MAX_VALUE);
         if (useCount.get() == 0 && fc != null) {
             fc.close();
         }

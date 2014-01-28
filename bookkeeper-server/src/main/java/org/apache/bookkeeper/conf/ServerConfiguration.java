@@ -842,6 +842,16 @@ public class ServerConfiguration extends AbstractConfiguration {
      *
      * @return max wait for grouping
      */
+    public ServerConfiguration setJournalMaxGroupWaitMSec(long groupWaitMSec) {
+        setProperty(JOURNAL_MAX_GROUP_WAIT_MSEC, groupWaitMSec);
+        return this;
+    }
+
+    /**
+     * Maximum latency to impose on a journal write to achieve grouping
+     *
+     * @return max wait for grouping
+     */
     public long getJournalBufferedWritesThreshold() {
         return getLong(JOURNAL_BUFFERED_WRITES_THRESHOLD, 512 * 1024);
     }

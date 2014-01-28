@@ -85,6 +85,10 @@ message ReadRequest {
     required int64 entryId = 2;
     // Used while fencing a ledger. TODO: Move this to a separate request.
     optional bytes masterKey = 3;
+    // Used for waiting on last add confirmed update
+    optional int64 previousLAC = 4;
+    // Used as a timeout for the long polling request
+    optional int64 timeOut = 5;
 }
 
 message AddRequest {

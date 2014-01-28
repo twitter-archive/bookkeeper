@@ -1507,6 +1507,14 @@ public final class BookkeeperProtocol {
     // optional bytes masterKey = 3;
     boolean hasMasterKey();
     com.google.protobuf.ByteString getMasterKey();
+    
+    // optional int64 previousLAC = 4;
+    boolean hasPreviousLAC();
+    long getPreviousLAC();
+    
+    // optional int64 timeOut = 5;
+    boolean hasTimeOut();
+    long getTimeOut();
   }
   public static final class ReadRequest extends
       com.google.protobuf.GeneratedMessage
@@ -1643,11 +1651,33 @@ public final class BookkeeperProtocol {
       return masterKey_;
     }
     
+    // optional int64 previousLAC = 4;
+    public static final int PREVIOUSLAC_FIELD_NUMBER = 4;
+    private long previousLAC_;
+    public boolean hasPreviousLAC() {
+      return ((bitField0_ & 0x00000010) == 0x00000010);
+    }
+    public long getPreviousLAC() {
+      return previousLAC_;
+    }
+    
+    // optional int64 timeOut = 5;
+    public static final int TIMEOUT_FIELD_NUMBER = 5;
+    private long timeOut_;
+    public boolean hasTimeOut() {
+      return ((bitField0_ & 0x00000020) == 0x00000020);
+    }
+    public long getTimeOut() {
+      return timeOut_;
+    }
+    
     private void initFields() {
       flag_ = org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Flag.FENCE_LEDGER;
       ledgerId_ = 0L;
       entryId_ = 0L;
       masterKey_ = com.google.protobuf.ByteString.EMPTY;
+      previousLAC_ = 0L;
+      timeOut_ = 0L;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -1678,6 +1708,12 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         output.writeBytes(3, masterKey_);
       }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        output.writeInt64(4, previousLAC_);
+      }
+      if (((bitField0_ & 0x00000020) == 0x00000020)) {
+        output.writeInt64(5, timeOut_);
+      }
       if (((bitField0_ & 0x00000001) == 0x00000001)) {
         output.writeEnum(100, flag_.getNumber());
       }
@@ -1701,6 +1737,14 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000008) == 0x00000008)) {
         size += com.google.protobuf.CodedOutputStream
           .computeBytesSize(3, masterKey_);
+      }
+      if (((bitField0_ & 0x00000010) == 0x00000010)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeInt64Size(4, previousLAC_);
+      }
+      if (((bitField0_ & 0x00000020) == 0x00000020)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeInt64Size(5, timeOut_);
       }
       if (((bitField0_ & 0x00000001) == 0x00000001)) {
         size += com.google.protobuf.CodedOutputStream
@@ -1838,6 +1882,10 @@ public final class BookkeeperProtocol {
         bitField0_ = (bitField0_ & ~0x00000004);
         masterKey_ = com.google.protobuf.ByteString.EMPTY;
         bitField0_ = (bitField0_ & ~0x00000008);
+        previousLAC_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000010);
+        timeOut_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000020);
         return this;
       }
       
@@ -1892,6 +1940,14 @@ public final class BookkeeperProtocol {
           to_bitField0_ |= 0x00000008;
         }
         result.masterKey_ = masterKey_;
+        if (((from_bitField0_ & 0x00000010) == 0x00000010)) {
+          to_bitField0_ |= 0x00000010;
+        }
+        result.previousLAC_ = previousLAC_;
+        if (((from_bitField0_ & 0x00000020) == 0x00000020)) {
+          to_bitField0_ |= 0x00000020;
+        }
+        result.timeOut_ = timeOut_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -1919,6 +1975,12 @@ public final class BookkeeperProtocol {
         }
         if (other.hasMasterKey()) {
           setMasterKey(other.getMasterKey());
+        }
+        if (other.hasPreviousLAC()) {
+          setPreviousLAC(other.getPreviousLAC());
+        }
+        if (other.hasTimeOut()) {
+          setTimeOut(other.getTimeOut());
         }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
@@ -1972,6 +2034,16 @@ public final class BookkeeperProtocol {
             case 26: {
               bitField0_ |= 0x00000008;
               masterKey_ = input.readBytes();
+              break;
+            }
+            case 32: {
+              bitField0_ |= 0x00000010;
+              previousLAC_ = input.readInt64();
+              break;
+            }
+            case 40: {
+              bitField0_ |= 0x00000020;
+              timeOut_ = input.readInt64();
               break;
             }
             case 800: {
@@ -2077,6 +2149,48 @@ public final class BookkeeperProtocol {
       public Builder clearMasterKey() {
         bitField0_ = (bitField0_ & ~0x00000008);
         masterKey_ = getDefaultInstance().getMasterKey();
+        onChanged();
+        return this;
+      }
+      
+      // optional int64 previousLAC = 4;
+      private long previousLAC_ ;
+      public boolean hasPreviousLAC() {
+        return ((bitField0_ & 0x00000010) == 0x00000010);
+      }
+      public long getPreviousLAC() {
+        return previousLAC_;
+      }
+      public Builder setPreviousLAC(long value) {
+        bitField0_ |= 0x00000010;
+        previousLAC_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearPreviousLAC() {
+        bitField0_ = (bitField0_ & ~0x00000010);
+        previousLAC_ = 0L;
+        onChanged();
+        return this;
+      }
+      
+      // optional int64 timeOut = 5;
+      private long timeOut_ ;
+      public boolean hasTimeOut() {
+        return ((bitField0_ & 0x00000020) == 0x00000020);
+      }
+      public long getTimeOut() {
+        return timeOut_;
+      }
+      public Builder setTimeOut(long value) {
+        bitField0_ |= 0x00000020;
+        timeOut_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearTimeOut() {
+        bitField0_ = (bitField0_ & ~0x00000020);
+        timeOut_ = 0L;
         onChanged();
         return this;
       }
@@ -4732,30 +4846,31 @@ public final class BookkeeperProtocol {
       "ationType\022\r\n\005txnId\030\003 \002(\004\"n\n\007Request\022\037\n\006h" +
       "eader\030\001 \002(\0132\017.BKPacketHeader\022!\n\013readRequ" +
       "est\030d \001(\0132\014.ReadRequest\022\037\n\naddRequest\030e " +
-      "\001(\0132\013.AddRequest\"~\n\013ReadRequest\022\037\n\004flag\030" +
-      "d \001(\0162\021.ReadRequest.Flag\022\020\n\010ledgerId\030\001 \002" +
-      "(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 \001(\014\"\030" +
-      "\n\004Flag\022\020\n\014FENCE_LEDGER\020\001\"\212\001\n\nAddRequest\022",
-      "\036\n\004flag\030d \001(\0162\020.AddRequest.Flag\022\020\n\010ledge" +
-      "rId\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030" +
-      "\003 \002(\014\022\014\n\004body\030\004 \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_" +
-      "ADD\020\001\"\220\001\n\010Response\022\037\n\006header\030\001 \002(\0132\017.BKP" +
-      "acketHeader\022\033\n\006status\030\002 \002(\0162\013.StatusCode" +
-      "\022#\n\014readResponse\030d \001(\0132\r.ReadResponse\022!\n" +
-      "\013addResponse\030e \001(\0132\014.AddResponse\"l\n\014Read" +
-      "Response\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n" +
-      "\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003\022\014\n\004body" +
-      "\030\004 \001(\014\022\016\n\006maxLAC\030\005 \001(\003\"M\n\013AddResponse\022\033\n",
-      "\006status\030\001 \002(\0162\013.StatusCode\022\020\n\010ledgerId\030\002" +
-      " \002(\003\022\017\n\007entryId\030\003 \002(\003*F\n\017ProtocolVersion" +
-      "\022\017\n\013VERSION_ONE\020\001\022\017\n\013VERSION_TWO\020\002\022\021\n\rVE" +
-      "RSION_THREE\020\003*\206\001\n\nStatusCode\022\007\n\003EOK\020\000\022\016\n" +
-      "\tENOLEDGER\020\222\003\022\r\n\010ENOENTRY\020\223\003\022\014\n\007EBADREQ\020" +
-      "\224\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020\366\003\022\020\n\013EBADVERSION\020\367\003" +
-      "\022\014\n\007EFENCED\020\370\003\022\016\n\tEREADONLY\020\371\003*Y\n\rOperat" +
-      "ionType\022\016\n\nREAD_ENTRY\020\001\022\r\n\tADD_ENTRY\020\002\022\024" +
-      "\n\020RANGE_READ_ENTRY\020\003\022\023\n\017RANGE_ADD_ENTRY\020" +
-      "\004B\037\n\033org.apache.bookkeeper.protoH\001"
+      "\001(\0132\013.AddRequest\"\244\001\n\013ReadRequest\022\037\n\004flag" +
+      "\030d \001(\0162\021.ReadRequest.Flag\022\020\n\010ledgerId\030\001 " +
+      "\002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003 \001(\014\022" +
+      "\023\n\013previousLAC\030\004 \001(\003\022\017\n\007timeOut\030\005 \001(\003\"\030\n",
+      "\004Flag\022\020\n\014FENCE_LEDGER\020\001\"\212\001\n\nAddRequest\022\036" +
+      "\n\004flag\030d \001(\0162\020.AddRequest.Flag\022\020\n\010ledger" +
+      "Id\030\001 \002(\003\022\017\n\007entryId\030\002 \002(\003\022\021\n\tmasterKey\030\003" +
+      " \002(\014\022\014\n\004body\030\004 \002(\014\"\030\n\004Flag\022\020\n\014RECOVERY_A" +
+      "DD\020\001\"\220\001\n\010Response\022\037\n\006header\030\001 \002(\0132\017.BKPa" +
+      "cketHeader\022\033\n\006status\030\002 \002(\0162\013.StatusCode\022" +
+      "#\n\014readResponse\030d \001(\0132\r.ReadResponse\022!\n\013" +
+      "addResponse\030e \001(\0132\014.AddResponse\"l\n\014ReadR" +
+      "esponse\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n\010" +
+      "ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003\022\014\n\004body\030",
+      "\004 \001(\014\022\016\n\006maxLAC\030\005 \001(\003\"M\n\013AddResponse\022\033\n\006" +
+      "status\030\001 \002(\0162\013.StatusCode\022\020\n\010ledgerId\030\002 " +
+      "\002(\003\022\017\n\007entryId\030\003 \002(\003*F\n\017ProtocolVersion\022" +
+      "\017\n\013VERSION_ONE\020\001\022\017\n\013VERSION_TWO\020\002\022\021\n\rVER" +
+      "SION_THREE\020\003*\206\001\n\nStatusCode\022\007\n\003EOK\020\000\022\016\n\t" +
+      "ENOLEDGER\020\222\003\022\r\n\010ENOENTRY\020\223\003\022\014\n\007EBADREQ\020\224" +
+      "\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020\366\003\022\020\n\013EBADVERSION\020\367\003\022" +
+      "\014\n\007EFENCED\020\370\003\022\016\n\tEREADONLY\020\371\003*Y\n\rOperati" +
+      "onType\022\016\n\nREAD_ENTRY\020\001\022\r\n\tADD_ENTRY\020\002\022\024\n" +
+      "\020RANGE_READ_ENTRY\020\003\022\023\n\017RANGE_ADD_ENTRY\020\004",
+      "B\037\n\033org.apache.bookkeeper.protoH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -4783,7 +4898,7 @@ public final class BookkeeperProtocol {
           internal_static_ReadRequest_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_ReadRequest_descriptor,
-              new java.lang.String[] { "Flag", "LedgerId", "EntryId", "MasterKey", },
+              new java.lang.String[] { "Flag", "LedgerId", "EntryId", "MasterKey", "PreviousLAC", "TimeOut", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest.Builder.class);
           internal_static_AddRequest_descriptor =

@@ -22,6 +22,8 @@
 package org.apache.bookkeeper.bookie;
 
 import java.io.IOException;
+import java.util.Observable;
+import java.util.Observer;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
@@ -69,6 +71,12 @@ public class LedgerCacheImpl implements LedgerCache {
     public long updateLastAddConfirmed(long ledgerId, long lac) throws IOException {
         return indexPersistenceManager.updateLastAddConfirmed(ledgerId, lac);
     }
+
+    @Override
+    public Observable waitForLastAddConfirmedUpdate(long ledgerId, long previoisLAC, Observer observer) throws IOException {
+        return indexPersistenceManager.waitForLastAddConfirmedUpdate(ledgerId, previoisLAC, observer);
+    }
+
 
     @Override
     public void putEntryOffset(long ledger, long entry, long offset) throws IOException {
