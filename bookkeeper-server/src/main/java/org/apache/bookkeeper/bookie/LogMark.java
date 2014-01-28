@@ -42,25 +42,25 @@ public class LogMark {
         setLogMark(logFileId, logFileOffset);
     }
 
-    public long getLogFileId() {
+    public synchronized long getLogFileId() {
         return logFileId;
     }
 
-    public long getLogFileOffset() {
+    public synchronized long getLogFileOffset() {
         return logFileOffset;
     }
 
-    public void readLogMark(ByteBuffer bb) {
+    public synchronized void readLogMark(ByteBuffer bb) {
         logFileId = bb.getLong();
         logFileOffset = bb.getLong();
     }
 
-    public void writeLogMark(ByteBuffer bb) {
+    public synchronized void writeLogMark(ByteBuffer bb) {
         bb.putLong(logFileId);
         bb.putLong(logFileOffset);
     }
 
-    public void setLogMark(long logFileId, long logFileOffset) {
+    public synchronized void setLogMark(long logFileId, long logFileOffset) {
         this.logFileId = logFileId;
         this.logFileOffset = logFileOffset;
     }

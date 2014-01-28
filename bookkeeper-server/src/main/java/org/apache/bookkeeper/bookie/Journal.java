@@ -35,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -167,17 +168,17 @@ class Journal extends BookieThread {
         LastLogMark(long logId, long logPosition) {
             this.curMark = new LogMark(logId, logPosition);
         }
-        synchronized void setCurLogMark(long logId, long logPosition) {
+        void setCurLogMark(long logId, long logPosition) {
             curMark.setLogMark(logId, logPosition);
         }
-        synchronized LastLogMark markLog() {
+        LastLogMark markLog() {
             return new LastLogMark(curMark.getLogFileId(), curMark.getLogFileOffset());
         }
-        synchronized LogMark getCurMark() {
+        LogMark getCurMark() {
             return curMark;
         }
 
-        synchronized void rollLog(LastLogMark lastMark) throws NoWritableLedgerDirException {
+        void rollLog(LastLogMark lastMark) throws NoWritableLedgerDirException {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             // we should record <logId, logPosition> marked in markLog
@@ -212,7 +213,7 @@ class Journal extends BookieThread {
          * The last mark should first be max journal log id,
          * and then max log position in max journal log.
          */
-        synchronized void readLog() {
+        void readLog() {
             byte buff[] = new byte[16];
             ByteBuffer bb = ByteBuffer.wrap(buff);
             LogMark mark = new LogMark();
@@ -337,6 +338,9 @@ class Journal extends BookieThread {
             this.lastFlushedPosition = lastFlushedPosition;
             this.shouldClose = shouldClose;
             this.isMarker = isMarker;
+            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_FORCE_WRITE_QUEUE_SIZE)
+                    .inc();
         }
 
         public int process(boolean shouldForceWrite) throws IOException {
@@ -399,45 +403,11 @@ class Journal extends BookieThread {
         Thread threadToNotifyOnEx;
         // should we group force writes
         private final boolean enableGroupForceWrites;
-        // Number of writes grouped by the previous write
-        private volatile int groupingFactor;
         // make flush interval as a parameter
         public ForceWriteThread(Thread threadToNotifyOnEx, boolean enableGroupForceWrites) {
             super("ForceWriteThread");
             this.threadToNotifyOnEx = threadToNotifyOnEx;
             this.enableGroupForceWrites = enableGroupForceWrites;
-            this.groupingFactor = 0;
-
-            // Export journal grouping efficiency.
-            ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                    BookkeeperServerStatsLogger.BookkeeperServerGauge.JOURNAL_FORCE_WRITE_GROUPING_COUNT,
-                    new Gauge<Integer>() {
-                        @Override
-                        public Integer getDefaultValue() {
-                            return 0;
-                        }
-
-                        @Override
-                        public Integer getSample() {
-                            return groupingFactor;
-                        }
-                    }
-            );
-            // Export journal forcewrite queue size.
-            ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                    BookkeeperServerStatsLogger.BookkeeperServerGauge.JOURNAL_FORCE_WRITE_QUEUE_SIZE,
-                    new Gauge<Integer>() {
-                        @Override
-                        public Integer getDefaultValue() {
-                            return 0;
-                        }
-
-                        @Override
-                        public Integer getSample() {
-                            return forceWriteRequests.size();
-                        }
-                    }
-            );
         }
 
         @Override
@@ -449,6 +419,10 @@ class Journal extends BookieThread {
                 ForceWriteRequest req = null;
                 try {
                     req = forceWriteRequests.take();
+
+                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                            BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_FORCE_WRITE_QUEUE_SIZE)
+                            .dec();
 
                     // Force write the file and then notify the write completions
                     //
@@ -465,7 +439,9 @@ class Journal extends BookieThread {
                             // the last force write and then reset the counter so we can accumulate
                             // requests in the write we are about to issue
                             if (numReqInLastForceWrite > 0) {
-                                groupingFactor = numReqInLastForceWrite;
+                                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_GROUPING_COUNT)
+                                        .registerSuccessfulEvent(numReqInLastForceWrite);
                                 numReqInLastForceWrite = 0;
                             }
                         }
@@ -522,11 +498,11 @@ class Journal extends BookieThread {
 
     final File journalDirectory;
     final ServerConfiguration conf;
-    ForceWriteThread forceWriteThread;
-    // should we group force writes
-    private final boolean enableGroupForceWrites;
+    final ForceWriteThread forceWriteThread;
     // Time after which we will stop grouping and issue the flush
     private final long maxGroupWaitInMSec;
+    // Threshold after which we flush any buffered journal entries
+    private final long bufferedEntriesThreshold;
     // Threshold after which we flush any buffered journal writes
     private final long bufferedWritesThreshold;
     // should we flush if the queue is empty
@@ -542,8 +518,8 @@ class Journal extends BookieThread {
     private final ExecutorService cbThreadPool;
 
     // journal entry queue to commit
-    LinkedBlockingQueue<QueueEntry> queue = new LinkedBlockingQueue<QueueEntry>();
-    LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
+    final LinkedBlockingQueue<QueueEntry> queue = new LinkedBlockingQueue<QueueEntry>();
+    final LinkedBlockingQueue<ForceWriteRequest> forceWriteRequests = new LinkedBlockingQueue<ForceWriteRequest>();
 
     volatile boolean running = true;
     private final LedgerDirsManager ledgerDirsManager;
@@ -557,15 +533,15 @@ class Journal extends BookieThread {
         this.journalPreAllocSize = conf.getJournalPreAllocSizeMB() * MB;
         this.journalWriteBufferSize = conf.getJournalWriteBufferSizeKB() * KB;
         this.maxBackupJournals = conf.getMaxBackupJournals();
-        this.enableGroupForceWrites = conf.getJournalAdaptiveGroupWrites();
-        this.forceWriteThread = new ForceWriteThread(this, enableGroupForceWrites);
+        this.forceWriteThread = new ForceWriteThread(this, conf.getJournalAdaptiveGroupWrites());
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
+        this.bufferedEntriesThreshold = conf.getJournalBufferedEntriesThreshold();
         this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumAddWorkerThreads(), new DaemonThreadFactory());
 
         // Unless there is a cap on the max wait (which requires group force writes)
         // we cannot skip flushing for queue empty
-        this.flushWhenQueueEmpty = !enableGroupForceWrites || conf.getJournalFlushWhenQueueEmpty();
+        this.flushWhenQueueEmpty = maxGroupWaitInMSec <= 0 || conf.getJournalFlushWhenQueueEmpty();
 
         this.removePagesFromCache = conf.getJournalRemovePagesFromCache();
         // read last log mark
@@ -714,7 +690,7 @@ class Journal extends BookieThread {
      * new journal file using current timestamp, and continue persistence logic.
      * Those journals will be garbage collected in SyncThread.
      * </p>
-     * @see Bookie#SyncThread
+     * @see org.apache.bookkeeper.bookie.Bookie.SyncThread
      */
     @Override
     public void run() {
@@ -722,6 +698,8 @@ class Journal extends BookieThread {
         ByteBuffer lenBuff = ByteBuffer.allocate(4);
         JournalChannel logFile = null;
         forceWriteThread.start();
+        Stopwatch journalAllocationWatcher = new Stopwatch();
+        long batchSize = 0;
         try {
             List<Long> journalIds = listJournalIds(journalDirectory, null);
             // Should not use MathUtils.now(), which use System.nanoTime() and could only be used to measure elapsed time.
@@ -729,6 +707,7 @@ class Journal extends BookieThread {
             long logId = journalIds.isEmpty() ? System.currentTimeMillis() : journalIds.get(journalIds.size() - 1);
             BufferedChannel bc = null;
             long lastFlushPosition = 0;
+            boolean groupWhenTimeout = false;
 
             QueueEntry qe = null;
             while (true) {
@@ -757,12 +736,21 @@ class Journal extends BookieThread {
                         boolean shouldFlush = false;
                         // We should issue a forceWrite if any of the three conditions below holds good
                         // 1. If the oldest pending entry has been pending for longer than the max wait time
-                        if (enableGroupForceWrites && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec)) {
+                        if (maxGroupWaitInMSec > 0 && !groupWhenTimeout && (MathUtils.elapsedMSec(toFlush.getFirst().enqueueTime) > maxGroupWaitInMSec)) {
+                            groupWhenTimeout = true;
+                        } else if (maxGroupWaitInMSec > 0 && groupWhenTimeout && qe != null && MathUtils.elapsedMSec(qe.enqueueTime) < maxGroupWaitInMSec) {
+                            // when group timeout, it would be better to look forward, as there might be lots of entries already timeout
+                            // due to a previous slow write (writing to filesystem which impacted by force write).
+                            // Group those entries in the queue
+                            // a) already timeout
+                            // b) limit the number of entries to group
+                            groupWhenTimeout = false;
                             shouldFlush = true;
                             ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
-                        } else if ((bc.position() > lastFlushPosition + bufferedWritesThreshold)) {
-                            // 2. If we have buffered more than the buffWriteThreshold
+                                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
+                        } else if ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold) ||
+                                (bc.position() > lastFlushPosition + bufferedWritesThreshold)) {
+                            // 2. If we have buffered more than the buffWriteThreshold or bufferedEntriesThreshold
                             shouldFlush = true;
                             ServerStatsProvider.getStatsLoggerInstance().getCounter(
                                     BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
@@ -788,8 +776,16 @@ class Journal extends BookieThread {
                                 }
                             }
 
+                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_BATCH_ENTRIES)
+                                    .registerSuccessfulEvent(toFlush.size());
+                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_BATCH_BYTES)
+                                    .registerSuccessfulEvent(batchSize);
+
                             forceWriteRequests.put(new ForceWriteRequest(logFile, logId, lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
                             toFlush = new LinkedList<QueueEntry>();
+                            batchSize = 0L;
                             // check whether journal file is over file limit
                             if (bc.position() > maxJournalSize) {
                                 logFile = null;
@@ -814,6 +810,8 @@ class Journal extends BookieThread {
                         BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_QUEUE_SIZE)
                         .dec();
 
+                batchSize += (4 + qe.entry.remaining());
+
                 lenBuff.clear();
                 lenBuff.putInt(qe.entry.remaining());
                 lenBuff.flip();
@@ -821,13 +819,22 @@ class Journal extends BookieThread {
                 // we should be doing the following, but then we run out of
                 // direct byte buffers
                 // logFile.write(new ByteBuffer[] { lenBuff, qe.entry });
-                bc.write(lenBuff);
-                bc.write(qe.entry);
+                int flushes = 0;
+                flushes += bc.write(lenBuff);
+                flushes += bc.write(qe.entry);
+
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FLUSH_IN_MEM_ADD)
+                        .registerSuccessfulEvent(flushes);
+
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_MEM_ADD_ENTRY)
+                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(qe.enqueueTime));
 
                 // NOTE: preAlloc depends on the fact that we don't change file size while this is
                 // called or useful parts of the file will be zeroed out - in other words
                 // it depends on single threaded flushes to the JournalChannel
-                logFile.preAllocIfNeeded();
+                logFile.preAllocIfNeeded(journalAllocationWatcher);
                 toFlush.add(qe);
                 qe = null;
             }

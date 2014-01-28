@@ -174,10 +174,6 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         long entryId = entry.getLong();
         long lac = entry.getLong();
         entry.rewind();
-        // TODO: Move this to the function calling addEntry
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
-                .add(entry.remaining());
         processEntry(ledgerId, entryId, entry);
         // after adding the entry, update the lac
         // TODO: do we need to get last add confirmed first to ensure lac is loaded?
@@ -206,9 +202,6 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                 .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
-                .add(retBytes.length);
         return ByteBuffer.wrap(retBytes);
     }
 

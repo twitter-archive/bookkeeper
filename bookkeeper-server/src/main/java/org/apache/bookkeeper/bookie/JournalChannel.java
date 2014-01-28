@@ -29,7 +29,9 @@ import java.io.RandomAccessFile;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.NativeIO;
@@ -169,11 +171,15 @@ class JournalChannel implements Closeable {
         return bc;
     }
 
-    void preAllocIfNeeded() throws IOException {
+    void preAllocIfNeeded(Stopwatch stopwatch) throws IOException {
         if (bc.position() > nextPrealloc) {
+            stopwatch.reset().start();
             nextPrealloc = ((fc.size() + HEADER_SIZE) / preAllocSize + 1) * preAllocSize;
             zeros.clear();
             fc.write(zeros, nextPrealloc);
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_PREALLOCATION)
+                    .registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
         }
     }
 
