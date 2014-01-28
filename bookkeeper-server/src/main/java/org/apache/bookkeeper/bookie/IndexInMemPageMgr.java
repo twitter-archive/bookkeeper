@@ -247,27 +247,28 @@ public class IndexInMemPageMgr {
                 }
 
                 // We found a candidate page, lets see if we can reclaim it before its re-used
-                if (null != lep) {
-                    ConcurrentMap<Long, LedgerEntryPage> pageMap = pages.get(lep.getLedger());
-                    // Remove from map only if nothing has changed since we checked this lep.
-                    // Its possible for the ledger to have been deleted or the page to have already
-                    // been reclaimed. The page map is the definitive source of information, if anything
-                    // has changed we should leave this page along and continue iterating to find
-                    // another suitable page.
-                    if ((null != pageMap) && (pageMap.remove(lep.getFirstEntry(), lep))) {
-                        if (!lep.isClean()) {
-                            // Someone wrote to this page while we were reclaiming it.
-                            pageMap.put(lep.getFirstEntry(), lep);
-                        } else {
-                            // Do some bookkeeping on the page table
-                            pages.remove(lep.getLedger(), EMPTY_PAGE_MAP);
-                            // We can now safely reset this lep and return it.
-                            lep.usePage();
-                            lep.zeroPage();
-                            lep.setLedgerAndFirstEntry(ledgerId, firstEntry);
-                            return lep;
-                        }
+                ConcurrentMap<Long, LedgerEntryPage> pageMap = pages.get(lep.getLedger());
+                // Remove from map only if nothing has changed since we checked this lep.
+                // Its possible for the ledger to have been deleted or the page to have already
+                // been reclaimed. The page map is the definitive source of information, if anything
+                // has changed we should leave this page along and continue iterating to find
+                // another suitable page.
+                if ((null != pageMap) && (pageMap.remove(lep.getFirstEntry(), lep))) {
+                    if (!lep.isClean()) {
+                        // Someone wrote to this page while we were reclaiming it.
+                        pageMap.put(lep.getFirstEntry(), lep);
+                        lep = null;
+                    } else {
+                        // Do some bookkeeping on the page table
+                        pages.remove(lep.getLedger(), EMPTY_PAGE_MAP);
+                        // We can now safely reset this lep and return it.
+                        lep.usePage();
+                        lep.zeroPage();
+                        lep.setLedgerAndFirstEntry(ledgerId, firstEntry);
+                        return lep;
                     }
+                } else {
+                    lep = null;
                 }
             }
             return lep;
