@@ -119,7 +119,7 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
             boolean shouldReadEntry = true;
 
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
-                if (!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
+                if(!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
                     // This is not a valid request - client bug?
                     logger.error("Incorrect read request, entry piggyback requested incorrectly for ledgerId {} entryId {}", ledgerId, entryId);
                     status = StatusCode.EBADREQ;

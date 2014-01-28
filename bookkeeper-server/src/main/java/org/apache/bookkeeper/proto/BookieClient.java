@@ -194,7 +194,7 @@ public class BookieClient {
     }
 
     public void readEntryWaitForLACUpdate(final InetSocketAddress addr, final long ledgerId, final long entryId, final long previousLAC,
-                          final long timeOutInMillis, final ReadEntryCallback cb, final Object ctx) {
+                          final long timeOutInMillis, final boolean piggyBackEntry, final ReadEntryCallback cb, final Object ctx) {
         final PerChannelBookieClient client = lookupClient(addr);
         if (client == null) {
             cb.readEntryComplete(BKException.Code.BookieHandleNotAvailableException,
@@ -210,7 +210,7 @@ public class BookieClient {
                     cb.readEntryComplete(rc, ledgerId, entryId, null, ctx);
                     return;
                 }
-                client.readEntryWaitForLACUpdate(ledgerId, entryId, previousLAC, timeOutInMillis, cb, ctx);
+                client.readEntryWaitForLACUpdate(ledgerId, entryId, previousLAC, timeOutInMillis, piggyBackEntry, cb, ctx);
             }
         });
     }

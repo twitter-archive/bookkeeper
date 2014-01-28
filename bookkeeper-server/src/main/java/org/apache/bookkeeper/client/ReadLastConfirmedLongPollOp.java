@@ -19,8 +19,12 @@ package org.apache.bookkeeper.client;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class ReadLastConfirmedLongPollOp extends TryReadLastConfirmedOp {
+    static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedLongPollOp.class);
+
     private long timeOutInMillis;
 
 
@@ -39,6 +43,7 @@ public class ReadLastConfirmedLongPollOp extends TryReadLastConfirmedOp {
                 BookieProtocol.LAST_ADD_CONFIRMED,
                 previousLAC,
                 timeOutInMillis,
+                false,
                 this, i);
         }
     }
