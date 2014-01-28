@@ -157,7 +157,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             }
         }
         if (numAdd + numRead > 0) {
-            LOG.warn("Timeout task iterated through a total of {} keys.", total);
+            LOG.warn("Timeout task iterated through a total of {} keys. NettyTimeout: {}", total, isNettyTimeout);
             LOG.warn("Timeout Task errored out {} add entry requests.", numAdd);
             LOG.warn("Timeout Task errored out {} read entry requests.", numRead);
         }
@@ -386,7 +386,17 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         });
     }
 
+    public void readEntryWaitForLACUpdate(final long ledgerId, final long entryId, final long previousLAC, final long timeOutInMillis, ReadEntryCallback cb, Object ctx) {
+        readEntryInternal(ledgerId, entryId, previousLAC, timeOutInMillis, cb, ctx);
+    }
+
+
     public void readEntry(final long ledgerId, final long entryId, ReadEntryCallback cb, Object ctx) {
+        readEntryInternal(ledgerId, entryId, null, null, cb, ctx);
+    }
+
+    public void readEntryInternal(final long ledgerId, final long entryId, final Long previousLAC,
+                                  final Long timeOutInMillis, ReadEntryCallback cb, Object ctx) {
         final long txnId = getTxnId();
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.READ_ENTRY);
         completionObjects.put(completionKey, new ReadCompletion(statsLogger, cb, ctx, ledgerId, entryId));
@@ -400,6 +410,21 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         ReadRequest.Builder readBuilder = ReadRequest.newBuilder()
                 .setLedgerId(ledgerId)
                 .setEntryId(entryId);
+
+        if (null != previousLAC) {
+            readBuilder = readBuilder.setPreviousLAC(previousLAC);
+        }
+
+        if (null != timeOutInMillis) {
+            // Long poll requires previousLAC
+            if (null == previousLAC) {
+                cb.readEntryComplete(BKException.Code.IncorrectParameterException,
+                    ledgerId, entryId, null, ctx);
+                return;
+            }
+
+            readBuilder = readBuilder.setTimeOut(timeOutInMillis);
+        }
 
         final Request readRequest = Request.newBuilder()
                 .setHeader(headerBuilder)

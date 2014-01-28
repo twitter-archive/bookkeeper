@@ -21,6 +21,8 @@ import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.client.ReadLastConfirmedOp.LastConfirmedDataCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,17 +39,19 @@ class TryReadLastConfirmedOp implements ReadEntryCallback {
 
     final LedgerHandle lh;
     final LastConfirmedDataCallback cb;
+    final long requestTimeNano;
 
     int numResponsesPending;
     volatile boolean hasValidResponse = false;
     volatile boolean completed = false;
-    RecoveryData maxRecoveredData;
+    protected RecoveryData maxRecoveredData;
 
     TryReadLastConfirmedOp(LedgerHandle lh, LastConfirmedDataCallback cb, long lac) {
         this.lh = lh;
         this.cb = cb;
         this.maxRecoveredData = new RecoveryData(lac, 0);
         this.numResponsesPending = lh.metadata.getEnsembleSize();
+        this.requestTimeNano = MathUtils.nowInNano();
     }
 
     public void initiate() {
@@ -59,11 +63,28 @@ class TryReadLastConfirmedOp implements ReadEntryCallback {
         }
     }
 
+    protected Enum getRequestStatsOp() {
+        return BookkeeperClientStatsLogger.BookkeeperClientOp.TRY_READ_LAST_CONFIRMED;
+    }
+
+    private void submitCallback(int rc, DigestManager.RecoveryData data) {
+        long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
+        if (BKException.Code.OK != rc) {
+            lh.getStatsLogger().getOpStatsLogger(getRequestStatsOp())
+                .registerFailedEvent(latencyMicros);
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(getRequestStatsOp())
+                .registerSuccessfulEvent(latencyMicros);
+        }
+
+        cb.readLastConfirmedDataComplete(rc, data);
+    }
+
     @Override
     public void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx) {
         if (LOG.isTraceEnabled()) {
-            LOG.trace("TryReadLastConfirmed received response for (lid={}, eid={}) : {}",
-                    new Object[] { ledgerId, entryId, rc });
+            LOG.trace("{} received response for (lid={}, eid={}) : {}",
+                new Object[] { getClass().getName(), ledgerId, entryId, rc });
         }
 
         int bookieIndex = (Integer) ctx;
@@ -73,33 +94,33 @@ class TryReadLastConfirmedOp implements ReadEntryCallback {
                 RecoveryData recoveryData = lh.macManager.verifyDigestAndReturnLastConfirmed(buffer);
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("Received lastAddConfirmed (lac={}, length={}) from bookie({}) for (lid={}).",
-                            new Object[] { recoveryData.lastAddConfirmed, recoveryData.length, bookieIndex, ledgerId });
+                        new Object[] { recoveryData.lastAddConfirmed, recoveryData.length, bookieIndex, ledgerId });
                 }
                 if (recoveryData.lastAddConfirmed > maxRecoveredData.lastAddConfirmed) {
                     maxRecoveredData = recoveryData;
                     // callback immediately
-                    cb.readLastConfirmedDataComplete(BKException.Code.OK, maxRecoveredData);
+                    submitCallback(BKException.Code.OK, maxRecoveredData);
                 }
                 hasValidResponse = true;
             } catch (BKException.BKDigestMatchException e) {
                 LOG.error("Mac mismatch for ledger: " + ledgerId + ", entry: " + entryId
-                          + " while reading last entry from bookie: "
-                          + lh.metadata.currentEnsemble.get(bookieIndex));
+                    + " while reading last entry from bookie: "
+                    + lh.metadata.currentEnsemble.get(bookieIndex));
             }
         } else if (BKException.Code.UnauthorizedAccessException == rc && !completed) {
-            cb.readLastConfirmedDataComplete(rc, maxRecoveredData);
+            submitCallback(rc, maxRecoveredData);
             completed = true;
         } else if (BKException.Code.NoSuchLedgerExistsException == rc ||
-                   BKException.Code.NoSuchEntryException == rc) {
+            BKException.Code.NoSuchEntryException == rc) {
             hasValidResponse = true;
         }
         if (numResponsesPending == 0 && !completed) {
             if (!hasValidResponse) {
                 // no success called
-                cb.readLastConfirmedDataComplete(BKException.Code.LedgerRecoveryException, maxRecoveredData);
+                submitCallback(BKException.Code.LedgerRecoveryException, maxRecoveredData);
             } else {
                 // callback
-                cb.readLastConfirmedDataComplete(BKException.Code.OK, maxRecoveredData);
+                submitCallback(BKException.Code.OK, maxRecoveredData);
             }
             completed = true;
         }

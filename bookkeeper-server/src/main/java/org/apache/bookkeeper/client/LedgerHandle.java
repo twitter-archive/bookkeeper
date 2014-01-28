@@ -636,6 +636,32 @@ public class LedgerHandle {
         new TryReadLastConfirmedOp(this, innercb, getLastAddConfirmed()).initiate();
     }
 
+    public void asyncReadLastConfirmedLongPoll(final long timeOutInMillis, final ReadLastConfirmedCallback cb, final Object ctx) {
+        if (isClosed()) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+            return;
+        }
+        ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
+            volatile boolean completed = false;
+            @Override
+            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
+                if (rc == BKException.Code.OK) {
+                    updateLastConfirmed(data.lastAddConfirmed, data.length);
+                    if (!completed) {
+                        cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
+                        completed = true;
+                    }
+                } else {
+                    if (!completed) {
+                        cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
+                        completed = true;
+                    }
+                }
+            }
+        };
+        new ReadLastConfirmedLongPollOp(this, innercb, getLastAddConfirmed(), timeOutInMillis).initiate();
+    }
+
     /**
      * Context objects for synchronous call to read last confirmed.
      */
