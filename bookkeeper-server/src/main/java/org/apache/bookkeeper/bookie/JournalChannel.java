@@ -34,10 +34,13 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.NativeIO;
 import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.NativeIO.*;
 
 /**
  * Simple wrapper around FileChannel to add versioning
@@ -109,10 +112,14 @@ class JournalChannel implements Closeable {
         File fn = new File(journalDirectory, Long.toHexString(logId) + ".txn");
 
         LOG.info("Opening journal {}", fn);
-        if (!fn.exists()) { // new file, write version
+        if (fn.createNewFile()) { // new file, write version
             randomAccessFile = new RandomAccessFile(fn, "rw");
+            fd = NativeIO.getSysFileDescriptor(randomAccessFile.getFD());
             fc = randomAccessFile.getChannel();
             formatVersion = CURRENT_JOURNAL_FORMAT_VERSION;
+
+            // preallocate the space the header
+            preallocate();
 
             ByteBuffer bb = ByteBuffer.allocate(HEADER_SIZE);
             ZeroBuffer.put(bb);
@@ -123,11 +130,12 @@ class JournalChannel implements Closeable {
             fc.write(bb);
 
             bc = new BufferedChannel(fc, writeBufferSize);
-            forceWrite(true);
-            nextPrealloc = this.preAllocSize;
-            fc.write(zeros, nextPrealloc - SECTOR_SIZE);
+
+            // sync the file
+            // syncRangeOrForceWrite(0, HEADER_SIZE);
         } else {  // open an existing file
             randomAccessFile = new RandomAccessFile(fn, "r");
+            fd = NativeIO.getSysFileDescriptor(randomAccessFile.getFD());
             fc = randomAccessFile.getChannel();
             bc = null; // readonly
 
@@ -176,7 +184,7 @@ class JournalChannel implements Closeable {
                 LOG.error("Bookie journal file can seek to position :", e);
             }
         }
-        this.fd = NativeIO.getSysFileDescriptor(randomAccessFile.getFD());
+        LOG.info("Opened journal {} : fd {}", fn, fd);
     }
 
     int getFormatVersion() {
@@ -190,6 +198,15 @@ class JournalChannel implements Closeable {
         return bc;
     }
 
+    private void preallocate() throws IOException {
+        long prevPrealloc = nextPrealloc;
+        nextPrealloc = prevPrealloc + preAllocSize;
+        if (!NativeIO.fallocateIfPossible(fd, prevPrealloc, preAllocSize)) {
+            zeros.clear();
+            fc.write(zeros, nextPrealloc - SECTOR_SIZE);
+        }
+    }
+
     void preAllocIfNeeded(long size) throws IOException {
         preAllocIfNeeded(size, null);
     }
@@ -199,9 +216,7 @@ class JournalChannel implements Closeable {
             if (null != stopwatch) {
                 stopwatch.reset().start();
             }
-            nextPrealloc += preAllocSize;
-            zeros.clear();
-            fc.write(zeros, nextPrealloc - SECTOR_SIZE);
+            preallocate();
             if (null != stopwatch) {
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
                         BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_PREALLOCATION)
@@ -219,13 +234,35 @@ class JournalChannel implements Closeable {
         fc.close();
     }
 
+    public void startSyncRange(long offset, long bytes) throws IOException {
+        NativeIO.syncFileRangeIfPossible(fd, offset, bytes, SYNC_FILE_RANGE_WRITE);
+    }
+
+    public boolean syncRangeIfPossible(long offset, long bytes) throws IOException {
+        if (NativeIO.syncFileRangeIfPossible(fd, offset, bytes,
+                SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER)) {
+            removeFromPageCacheIfPossible(offset + bytes);
+            return false;
+        } else {
+            return false;
+        }
+    }
+
     public void forceWrite(boolean forceMetadata) throws IOException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Journal ForceWrite");
         }
+        long startTimeNanos = MathUtils.nowInNano();
+        forceWriteImpl(forceMetadata);
+        // collect stats
         ServerStatsProvider.getStatsLoggerInstance().getCounter(
                 BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FORCE_WRITES).inc();
-        long newForceWritePosition = bc.forceWrite(forceMetadata);
+        ServerStatsProvider.getStatsLoggerInstance()
+                .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
+                        .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+    }
+
+    private void removeFromPageCacheIfPossible(long offset) {
         //
         // For POSIX_FADV_DONTNEED, we want to drop from the beginning
         // of the file to a position prior to the current position.
@@ -240,11 +277,29 @@ class JournalChannel implements Closeable {
         // lastDropPosition     newDropPos             lastForceWritePosition
         //
         if (fRemoveFromPageCache) {
-            long newDropPos = newForceWritePosition - CACHE_DROP_LAG_BYTES;
+            long newDropPos = offset - CACHE_DROP_LAG_BYTES;
             if (lastDropPosition < newDropPos) {
                 NativeIO.bestEffortRemoveFromPageCache(fd, lastDropPosition, newDropPos - lastDropPosition);
             }
             this.lastDropPosition = newDropPos;
         }
+    }
+
+    private void forceWriteImpl(boolean forceMetadata) throws IOException {
+        long newForceWritePosition = bc.forceWrite(forceMetadata);
+        removeFromPageCacheIfPossible(newForceWritePosition);
+    }
+
+    public void syncRangeOrForceWrite(long offset, long bytes) throws IOException {
+        long startTimeNanos = MathUtils.nowInNano();
+        if (!syncRangeIfPossible(offset, bytes)) {
+            forceWriteImpl(false);
+        }
+        // collect stats
+        ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FORCE_WRITES).inc();
+        ServerStatsProvider.getStatsLoggerInstance()
+                .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
+                        .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
     }
 }

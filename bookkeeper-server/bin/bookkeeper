@@ -145,7 +145,7 @@ if [ "$BOOKIE_LOG_CONF" != "" ]; then
     BOOKIE_CLASSPATH="`dirname $BOOKIE_LOG_CONF`:$BOOKIE_CLASSPATH"
     OPTS="$OPTS -Dlog4j.configuration=`basename $BOOKIE_LOG_CONF`"
 fi
-OPTS="-cp $BOOKIE_CLASSPATH $OPTS $BOOKIE_EXTRA_OPTS"
+OPTS="-cp $BOOKIE_CLASSPATH -Djava.library.path=$BK_HOME/target/native/target/usr/local/lib $OPTS $BOOKIE_EXTRA_OPTS"
 
 OPTS="$OPTS $BOOKIE_EXTRA_OPTS"
 
