@@ -17,6 +17,7 @@
  */
 package org.apache.bookkeeper.metastore;
 
+import com.google.common.base.Charsets;
 import com.google.common.primitives.UnsignedBytes;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.HashFunction;
@@ -90,7 +91,7 @@ public class Value {
         HashFunction hf = Hashing.murmur3_32();
         Hasher hc = hf.newHasher();
         for (String key : fields.keySet()) {
-            hc.putString(key);
+            hc.putString(key, Charsets.UTF_8);
         }
         return hc.hash().asInt();
     }

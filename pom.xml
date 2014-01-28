@@ -45,6 +45,8 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Guava Version -->
+    <guava.version>16.0</guava.version>
   </properties>
   <url>http://zookeeper.apache.org/bookkeeper</url>
   <build>
