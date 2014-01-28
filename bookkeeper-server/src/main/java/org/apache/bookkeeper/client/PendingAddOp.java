@@ -51,7 +51,7 @@ class PendingAddOp implements WriteCallback {
 
     LedgerHandle lh;
     boolean isRecoveryAdd = false;
-    long requestTimeMillis;
+    long requestTimeNanos;
 
     PendingAddOp(LedgerHandle lh, AddCallback cb, Object ctx) {
         this.lh = lh;
@@ -106,7 +106,7 @@ class PendingAddOp implements WriteCallback {
     }
 
     void initiate(ChannelBuffer toSend) {
-        requestTimeMillis = MathUtils.now();
+        requestTimeNanos = MathUtils.nowInNano();
         this.toSend = toSend;
         for (int bookieIndex : lh.distributionSchedule.getWriteSet(entryId)) {
             sendWriteRequest(bookieIndex);
@@ -163,13 +163,12 @@ class PendingAddOp implements WriteCallback {
     }
 
     void submitCallback(final int rc) {
-        long latencyMillis = MathUtils.now() - requestTimeMillis;
         if (rc != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
-                    .registerFailedEvent(latencyMillis);
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         } else {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
-                    .registerSuccessfulEvent(latencyMillis);
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
         cb.addComplete(rc, lh, entryId, ctx);
     }

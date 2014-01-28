@@ -87,13 +87,13 @@ public class SubscribeHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
-        final long requestTimeMillis = MathUtils.now();
+        final long requestTimeNanos = MathUtils.nowInNano();
         if (!request.hasSubscribeRequest()) {
             logger.error("Received a request: {} on channel: {} without a Subscribe request.",
                     request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing subscribe request data");
-            subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             return;
         }
         logger.info("Received a subscription request for topic:" + request.getTopic().toStringUtf8() + " and subId:" + request
@@ -106,7 +106,7 @@ public class SubscribeHandler extends BaseHandler {
             seqId = persistenceMgr.getCurrentSeqIdForTopic(topic);
         } catch (ServerNotResponsibleForTopicException e) {
             channel.write(PubSubResponseUtils.getResponseForException(e, request.getTxnId()));
-            subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             ServerStatsProvider.getStatsLoggerInstance()
                     .getSimpleStatLogger(HedwigServerSimpleStatType.TOTAL_REQUESTS_REDIRECT).inc();
             // The exception's getMessage() gives us the actual owner for the topic
@@ -128,7 +128,7 @@ public class SubscribeHandler extends BaseHandler {
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 logger.error("Error serving subscribe request (" + request.getTxnId() + ") for (topic: "
                            + topic.toStringUtf8() + " , subscriber: " + subscriberId.toStringUtf8() + ")", exception);
-                subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
 
             @Override
@@ -141,7 +141,7 @@ public class SubscribeHandler extends BaseHandler {
                         // channel got disconnected while we were processing the
                         // subscribe request,
                         // nothing much we can do in this case
-                        subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                        subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                         return;
                     }
                 }
@@ -167,7 +167,7 @@ public class SubscribeHandler extends BaseHandler {
                                   + "It might be introduced by programming error in message filter.";
                     logger.error(errMsg, re);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, re);
-                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                    subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     // we should not close the subscription channel, just response error
                     // client decide to close it or not.
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
@@ -177,7 +177,7 @@ public class SubscribeHandler extends BaseHandler {
                                   + ", subscriber:" + subscriberId.toStringUtf8() + ").";
                     logger.error(errMsg, t);
                     PubSubException pse = new PubSubException.InvalidMessageFilterException(errMsg, t);
-                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                    subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
                     return;
                 }
@@ -194,7 +194,7 @@ public class SubscribeHandler extends BaseHandler {
                     logger.error("Topic busy exception as subscriber is being served on another channel: {} while handling " +
                             "subscription request: {} on channel: {}", va(oldChannel, request, channel));
                     channel.write(PubSubResponseUtils.getResponseForException(pse, request.getTxnId()));
-                    subStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                    subStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     return;
                 }
                 logger.info("Serve subscription request succeeded for request: {} on channel: {}. Issuing start delivery request.", request, channel);
@@ -220,7 +220,7 @@ public class SubscribeHandler extends BaseHandler {
                                             + ") from channel " + channel.getRemoteAddress()
                                             + " succeed - its subscription data is "
                                             + SubscriptionStateUtils.toString(subData));
-                                subStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+                                subStatsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                             }
                             @Override
                             public void operationFailed(Object ctx, PubSubException exception) {

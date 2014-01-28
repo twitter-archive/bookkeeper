@@ -37,7 +37,7 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
     // Returns null if there is no exception thrown
     private AddResponse getAddResponse() {
         // TODO: Move all these common operations into a function in the base class.
-        final long startTimeMillis = MathUtils.now();
+        final long startTimeNanos = MathUtils.nowInNano();
         AddRequest addRequest = request.getAddRequest();
         long ledgerId = addRequest.getLedgerId();
         long entryId = addRequest.getEntryId();
@@ -62,13 +62,12 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
                                       InetSocketAddress addr, Object ctx) {
-                long latencyMillis = MathUtils.now() - startTimeMillis;
                 if (rc == BookieProtocol.EOK) {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerSuccessfulEvent(latencyMillis);
+                            .ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 } else {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerFailedEvent(latencyMillis);
+                            .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
                 Cnxn conn = (Cnxn) ctx;
                 // rc can only be EOK in the current implementation. Could be EIO in future?

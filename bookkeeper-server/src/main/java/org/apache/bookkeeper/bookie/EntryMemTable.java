@@ -27,6 +27,7 @@ import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerO
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -147,7 +148,7 @@ public class EntryMemTable {
         // No-op if snapshot currently has entries
         if (this.snapshot.isEmpty() &&
                 this.kvmap.compareTo(oldCp) < 0) {
-            final long startTimeMillis = MathUtils.now();
+            final long startTimeNanos = MathUtils.nowInNano();
             this.lock.writeLock().lock();
             try {
                 if (this.snapshot.isEmpty() && !this.kvmap.isEmpty()
@@ -165,13 +166,12 @@ public class EntryMemTable {
                 this.lock.writeLock().unlock();
             }
 
-            long latencyMillis = MathUtils.now() - startTimeMillis;
             if (null != cp) {
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(latencyMillis);
+                        .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } else {
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerFailedEvent(latencyMillis);
+                        .SKIP_LIST_SNAPSHOT).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             }
         }
         return cp;
@@ -270,7 +270,7 @@ public class EntryMemTable {
     public long addEntry(long ledgerId, long entryId, final ByteBuffer entry, final CacheCallback cb)
             throws IOException {
         long size = 0;
-        final long startTimeMillis = MathUtils.now();
+        final long startTimeNanos = MathUtils.nowInNano();
         if (isSizeLimitReached()) {
             CheckPoint cp = snapshot();
             if (null != cp) {
@@ -289,7 +289,7 @@ public class EntryMemTable {
         }
 
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+                .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return size;
     }
 
@@ -347,7 +347,7 @@ public class EntryMemTable {
     public EntryKeyValue getEntry(long ledgerId, long entryId) throws IOException {
         EntryKey key = new EntryKey(ledgerId, entryId);
         EntryKeyValue value = null;
-        long startTimeMillis = MathUtils.now();
+        long startTimeNanos = MathUtils.nowInNano();
         this.lock.readLock().lock();
         try {
             value = this.kvmap.get(key);
@@ -358,7 +358,7 @@ public class EntryMemTable {
             this.lock.readLock().unlock();
         }
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         return value;
     }
@@ -371,7 +371,7 @@ public class EntryMemTable {
     public EntryKeyValue getLastEntry(long ledgerId) throws IOException {
         EntryKey result = null;
         EntryKey key = new EntryKey(ledgerId, Long.MAX_VALUE);
-        long startTimeMillis = MathUtils.now();
+        long startTimeNanos = MathUtils.nowInNano();
         this.lock.readLock().lock();
         try {
             result = this.kvmap.floorKey(key);
@@ -382,7 +382,7 @@ public class EntryMemTable {
             this.lock.readLock().unlock();
         }
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         if (result == null || result.getLedgerId() != ledgerId) {
             return null;

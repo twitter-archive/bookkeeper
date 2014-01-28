@@ -119,35 +119,36 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         int total = 0;
         for (CompletionKey key : PerChannelBookieClient.this.completionObjects.keySet()) {
             total++;
-            long elapsedTime = key.elapsedTime();
+            long elapsedTimeMillis = key.elapsedTimeMillis();
+            long elapsedTimeMicros = key.elapsedTimeMicros();
             try {
                 switch (key.operationType) {
                     case ADD_ENTRY:
-                        if (elapsedTime < conf.getAddEntryTimeout() * 1000) {
+                        if (elapsedTimeMillis < conf.getAddEntryTimeout() * 1000) {
                             continue;
                         }
                         errorOutAddKey(key);
                         numAdd++;
                         if (isNettyTimeout) {
                             statsLogger.getOpStatsLogger(PCBookieClientOp.NETTY_TIMEOUT_ADD_ENTRY)
-                                    .registerSuccessfulEvent(elapsedTime);
+                                    .registerSuccessfulEvent(elapsedTimeMicros);
                         } else {
                             statsLogger.getOpStatsLogger(PCBookieClientOp.TIMEOUT_ADD_ENTRY)
-                                    .registerSuccessfulEvent(elapsedTime);
+                                    .registerSuccessfulEvent(elapsedTimeMicros);
                         }
                         break;
                     case READ_ENTRY:
-                        if (elapsedTime < conf.getReadEntryTimeout() * 1000) {
+                        if (elapsedTimeMillis < conf.getReadEntryTimeout() * 1000) {
                             continue;
                         }
                         errorOutReadKey(key);
                         numRead++;
                         if (isNettyTimeout) {
                             statsLogger.getOpStatsLogger(PCBookieClientOp.NETTY_TIMEOUT_READ_ENTRY)
-                                    .registerSuccessfulEvent(elapsedTime);
+                                    .registerSuccessfulEvent(elapsedTimeMicros);
                         } else {
                             statsLogger.getOpStatsLogger(PCBookieClientOp.TIMEOUT_READ_ENTRY)
-                                    .registerSuccessfulEvent(elapsedTime);
+                                    .registerSuccessfulEvent(elapsedTimeMicros);
                         }
                         break;
                 }
@@ -797,15 +798,16 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         public ReadCompletion(final PCBookieClientStatsLogger statsLogger, final ReadEntryCallback originalCallback,
                               final Object originalCtx, final long ledgerId, final long entryId) {
             super(originalCtx, ledgerId, entryId);
-            final long requestTimeMillis = MathUtils.now();
+            final long requestTimeNanos = MathUtils.nowInNano();
             this.cb = new ReadEntryCallback() {
                 @Override
                 public void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx) {
-                    long latencyMillis = MathUtils.now() - requestTimeMillis;
                     if (rc != BKException.Code.OK) {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY).registerFailedEvent(latencyMillis);
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY)
+                            .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     } else {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY).registerSuccessfulEvent(latencyMillis);
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY)
+                            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     }
                     originalCallback.readEntryComplete(rc, ledgerId, entryId, buffer, originalCtx);
                 }
@@ -819,15 +821,16 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         public AddCompletion(final PCBookieClientStatsLogger statsLogger, final WriteCallback originalCallback,
                              final Object originalCtx, final long ledgerId, final long entryId) {
             super(originalCtx, ledgerId, entryId);
-            final long requestTimeMillis = MathUtils.now();
+            final long requestTimeNanos = MathUtils.nowInNano();
             this.cb = new WriteCallback() {
                 @Override
                 public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
-                    long latencyMillis = MathUtils.now() - requestTimeMillis;
                     if (rc != BKException.Code.OK) {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.ADD_ENTRY).registerFailedEvent(latencyMillis);
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.ADD_ENTRY)
+                            .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     } else {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.ADD_ENTRY).registerSuccessfulEvent(latencyMillis);
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.ADD_ENTRY)
+                            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     }
                     originalCallback.writeComplete(rc, ledgerId, entryId, addr, originalCtx);
                 }
@@ -874,11 +877,15 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         }
 
         public boolean shouldTimeout() {
-            return elapsedTime() >= conf.getReadTimeout() * 1000;
+            return elapsedTimeMillis() >= conf.getReadTimeout() * 1000;
         }
 
-        public long elapsedTime() {
+        public long elapsedTimeMillis() {
             return MathUtils.elapsedMSec(requestAt);
+        }
+
+        public long elapsedTimeMicros() {
+            return MathUtils.elapsedMicroSec(requestAt);
         }
     }
 

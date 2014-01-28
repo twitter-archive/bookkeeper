@@ -44,7 +44,7 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
     }
 
     public void run() {
-        final long startTimeMillis = MathUtils.now();
+        final long startTimeNanos = MathUtils.nowInNano();
         header = PacketHeader.fromInt(packet.getInt());
         packet.get(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
         // We mark the packet's position because we need the ledgerId and entryId in case
@@ -71,13 +71,12 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
                                       InetSocketAddress addr, Object ctx) {
-                long latencyMillis = MathUtils.now() - startTimeMillis;
                 if (rc == BookieProtocol.EOK) {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerSuccessfulEvent(latencyMillis);
+                            .ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 } else {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerFailedEvent(latencyMillis);
+                            .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
                 Cnxn conn = (Cnxn) ctx;
                 assert ledgerId == WriteEntryProcessor.this.ledgerId;
@@ -107,9 +106,8 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
         }
 
         if (rc != BookieProtocol.EOK) {
-            long latencyMillis = MathUtils.now() - startTimeMillis;
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .ADD_ENTRY).registerFailedEvent(latencyMillis);
+                    .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             srcConn.sendResponse(buildResponse(rc));
         }
     }

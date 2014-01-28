@@ -193,10 +193,10 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         Enum statEnum = doRecovery ? BookkeeperClientOp.LEDGER_OPEN_RECOVERY : BookkeeperClientOp.LEDGER_OPEN;
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(statEnum)
-                    .registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
         } else {
             bk.getStatsLogger().getOpStatsLogger(statEnum)
-                    .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
             if (null != lh) {
                 lh.hintOpen();
             }

@@ -67,7 +67,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
     long numPendingEntries;
     long startEntryId;
     long endEntryId;
-    long requestTimeMillis;
+    long requestTimeNanos;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     boolean enablePiggybackLAC = true;
@@ -426,7 +426,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
     public void initiate() {
         long nextEnsembleChange = startEntryId, i = startEntryId;
-        this.requestTimeMillis = MathUtils.now();
+        this.requestTimeNanos = MathUtils.nowInNano();
         ArrayList<InetSocketAddress> ensemble = null;
 
         if (speculativeReadTimeout > 0 && !parallelRead) {
@@ -540,13 +540,13 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         if (!complete.compareAndSet(false, true)) {
             return;
         }
-        long latencyMillis = MathUtils.now() - requestTimeMillis;
+
         if (code != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
-                    .registerFailedEvent(latencyMillis);
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         } else {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
-                    .registerSuccessfulEvent(latencyMillis);
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
         cancelSpeculativeTask(true);
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);

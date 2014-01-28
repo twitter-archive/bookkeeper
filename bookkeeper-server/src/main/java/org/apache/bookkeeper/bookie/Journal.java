@@ -309,7 +309,7 @@ class Journal extends BookieThread {
         public void callback() {
             ServerStatsProvider.getStatsLoggerInstance()
                     .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueTime));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Acknowledge Ledger: {}, Entry: {}", ledgerId, entryId);
             }
@@ -350,7 +350,7 @@ class Journal extends BookieThread {
                     this.logFile.forceWrite(false);
                     ServerStatsProvider.getStatsLoggerInstance()
                         .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMSec(startTimeNanos));
+                            .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
                 lastLogMark.setCurLogMark(this.logId, this.lastFlushedPosition);
 

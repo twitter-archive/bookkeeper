@@ -95,9 +95,9 @@ public class BookkeeperInternalCallbacks {
         @Override
         public void operationComplete(int rc, T result) {
             if (successRc == rc) {
-                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
             } else {
-                statsLogger.registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                statsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
             }
             cb.operationComplete(rc, result);
         }

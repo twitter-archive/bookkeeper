@@ -33,7 +33,7 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
     }
 
     private ReadResponse getReadResponse() {
-        final long startTimeMillis = MathUtils.now();
+        final long startTimeNanos = MathUtils.nowInNano();
         ReadRequest readRequest = request.getReadRequest();
         long ledgerId = readRequest.getLedgerId();
         long entryId = readRequest.getEntryId();
@@ -121,13 +121,12 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
             status = StatusCode.EUA;
         }
 
-        long latencyMillis = MathUtils.now() - startTimeMillis;
         if (status.equals(StatusCode.EOK)) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerSuccessfulEvent(latencyMillis);
+                    .READ_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         } else {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerFailedEvent(latencyMillis);
+                    .READ_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         }
 
         // Finally set status and return. The body would have been updated if

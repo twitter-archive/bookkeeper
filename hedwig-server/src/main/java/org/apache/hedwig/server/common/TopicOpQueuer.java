@@ -119,14 +119,14 @@ public class TopicOpQueuer {
         @Override
         protected void onOperationFailed() {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
-                    .registerFailedEvent(MathUtils.elapsedMSec(enqueueTime));
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueTime));
             super.onOperationFailed();
         }
 
         @Override
         protected void onOperationFinished() {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
-                    .registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueTime));
             super.onOperationFinished();
         }
     }
@@ -169,7 +169,7 @@ public class TopicOpQueuer {
         @Override
         protected void onOperationFinished() {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(opType)
-                    .registerSuccessfulEvent(MathUtils.elapsedMSec(enqueueTime));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueTime));
             super.onOperationFinished();
         }
     }

@@ -276,10 +276,10 @@ public class LedgerHandle {
             public void closeComplete(int newRc, LedgerHandle newLh, Object newCtx) {
                 if (BKException.Code.OK == newRc) {
                     getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
                 } else {
                     getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                        .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
                 }
                 finalCb.closeComplete(newRc, newLh, newCtx);
             }

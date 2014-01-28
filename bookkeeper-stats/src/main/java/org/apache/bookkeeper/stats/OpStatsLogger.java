@@ -8,16 +8,16 @@ public interface OpStatsLogger {
 
     /**
      * Increment the failed op counter with the given eventLatencyMillis.
-     * @param eventLatencyMillis The event latency in milliseconds.
+     * @param eventLatencyMicros The event latency in microseconds.
      */
-    public void registerFailedEvent(long eventLatencyMillis);
+    public void registerFailedEvent(long eventLatencyMicros);
 
     /**
      * An operation succeeded with the given eventLatencyMillis. Update
      * stats to reflect the same
-     * @param eventLatencyMillis The event latency in milliseconds.
+     * @param eventLatencyMicros The event latency in microseconds.
      */
-    public void registerSuccessfulEvent(long eventLatencyMillis);
+    public void registerSuccessfulEvent(long eventLatencyMicros);
 
     /**
      * @return Returns an OpStatsData object with necessary values. We need this function

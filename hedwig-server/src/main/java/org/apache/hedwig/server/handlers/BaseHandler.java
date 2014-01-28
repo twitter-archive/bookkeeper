@@ -48,7 +48,7 @@ public abstract class BaseHandler implements Handler {
 
 
     public void handleRequest(final PubSubRequest request, final Channel channel) {
-        final long requestTimeMillis = MathUtils.now();
+        final long requestTimeNanos = MathUtils.nowInNano();
         topicMgr.getOwner(request.getTopic(), request.getShouldClaim(),
         new Callback<HedwigSocketAddress>() {
             @Override
@@ -59,7 +59,7 @@ public abstract class BaseHandler implements Handler {
                 }
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
                 ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(request.getType())
-                    .registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
 
             @Override

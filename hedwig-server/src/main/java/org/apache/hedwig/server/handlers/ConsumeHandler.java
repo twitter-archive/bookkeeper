@@ -42,14 +42,14 @@ public class ConsumeHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(PubSubRequest request, Channel channel) {
-        final long requestTimeMillis = MathUtils.now();
+        final long requestTimeNanos = MathUtils.nowInNano();
         if (!request.hasConsumeRequest()) {
             logger.error("Received a request: {} on channel: {} without a Consume request.",
                     request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing consume request data");
             // We don't collect consume process time.
-            consumeStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            consumeStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             return;
         }
 
@@ -59,12 +59,12 @@ public class ConsumeHandler extends BaseHandler {
                                         consumeRequest.getMsgId(), new Callback<Void>() {
             @Override
             public void operationFinished(Object ctx, Void ignoreVal) {
-                consumeStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+                consumeStatsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
 
             @Override
             public void operationFailed(Object ctx, PubSubException e) {
-                consumeStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                consumeStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
         }, null);
 

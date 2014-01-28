@@ -79,10 +79,10 @@ class LedgerDeleteOp extends OrderedSafeGenericCallback<Void> {
     public void safeOperationComplete(int rc, Void result) {
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_DELETE)
-                    .registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
         } else {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_DELETE)
-                    .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
         }
         cb.deleteComplete(rc, this.ctx);
     }

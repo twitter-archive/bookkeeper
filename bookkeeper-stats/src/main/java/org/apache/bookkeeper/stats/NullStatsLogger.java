@@ -8,12 +8,12 @@ public class NullStatsLogger implements StatsLogger {
         final OpStatsData nullOpStats = new OpStatsData(0, 0, 0, new long[6]);
 
         @Override
-        public void registerFailedEvent(long eventLatencyMillis) {
+        public void registerFailedEvent(long eventLatencyMicros) {
             // nop
         }
 
         @Override
-        public void registerSuccessfulEvent(long eventLatencyMillis) {
+        public void registerSuccessfulEvent(long eventLatencyMicros) {
             // nop
         }
 

@@ -42,7 +42,7 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
     }
 
     public void run() {
-        final long startTimeMillis = MathUtils.now();
+        final long startTimeNanos = MathUtils.nowInNano();
         header = PacketHeader.fromInt(packet.getInt());
         ledgerId = packet.getLong();
         entryId = packet.getLong();
@@ -125,13 +125,12 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
             rc = BookieProtocol.EUA;
         }
 
-        long latencyMillis = MathUtils.now() - startTimeMillis;
         if (rc == BookieProtocol.EOK) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerSuccessfulEvent(latencyMillis);
+                    .READ_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         } else {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerFailedEvent(latencyMillis);
+                    .READ_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         }
 
         toSend[0] = buildResponse(rc);

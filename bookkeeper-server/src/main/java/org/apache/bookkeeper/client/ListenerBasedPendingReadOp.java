@@ -46,13 +46,12 @@ class ListenerBasedPendingReadOp extends PendingReadOp {
                 return;
             }
             seq.remove();
-            long latencyMillis = MathUtils.now() - requestTimeMillis;
             if (BKException.Code.OK == request.getRc()) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
-                        .registerSuccessfulEvent(latencyMillis);
+                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             } else {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
-                        .registerFailedEvent(latencyMillis);
+                        .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
             // callback with completed entry
             listener.onEntryComplete(request.getRc(), lh, request, ctx);

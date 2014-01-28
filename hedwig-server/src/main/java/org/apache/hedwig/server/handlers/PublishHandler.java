@@ -51,13 +51,13 @@ public class PublishHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
-        final long requestTimeMillis = MathUtils.now();
+        final long requestTimeNanos = MathUtils.nowInNano();
         if (!request.hasPublishRequest()) {
             logger.error("Received a request: {} on channel: {} without a Publish request.",
                     request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing publish request data");
-            pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            pubStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             return;
         }
 
@@ -72,13 +72,13 @@ public class PublishHandler extends BaseHandler {
                     logger.debug("Persist request: {} failed with exception: {}", request, exception);
                 }
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                pubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                pubStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
 
             @Override
             public void operationFinished(Object ctx, PubSubProtocol.MessageSeqId resultOfOperation) {
                 channel.write(getSuccessResponse(request.getTxnId(), resultOfOperation));
-                pubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+                pubStatsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
         }, null);
 

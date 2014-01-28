@@ -78,13 +78,13 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
     }
 
     private void submitCallback(int rc) {
-        long latencyMs = MathUtils.elapsedMSec(requestTimeNano);
+        long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK == rc) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
-                    .registerFailedEvent(latencyMs);
+                    .registerFailedEvent(latencyMicros);
         } else {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
-                    .registerSuccessfulEvent(latencyMs);
+                    .registerSuccessfulEvent(latencyMicros);
         }
         cb.readLastConfirmedDataComplete(rc, maxRecoveredData);
     }

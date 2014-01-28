@@ -39,7 +39,7 @@ class ZooWorker {
     static final Logger logger = LoggerFactory.getLogger(ZooWorker.class);
 
     int attempts = 0;
-    long startTimeMs;
+    long startTimeNanos;
     long elapsedTimeMs = 0L;
     final RetryPolicy retryPolicy;
     final OpStatsLogger statsLogger;
@@ -47,16 +47,16 @@ class ZooWorker {
     ZooWorker(RetryPolicy retryPolicy, OpStatsLogger statsLogger) {
         this.retryPolicy = retryPolicy;
         this.statsLogger = statsLogger;
-        this.startTimeMs = MathUtils.now();
+        this.startTimeNanos = MathUtils.nowInNano();
     }
 
     public boolean allowRetry(int rc) {
-        elapsedTimeMs = MathUtils.now() - startTimeMs;
+        elapsedTimeMs = MathUtils.elapsedMSec(startTimeNanos);
         if (!ZooWorker.isRecoverableException(rc)) {
             if (KeeperException.Code.OK.intValue() == rc) {
-                statsLogger.registerSuccessfulEvent(elapsedTimeMs);
+                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } else {
-                statsLogger.registerFailedEvent(elapsedTimeMs);
+                statsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             }
             return false;
         }
@@ -121,7 +121,7 @@ class ZooWorker {
         T result = null;
         boolean isDone = false;
         int attempts = 0;
-        long startTimeMs = MathUtils.now();
+        long startTimeNanos = MathUtils.nowInNano();
         while (!isDone) {
             try {
                 if (null != client) {
@@ -130,17 +130,17 @@ class ZooWorker {
                 logger.debug("Execute {} at {} retry attempt.", proc, attempts);
                 result = proc.call();
                 isDone = true;
-                statsLogger.registerSuccessfulEvent(MathUtils.now() - startTimeMs);
+                statsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } catch (KeeperException e) {
                 ++attempts;
                 boolean rethrow = true;
-                long elapsedTime = MathUtils.now() - startTimeMs;
+                long elapsedTime = MathUtils.elapsedMSec(startTimeNanos);
                 if (((null != client && isRecoverableException(e)) || null == client) &&
                         retryPolicy.allowRetry(attempts, elapsedTime)) {
                     rethrow = false;
                 }
                 if (rethrow) {
-                    statsLogger.registerFailedEvent(MathUtils.now() - startTimeMs);
+                    statsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                     logger.debug("Stopped executing {} after {} attempts.", proc, attempts);
                     throw e;
                 }

@@ -140,13 +140,13 @@ class LedgerCreateOp implements GenericCallback<Long> {
         // Opened a new ledger
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CREATE)
-                    .registerFailedEvent(MathUtils.elapsedMSec(startTime));
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
         } else {
             if (null != lh) {
                 lh.hintOpen();
             }
             bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CREATE)
-                    .registerSuccessfulEvent(MathUtils.elapsedMSec(startTime));
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
         }
         cb.createComplete(rc, lh, ctx);
     }

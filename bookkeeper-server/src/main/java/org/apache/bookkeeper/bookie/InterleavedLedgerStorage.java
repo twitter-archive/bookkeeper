@@ -187,18 +187,18 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
             entryId = ledgerCache.getLastEntry(ledgerId);
         }
 
-        long startTimeMillis = MathUtils.now();
+        long startTimeNanos = MathUtils.nowInNano();
         long offset = ledgerCache.getEntryOffset(ledgerId, entryId);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         if (offset == 0) {
             return null;
         }
-        startTimeMillis = MathUtils.now();
+        startTimeNanos = MathUtils.nowInNano();
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.now() - startTimeMillis);
+                .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         ServerStatsProvider.getStatsLoggerInstance().getCounter(
                 BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
                 .add(retBytes.length);

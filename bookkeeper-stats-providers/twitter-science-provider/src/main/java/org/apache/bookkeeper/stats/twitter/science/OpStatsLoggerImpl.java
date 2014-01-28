@@ -20,12 +20,12 @@ public class OpStatsLoggerImpl implements OpStatsLogger {
     }
 
     // OpStatsLogger functions
-    public void registerFailedEvent(long eventLatencyMillis) {
-        this.events.incErrors(TimeUnit.MILLISECONDS.toMicros(eventLatencyMillis));
+    public void registerFailedEvent(long eventLatencyMicros) {
+        this.events.incErrors(eventLatencyMicros);
     }
 
-    public void registerSuccessfulEvent(long eventLatencyMillis) {
-        this.events.requestComplete(TimeUnit.MILLISECONDS.toMicros(eventLatencyMillis));
+    public void registerSuccessfulEvent(long eventLatencyMicros) {
+        this.events.requestComplete(eventLatencyMicros);
     }
 
     public synchronized void clear() {

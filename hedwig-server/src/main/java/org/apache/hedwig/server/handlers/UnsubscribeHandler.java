@@ -64,13 +64,13 @@ public class UnsubscribeHandler extends BaseHandler {
 
     @Override
     public void handleRequestAtOwner(final PubSubRequest request, final Channel channel) {
-        final long requestTimeMillis = MathUtils.now();
+        final long requestTimeNanos = MathUtils.nowInNano();
         if (!request.hasUnsubscribeRequest()) {
             logger.error("Received a request: {} on channel: {} without a Unsubscribe request.",
                     request, channel);
             UmbrellaHandler.sendErrorResponseToMalformedRequest(channel, request.getTxnId(),
                     "Missing unsubscribe request data");
-            unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+            unsubStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             return;
         }
 
@@ -84,7 +84,7 @@ public class UnsubscribeHandler extends BaseHandler {
             public void operationFailed(Object ctx, PubSubException exception) {
                 logger.error("Unsubscribe request: {} on channel: {} failed.", request, channel);
                 channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                unsubStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
 
             @Override
@@ -101,7 +101,7 @@ public class UnsubscribeHandler extends BaseHandler {
                         logger.error("Failed to stop delivery for unsubscribe request: {} on channel: {}",
                                 request, channel);
                         channel.write(PubSubResponseUtils.getResponseForException(exception, request.getTxnId()));
-                        unsubStatsLogger.registerFailedEvent(MathUtils.now() - requestTimeMillis);
+                        unsubStatsLogger.registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     }
                     @Override
                     public void operationFinished(Object ctx, Void resultOfOperation) {
@@ -111,7 +111,7 @@ public class UnsubscribeHandler extends BaseHandler {
                         subChannelMgr.remove(new TopicSubscriber(topic, subscriberId),
                                              channel);
                         channel.write(PubSubResponseUtils.getSuccessResponse(request.getTxnId()));
-                        unsubStatsLogger.registerSuccessfulEvent(MathUtils.now() - requestTimeMillis);
+                        unsubStatsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     }
                 }, ctx);
             }
