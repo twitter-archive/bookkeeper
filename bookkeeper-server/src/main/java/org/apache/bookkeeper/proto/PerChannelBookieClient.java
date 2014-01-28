@@ -392,11 +392,11 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
 
     public void readEntry(final long ledgerId, final long entryId, ReadEntryCallback cb, Object ctx) {
-        readEntryInternal(ledgerId, entryId, null, null, null, cb, ctx);
+        readEntryInternal(ledgerId, entryId, null, null, false, cb, ctx);
     }
 
     public void readEntryInternal(final long ledgerId, final long entryId, final Long previousLAC,
-                                  final Long timeOutInMillis, final Boolean piggyBackEntry, ReadEntryCallback cb, Object ctx) {
+                                  final Long timeOutInMillis, final boolean piggyBackEntry, ReadEntryCallback cb, Object ctx) {
         final long txnId = getTxnId();
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.READ_ENTRY);
         completionObjects.put(completionKey, new ReadCompletion(statsLogger, cb, ctx, ledgerId, entryId));
@@ -426,7 +426,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             readBuilder = readBuilder.setTimeOut(timeOutInMillis);
         }
 
-        if (null != piggyBackEntry) {
+        if (piggyBackEntry) {
             // Long poll requires previousLAC
             if (null == previousLAC) {
                 cb.readEntryComplete(BKException.Code.IncorrectParameterException,
