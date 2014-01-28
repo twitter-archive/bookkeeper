@@ -46,6 +46,7 @@ import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -485,6 +486,32 @@ class Journal extends BookieThread {
         }
     }
 
+    final static int PADDING_MASK = -0x100;
+
+    static void writePaddingBytes(JournalChannel jc, ByteBuffer paddingBuffer) throws IOException {
+        int bytesToAlign = (int) (jc.bc.position() % JournalChannel.SECTOR_SIZE);
+        if (0 != bytesToAlign) {
+            int paddingBytes = JournalChannel.SECTOR_SIZE - bytesToAlign;
+            if (paddingBytes < 8) {
+                paddingBytes = JournalChannel.SECTOR_SIZE - (8 - paddingBytes);
+            } else {
+                paddingBytes -= 8;
+            }
+            paddingBuffer.clear();
+            // padding mask
+            paddingBuffer.putInt(PADDING_MASK);
+            // padding len
+            paddingBuffer.putInt(paddingBytes);
+            // padding bytes
+            paddingBuffer.position(8 + paddingBytes);
+
+            paddingBuffer.flip();
+            jc.preAllocIfNeeded(paddingBuffer.limit());
+            // write padding bytes
+            jc.bc.write(paddingBuffer);
+        }
+    }
+
     final static long MB = 1024 * 1024L;
     final static int KB = 1024;
     // max journal file size
@@ -599,6 +626,25 @@ class Journal extends BookieThread {
                 if (len == 0) {
                     break;
                 }
+                boolean isPaddingRecord = false;
+                if (len == PADDING_MASK) {
+                    if (journalVersion >= JournalChannel.V5) {
+                        // skip padding bytes
+                        lenBuff.clear();
+                        fullRead(recLog, lenBuff);
+                        if (lenBuff.remaining() != 0) {
+                            break;
+                        }
+                        lenBuff.flip();
+                        len = lenBuff.getInt();
+                        if (len == 0) {
+                            continue;
+                        }
+                        isPaddingRecord = true;
+                    } else {
+                        throw new IOException("Invalid record found with negative length : " + len);
+                    }
+                }
                 recBuff.clear();
                 if (recBuff.remaining() < len) {
                     recBuff = ByteBuffer.allocate(len);
@@ -610,7 +656,9 @@ class Journal extends BookieThread {
                     break;
                 }
                 recBuff.flip();
-                scanner.process(journalVersion, offset, recBuff);
+                if (!isPaddingRecord) {
+                    scanner.process(journalVersion, offset, recBuff);
+                }
             }
         } finally {
             recLog.close();
@@ -696,6 +744,8 @@ class Journal extends BookieThread {
     public void run() {
         LinkedList<QueueEntry> toFlush = new LinkedList<QueueEntry>();
         ByteBuffer lenBuff = ByteBuffer.allocate(4);
+        ByteBuffer paddingBuff = ByteBuffer.allocate(2 * JournalChannel.SECTOR_SIZE);
+        ZeroBuffer.put(paddingBuff);
         JournalChannel logFile = null;
         forceWriteThread.start();
         Stopwatch journalAllocationWatcher = new Stopwatch();
@@ -706,7 +756,7 @@ class Journal extends BookieThread {
             // http://docs.oracle.com/javase/1.5.0/docs/api/java/lang/System.html#nanoTime%28%29
             long logId = journalIds.isEmpty() ? System.currentTimeMillis() : journalIds.get(journalIds.size() - 1);
             BufferedChannel bc = null;
-            long lastFlushPosition = 0;
+            long lastFlushPosition = 0L;
             boolean groupWhenTimeout = false;
 
             QueueEntry qe = null;
@@ -721,7 +771,7 @@ class Journal extends BookieThread {
                                         removePagesFromCache);
                     bc = logFile.getBufferedChannel();
 
-                    lastFlushPosition = 0;
+                    lastFlushPosition = bc.position();
                 }
 
                 if (qe == null) {
@@ -748,8 +798,9 @@ class Journal extends BookieThread {
                             shouldFlush = true;
                             ServerStatsProvider.getStatsLoggerInstance().getCounter(
                                 BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
-                        } else if ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold) ||
-                                (bc.position() > lastFlushPosition + bufferedWritesThreshold)) {
+                        } else if (qe != null &&
+                                ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold) ||
+                                 (bc.position() > lastFlushPosition + bufferedWritesThreshold))) {
                             // 2. If we have buffered more than the buffWriteThreshold or bufferedEntriesThreshold
                             shouldFlush = true;
                             ServerStatsProvider.getStatsLoggerInstance().getCounter(
@@ -766,6 +817,7 @@ class Journal extends BookieThread {
 
                         // toFlush is non null and not empty so should be safe to access getFirst
                         if (shouldFlush) {
+                            writePaddingBytes(logFile, paddingBuff);
                             bc.flush(false);
                             lastFlushPosition = bc.position();
 
@@ -815,6 +867,10 @@ class Journal extends BookieThread {
                 lenBuff.clear();
                 lenBuff.putInt(qe.entry.remaining());
                 lenBuff.flip();
+
+                // preAlloc based on size
+                logFile.preAllocIfNeeded(4 + qe.entry.remaining(), journalAllocationWatcher);
+
                 //
                 // we should be doing the following, but then we run out of
                 // direct byte buffers
@@ -831,10 +887,6 @@ class Journal extends BookieThread {
                         BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_MEM_ADD_ENTRY)
                         .registerSuccessfulEvent(MathUtils.elapsedMicroSec(qe.enqueueTime));
 
-                // NOTE: preAlloc depends on the fact that we don't change file size while this is
-                // called or useful parts of the file will be zeroed out - in other words
-                // it depends on single threaded flushes to the JournalChannel
-                logFile.preAllocIfNeeded(journalAllocationWatcher);
                 toFlush.add(qe);
                 qe = null;
             }
