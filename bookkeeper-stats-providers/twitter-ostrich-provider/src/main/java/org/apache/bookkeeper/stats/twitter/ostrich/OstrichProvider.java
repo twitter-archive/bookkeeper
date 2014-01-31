@@ -2,6 +2,7 @@ package org.apache.bookkeeper.stats.twitter.ostrich;
 
 import com.twitter.ostrich.admin.CustomHttpHandler;
 import com.twitter.ostrich.admin.RuntimeEnvironment;
+import com.twitter.ostrich.admin.StatsFactory;
 import com.twitter.util.Duration;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
@@ -12,6 +13,7 @@ import scala.collection.immutable.List;
 import scala.collection.immutable.List$;
 import scala.collection.immutable.Map;
 import scala.collection.immutable.Map$;
+import scala.util.matching.Regex;
 
 import java.util.concurrent.TimeUnit;
 
@@ -31,6 +33,10 @@ public class OstrichProvider implements StatsProvider {
         return result;
     }
 
+    private static <T> List<T> emptyList() {
+        return List$.MODULE$.empty();
+    }
+
     private static <K, V> Map<K, V> emptyMap() {
         Map<K, V> result = Map$.MODULE$.empty();
         return result;
@@ -48,12 +54,10 @@ public class OstrichProvider implements StatsProvider {
     public void start(Configuration conf) {
         if (conf.getBoolean(STATS_EXPORT, false)) {
             statsExporter = new com.twitter.ostrich.admin.AdminServiceFactory(
-                    conf.getInt(STATS_HTTP_PORT, 9002), 20, null, Some.apply(""), null,
+                    conf.getInt(STATS_HTTP_PORT, 9002), 20, OstrichProvider.<StatsFactory>emptyList(),
+                    Some.apply(""), OstrichProvider.<Regex>emptyList(),
                     OstrichProvider.<String, CustomHttpHandler>emptyMap(), list(Duration.apply(1, TimeUnit.MINUTES))
             ).apply(RuntimeEnvironment.apply(this, new String[0]));
-        }
-        if (null != statsExporter) {
-            statsExporter.start();
         }
     }
 
