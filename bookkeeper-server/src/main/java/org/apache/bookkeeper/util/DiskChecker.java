@@ -22,11 +22,16 @@ import java.io.File;
 import java.io.IOException;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class that provides utility functions for checking disk problems
  */
 public class DiskChecker {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DiskChecker.class);
+
     private float diskUsageThreshold;
     private float diskUsageWarnThreshold;
 
@@ -74,7 +79,7 @@ public class DiskChecker {
      * non-existent directory, then we signal an error; Sun's mkdir would signal
      * an error (return false) if a directory it is attempting to create already
      * exists or the mkdir fails.
-     * 
+     *
      * @param dir
      * @return true on success, false on failure
      */
@@ -96,7 +101,7 @@ public class DiskChecker {
 
     /**
      * Checks the disk space available.
-     * 
+     *
      * @param dir
      *            Directory to check for the disk space
      * @throws DiskOutOfSpaceException
@@ -114,11 +119,15 @@ public class DiskChecker {
             float free = (float) usableSpace / (float) totalSpace;
             float used = 1f - free;
             if (used > diskUsageThreshold) {
+                LOG.error("Space left on device {} : {}, Used space fraction: {} < threshold {}.",
+                          new Object[] { dir, usableSpace, used, diskUsageThreshold });
                 throw new DiskOutOfSpaceException("Space left on device "
-                        + usableSpace + " Used space fraction:" + used + " < threshhold " + diskUsageThreshold);
+                        + usableSpace + " Used space fraction:" + used + " < threshold " + diskUsageThreshold);
             }
             // Warn should be triggered only if disk usage threshold doesn't trigger first.
             if (used > diskUsageWarnThreshold) {
+                LOG.warn("Space left on device {} : {}, Used space fraction: {} < WarnThreshold {}.",
+                        new Object[] { dir, usableSpace, used, diskUsageThreshold });
                 throw new DiskWarnThresholdException("Space left on device:"
                         + usableSpace + " Used space fraction:" + used +" < WarnThreshold:" + diskUsageWarnThreshold);
             }
@@ -129,7 +138,7 @@ public class DiskChecker {
 
     /**
      * Create the directory if it doesn't exist and
-     * 
+     *
      * @param dir
      *            Directory to check for the disk error/full.
      * @throws DiskErrorException
@@ -160,7 +169,7 @@ public class DiskChecker {
 
     /**
      * Returns the disk space threshold.
-     * 
+     *
      * @return
      */
     @VisibleForTesting
@@ -170,7 +179,7 @@ public class DiskChecker {
 
     /**
      * Set the disk space threshold
-     * 
+     *
      * @param diskSpaceThreshold
      */
     @VisibleForTesting

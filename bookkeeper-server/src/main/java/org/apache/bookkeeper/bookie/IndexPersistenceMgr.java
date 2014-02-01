@@ -103,10 +103,6 @@ public class IndexPersistenceMgr {
                 }
             }
             fi = new FileInfo(lf, masterKey);
-            File dir = lf.getParentFile().getParentFile().getParentFile();
-            if (ledgerDirsManager.isDirFull(dir)) {
-                moveLedgerIndexFile(ledger, fi, dir);
-            }
             FileInfo oldFi = fileInfoCache.putIfAbsent(ledger, fi);
             if (null != oldFi) {
                 // Some other thread won the race. We should delete our file if we created

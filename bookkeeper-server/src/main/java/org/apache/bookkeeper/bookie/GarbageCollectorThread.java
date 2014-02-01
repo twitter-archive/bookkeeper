@@ -191,6 +191,21 @@ public class GarbageCollectorThread extends Thread {
         }
     }
 
+    /**
+     * gc ledger storage.
+     */
+    void gc() {
+        // gc inactive/deleted ledgers
+        doGcLedgers();
+
+        // Extract all of the ledger ID's that comprise all of the entry logs
+        // (except for the current new one which is still being written to).
+        entryLogMetaMap = extractMetaAndGCEntryLogs(entryLogMetaMap);
+
+        // gc entry logs
+        doGcEntryLogs();
+    }
+
     @Override
     public void run() {
         while (running) {
@@ -207,15 +222,7 @@ public class GarbageCollectorThread extends Thread {
                 LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
             }
 
-            // Extract all of the ledger ID's that comprise all of the entry logs
-            // (except for the current new one which is still being written to).
-            entryLogMetaMap = extractMetaFromEntryLogs(entryLogMetaMap);
-
-            // gc inactive/deleted ledgers
-            doGcLedgers();
-
-            // gc entry logs
-            doGcEntryLogs();
+            gc();
 
             long curTime = MathUtils.now();
             if (force || (enableMajorCompaction &&
@@ -269,19 +276,22 @@ public class GarbageCollectorThread extends Thread {
     private void doGcEntryLogs() {
         // Loop through all of the entry logs and remove the non-active ledgers.
         for (Long entryLogId : entryLogMetaMap.keySet()) {
-            EntryLogMetadata meta = entryLogMetaMap.get(entryLogId);
-            for (Long entryLogLedger : meta.ledgersMap.keySet()) {
-                // Remove the entry log ledger from the set if it isn't active.
-                if (!activeLedgerManager.containsActiveLedger(entryLogLedger)) {
-                    meta.removeLedger(entryLogLedger);
-                }
+            doGcEntryLog(entryLogId, entryLogMetaMap.get(entryLogId));
+        }
+    }
+
+    private void doGcEntryLog(long entryLogId, EntryLogMetadata meta) {
+        for (Long entryLogLedger : meta.ledgersMap.keySet()) {
+            // Remove the entry log ledger from the set if it isn't active.
+            if (!activeLedgerManager.containsActiveLedger(entryLogLedger)) {
+                meta.removeLedger(entryLogLedger);
             }
-            if (meta.isEmpty()) {
-                // This means the entry log is not associated with any active ledgers anymore.
-                // We can remove this entry log file now.
-                LOG.info("Deleting entryLogId {} as it has no active ledgers!", entryLogId);
-                removeEntryLog(entryLogId);
-            }
+        }
+        if (meta.isEmpty()) {
+            // This means the entry log is not associated with any active ledgers anymore.
+            // We can remove this entry log file now.
+            LOG.info("Deleting entryLogId {} as it has no active ledgers!", entryLogId);
+            removeEntryLog(entryLogId);
         }
     }
 
@@ -511,7 +521,7 @@ public class GarbageCollectorThread extends Thread {
      *          Existing EntryLogs to Meta
      * @throws IOException
      */
-    protected Map<Long, EntryLogMetadata> extractMetaFromEntryLogs(Map<Long, EntryLogMetadata> entryLogMetaMap) {
+    protected Map<Long, EntryLogMetadata> extractMetaAndGCEntryLogs(Map<Long, EntryLogMetadata> entryLogMetaMap) {
         // Extract it for every entry log except for the current one.
         // Entry Log ID's are just a long value that starts at 0 and increments
         // by 1 when the log fills up and we roll to a new one.
@@ -535,6 +545,8 @@ public class GarbageCollectorThread extends Thread {
                 // Read through the entry log file and extract the entry log meta
                 EntryLogMetadata entryLogMeta = extractMetaFromEntryLog(entryLogger, entryLogId);
                 entryLogMetaMap.put(entryLogId, entryLogMeta);
+                // GC the log if possible
+                doGcEntryLog(entryLogId, entryLogMeta);
             } catch (IOException e) {
                 hasExceptionWhenScan = true;
                 LOG.warn("Premature exception when processing " + entryLogId +

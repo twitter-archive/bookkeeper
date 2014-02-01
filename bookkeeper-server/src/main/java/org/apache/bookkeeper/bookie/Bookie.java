@@ -43,7 +43,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -56,6 +55,7 @@ import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -588,11 +588,6 @@ public class Bookie extends BookieThread {
         activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
-        // Initialise ledgerDirManager. This would look through all the
-        // configured directories. When disk errors or all the ledger
-        // directories are full, would throws exception and fail bookie startup.
-        this.ledgerDirsManager.init();
-
         // instantiate the journal
         journal = new Journal(conf, ledgerDirsManager);
 
@@ -609,10 +604,37 @@ public class Bookie extends BookieThread {
         }
         handles = new HandleFactoryImpl(ledgerStorage);
 
+        // Initialise ledgerDirManager. This would look through all the
+        // configured directories. When disk errors or all the ledger
+        // directories are full, would throws exception and fail bookie startup.
+        try {
+            checkDiskSpace();
+        } catch (NoWritableLedgerDirException nwlde) {
+            LOG.info("Ledger storage is already full : ", nwlde);
+            // if there is no writable ledger dir, we should try reclaimSpace
+            reclaimDiskSpace();
+            // check disk again if we still can't have enough room for replaying journal, fail it
+            checkDiskSpace();
+        }
+
         // ZK ephemeral node for this Bookie.
         zkBookieRegPath = this.bookieRegistrationPath + getMyId();
         zkReadonlyRegPath =
             this.bookieReadonlyRegistrationPath + "/" + getMyId();
+    }
+
+    private void checkDiskSpace() throws NoWritableLedgerDirException,
+            DiskChecker.DiskErrorException {
+        ledgerDirsManager.checkAllDirs();
+        if (indexDirsManager != ledgerDirsManager) {
+            indexDirsManager.checkAllDirs();
+        }
+    }
+
+    private void reclaimDiskSpace() throws IOException {
+        LOG.info("Reclaiming disk space from ledger storage.");
+        ledgerStorage.reclaimDiskSpace();
+        LOG.info("Reclaimed disk space from ledger storage.");
     }
 
     private String getMyId() throws UnknownHostException {

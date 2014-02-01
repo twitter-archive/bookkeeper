@@ -35,7 +35,6 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
@@ -57,6 +56,8 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
     final GarbageCollectorThread gcThread;
+    final LedgerDirsManager ledgerDirsManager;
+    final LedgerDirsManager indexDirsManager;
 
     // this indicates that a write has happened since the last flush
     private volatile boolean somethingWritten = false;
@@ -70,8 +71,13 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager);
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
                 activeLedgerManager, new EntryLogCompactionScanner());
-        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        this.ledgerDirsManager = ledgerDirsManager;
+        this.indexDirsManager = indexDirsManager;
+    }
+
+    @Override
+    public void reclaimDiskSpace() throws IOException {
+        gcThread.gc();
     }
 
     private LedgerDirsListener getLedgerDirsListener() {
@@ -106,6 +112,11 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     @Override
     public void start() {
         gcThread.start();
+        // register listener after gc thread is started.
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        if (indexDirsManager != ledgerDirsManager) {
+            indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
+        }
     }
 
     @Override

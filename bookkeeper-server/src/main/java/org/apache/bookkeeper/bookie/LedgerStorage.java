@@ -34,6 +34,14 @@ import org.apache.bookkeeper.jmx.BKMBeanInfo;
  * on persistant storage.
  */
 interface LedgerStorage {
+
+    /**
+     * Reclaim disk space from ledger storage.
+     *
+     * @throws IOException
+     */
+    void reclaimDiskSpace() throws IOException;
+
     /**
      * Start any background threads
      * belonging to the storage system. For example,

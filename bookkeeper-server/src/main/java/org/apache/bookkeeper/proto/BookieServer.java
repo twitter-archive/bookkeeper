@@ -77,7 +77,13 @@ public class BookieServer {
         // 5. Start the server and accept connections
         //
         nioServerFactory = new NIOServerFactory(conf);
-        this.bookie = newBookie(conf);
+        try {
+            this.bookie = newBookie(conf);
+        } catch (IOException ioe) {
+            LOG.error("Failed on starting bookie, shutting down : ", ioe);
+            nioServerFactory.shutdown();
+            throw ioe;
+        }
         nioServerFactory.setProcessor(new MultiPacketProcessor(this.conf, this.bookie));
     }
 

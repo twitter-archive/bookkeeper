@@ -56,26 +56,26 @@ public class NIOServerFactory extends Thread {
 
     ServerStats stats = new ServerStats();
 
-    ServerSocketChannel ss;
+    final ServerSocketChannel ss;
 
-    Selector selector = Selector.open();
+    final Selector selector = Selector.open();
 
     /**
      * We use this buffer to do efficient socket I/O. Since there is a single
      * sender thread per NIOServerCnxn instance, we can use a member variable to
      * only allocate it once.
      */
-    ByteBuffer directBuffer = ByteBuffer.allocateDirect(64 * 1024);
+    final ByteBuffer directBuffer = ByteBuffer.allocateDirect(64 * 1024);
 
-    HashSet<Cnxn> cnxns = new HashSet<Cnxn>();
+    final HashSet<Cnxn> cnxns = new HashSet<Cnxn>();
 
-    int outstandingLimit = 2000;
+    final int outstandingLimit = 2000;
 
     PacketProcessor processor;
 
-    long minLatency = 99999999;
+    final long minLatency = 99999999;
 
-    ServerConfiguration conf;
+    final ServerConfiguration conf;
 
     private final Object suspensionLock = new Object();
     private boolean suspended = false;
@@ -205,7 +205,9 @@ public class NIOServerFactory extends Thread {
         try {
             ss.close();
             // Close the packet processor
-            this.processor.shutdown();
+            if (null != this.processor) {
+                this.processor.shutdown();
+            }
             clear();
             this.interrupt();
             this.join();
