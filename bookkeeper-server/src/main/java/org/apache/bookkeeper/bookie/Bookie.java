@@ -99,6 +99,7 @@ public class Bookie extends BookieThread {
     final ActiveLedgerManager activeLedgerManager;
     final LedgerStorage ledgerStorage;
     final Journal journal;
+    final FileLock lock;
 
     final HandleFactory handles;
 
@@ -641,6 +642,9 @@ public class Bookie extends BookieThread {
         this.zk = instantiateZookeeperClient(conf);
         checkEnvironment(this.zk);
 
+        // instantiate a file lock to guarantee only one process accessing the bookie data
+        this.lock = new FileLock(this.journalDirectory);
+
         activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
@@ -691,6 +695,10 @@ public class Bookie extends BookieThread {
         LOG.info("Reclaiming disk space from ledger storage.");
         ledgerStorage.reclaimDiskSpace();
         LOG.info("Reclaimed disk space from ledger storage.");
+    }
+
+    public int getExitCode() {
+        return this.exitCode;
     }
 
     private String getMyId() throws UnknownHostException {
@@ -755,6 +763,14 @@ public class Bookie extends BookieThread {
 
     @Override
     synchronized public void start() {
+        try {
+            this.lock.lock();
+        } catch (IOException ioe) {
+            LOG.error("Exception while locking bookie to start, shutting down", ioe);
+            shutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
+        }
+
         setDaemon(true);
         LOG.info("I'm starting a bookie with journal directory {}", journalDirectory.getName());
         //Start DiskChecker thread
@@ -1202,6 +1218,8 @@ public class Bookie extends BookieThread {
                 // setting running to false here, so watch thread in bookie server know it only after bookie shut down
                 running = false;
             }
+            // release the lock here
+            this.lock.release();
         } catch (InterruptedException ie) {
             LOG.error("Interrupted during shutting down bookie : ", ie);
         }

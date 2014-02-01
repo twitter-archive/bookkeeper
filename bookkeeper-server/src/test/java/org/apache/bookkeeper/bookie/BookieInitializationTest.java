@@ -24,8 +24,8 @@ import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.BindException;
 import java.net.InetAddress;
+import java.nio.channels.OverlappingFileLockException;
 
 import junit.framework.Assert;
 
@@ -225,10 +225,9 @@ public class BookieInitializationTest {
         try {
             BookieServer bs2 = new BookieServer(conf);
             bs2.start();
-            fail("Should throw BindException, as the bk server is already running!");
-        } catch (BindException be) {
-            Assert.assertTrue("BKServer allowed duplicate startups!", be
-                    .getMessage().contains("Address already in use"));
+            fail("Should throw lock exception, as the bk server is already running!");
+        } catch (OverlappingFileLockException ofe) {
+            // expected
         }
     }
 

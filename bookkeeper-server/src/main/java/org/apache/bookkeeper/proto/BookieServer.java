@@ -67,24 +67,7 @@ public class BookieServer {
         this.statsProvider = ServerStatsProvider.initialize(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
 
-        // Restart sequence
-        // 1. First instantiate the server factory and bind to the port
-        //    --- if using ephemeral ports this is where a port will be picked and
-        //        used for rest of the startup
-        // 2. Initialise the bookie - using the port that the connection bound to
-        // 3. Set the packet processor in the server (this is only used after the server starts running
-        // 4. Start the bookie - read the journal, replay, recover
-        // 5. Start the server and accept connections
-        //
-        nioServerFactory = new NIOServerFactory(conf);
-        try {
-            this.bookie = newBookie(conf);
-        } catch (IOException ioe) {
-            LOG.error("Failed on starting bookie, shutting down : ", ioe);
-            nioServerFactory.shutdown();
-            throw ioe;
-        }
-        nioServerFactory.setProcessor(new MultiPacketProcessor(this.conf, this.bookie));
+        this.bookie = newBookie(conf);
     }
 
     protected Bookie newBookie(ServerConfiguration conf)
@@ -94,6 +77,17 @@ public class BookieServer {
 
     public void start() throws IOException {
         bookie.start();
+
+        // fail fast, when bookie startup is not successful
+        if (!this.bookie.isRunning()) {
+            exitCode = bookie.getExitCode();
+            return;
+        }
+
+        // start the nio server only after bookie is started, as the nio server only could
+        // accept requests after then. otherwise, it would cause client sending lots of
+        // request to this bookie but without being processing, which cause high read latency
+        nioServerFactory = new NIOServerFactory(conf, new MultiPacketProcessor(this.conf, this.bookie));
         nioServerFactory.start();
 
         // Start stats provider.
