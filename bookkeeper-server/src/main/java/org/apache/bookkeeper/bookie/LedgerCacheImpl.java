@@ -55,6 +55,10 @@ public class LedgerCacheImpl implements LedgerCache {
         LOG.info("PageSize is {}", pageSize);
     }
 
+    IndexInMemPageMgr getIndexPageManager() {
+        return indexPageManager;
+    }
+
     /**
      * @return page size used in ledger cache
      */

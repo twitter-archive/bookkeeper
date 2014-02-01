@@ -24,6 +24,8 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
@@ -218,7 +220,7 @@ public class LedgerCacheTest extends TestCase {
 
             // flush all first to clean previous dirty ledgers
             ledgerCache.flushLedger(true);
-            // flush all 
+            // flush all
             ledgerCache.flushLedger(true);
 
             // delete serveral ledgers
@@ -348,6 +350,99 @@ public class LedgerCacheTest extends TestCase {
                 fail("Shouldn't throw IOException, should say that entry is not found");
             }
         }
+    }
+
+    /**
+     * {@link https://issues.apache.org/jira/browse/BOOKKEEPER-524}
+     * Checks that getLedgerEntryPage does not throw an NPE in the
+     * case getFromTable returns a null ledger entry page reference.
+     * This NPE might kill the sync thread leaving a bookie with no
+     * sync thread running.
+     *
+     * @throws IOException
+     */
+    @Test(timeout=30000)
+    public void testSyncThreadNPE() throws IOException {
+        newLedgerCache();
+        try {
+            ((LedgerCacheImpl) ledgerCache).getIndexPageManager().getLedgerEntryPage(0L, 0L, true);
+        } catch (Exception e) {
+            LOG.error("Exception when trying to get a ledger entry page", e);
+            fail("Shouldn't have thrown an exception");
+        }
+    }
+
+    /**
+     * Race where a flush would fail because a garbage collection occurred at
+     * the wrong time.
+     * {@link https://issues.apache.org/jira/browse/BOOKKEEPER-604}
+     */
+    @Test(timeout=60000)
+    public void testFlushDeleteRace() throws Exception {
+        newLedgerCache();
+        final AtomicInteger rc = new AtomicInteger(0);
+        final LinkedBlockingQueue<Long> ledgerQ = new LinkedBlockingQueue<Long>(1);
+        final byte[] masterKey = "masterKey".getBytes();
+        Thread newLedgerThread = new Thread() {
+            public void run() {
+                try {
+                    for (int i = 0; i < 1000 && rc.get() == 0; i++) {
+                        ledgerCache.setMasterKey(i, masterKey);
+                        ledgerQ.put((long)i);
+                    }
+                } catch (Exception e) {
+                    rc.set(-1);
+                    LOG.error("Exception in new ledger thread", e);
+                }
+            }
+        };
+        newLedgerThread.start();
+
+        Thread flushThread = new Thread() {
+            public void run() {
+                try {
+                    while (true) {
+                        Long id = ledgerQ.peek();
+                        if (id == null) {
+                            continue;
+                        }
+                        LOG.info("Put entry for {}", id);
+                        try {
+                            ledgerCache.putEntryOffset((long)id, 1, 0);
+                        } catch (Bookie.NoLedgerException nle) {
+                            //ignore
+                        }
+                        ledgerCache.flushLedger(true);
+                    }
+                } catch (Exception e) {
+                    rc.set(-1);
+                    LOG.error("Exception in flush thread", e);
+                }
+            }
+        };
+        flushThread.start();
+
+        Thread deleteThread = new Thread() {
+            public void run() {
+                try {
+                    while (true) {
+                        long id = ledgerQ.take();
+                        LOG.info("Deleting {}", id);
+                        ledgerCache.deleteLedger(id);
+                    }
+                } catch (Exception e) {
+                    rc.set(-1);
+                    LOG.error("Exception in delete thread", e);
+                }
+            }
+        };
+        deleteThread.start();
+
+        newLedgerThread.join();
+        assertEquals("Should have been no errors", rc.get(), 0);
+
+        deleteThread.interrupt();
+        flushThread.interrupt();
     }
 
     private ByteBuffer generateEntry(long ledger, long entry) {

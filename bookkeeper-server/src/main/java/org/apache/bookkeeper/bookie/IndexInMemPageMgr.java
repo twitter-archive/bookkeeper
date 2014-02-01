@@ -29,10 +29,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class IndexInMemPageMgr {
@@ -305,12 +313,13 @@ public class IndexInMemPageMgr {
 
     // The persistence manager that this page manager uses to
     // flush and read pages
-    private IndexPersistenceMgr indexPersistenceManager;
+    private final IndexPersistenceMgr indexPersistenceManager;
 
     /**
      * the list of potentially dirty ledgers
      */
-    ConcurrentLinkedQueue<Long> ledgersToFlush = new ConcurrentLinkedQueue<Long>();
+    private final ConcurrentLinkedQueue<Long> ledgersToFlush = new ConcurrentLinkedQueue<Long>();
+    private final ConcurrentSkipListSet<Long> ledgersFlushing = new ConcurrentSkipListSet<Long>();
 
     public IndexInMemPageMgr(int pageSize,
                              int entriesPerPage,
@@ -444,15 +453,19 @@ public class IndexInMemPageMgr {
     }
 
     public void flushOneOrMoreLedgers(boolean doAll) throws IOException {
-        synchronized (ledgersToFlush) {
-            if (ledgersToFlush.isEmpty()) {
-                ledgersToFlush.addAll(pageMapAndList.getActiveLedgers());
-            }
-            indexPersistenceManager.relocateIndexFileIfDirFull(ledgersToFlush);
+        if (ledgersToFlush.isEmpty()) {
+            ledgersToFlush.addAll(pageMapAndList.getActiveLedgers());
         }
-        Long potentiallyDirtyLedger = null;
+        Long potentiallyDirtyLedger;
         while (null != (potentiallyDirtyLedger = ledgersToFlush.poll())) {
-            flushSpecificLedger(potentiallyDirtyLedger);
+            if (!ledgersFlushing.add(potentiallyDirtyLedger)) {
+                continue;
+            }
+            try {
+                flushSpecificLedger(potentiallyDirtyLedger);
+            } finally {
+                ledgersFlushing.remove(potentiallyDirtyLedger);
+            }
             if (!doAll) {
                 break;
             }

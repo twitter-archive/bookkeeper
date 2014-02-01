@@ -367,15 +367,12 @@ public class IndexPersistenceMgr {
         return new LedgerDirsListener() {
             @Override
             public void diskFull(File disk) {
-                // If the current entry log disk is full, then create new entry
-                // log.
-                shouldRelocateIndexFile.set(true);
+                // Nothing to handle here. Will be handled in Bookie
             }
 
             @Override
             public void diskAlmostFull(File disk) {
-                // If the disk is getting almost full, try to relocate.
-                shouldRelocateIndexFile.set(true);
+                // Nothing to handle here. Will be handled in Bookie
             }
 
             @Override
@@ -395,30 +392,26 @@ public class IndexPersistenceMgr {
         };
     }
 
-    public void relocateIndexFileIfDirFull(Collection<Long> dirtyLedgers) throws IOException {
-       if (shouldRelocateIndexFile.get()) {
-            // if some new dir detected as full, then move all corresponding
-            // open index files to new location
-            for (Long l : dirtyLedgers) {
-                FileInfo fi = null;
-                try {
-                    fi = getFileInfo(l, null);
-                    File currentDir = fi.getLf().getParentFile().getParentFile().getParentFile();
-                    if (ledgerDirsManager.isDirFull(currentDir)) {
-                        moveLedgerIndexFile(l, fi, currentDir);
-                    }
-                } finally {
-                    if (null != fi) {
-                        fi.release();
-                    }
-                }
-            }
-            shouldRelocateIndexFile.set(false);
+    private void relocateIndexFileAndFlushHeader(long ledger, FileInfo fi) throws IOException {
+        File currentDir = getLedgerDirForLedger(fi);
+        if (ledgerDirsManager.isDirFull(currentDir)) {
+            moveLedgerIndexFile(ledger, fi);
         }
+        fi.flushHeader();
     }
 
-    private void moveLedgerIndexFile(Long l, FileInfo fi, File dirExcl) throws NoWritableLedgerDirException, IOException {
-        File newLedgerIndexFile = getNewLedgerIndexFile(l, dirExcl);
+    /**
+     * Get the ledger directory that the ledger index belongs to.
+     *
+     * @param fi File info of a ledger
+     * @return ledger directory that the ledger belongs to.
+     */
+    private File getLedgerDirForLedger(FileInfo fi) {
+        return fi.getLf().getParentFile().getParentFile().getParentFile();
+    }
+
+    private void moveLedgerIndexFile(Long l, FileInfo fi) throws NoWritableLedgerDirException, IOException {
+        File newLedgerIndexFile = getNewLedgerIndexFile(l, getLedgerDirForLedger(fi));
         fi.moveToNewLocation(newLedgerIndexFile, fi.getSizeSinceLastwrite());
     }
 
@@ -429,7 +422,11 @@ public class IndexPersistenceMgr {
         FileInfo fi = null;
         try {
             fi = getFileInfo(ledger, null);
-            fi.flushHeader();
+            relocateIndexFileAndFlushHeader(ledger, fi);
+        } catch (Bookie.NoLedgerException nle) {
+            // ledger has been deleted
+            LOG.info("No ledger {} found when flushing header.", ledger);
+            return;
         } finally {
             if (null != fi) {
                 fi.release();
@@ -451,7 +448,16 @@ public class IndexPersistenceMgr {
 
             //ArrayList<Integer> versions = new ArrayList<Integer>(entries.size());
             int[] versions = new int[entries.size()];
-            fi = getFileInfo(ledger, null);
+            try {
+                fi = getFileInfo(ledger, null);
+            } catch (Bookie.NoLedgerException nle) {
+                // ledger has been deleted
+                LOG.info("No ledger {} found when flushing entries.", ledger);
+                return;
+            }
+
+            // flush the header if necessary
+            relocateIndexFileAndFlushHeader(ledger, fi);
             int start = 0;
             long lastOffset = -1;
             for(int i = 0; i < entries.size(); i++) {
@@ -478,8 +484,7 @@ public class IndexPersistenceMgr {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Flushed ledger {} with {} pages.", ledger, entries.size());
             }
-        }
-        finally {
+        } finally {
             if (fi != null) {
                 fi.release();
             }
