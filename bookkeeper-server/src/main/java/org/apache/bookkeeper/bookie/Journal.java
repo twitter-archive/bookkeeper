@@ -661,6 +661,8 @@ class Journal extends BookieThread {
                 if (!isPaddingRecord) {
                     scanner.process(journalVersion, offset, recBuff);
                 }
+                // update last log mark during replaying
+                lastLogMark.setCurLogMark(journalId, offset);
             }
         } finally {
             recLog.close();
