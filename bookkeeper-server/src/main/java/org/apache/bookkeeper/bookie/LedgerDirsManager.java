@@ -57,7 +57,7 @@ public class LedgerDirsManager {
                 .getCurrentDirectories(dirs));
         this.writableLedgerDirectories = new ArrayList<File>(ledgerDirectories);
         this.filledDirs = new ArrayList<File>();
-        listeners = new ArrayList<LedgerDirsManager.LedgerDirsListener>();
+        listeners = new ArrayList<LedgerDirsListener>();
         diskChecker = new DiskChecker(conf.getDiskUsageThreshold(), conf.getDiskUsageWarnThreshold());
         monitor = new LedgerDirsMonitor(conf.getDiskCheckInterval());
     }
@@ -133,6 +133,19 @@ public class LedgerDirsManager {
         }
     }
 
+    /**
+     * Sweep through all the directories to check disk errors or disk full.
+     *
+     * @throws DiskErrorException
+     *             If disk having errors
+     * @throws NoWritableLedgerDirException
+     *             If all the configured ledger directories are full or having
+     *             less space than threshold
+     */
+    public void init() throws DiskErrorException, NoWritableLedgerDirException {
+        monitor.checkDirs(writableLedgerDirectories);
+    }
+
     // start the daemon for disk monitoring
     public void start() {
         monitor.setDaemon(true);
@@ -156,6 +169,7 @@ public class LedgerDirsManager {
         int interval;
 
         public LedgerDirsMonitor(int interval) {
+            super("LedgerDirsMonitorThread");
             this.interval = interval;
         }
 
@@ -207,6 +221,20 @@ public class LedgerDirsManager {
                     listener.fatalError();
                 }
             }
+        }
+
+        private void checkDirs(List<File> writableDirs)
+                throws DiskErrorException, NoWritableLedgerDirException {
+            for (File dir : writableDirs) {
+                try {
+                    diskChecker.checkDir(dir);
+                } catch (DiskWarnThresholdException e) {
+                    // nop
+                } catch (DiskOutOfSpaceException e) {
+                    addToFilledDirs(dir);
+                }
+            }
+            getWritableLedgerDirs();
         }
     }
 

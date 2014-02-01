@@ -588,6 +588,11 @@ public class Bookie extends BookieThread {
         activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
+        // Initialise ledgerDirManager. This would look through all the
+        // configured directories. When disk errors or all the ledger
+        // directories are full, would throws exception and fail bookie startup.
+        this.ledgerDirsManager.init();
+
         // instantiate the journal
         journal = new Journal(conf, ledgerDirsManager);
 
@@ -674,6 +679,11 @@ public class Bookie extends BookieThread {
     synchronized public void start() {
         setDaemon(true);
         LOG.info("I'm starting a bookie with journal directory {}", journalDirectory.getName());
+        //Start DiskChecker thread
+        ledgerDirsManager.start();
+        if (indexDirsManager != ledgerDirsManager) {
+            indexDirsManager.start();
+        }
         // replay journals
         try {
             readJournal();
@@ -689,9 +699,11 @@ public class Bookie extends BookieThread {
         // start bookie thread
         super.start();
 
-        startDirsManager(ledgerDirsManager);
+        // After successful bookie startup, register listener for disk
+        // error/full notifications.
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         if (indexDirsManager != ledgerDirsManager) {
-            startDirsManager(indexDirsManager);
+            indexDirsManager.addLedgerDirsListener(getLedgerDirsListener());
         }
 
         ledgerStorage.start();
@@ -707,12 +719,6 @@ public class Bookie extends BookieThread {
             LOG.error("Couldn't register bookie with zookeeper, shutting down : ", ie);
             shutdown(ExitCode.ZK_REG_FAIL);
         }
-    }
-
-    private void startDirsManager(LedgerDirsManager dirsManager) {
-        dirsManager.addLedgerDirsListener(getLedgerDirsListener());
-        //Start DiskChecker thread
-        dirsManager.start();
     }
 
     /*

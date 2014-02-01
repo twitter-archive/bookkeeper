@@ -941,6 +941,18 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Set the warning threshold for disk usage.
+     *
+     * @param threshold warning threshold to force gc.
+     *
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setDiskUsageWarnThreshold(float threshold) {
+        setProperty(DISK_USAGE_WARN_THRESHOLD, threshold);
+        return this;
+    }
+
+    /**
      * Returns the warning threshold for disk usage. If disk usage
      * goes beyond this, a garbage collection cycle will be forced.
      * @return
