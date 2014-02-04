@@ -17,44 +17,67 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.conf.Configurable;
-import org.apache.bookkeeper.net.CachedDNSToSwitchMapping;
-import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
-import org.apache.bookkeeper.net.ScriptBasedMapping;
-import org.apache.bookkeeper.util.ReflectionUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.commons.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlacementPolicy {
     static final Logger LOG = LoggerFactory.getLogger(RegionAwareEnsemblePlacementPolicy.class);
-    protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
+
     static final int REGIONID_DISTANCE_FROM_LEAVES = 2;
+    static final String UNKNOWN_REGION = "UnknownRegion";
+
+    protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
+    protected final ConcurrentMap<InetSocketAddress, String> address2Region;
+    protected String myRegion = null;
     private Configuration conf;
 
     public RegionAwareEnsemblePlacementPolicy() {
         super();
         perRegionPlacement = new HashMap<String, RackawareEnsemblePlacementPolicy>();
+        address2Region = new ConcurrentHashMap<InetSocketAddress, String>();
+    }
+
+    protected String getRegion(InetSocketAddress addr) {
+        String region = address2Region.get(addr);
+        if (null == region) {
+            String networkLocation = resolveNetworkLocation(addr);
+            if (NetworkTopology.DEFAULT_RACK.equals(networkLocation)) {
+                region = UNKNOWN_REGION;
+            } else {
+                String[] parts = networkLocation.split(NodeBase.PATH_SEPARATOR_STR);
+                if (parts.length <= 1) {
+                    region = UNKNOWN_REGION;
+                } else {
+                    region = parts[1];
+                }
+            }
+            address2Region.putIfAbsent(addr, region);
+        }
+        return region;
+    }
+
+    protected String getLocalRegion(BookieNode node) {
+        if (null == node || null == node.getAddr()) {
+            return UNKNOWN_REGION;
+        }
+        return getRegion(node.getAddr());
     }
 
     @Override
@@ -92,7 +115,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 BookieNode node = createBookieNode(addr);
                 topology.add(node);
                 knownBookies.put(addr, node);
-                String region = node.getNetworkLocation(REGIONID_DISTANCE_FROM_LEAVES);
+                String region = getLocalRegion(node);
                 if (null == perRegionPlacement.get(region)) {
                     perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(conf));
                 }
@@ -125,6 +148,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf) {
         super.initialize(conf);
         this.conf = conf;
+        myRegion = getLocalRegion(localNode);
         return this;
     }
 
@@ -215,9 +239,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         }
     }
 
-    protected BookieNode replaceFromRack(Node bn, Set<Node> excludeBookies, Predicate predicate,
-                                        Ensemble ensemble) throws BKException.BKNotEnoughBookiesException {
-        String region = bn.getNetworkLocation(REGIONID_DISTANCE_FROM_LEAVES);
+    protected BookieNode replaceFromRack(BookieNode bn, Set<Node> excludeBookies, Predicate predicate,
+                                         Ensemble ensemble) throws BKException.BKNotEnoughBookiesException {
+        String region = getLocalRegion(bn);
         RackawareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(region);
         if (null != regionPolicy) {
             try {
@@ -235,7 +259,24 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         return selectRandom(1, excludeBookies, ensemble).get(0);
     }
 
-    protected String getRemoteRegion(BookieNode node) {
-        return "~" + node.getNetworkLocation(REGIONID_DISTANCE_FROM_LEAVES);
+    @Override
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        if (UNKNOWN_REGION.equals(myRegion)) {
+            return writeSet;
+        } else {
+            List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
+            List<Integer> reorderList = new ArrayList<Integer>(writeSet.size());
+            for (Integer idx : writeSet) {
+                InetSocketAddress address = ensemble.get(idx);
+                String region = getRegion(address);
+                if (region.equals(myRegion)) {
+                    finalList.add(idx);
+                } else {
+                    reorderList.add(idx);
+                }
+            }
+            finalList.addAll(reorderList);
+            return finalList;
+        }
     }
 }

@@ -88,7 +88,8 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             super(lId, eId);
 
             this.ensemble = ensemble;
-            this.writeSet = lh.distributionSchedule.getWriteSet(entryId);
+            this.writeSet = lh.bk.placementPolicy.reorderReadSequence(ensemble,
+                    lh.distributionSchedule.getWriteSet(entryId));
         }
 
         /**
@@ -354,7 +355,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             }
 
             int replica = nextReplicaIndexToReadFrom;
-            int bookieIndex = lh.distributionSchedule.getWriteSet(entryId).get(nextReplicaIndexToReadFrom);
+            int bookieIndex = writeSet.get(nextReplicaIndexToReadFrom);
             nextReplicaIndexToReadFrom++;
 
             try {

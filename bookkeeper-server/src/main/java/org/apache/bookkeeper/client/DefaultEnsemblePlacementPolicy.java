@@ -82,6 +82,11 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     }
 
     @Override
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        return writeSet;
+    }
+
+    @Override
     public EnsemblePlacementPolicy initialize(Configuration conf) {
         return this;
     }

@@ -115,8 +115,9 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             bn = null;
         }
         localNode = bn;
-        LOG.info("Initialize rackaware ensemble placement policy @ {} : {}.", localNode,
-                dnsResolver.getClass().getName());
+        LOG.info("Initialize rackaware ensemble placement policy @ {} @ {} : {}.",
+                 new Object[] { localNode, null == localNode ? "Unknown" : localNode.getNetworkLocation(),
+                         dnsResolver.getClass().getName() });
         return this;
     }
 
@@ -125,7 +126,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
         // do nothing
     }
 
-    private String resolveNetworkLocation(InetSocketAddress addr) {
+    protected String resolveNetworkLocation(InetSocketAddress addr) {
         List<String> names = new ArrayList<String>(1);
         if (dnsResolver instanceof CachedDNSToSwitchMapping) {
             names.add(addr.getAddress().getHostAddress());

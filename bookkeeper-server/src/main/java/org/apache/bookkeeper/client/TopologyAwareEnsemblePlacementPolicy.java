@@ -3,6 +3,7 @@ package org.apache.bookkeeper.client;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.bookkeeper.net.NodeBase;
@@ -205,5 +206,10 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             return chosenNodes.toString();
         }
 
+    }
+
+    @Override
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        return writeSet;
     }
 }

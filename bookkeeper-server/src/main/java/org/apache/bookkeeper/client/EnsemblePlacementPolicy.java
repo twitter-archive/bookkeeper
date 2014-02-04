@@ -20,6 +20,7 @@ package org.apache.bookkeeper.client;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
@@ -87,4 +88,16 @@ public interface EnsemblePlacementPolicy {
      */
     public InetSocketAddress replaceBookie(InetSocketAddress bookieToReplace,
             Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException;
+
+    /**
+     * Reorder the read sequence of a given write quorum <i>writeSet</i>.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @return read sequence of bookies
+     */
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble,
+                                             List<Integer> writeSet);
 }
