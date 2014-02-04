@@ -21,6 +21,10 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.client.EnsemblePlacementPolicy;
+import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
+import org.apache.bookkeeper.util.ReflectionUtils;
+import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 
 /**
@@ -58,6 +62,9 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // Number Woker Threads
     protected final static String NUM_WORKER_THREADS = "numWorkerThreads";
+
+    // Ensemble Placement Policy
+    protected final static String ENSEMBLE_PLACEMENT_POLICY = "ensemblePlacementPolicy";
 
     // Stats
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
@@ -391,6 +398,30 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setSpeculativeReadTimeout(int timeout) {
         setProperty(SPECULATIVE_READ_TIMEOUT, timeout);
+        return this;
+    }
+
+    /**
+     * Get Ensemble Placement Policy Class.
+     *
+     * @return ensemble placement policy class.
+     */
+    public Class<? extends EnsemblePlacementPolicy> getEnsemblePlacementPolicy()
+        throws ConfigurationException {
+        return ReflectionUtils.getClass(this, ENSEMBLE_PLACEMENT_POLICY,
+                                        RackawareEnsemblePlacementPolicy.class,
+                                        EnsemblePlacementPolicy.class,
+                                        defaultLoader);
+    }
+
+    /**
+     * Set Ensemble Placement Policy Class.
+     *
+     * @param policyClass
+     *          Ensemble Placement Policy Class.
+     */
+    public ClientConfiguration setEnsemblePlacementPolicy(Class<? extends EnsemblePlacementPolicy> policyClass) {
+        setProperty(ENSEMBLE_PLACEMENT_POLICY, policyClass.getName());
         return this;
     }
 
