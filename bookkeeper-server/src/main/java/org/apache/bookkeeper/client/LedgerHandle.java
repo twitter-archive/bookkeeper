@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
@@ -616,19 +617,17 @@ public class LedgerHandle {
             return;
         }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
-            volatile boolean completed = false;
+            AtomicBoolean completed = new AtomicBoolean(false);
             @Override
             public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
                 if (rc == BKException.Code.OK) {
                     updateLastConfirmed(data.lastAddConfirmed, data.length);
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
-                        completed = true;
                     }
                 } else {
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
-                        completed = true;
                     }
                 }
             }
@@ -642,19 +641,17 @@ public class LedgerHandle {
             return;
         }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
-            volatile boolean completed = false;
+            AtomicBoolean completed = new AtomicBoolean(false);
             @Override
             public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
                 if (rc == BKException.Code.OK) {
                     updateLastConfirmed(data.lastAddConfirmed, data.length);
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
-                        completed = true;
                     }
                 } else {
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
-                        completed = true;
                     }
                 }
             }
@@ -668,19 +665,17 @@ public class LedgerHandle {
             return;
         }
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
-            volatile boolean completed = false;
+            AtomicBoolean completed = new AtomicBoolean(false);
             @Override
             public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry) {
                 if (rc == BKException.Code.OK) {
                     updateLastConfirmed(lastAddConfirmed, 0L);
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry, ctx);
-                        completed = true;
                     }
                 } else {
-                    if (!completed) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedAndEntryComplete(rc, INVALID_ENTRY_ID, null, ctx);
-                        completed = true;
                     }
                 }
             }
