@@ -667,10 +667,10 @@ public class LedgerHandle {
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
             AtomicBoolean completed = new AtomicBoolean(false);
             @Override
-            public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry) {
+            public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry, boolean updateLACOnly) {
                 if (rc == BKException.Code.OK) {
                     updateLastConfirmed(lastAddConfirmed, 0L);
-                    if (completed.compareAndSet(false, true)) {
+                    if (!updateLACOnly && completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry, ctx);
                     }
                 } else {

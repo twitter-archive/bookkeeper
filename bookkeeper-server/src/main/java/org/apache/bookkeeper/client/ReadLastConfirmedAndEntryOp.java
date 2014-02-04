@@ -15,7 +15,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
      * Wrapper to get all recovered data from the request
      */
     interface LastConfirmedAndEntryCallback {
-        public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry);
+        public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry, boolean updateLACOnly);
     }
 
     private static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
@@ -74,6 +74,10 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     }
 
     private void submitCallback(int rc, long lastAddConfirmed, LedgerEntry entry) {
+        submitCallback(rc, lastAddConfirmed, entry, false);
+    }
+
+    private void submitCallback(int rc, long lastAddConfirmed, LedgerEntry entry, boolean updateLACOnly) {
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY)
@@ -82,7 +86,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY)
                 .registerSuccessfulEvent(latencyMicros);
         }
-        cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry);
+        cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry, updateLACOnly);
     }
 
     @Override
@@ -100,8 +104,10 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                     new Object[] { lastAddConfirmed, bookieIndex, ledgerId });
             }
 
+            boolean lastAddConfirmedUpdated = false;
             if (rCtx.getLastAddConfirmed() > lastAddConfirmed) {
                 lastAddConfirmed = rCtx.getLastAddConfirmed();
+                lastAddConfirmedUpdated = true;
             }
 
             if (entryId != BookieProtocol.LAST_ADD_CONFIRMED) {
@@ -118,6 +124,9 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                         + lh.metadata.currentEnsemble.get(bookieIndex));
                 }
             } else {
+                if (lastAddConfirmedUpdated) {
+                    submitCallback(BKException.Code.OK, lastAddConfirmed, null, true);
+                }
                 hasValidResponse = true;
             }
         } else if (BKException.Code.UnauthorizedAccessException == rc && !completed) {
