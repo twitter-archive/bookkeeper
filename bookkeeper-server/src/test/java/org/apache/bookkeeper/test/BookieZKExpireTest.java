@@ -25,13 +25,8 @@ import java.net.InetAddress;
 import java.io.File;
 import java.util.HashSet;
 
-import junit.framework.TestCase;
 import org.junit.Test;
-import org.junit.Before;
-import org.junit.After;
-import static org.junit.Assert.*;
 
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 
@@ -39,6 +34,8 @@ public class BookieZKExpireTest extends BookKeeperClusterTestCase {
 
     public BookieZKExpireTest() {
         super(0);
+        baseConf.setZkRetryBackoffStartMs(100);
+        baseConf.setZkRetryBackoffMaxMs(200);
     }
 
     @Test

@@ -75,7 +75,6 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.data.Stat;
-import org.apache.zookeeper.proto.SyncRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -925,7 +924,7 @@ public class Bookie extends BookieThread {
             return null;
         }
         // Create the ZooKeeper client instance
-        return newZookeeper(conf.getZkServers(), conf.getZkTimeout());
+        return newZookeeper(conf);
     }
 
     /**
@@ -1090,14 +1089,12 @@ public class Bookie extends BookieThread {
      * are processed and quit. It is done by calling <b>shutdown</b>.
      * </p>
      *
-     * @param zkServers the quorum list of zk servers
-     * @param sessionTimeout session timeout of zk connection
+     * @param conf server configuration
      *
      * @return zk client instance
      */
-    private ZooKeeper newZookeeper(final String zkServers,
-            final int sessionTimeout) throws IOException, InterruptedException,
-            KeeperException {
+    private ZooKeeper newZookeeper(final ServerConfiguration conf)
+            throws IOException, InterruptedException, KeeperException {
         Set<Watcher> watchers = new HashSet<Watcher>();
         watchers.add(new Watcher() {
             @Override
@@ -1114,11 +1111,10 @@ public class Bookie extends BookieThread {
                 }
             }
         });
-        // TODO: user could customize backoff time?
-        long baseBackoffTime = sessionTimeout;
         return ZooKeeperClient.createConnectedZooKeeperClient(
-            zkServers, sessionTimeout, watchers,
-            new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime, Integer.MAX_VALUE));
+            conf.getZkServers(), conf.getZkTimeout(), watchers,
+            new BoundExponentialBackoffRetryPolicy(conf.getZkRetryBackoffStartMs(),
+                    conf.getZkRetryBackoffMaxMs(), Integer.MAX_VALUE));
     }
 
     public boolean isRunning() {
