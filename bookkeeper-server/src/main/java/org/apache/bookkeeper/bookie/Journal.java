@@ -566,7 +566,8 @@ class Journal extends BookieThread {
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
         this.bufferedEntriesThreshold = conf.getJournalBufferedEntriesThreshold();
-        this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumAddWorkerThreads(), new DaemonThreadFactory());
+        this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumJournalCallbackThreads(),
+                                                         new DaemonThreadFactory());
 
         // Unless there is a cap on the max wait (which requires group force writes)
         // we cannot skip flushing for queue empty

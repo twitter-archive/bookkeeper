@@ -56,6 +56,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String JOURNAL_REMOVE_FROM_PAGE_CACHE = "journalRemoveFromPageCache";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
+    protected final static String NUM_JOURNAL_CALLBACK_THREADS = "numJournalCallbackThreads";
     // Bookie Parameters
     protected final static String BOOKIE_PORT = "bookiePort";
     protected final static String JOURNAL_DIR = "journalDirectory";
@@ -685,11 +686,35 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Set the number of threads that would handle write requests.
+     *
+     * @param numThreads
+     *          number of threads to handle write requests.
+     * @return server configuration
+     */
+    public ServerConfiguration setNumAddWorkerThreads(int numThreads) {
+        setProperty(NUM_ADD_WORKER_THREADS, numThreads);
+        return this;
+    }
+
+    /**
      * Get the number of threads that should handle write requests.
      * @return
      */
     public int getNumAddWorkerThreads() {
         return getInt(NUM_ADD_WORKER_THREADS, 1);
+    }
+
+    /**
+     * Set the number of threads that would handle read requests.
+     *
+     * @param numThreads
+     *          Number of threads to handle read requests.
+     * @return server configuration
+     */
+    public ServerConfiguration setNumReadWorkerThreads(int numThreads) {
+        setProperty(NUM_READ_WORKER_THREADS, numThreads);
+        return this;
     }
 
     /**
@@ -808,6 +833,27 @@ public class ServerConfiguration extends AbstractConfiguration {
         if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
             throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
+    }
+
+    /**
+     * Set the number of threads that would handle journal callbacks.
+     *
+     * @param numThreads
+     *          number of threads to handle journal callbacks.
+     * @return server configuration
+     */
+    public ServerConfiguration setNumJournalCallbackThreads(int numThreads) {
+        setProperty(NUM_JOURNAL_CALLBACK_THREADS, numThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of threads that should handle journal callbacks.
+     *
+     * @return the number of threads that handle journal callbacks.
+     */
+    public int getNumJournalCallbackThreads() {
+        return getInt(NUM_JOURNAL_CALLBACK_THREADS, getNumAddWorkerThreads());
     }
 
     /**
