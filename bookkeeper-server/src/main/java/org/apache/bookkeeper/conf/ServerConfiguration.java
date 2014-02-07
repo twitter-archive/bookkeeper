@@ -82,6 +82,11 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
     protected final static String NUM_READ_WORKER_THREADS = "numReadWorkerThreads";
 
+    // Long poll parameters
+    protected final static String LONG_POLL_TIMER_TICK_DURATION_MILLISEC = "longPollTimerTickDurationMs";
+    protected final static String LONG_POLL_TIMER_NO_OF_TICKS = "longPollTimerNumTicks";
+
+
     // Stats exporting
     protected final static String STATS_EXPORT = "statsExport";
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
@@ -766,6 +771,46 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public int getNumReadWorkerThreads() {
         return getInt(NUM_READ_WORKER_THREADS, 80);
+    }
+
+    /**
+     * Set the tick duration in milliseconds
+     *
+     * @param tickDuration
+     *          tick duration in milliseconds.
+     * @return server configuration
+     */
+    public ServerConfiguration setLongPollTimerTickDurationMs(int tickDuration) {
+        setProperty(LONG_POLL_TIMER_TICK_DURATION_MILLISEC, tickDuration);
+        return this;
+    }
+
+    /**
+     * Get the tick duration in milliseconds.
+     * @return
+     */
+    public int getLongPollTimerTickDurationMs() {
+        return getInt(LONG_POLL_TIMER_TICK_DURATION_MILLISEC, 10);
+    }
+
+    /**
+     * Set the number of ticks per wheel for the long poll timer.
+     *
+     * @param tickCount
+     *          number of ticks per wheel for the long poll timer.
+     * @return server configuration
+     */
+    public ServerConfiguration setLongPollTimerNumTicks(int tickCount) {
+        setProperty(LONG_POLL_TIMER_NO_OF_TICKS, tickCount);
+        return this;
+    }
+
+    /**
+     * Get the number of ticks per wheel for the long poll timer.
+     * @return
+     */
+    public int getLongPollTimerNumTicks() {
+        return getInt(LONG_POLL_TIMER_NO_OF_TICKS, 1024);
     }
 
     /**

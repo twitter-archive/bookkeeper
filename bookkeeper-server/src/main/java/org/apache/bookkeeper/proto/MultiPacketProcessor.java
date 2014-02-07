@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
@@ -82,7 +83,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.writeThreadPool =
             createExecutor(this.serverCfg.getNumAddWorkerThreads(),
                            "BookieWriteThread-" + serverCfg.getBookiePort() + "-%d");
-        this.longPollTimer = new HashedWheelTimer();
+        this.longPollTimer = new HashedWheelTimer(this.serverCfg.getLongPollTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getLongPollTimerNumTicks());
     }
 
     private ExecutorService createExecutor(int numThreads, String nameFormat) {
