@@ -387,19 +387,21 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     public void readEntryWaitForLACUpdate(final long ledgerId, final long entryId, final long previousLAC, final long timeOutInMillis, final boolean piggyBackEntry, ReadEntryCallback cb, Object ctx) {
-        readEntryInternal(ledgerId, entryId, previousLAC, timeOutInMillis, piggyBackEntry, cb, ctx);
+        readEntryInternal(ledgerId, entryId, previousLAC, timeOutInMillis,
+            piggyBackEntry, PCBookieClientOp.READ_ENTRY_LONG_POLL, cb, ctx);
     }
 
 
     public void readEntry(final long ledgerId, final long entryId, ReadEntryCallback cb, Object ctx) {
-        readEntryInternal(ledgerId, entryId, null, null, false, cb, ctx);
+        readEntryInternal(ledgerId, entryId, null, null, false, PCBookieClientOp.READ_ENTRY, cb, ctx);
     }
 
     public void readEntryInternal(final long ledgerId, final long entryId, final Long previousLAC,
-                                  final Long timeOutInMillis, final boolean piggyBackEntry, ReadEntryCallback cb, Object ctx) {
+                                  final Long timeOutInMillis, final boolean piggyBackEntry, final PCBookieClientOp op,
+                                  ReadEntryCallback cb, Object ctx) {
         final long txnId = getTxnId();
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.READ_ENTRY);
-        completionObjects.put(completionKey, new ReadCompletion(statsLogger, cb, ctx, ledgerId, entryId));
+        completionObjects.put(completionKey, new ReadCompletion(statsLogger, op, cb, ctx, ledgerId, entryId));
 
         // Build the request and calculate the total size to be included in the packet.
         BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
@@ -465,7 +467,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                                           ReadEntryCallback cb, Object ctx) {
         final long txnId = getTxnId();
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.READ_ENTRY);
-        completionObjects.put(completionKey, new ReadCompletion(statsLogger, cb, ctx, ledgerId, entryId));
+        completionObjects.put(completionKey,
+            new ReadCompletion(statsLogger, PCBookieClientOp.READ_ENTRY_AND_FENCE,
+                        cb, ctx, ledgerId, entryId));
 
         BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
                 .setVersion(ProtocolVersion.VERSION_THREE)
@@ -831,7 +835,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     static class ReadCompletion extends CompletionValue {
         final ReadEntryCallback cb;
 
-        public ReadCompletion(final PCBookieClientStatsLogger statsLogger, final ReadEntryCallback originalCallback,
+        public ReadCompletion(final PCBookieClientStatsLogger statsLogger, final PCBookieClientOp statsOp,
+                              final ReadEntryCallback originalCallback,
                               final Object originalCtx, final long ledgerId, final long entryId) {
             super(originalCtx, ledgerId, entryId);
             final long requestTimeNanos = MathUtils.nowInNano();
@@ -839,10 +844,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 @Override
                 public void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx) {
                     if (rc != BKException.Code.OK) {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY)
+                        statsLogger.getOpStatsLogger(statsOp)
                             .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     } else {
-                        statsLogger.getOpStatsLogger(PCBookieClientOp.READ_ENTRY)
+                        statsLogger.getOpStatsLogger(statsOp)
                             .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
                     }
                     originalCallback.readEntryComplete(rc, ledgerId, entryId, buffer, originalCtx);
