@@ -135,7 +135,11 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             }
 
             for(String region: perRegionPlacement.keySet()) {
-                perRegionPlacement.get(region).onClusterChangedInternal(leftBookies, perRegionClusterChange.get(region));
+                Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
+                if (null == regionSet) {
+                    regionSet = new HashSet<InetSocketAddress>();
+                }
+                perRegionPlacement.get(region).onClusterChangedInternal(leftBookies, regionSet);
             }
 
             return deadBookies;
