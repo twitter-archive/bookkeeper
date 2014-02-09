@@ -81,6 +81,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Worker Thread parameters.
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
     protected final static String NUM_READ_WORKER_THREADS = "numReadWorkerThreads";
+    protected final static String NUM_LONG_POLL_WORKER_THREADS = "numLongPollWorkerThreads";
 
     // Long poll parameters
     protected final static String LONG_POLL_TIMER_TICK_DURATION_MILLISEC = "longPollTimerTickDurationMs";
@@ -755,6 +756,26 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Set the number of threads that should handle long poll requests
+     *
+     * @param numThreads
+     *          number of threads to handle long poll requests.
+     * @return server configuration
+     */
+    public ServerConfiguration setNumLongPollWorkerThreads(int numThreads) {
+        setProperty(NUM_LONG_POLL_WORKER_THREADS, numThreads);
+        return this;
+    }
+
+    /**
+     * Get the number of threads that should handle long poll requests.
+     * @return
+     */
+    public int getNumLongPollWorkerThreads() {
+        return getInt(NUM_LONG_POLL_WORKER_THREADS, 10);
+    }
+
+    /**
      * Set the number of threads that would handle read requests.
      *
      * @param numThreads
@@ -770,7 +791,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      * Get the number of threads that should handle read requests.
      */
     public int getNumReadWorkerThreads() {
-        return getInt(NUM_READ_WORKER_THREADS, 80);
+        return getInt(NUM_READ_WORKER_THREADS, 20);
     }
 
     /**

@@ -70,6 +70,12 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     private final ExecutorService writeThreadPool;
 
     /**
+     * The threadpool used to execute all long poll requests issued to this server
+     * after they are done waiting
+     */
+    private final ExecutorService longPollThreadPool;
+
+    /**
      * The Timer used to time out requests for long polling
      */
     private final HashedWheelTimer longPollTimer;
@@ -83,6 +89,9 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.writeThreadPool =
             createExecutor(this.serverCfg.getNumAddWorkerThreads(),
                            "BookieWriteThread-" + serverCfg.getBookiePort() + "-%d");
+        this.longPollThreadPool =
+            createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
+                "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d");
         this.longPollTimer = new HashedWheelTimer(this.serverCfg.getLongPollTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getLongPollTimerNumTicks());
     }
 
@@ -119,7 +128,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
                     processAddRequest(new WriteEntryProcessorV3(request, srcConn, bookie));
                     break;
                 case READ_ENTRY:
-                    processReadRequest(new ReadEntryProcessorV3(request, srcConn, bookie, readThreadPool, longPollTimer));
+                    processReadRequest(new ReadEntryProcessorV3(request, srcConn, bookie, longPollThreadPool, longPollTimer));
                     break;
                 default:
                     Response.Builder response = Response.newBuilder()
@@ -172,5 +181,6 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.longPollTimer.stop();
         shutdownExecutor(readThreadPool);
         shutdownExecutor(writeThreadPool);
+        shutdownExecutor(longPollThreadPool);
     }
 }
