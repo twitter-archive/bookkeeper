@@ -24,6 +24,9 @@ import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MonitoredThreadPoolExecutor;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,22 +88,24 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.bookie = bookie;
         this.readThreadPool =
             createExecutor(this.serverCfg.getNumReadWorkerThreads(),
-                           "BookieReadThread-" + serverCfg.getBookiePort() + "-%d");
+                            "BookieReadThread-" + serverCfg.getBookiePort() + "-%d",
+                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_READ);
         this.writeThreadPool =
             createExecutor(this.serverCfg.getNumAddWorkerThreads(),
-                           "BookieWriteThread-" + serverCfg.getBookiePort() + "-%d");
+                            "BookieWriteThread-" + serverCfg.getBookiePort() + "-%d",
+                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_ADD);
         this.longPollThreadPool =
             createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
-                "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d");
+                            "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d",
+                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_LONG_POLL);
         this.requestTimer = new HashedWheelTimer(this.serverCfg.getRequestTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
     }
 
-    private ExecutorService createExecutor(int numThreads, String nameFormat) {
+    private ExecutorService createExecutor(int numThreads, String nameFormat, BookkeeperServerStatsLogger.BookkeeperServerGauge guage) {
         if (numThreads <= 0) {
             return null;
         } else {
-            return Executors.newFixedThreadPool(numThreads,
-                    new ThreadFactoryBuilder().setNameFormat(nameFormat).build());
+            return new MonitoredThreadPoolExecutor(numThreads, nameFormat, ServerStatsProvider.getStatsLoggerInstance(), guage);
         }
     }
 
