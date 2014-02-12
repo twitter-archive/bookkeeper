@@ -283,4 +283,22 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             return finalList;
         }
     }
+
+    @Override
+    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        if (UNKNOWN_REGION.equals(myRegion)) {
+            return super.reorderReadLACSequence(ensemble, writeSet);
+        }
+        List<Integer> finalList = reorderReadSequence(ensemble, writeSet);
+
+        if (finalList.size() < ensemble.size()) {
+            for (int i = 0; i < ensemble.size(); i++) {
+                if (!finalList.contains(i)) {
+                    finalList.add(i);
+                }
+            }
+        }
+        return finalList;
+
+    }
 }

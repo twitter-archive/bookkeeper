@@ -87,6 +87,19 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     }
 
     @Override
+    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        List<Integer> retList = new ArrayList<Integer>(writeSet);
+        if (retList.size() < ensemble.size()) {
+            for (int i = 0; i < ensemble.size(); i++) {
+                if (!retList.contains(i)) {
+                    retList.add(i);
+                }
+            }
+        }
+        return retList;
+    }
+
+    @Override
     public EnsemblePlacementPolicy initialize(Configuration conf) {
         return this;
     }

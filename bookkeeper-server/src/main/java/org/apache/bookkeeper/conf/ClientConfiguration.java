@@ -53,6 +53,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
+    protected final static String SPECULATIVE_READ_LAC_TIMEOUT = "speculativeReadLACTimeout";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
     // Timeout Setting
@@ -382,7 +383,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return the speculative read timeout in milliseconds. Default 1000.
      */
     public int getSpeculativeReadTimeout() {
-        return getInt(SPECULATIVE_READ_TIMEOUT, 1000);
+        return getInt(SPECULATIVE_READ_TIMEOUT, 1500);
     }
 
     /**
@@ -398,6 +399,42 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setSpeculativeReadTimeout(int timeout) {
         setProperty(SPECULATIVE_READ_TIMEOUT, timeout);
+        return this;
+    }
+
+    /**
+     * Get the period of time after which a speculative read last add confirmed and entry
+     * should be triggered.
+     * A speculative entry request is sent to the next replica bookie before
+     * an error or response has been received for the previous entry read request.
+     *
+     * A speculative entry read is only sent if we have not heard from the current
+     * replica bookie during the entire read operation which may comprise of many entries.
+     *
+     * Speculative requests allow the client to avoid having to wait for the connect timeout
+     * in the case that a bookie has failed. It induces higher load on the network and on
+     * bookies. This should be taken into account before changing this configuration value.
+     *
+     * @return the speculative request timeout in milliseconds. Default 1500.
+     */
+    public int getSpeculativeReadLACTimeout() {
+        return getInt(SPECULATIVE_READ_LAC_TIMEOUT, 1500);
+    }
+
+    /**
+     * Set the speculative read last add confirmed timeout.
+     * A lower timeout will reduce read latency in the case of a failed bookie,
+     * while increasing the load on bookies and the network.
+     *
+     * The default is 1500 milliseconds. A value of 0 will disable speculative reads
+     * completely.
+     *
+     * @see #getSpeculativeReadTimeout()
+     * @param timeout the timeout value, in milliseconds
+     * @return client configuration
+     */
+    public ClientConfiguration setSpeculativeReadLACTimeout(int timeout) {
+        setProperty(SPECULATIVE_READ_LAC_TIMEOUT, timeout);
         return this;
     }
 

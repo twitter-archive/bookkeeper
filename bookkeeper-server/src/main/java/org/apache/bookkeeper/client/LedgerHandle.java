@@ -660,6 +660,10 @@ public class LedgerHandle {
     }
 
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
+        asyncReadLastConfirmedAndEntry(timeOutInMillis, false, cb, ctx);
+    }
+
+    public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final boolean parallel, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
         if (isClosed()) {
             cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), null, ctx);
             return;
@@ -667,10 +671,9 @@ public class LedgerHandle {
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
             AtomicBoolean completed = new AtomicBoolean(false);
             @Override
-            public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry, boolean updateLACOnly) {
+            public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry) {
                 if (rc == BKException.Code.OK) {
-                    updateLastConfirmed(lastAddConfirmed, 0L);
-                    if (!updateLACOnly && completed.compareAndSet(false, true)) {
+                    if (completed.compareAndSet(false, true)) {
                         cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry, ctx);
                     }
                 } else {
@@ -680,7 +683,7 @@ public class LedgerHandle {
                 }
             }
         };
-        new ReadLastConfirmedAndEntryOp(this, innercb, getLastAddConfirmed(), timeOutInMillis).initiate();
+        new ReadLastConfirmedAndEntryOp(this, innercb, getLastAddConfirmed(), timeOutInMillis, bk.scheduler).parallelRead(parallel).initiate();
     }
 
     /**

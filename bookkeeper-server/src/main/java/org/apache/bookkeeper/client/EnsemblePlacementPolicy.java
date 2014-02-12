@@ -100,4 +100,17 @@ public interface EnsemblePlacementPolicy {
      */
     public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble,
                                              List<Integer> writeSet);
+
+
+    /**
+     * Reorder the read last add confirmed sequence of a given write quorum <i>writeSet</i>.
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @return read sequence of bookies
+     */
+    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble,
+                                             List<Integer> writeSet);
 }
