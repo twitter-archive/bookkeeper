@@ -78,7 +78,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     /**
      * The Timer used to time out requests for long polling
      */
-    private final HashedWheelTimer longPollTimer;
+    private final HashedWheelTimer requestTimer;
 
     public MultiPacketProcessor(ServerConfiguration serverCfg, Bookie bookie) {
         this.serverCfg = serverCfg;
@@ -92,7 +92,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.longPollThreadPool =
             createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
                 "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d");
-        this.longPollTimer = new HashedWheelTimer(this.serverCfg.getLongPollTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getLongPollTimerNumTicks());
+        this.requestTimer = new HashedWheelTimer(this.serverCfg.getRequestTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
     }
 
     private ExecutorService createExecutor(int numThreads, String nameFormat) {
@@ -128,7 +128,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
                     processAddRequest(new WriteEntryProcessorV3(request, srcConn, bookie));
                     break;
                 case READ_ENTRY:
-                    processReadRequest(new ReadEntryProcessorV3(request, srcConn, bookie, longPollThreadPool, longPollTimer));
+                    processReadRequest(new ReadEntryProcessorV3(request, srcConn, bookie, readThreadPool, longPollThreadPool, requestTimer));
                     break;
                 default:
                     Response.Builder response = Response.newBuilder()
@@ -178,7 +178,7 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     }
 
     public void shutdown() {
-        this.longPollTimer.stop();
+        this.requestTimer.stop();
         shutdownExecutor(readThreadPool);
         shutdownExecutor(writeThreadPool);
         shutdownExecutor(longPollThreadPool);

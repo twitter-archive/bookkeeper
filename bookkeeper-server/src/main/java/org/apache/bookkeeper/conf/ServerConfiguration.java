@@ -84,8 +84,8 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String NUM_LONG_POLL_WORKER_THREADS = "numLongPollWorkerThreads";
 
     // Long poll parameters
-    protected final static String LONG_POLL_TIMER_TICK_DURATION_MILLISEC = "longPollTimerTickDurationMs";
-    protected final static String LONG_POLL_TIMER_NO_OF_TICKS = "longPollTimerNumTicks";
+    protected final static String REQUEST_TIMER_TICK_DURATION_MILLISEC = "requestTimerTickDurationMs";
+    protected final static String REQUEST_TIMER_NO_OF_TICKS = "requestTimerNumTicks";
 
 
     // Stats exporting
@@ -801,8 +801,8 @@ public class ServerConfiguration extends AbstractConfiguration {
      *          tick duration in milliseconds.
      * @return server configuration
      */
-    public ServerConfiguration setLongPollTimerTickDurationMs(int tickDuration) {
-        setProperty(LONG_POLL_TIMER_TICK_DURATION_MILLISEC, tickDuration);
+    public ServerConfiguration setRequestTimerTickDurationMs(int tickDuration) {
+        setProperty(REQUEST_TIMER_TICK_DURATION_MILLISEC, tickDuration);
         return this;
     }
 
@@ -810,28 +810,28 @@ public class ServerConfiguration extends AbstractConfiguration {
      * Get the tick duration in milliseconds.
      * @return
      */
-    public int getLongPollTimerTickDurationMs() {
-        return getInt(LONG_POLL_TIMER_TICK_DURATION_MILLISEC, 10);
+    public int getRequestTimerTickDurationMs() {
+        return getInt(REQUEST_TIMER_TICK_DURATION_MILLISEC, 10);
     }
 
     /**
-     * Set the number of ticks per wheel for the long poll timer.
+     * Set the number of ticks per wheel for the request timer.
      *
      * @param tickCount
-     *          number of ticks per wheel for the long poll timer.
+     *          number of ticks per wheel for the request timer.
      * @return server configuration
      */
-    public ServerConfiguration setLongPollTimerNumTicks(int tickCount) {
-        setProperty(LONG_POLL_TIMER_NO_OF_TICKS, tickCount);
+    public ServerConfiguration setRequestTimerNumTicks(int tickCount) {
+        setProperty(REQUEST_TIMER_NO_OF_TICKS, tickCount);
         return this;
     }
 
     /**
-     * Get the number of ticks per wheel for the long poll timer.
+     * Get the number of ticks per wheel for the request timer.
      * @return
      */
-    public int getLongPollTimerNumTicks() {
-        return getInt(LONG_POLL_TIMER_NO_OF_TICKS, 1024);
+    public int getRequestTimerNumTicks() {
+        return getInt(REQUEST_TIMER_NO_OF_TICKS, 1024);
     }
 
     /**

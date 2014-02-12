@@ -79,6 +79,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.SettableFuture;
 
 /**
  * Implements a bookie.
@@ -182,59 +183,9 @@ public class Bookie extends BookieThread {
         }
     }
 
-    final static Future<Boolean> SUCCESS_FUTURE = new Future<Boolean>() {
-        @Override
-        public boolean cancel(boolean mayInterruptIfRunning) { return false; }
-        @Override
-        public Boolean get() { return true; }
-        @Override
-        public Boolean get(long timeout, TimeUnit unit) { return true; }
-        @Override
-        public boolean isCancelled() { return false; }
-        @Override
-        public boolean isDone() {
-            return true;
-        }
-    };
-
-    static class CountDownLatchFuture<T> implements Future<T> {
-
-        T value = null;
-        volatile boolean done = false;
-        CountDownLatch latch = new CountDownLatch(1);
-
-        @Override
-        public boolean cancel(boolean mayInterruptIfRunning) { return false; }
-        @Override
-        public T get() throws InterruptedException {
-            latch.await();
-            return value;
-        }
-        @Override
-        public T get(long timeout, TimeUnit unit) throws InterruptedException {
-            latch.await(timeout, unit);
-            return value;
-        }
-
-        @Override
-        public boolean isCancelled() { return false; }
-
-        @Override
-        public boolean isDone() {
-            return done;
-        }
-
-        void setDone(T value) {
-            this.value = value;
-            done = true;
-            latch.countDown();
-        }
-    }
-
     static class FutureWriteCallback implements WriteCallback {
 
-        CountDownLatchFuture<Boolean> result =
-            new CountDownLatchFuture<Boolean>();
+        SettableFuture<Boolean> result = SettableFuture.create();
 
         @Override
         public void writeComplete(int rc, long ledgerId, long entryId,
@@ -243,10 +194,11 @@ public class Bookie extends BookieThread {
                 LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
                           new Object[] { entryId, ledgerId, addr, rc });
             }
-            result.setDone(0 == rc);
+
+            result.set(0 == rc);
         }
 
-        public Future<Boolean> getResult() {
+        public SettableFuture<Boolean> getResult() {
             return result;
         }
     }
@@ -1317,7 +1269,7 @@ public class Bookie extends BookieThread {
      * This method is idempotent. Once a ledger is fenced, it can
      * never be unfenced. Fencing a fenced ledger has no effect.
      */
-    public Future<Boolean> fenceLedger(long ledgerId, byte[] masterKey) throws IOException, BookieException {
+    public SettableFuture<Boolean> fenceLedger(long ledgerId, byte[] masterKey) throws IOException, BookieException {
         LedgerDescriptor handle = handles.getHandle(ledgerId, masterKey);
         boolean success;
         synchronized (handle) {
@@ -1336,7 +1288,9 @@ public class Bookie extends BookieThread {
             return fwc.getResult();
         } else {
             // already fenced
-            return SUCCESS_FUTURE;
+            SettableFuture<Boolean> successFuture = SettableFuture.create();
+            successFuture.set(true);
+            return successFuture;
         }
     }
 
