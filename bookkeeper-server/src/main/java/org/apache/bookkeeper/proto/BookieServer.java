@@ -28,9 +28,13 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.stats.StatsProvider;
-import org.apache.commons.cli.*;
+import org.apache.commons.cli.BasicParser;
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.HelpFormatter;
+import org.apache.commons.cli.Options;
+import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -89,7 +93,9 @@ public class BookieServer {
         // start the nio server only after bookie is started, as the nio server only could
         // accept requests after then. otherwise, it would cause client sending lots of
         // request to this bookie but without being processing, which cause high read latency
-        nioServerFactory = new NIOServerFactory(conf, new MultiPacketProcessor(this.conf, this.bookie));
+        nioServerFactory = new NIOServerFactory(conf,
+                new MultiPacketProcessor(this.conf, this.bookie),
+                Stats.get().getStatsLogger("nio_server"));
         nioServerFactory.start();
 
         // Start stats provider.

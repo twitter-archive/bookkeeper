@@ -33,8 +33,15 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,18 +84,50 @@ public class NIOServerFactory extends Thread {
 
     final ServerConfiguration conf;
 
+    final StatsLogger statsLogger;
+    final Counter numPendingOutgoingBytes;
+    final OpStatsLogger sentBytesStat;
+    final OpStatsLogger sentLatencyStat;
+    final OpStatsLogger receiveBytesStat;
+    final OpStatsLogger receiveLatencyStat;
+
     private final Object suspensionLock = new Object();
     private boolean suspended = false;
 
     public NIOServerFactory(ServerConfiguration conf, PacketProcessor processor) throws IOException {
-        this(conf);
+        this(conf, processor, NullStatsLogger.INSTANCE);
+    }
+
+    public NIOServerFactory(ServerConfiguration conf, PacketProcessor processor,
+                            StatsLogger statsLogger) throws IOException {
+        this(conf, statsLogger);
         setProcessor(processor);
     }
 
-    public NIOServerFactory(ServerConfiguration conf) throws IOException {
+    public NIOServerFactory(ServerConfiguration conf, StatsLogger statsLogger) throws IOException {
         super("NIOServerFactory-" + conf.getBookiePort());
         setDaemon(true);
         this.conf = conf;
+        this.statsLogger = statsLogger;
+
+        // Stats
+        this.statsLogger.registerGauge("num_conns", new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return cnxns.size();
+            }
+        });
+        this.numPendingOutgoingBytes = this.statsLogger.getCounter("num_pending_outgoing_bytes");
+        this.sentBytesStat = this.statsLogger.getOpStatsLogger("sent_bytes");
+        this.sentLatencyStat = this.statsLogger.getOpStatsLogger("sent_latency");
+        this.receiveBytesStat = this.statsLogger.getOpStatsLogger("receive_bytes");
+        this.receiveLatencyStat = this.statsLogger.getOpStatsLogger("receive_latency");
+
         this.ss = ServerSocketChannel.open();
 
         if (0 == conf.getBookiePort()) {
@@ -231,13 +270,15 @@ public class NIOServerFactory extends Thread {
 
         boolean initialized;
 
-        ByteBuffer lenBuffer = ByteBuffer.allocate(4);
+        final ByteBuffer lenBuffer = ByteBuffer.allocate(4);
 
         ByteBuffer incomingBuffer = lenBuffer;
 
-        LinkedBlockingQueue<ByteBuffer> outgoingBuffers = new LinkedBlockingQueue<ByteBuffer>();
+        final LinkedBlockingQueue<ByteBuffer> outgoingBuffers = new LinkedBlockingQueue<ByteBuffer>();
 
         int sessionTimeout;
+
+        long startReadNanos;
 
         void doIO(SelectionKey k) throws InterruptedException {
             try {
@@ -245,6 +286,9 @@ public class NIOServerFactory extends Thread {
                     return;
                 }
                 if (k.isReadable()) {
+                    if (incomingBuffer == lenBuffer) {
+                        startReadNanos = MathUtils.nowInNano();
+                    }
                     int rc = sock.read(incomingBuffer);
                     if (rc < 0) {
                         throw new IOException("Read error");
@@ -310,9 +354,15 @@ public class NIOServerFactory extends Thread {
                          */
                         directBuffer.flip();
 
-                        int sent = sock.write(directBuffer);
-                        ByteBuffer bb;
+                        long startNanos = MathUtils.nowInNano();
 
+                        int sent = sock.write(directBuffer);
+
+                        numPendingOutgoingBytes.add(-sent);
+                        sentBytesStat.registerSuccessfulEvent(sent);
+                        sentLatencyStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
+
+                        ByteBuffer bb;
                         // Remove the buffers that we have sent
                         while (outgoingBuffers.size() > 0) {
                             bb = outgoingBuffers.peek();
@@ -359,6 +409,11 @@ public class NIOServerFactory extends Thread {
 
         private void readRequest() throws IOException {
             incomingBuffer = incomingBuffer.slice();
+            receiveBytesStat.registerSuccessfulEvent(4 + incomingBuffer.remaining());
+            long endReadNanos = MathUtils.nowInNano();
+            receiveLatencyStat.registerSuccessfulEvent(
+                    TimeUnit.NANOSECONDS.toMicros(endReadNanos - startReadNanos));
+            startReadNanos = endReadNanos;
             processor.processPacket(incomingBuffer, this);
         }
 
@@ -512,6 +567,7 @@ public class NIOServerFactory extends Thread {
                     outgoingBuffers.add(bb[i]);
                 }
             }
+            numPendingOutgoingBytes.add(4 + total);
             makeWritable(sk);
         }
 
