@@ -26,7 +26,9 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.commons.cli.*;
 import org.apache.commons.configuration.ConfigurationException;
@@ -248,7 +250,7 @@ public class BookieServer {
     private static void printUsage() {
         HelpFormatter hf = new HelpFormatter();
         hf.printHelp("BookieServer [options]\n\tor\n"
-                   + "BookieServer <bookie_port> <zk_servers> <journal_dir> <ledger_dir [ledger_dir]>", bkOpts);
+                + "BookieServer <bookie_port> <zk_servers> <journal_dir> <ledger_dir [ledger_dir]>", bkOpts);
     }
 
     private static void loadConfFile(ServerConfiguration conf, String confFile)

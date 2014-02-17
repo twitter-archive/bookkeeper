@@ -58,6 +58,11 @@ import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerGauge;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
@@ -571,21 +576,23 @@ public class Bookie extends BookieThread {
         return currentDirs;
     }
 
-
     public Bookie(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
         super("Bookie-" + conf.getBookiePort());
+        StatsLogger statsLogger = Stats.get().getStatsLogger("bookie");
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath() + "/";
         this.bookieReadonlyRegistrationPath =
             this.bookieRegistrationPath + READONLY;
         this.conf = conf;
         this.journalDirectory = getCurrentDirectory(conf.getJournalDir());
-        this.ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        this.ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
+                statsLogger.scope("ledger"));
         File[] idxDirs = conf.getIndexDirs();
         if (null == idxDirs) {
             this.indexDirsManager = this.ledgerDirsManager;
         } else {
-            this.indexDirsManager = new LedgerDirsManager(conf, idxDirs);
+            this.indexDirsManager = new LedgerDirsManager(conf, idxDirs,
+                    statsLogger.scope("index"));
         }
 
         // instantiate zookeeper client to initialize ledger manager
@@ -631,6 +638,19 @@ public class Bookie extends BookieThread {
         String myID = getMyId();
         zkBookieRegPath = this.bookieRegistrationPath + myID;
         zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
+        // 1 : up, 0 : readonly
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(BookkeeperServerGauge.SERVER_STATUS,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return readOnly.get() ? 0 : 1;
+                    }
+                });
     }
 
     private void checkDiskSpace() throws NoWritableLedgerDirException,

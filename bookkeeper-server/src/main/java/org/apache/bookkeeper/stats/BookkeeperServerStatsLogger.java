@@ -42,7 +42,8 @@ public class BookkeeperServerStatsLogger extends BookkeeperStatsLogger {
     public static enum BookkeeperServerGauge {
         NUM_INDEX_PAGES, NUM_OPEN_LEDGERS,
         JOURNAL_FORCE_WRITE_QUEUE_SIZE, JOURNAL_FORCE_WRITE_GROUPING_COUNT,
-        NUM_PENDING_LONG_POLL, NUM_PENDING_READ, NUM_PENDING_ADD
+        NUM_PENDING_LONG_POLL, NUM_PENDING_READ, NUM_PENDING_ADD,
+        SERVER_STATUS
     }
 
     public BookkeeperServerStatsLogger(StatsLogger underlying) {
