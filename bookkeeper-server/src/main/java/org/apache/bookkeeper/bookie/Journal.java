@@ -30,8 +30,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -42,9 +40,12 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -289,7 +290,7 @@ class Journal extends BookieThread {
     /**
      * Journal Entry to Record
      */
-    private static class QueueEntry {
+    private static class QueueEntry extends SafeRunnable {
         ByteBuffer entry;
         long ledgerId;
         long entryId;
@@ -307,7 +308,8 @@ class Journal extends BookieThread {
             this.enqueueTime = enqueueTime;
         }
 
-        public void callback() {
+        @Override
+        public void safeRun() {
             ServerStatsProvider.getStatsLoggerInstance()
                     .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
                             .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueTime));
@@ -318,7 +320,7 @@ class Journal extends BookieThread {
         }
     }
 
-    private class ForceWriteRequest implements Runnable {
+    private class ForceWriteRequest {
         private final JournalChannel logFile;
         private final LinkedList<QueueEntry> forceWriteWaiters;
         private boolean shouldClose;
@@ -368,7 +370,7 @@ class Journal extends BookieThread {
                 lastLogMark.setCurLogMark(this.logId, this.endFlushPosition);
 
                 // Notify the waiters that the force write succeeded
-                cbThreadPool.submit(this);
+                callback();
 
                 return this.forceWriteWaiters.size();
             }
@@ -377,10 +379,13 @@ class Journal extends BookieThread {
             }
         }
 
-        @Override
-        public void run() {
+        void callback() {
             for (QueueEntry e : this.forceWriteWaiters) {
-                e.callback();    // Process cbs inline
+                if (null != e.ctx) {
+                    cbThreadPool.submitOrdered(e.ctx, e);
+                } else {
+                    cbThreadPool.submit(e);
+                }
             }
         }
 
@@ -543,7 +548,7 @@ class Journal extends BookieThread {
     /**
      * The thread pool used to handle callback.
      */
-    private final ExecutorService cbThreadPool;
+    private final OrderedSafeExecutor cbThreadPool;
 
     // journal entry queue to commit
     final LinkedBlockingQueue<QueueEntry> queue = new LinkedBlockingQueue<QueueEntry>();
@@ -566,8 +571,12 @@ class Journal extends BookieThread {
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
         this.bufferedEntriesThreshold = conf.getJournalBufferedEntriesThreshold();
-        this.cbThreadPool = Executors.newFixedThreadPool(conf.getNumJournalCallbackThreads(),
-                                                         new DaemonThreadFactory());
+        this.cbThreadPool = OrderedSafeExecutor.newBuilder()
+                .name("BookieJournal")
+                .numThreads(conf.getNumJournalCallbackThreads())
+                .statsLogger(Stats.get().getStatsLogger("journal"))
+                .threadFactory(new DaemonThreadFactory())
+                .build();
 
         // Unless there is a cap on the max wait (which requires group force writes)
         // we cannot skip flushing for queue empty
@@ -941,8 +950,7 @@ class Journal extends BookieThread {
             }
             forceWriteThread.shutdown();
             cbThreadPool.shutdown();
-            cbThreadPool.awaitTermination(5, TimeUnit.SECONDS);
-            cbThreadPool.shutdownNow();
+            cbThreadPool.forceShutdown(5, TimeUnit.SECONDS);
             running = false;
             this.interrupt();
             this.join();

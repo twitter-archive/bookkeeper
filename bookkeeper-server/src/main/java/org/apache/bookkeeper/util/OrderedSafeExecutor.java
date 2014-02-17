@@ -156,7 +156,7 @@ public class OrderedSafeExecutor {
         }
     }
 
-    ExecutorService chooseThread() {
+    public ExecutorService chooseThread() {
         // skip random # generation in this special case
         if (threads.length == 1) {
             return threads[0];
@@ -166,7 +166,7 @@ public class OrderedSafeExecutor {
 
     }
 
-    ExecutorService chooseThread(Object orderingKey) {
+    public ExecutorService chooseThread(Object orderingKey) {
         // skip hashcode generation in this special case
         if (threads.length == 1) {
             return threads[0];

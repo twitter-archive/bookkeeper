@@ -3,6 +3,7 @@ package org.apache.bookkeeper.proto;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +17,7 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
 
 import java.nio.ByteBuffer;
 
-abstract class PacketProcessorBaseV3 {
+abstract class PacketProcessorBaseV3 extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBaseV3.class);
     final Request request;
     final Cnxn srcConn;

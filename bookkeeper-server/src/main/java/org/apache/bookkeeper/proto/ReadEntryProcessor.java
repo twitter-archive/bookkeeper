@@ -34,14 +34,15 @@ import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-class ReadEntryProcessor extends PacketProcessorBase implements Runnable {
+class ReadEntryProcessor extends PacketProcessorBase {
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessor.class);
 
     ReadEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
         super(packet, srcConn, bookie);
     }
 
-    public void run() {
+    @Override
+    public void safeRun() {
         final long startTimeNanos = MathUtils.nowInNano();
         header = PacketHeader.fromInt(packet.getInt());
         ledgerId = packet.getLong();

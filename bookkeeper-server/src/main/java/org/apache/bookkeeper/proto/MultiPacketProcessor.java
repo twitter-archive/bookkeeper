@@ -17,7 +17,6 @@
  */
 package org.apache.bookkeeper.proto;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.bookkeeper.bookie.Bookie;
@@ -26,14 +25,16 @@ import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.util.MonitoredThreadPoolExecutor;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
@@ -65,12 +66,12 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     /**
      * The threadpool used to execute all read entry requests issued to this server.
      */
-    private final  ExecutorService readThreadPool;
+    private final OrderedSafeExecutor readThreadPool;
 
     /**
      * The threadpool used to execute all add entry requests issued to this server.
      */
-    private final ExecutorService writeThreadPool;
+    private final OrderedSafeExecutor writeThreadPool;
 
     /**
      * The threadpool used to execute all long poll requests issued to this server
@@ -87,13 +88,11 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         this.serverCfg = serverCfg;
         this.bookie = bookie;
         this.readThreadPool =
-            createExecutor(this.serverCfg.getNumReadWorkerThreads(),
-                            "BookieReadThread-" + serverCfg.getBookiePort() + "-%d",
-                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_READ);
+            createOrderedSafeExecutor(this.serverCfg.getNumReadWorkerThreads(),
+                            "BookieReadThread-" + serverCfg.getBookiePort());
         this.writeThreadPool =
-            createExecutor(this.serverCfg.getNumAddWorkerThreads(),
-                            "BookieWriteThread-" + serverCfg.getBookiePort() + "-%d",
-                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_ADD);
+            createOrderedSafeExecutor(this.serverCfg.getNumAddWorkerThreads(),
+                            "BookieWriteThread-" + serverCfg.getBookiePort());
         this.longPollThreadPool =
             createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
                             "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d",
@@ -109,7 +108,21 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         }
     }
 
+    private OrderedSafeExecutor createOrderedSafeExecutor(int numThreads, String name) {
+        if (numThreads <= 0) {
+            return null;
+        }
+        return OrderedSafeExecutor.newBuilder()
+                .name(name).numThreads(numThreads).statsLogger(Stats.get().getStatsLogger("bookie")).build();
+    }
+
     private void shutdownExecutor(ExecutorService service) {
+        if (null != service) {
+            service.shutdown();
+        }
+    }
+
+    private void shutdownOrderedSafeExecutor(OrderedSafeExecutor service) {
         if (null != service) {
             service.shutdown();
         }
@@ -130,10 +143,13 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
             BKPacketHeader header = request.getHeader();
             switch (header.getOperation()) {
                 case ADD_ENTRY:
-                    processAddRequest(new WriteEntryProcessorV3(request, srcConn, bookie));
+                    processAddRequest(srcConn, new WriteEntryProcessorV3(request, srcConn, bookie));
                     break;
                 case READ_ENTRY:
-                    processReadRequest(new ReadEntryProcessorV3(request, srcConn, bookie, readThreadPool, longPollThreadPool, requestTimer));
+                    processReadRequest(srcConn,
+                            new ReadEntryProcessorV3(request, srcConn, bookie,
+                                                     null == readThreadPool ? null : readThreadPool.chooseThread(srcConn),
+                                                     longPollThreadPool, requestTimer));
                     break;
                 default:
                     Response.Builder response = Response.newBuilder()
@@ -152,10 +168,10 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
             // copy it here. It's safe to pass it on as is.
             switch (header.getOpCode()) {
                 case BookieProtocol.ADDENTRY:
-                    processAddRequest(new WriteEntryProcessor(packet, srcConn, bookie));
+                    processAddRequest(srcConn, new WriteEntryProcessor(packet, srcConn, bookie));
                     break;
                 case BookieProtocol.READENTRY:
-                    processReadRequest(new ReadEntryProcessor(packet, srcConn, bookie));
+                    processReadRequest(srcConn, new ReadEntryProcessor(packet, srcConn, bookie));
                     break;
                 default:
                     // We don't know the request type and as a result, the ledgerId or entryId.
@@ -166,26 +182,26 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
         }
     }
 
-    private void processAddRequest(Runnable r) {
+    private void processAddRequest(Cnxn cnxn, SafeRunnable r) {
         if (null == writeThreadPool) {
             r.run();
         } else {
-            writeThreadPool.submit(r);
+            writeThreadPool.submitOrdered(cnxn, r);
         }
     }
 
-    private void processReadRequest(Runnable r) {
+    private void processReadRequest(Cnxn cnxn, SafeRunnable r) {
         if (null == readThreadPool) {
             r.run();
         } else {
-            readThreadPool.submit(r);
+            readThreadPool.submitOrdered(cnxn, r);
         }
     }
 
     public void shutdown() {
         this.requestTimer.stop();
-        shutdownExecutor(readThreadPool);
-        shutdownExecutor(writeThreadPool);
+        shutdownOrderedSafeExecutor(readThreadPool);
+        shutdownOrderedSafeExecutor(writeThreadPool);
         shutdownExecutor(longPollThreadPool);
     }
 }

@@ -34,7 +34,7 @@ import java.nio.ByteBuffer;
 /**
  * Processes add entry requests
  */
-class WriteEntryProcessor extends PacketProcessorBase implements Runnable {
+class WriteEntryProcessor extends PacketProcessorBase {
 
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessor.class);
     private byte[] masterKey = new byte[BookieProtocol.MASTER_KEY_LENGTH];
@@ -43,7 +43,8 @@ class WriteEntryProcessor extends PacketProcessorBase implements Runnable {
         super(packet, srcConn, bookie);
     }
 
-    public void run() {
+    @Override
+    public void safeRun() {
         final long startTimeNanos = MathUtils.nowInNano();
         header = PacketHeader.fromInt(packet.getInt());
         packet.get(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);

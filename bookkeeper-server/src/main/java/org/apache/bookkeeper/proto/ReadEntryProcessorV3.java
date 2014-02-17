@@ -33,7 +33,7 @@ import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.ExecutorService;
 
-class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Observer {
+class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
     private long lastPhaseStartTimeNanos;
     private final HashedWheelTimer requestTimer;
     private final ExecutorService fenceThreadPool;
@@ -150,27 +150,40 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Ob
             if (shouldReadEntry) {
                 entryBody = bookie.readEntry(ledgerId, entryId);
                 if (null != fenceResult) {
-                    Futures.addCallback(fenceResult, new FutureCallback<Boolean>() {
-                        @Override
-                        public void onSuccess(Boolean result) {
-                            sendFenceResponse(readResponse, entryBody, result);
+                    if (null != fenceThreadPool) {
+                        Futures.addCallback(fenceResult, new FutureCallback<Boolean>() {
+                            @Override
+                            public void onSuccess(Boolean result) {
+                                sendFenceResponse(readResponse, entryBody, result);
+                            }
+
+                            @Override
+                            public void onFailure(Throwable t) {
+                                logger.error("Fence request for ledgerId "+ readRequest.getLedgerId() + " entryId " + readRequest.getEntryId() + " encountered exception", t);
+                                sendFenceResponse(readResponse, entryBody, false);
+                            }
+                        }, fenceThreadPool);
+
+                        lastPhaseStartTimeNanos = MathUtils.nowInNano();
+
+                        ServerStatsProvider
+                            .getStatsLoggerInstance()
+                            .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_FENCE_READ)
+                            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+
+                        return null;
+                    } else {
+                        try {
+                            getFenceResponse(readResponse, entryBody,
+                                             fenceResult.get(1000, TimeUnit.MILLISECONDS));
+                            status = StatusCode.EOK;
+                        } catch (Throwable t) {
+                            logger.error("Fence request for ledgerId {} entryId {} encountered exception : ",
+                                         new Object[] { readRequest.getLedgerId(), readRequest.getEntryId(), t });
+                            getFenceResponse(readResponse, entryBody, false);
+                            status = StatusCode.EIO;
                         }
-
-                        @Override
-                        public void onFailure(Throwable t) {
-                            logger.error("Fence request for ledgerId "+ readRequest.getLedgerId() + " entryId " + readRequest.getEntryId() + " encountered exception", t);
-                            sendFenceResponse(readResponse, entryBody, false);
-                        }
-                    }, fenceThreadPool);
-
-                    lastPhaseStartTimeNanos = MathUtils.nowInNano();
-
-                    ServerStatsProvider
-                        .getStatsLoggerInstance()
-                        .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_FENCE_READ)
-                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-
-                    return null;
+                    }
                 } else {
                     readResponse.setBody(ByteString.copyFrom(entryBody));
                     if (readLACPiggyBack) {
@@ -237,7 +250,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Ob
     }
 
     @Override
-    public void run() {
+    public void safeRun() {
         ServerStatsProvider
             .getStatsLoggerInstance()
             .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY)
@@ -249,7 +262,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Ob
         }
     }
 
-    private void sendFenceResponse(ReadResponse.Builder readResponse, ByteBuffer entryBody, boolean fenceResult) {
+    private void getFenceResponse(ReadResponse.Builder readResponse, ByteBuffer entryBody, boolean fenceResult) {
         StatusCode status;
         if (!fenceResult) {
             status = StatusCode.EIO;
@@ -267,6 +280,10 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Ob
         }
 
         readResponse.setStatus(status);
+    }
+
+    private void sendFenceResponse(ReadResponse.Builder readResponse, ByteBuffer entryBody, boolean fenceResult) {
+        getFenceResponse(readResponse, entryBody, fenceResult);
         sendResponse(readResponse.build());
     }
 
