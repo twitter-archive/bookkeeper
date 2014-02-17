@@ -2,7 +2,6 @@ package org.apache.bookkeeper.proto;
 
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.ByteString;
 
@@ -33,10 +32,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeoutException;
 
-public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Observer {
-    private final long requestEnqueueTimeNanos;
+class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable, Observer {
     private long lastPhaseStartTimeNanos;
     private final HashedWheelTimer requestTimer;
     private final ExecutorService fenceThreadPool;
@@ -57,8 +54,7 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
         this.fenceThreadPool = fenceThreadPool;
         this.longPollThreadPool = longPollThreadPool;
         this.requestTimer = requestTimer;
-        this.requestEnqueueTimeNanos = MathUtils.nowInNano();
-        lastPhaseStartTimeNanos = requestEnqueueTimeNanos;
+        lastPhaseStartTimeNanos = enqueueNanos;
     }
 
     private ReadResponse getReadResponse() {
@@ -279,24 +275,13 @@ public class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Runna
             .setHeader(getHeader())
             .setStatus(readResponse.getStatus())
             .setReadResponse(readResponse);
-        srcConn.sendResponse(encodeResponse(response.build()));
         Enum op = BookkeeperServerOp.READ_ENTRY_REQUEST;
         if (null != previousLAC) {
             op = BookkeeperServerOp.READ_ENTRY_LONG_POLL_REQUEST;
         } else if (null != fenceResult) {
             op = BookkeeperServerOp.READ_ENTRY_FENCE_REQUEST;
         }
-        if (readResponse.getStatus().equals(StatusCode.EOK)) {
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(op)
-                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestEnqueueTimeNanos));
-        } else {
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(op)
-                .registerFailedEvent(MathUtils.elapsedMicroSec(requestEnqueueTimeNanos));
-        }
+        sendResponse(response.getStatus(), op, encodeResponse(response.build()));
     }
 
     private synchronized void scheduleDeferredRead(Observable observable, boolean timeout) {

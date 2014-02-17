@@ -34,12 +34,12 @@ import java.nio.ByteBuffer;
 /**
  * Processes add entry requests
  */
-public class WriteEntryProcessor extends PacketProcessorBase implements Runnable {
+class WriteEntryProcessor extends PacketProcessorBase implements Runnable {
 
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessor.class);
     private byte[] masterKey = new byte[BookieProtocol.MASTER_KEY_LENGTH];
 
-    public WriteEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
+    WriteEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
         super(packet, srcConn, bookie);
     }
 
@@ -57,13 +57,17 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
         if (!isVersionCompatible(header)) {
             // The client and server versions are not compatible. Just return
             // an error.
-            srcConn.sendResponse(buildResponse(BookieProtocol.EBADVERSION));
+            sendResponse(BookieProtocol.EBADVERSION,
+                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         buildResponse(BookieProtocol.EBADVERSION));
             return;
         }
         if (bookie.isReadOnly()) {
             logger.warn("BookieServer is running as readonly mode,"
                     + " so rejecting the request from the client!");
-            srcConn.sendResponse(buildResponse(BookieProtocol.EREADONLY));
+            sendResponse(BookieProtocol.EBADVERSION,
+                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         buildResponse(BookieProtocol.EREADONLY));
             return;
         }
         short flags = header.getFlags();
@@ -81,7 +85,8 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
                 Cnxn conn = (Cnxn) ctx;
                 assert ledgerId == WriteEntryProcessor.this.ledgerId;
                 assert entryId == WriteEntryProcessor.this.entryId;
-                conn.sendResponse(buildResponse(rc));
+                sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                             buildResponse(rc));
             }
         };
         int rc = BookieProtocol.EOK;
@@ -108,7 +113,8 @@ public class WriteEntryProcessor extends PacketProcessorBase implements Runnable
         if (rc != BookieProtocol.EOK) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                     .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-            srcConn.sendResponse(buildResponse(rc));
+            sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         buildResponse(rc));
         }
     }
 }

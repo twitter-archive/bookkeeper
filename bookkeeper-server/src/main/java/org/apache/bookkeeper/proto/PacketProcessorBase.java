@@ -22,10 +22,12 @@ import java.nio.ByteBuffer;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class PacketProcessorBase {
+abstract class PacketProcessorBase {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBase.class);
     final ByteBuffer packet;
     final Cnxn srcConn;
@@ -36,11 +38,24 @@ public abstract class PacketProcessorBase {
     protected PacketHeader header;
     protected long ledgerId;
     protected long entryId;
+    protected long enqueueNanos;
 
-    public PacketProcessorBase(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
+    PacketProcessorBase(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
         this.packet = packet;
         this.srcConn = srcConn;
         this.bookie = bookie;
+        this.enqueueNanos = MathUtils.nowInNano();
+    }
+
+    protected void sendResponse(int rc, Enum statOp, ByteBuffer...response) {
+        srcConn.sendResponse(response);
+        if (BookieProtocol.EOK == rc) {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+        } else {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+        }
     }
 
     // Builds a response packet without the actual entry.

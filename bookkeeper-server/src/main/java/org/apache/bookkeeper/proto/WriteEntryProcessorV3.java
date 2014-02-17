@@ -1,6 +1,5 @@
 package org.apache.bookkeeper.proto;
 
-import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
@@ -8,26 +7,20 @@ import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.bookkeeper.proto.PacketProcessorBaseV3;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 
-import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
-public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
+class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runnable {
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
     public WriteEntryProcessorV3(Request request, Cnxn srcConn, Bookie bookie) {
@@ -89,7 +82,8 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
                         .setHeader(getHeader())
                         .setStatus(addResponse.getStatus())
                         .setAddResponse(addResponse);
-                conn.sendResponse(encodeResponse(response.build()));
+                sendResponse(status, BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                             encodeResponse(response.build()));
             }
         };
         StatusCode status = null;
@@ -140,7 +134,8 @@ public class WriteEntryProcessorV3 extends PacketProcessorBaseV3 implements Runn
                     .setHeader(getHeader())
                     .setStatus(addResponse.getStatus())
                     .setAddResponse(addResponse);
-            srcConn.sendResponse(encodeResponse(response.build()));
+            sendResponse(addResponse.getStatus(), BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         encodeResponse(response.build()));
         }
     }
 }

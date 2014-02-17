@@ -34,10 +34,10 @@ import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ReadEntryProcessor extends PacketProcessorBase implements Runnable {
+class ReadEntryProcessor extends PacketProcessorBase implements Runnable {
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessor.class);
 
-    public ReadEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
+    ReadEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
         super(packet, srcConn, bookie);
     }
 
@@ -47,7 +47,9 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
         ledgerId = packet.getLong();
         entryId = packet.getLong();
         if (!isVersionCompatible(header)) {
-            srcConn.sendResponse(buildResponse(BookieProtocol.EBADVERSION));
+            sendResponse(BookieProtocol.EBADVERSION,
+                         BookkeeperServerOp.READ_ENTRY_REQUEST,
+                         buildResponse(BookieProtocol.EBADVERSION));
             return;
         }
         short flags = header.getFlags();
@@ -141,6 +143,6 @@ public class ReadEntryProcessor extends PacketProcessorBase implements Runnable 
             toSend[1].putLong(entryId);
             toSend[1].flip();
         }
-        srcConn.sendResponse(toSend);
+        sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST, toSend);
     }
 }

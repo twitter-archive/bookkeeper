@@ -1,34 +1,44 @@
 package org.apache.bookkeeper.proto;
 
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.OperationType;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 
 import java.nio.ByteBuffer;
 
-public abstract class PacketProcessorBaseV3 {
+abstract class PacketProcessorBaseV3 {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBaseV3.class);
     final Request request;
     final Cnxn srcConn;
     final Bookie  bookie;
+    protected long enqueueNanos;
 
-    public PacketProcessorBaseV3(Request request, Cnxn srcConn, Bookie bookie) {
+    PacketProcessorBaseV3(Request request, Cnxn srcConn, Bookie bookie) {
         this.request = request;
         this.srcConn = srcConn;
         this.bookie = bookie;
+        this.enqueueNanos = MathUtils.nowInNano();
+    }
+
+    protected void sendResponse(StatusCode code, Enum statOp, ByteBuffer...response) {
+        srcConn.sendResponse(response);
+        if (StatusCode.EIO == code) {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+        } else {
+            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+        }
     }
 
     protected boolean isVersionCompatible() {
