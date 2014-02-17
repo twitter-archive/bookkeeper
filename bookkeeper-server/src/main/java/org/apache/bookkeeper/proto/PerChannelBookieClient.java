@@ -217,11 +217,21 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         bootstrap.setOption("tcpNoDelay", conf.getClientTcpNoDelay());
         bootstrap.setOption("keepAlive", true);
 
+        final long connectStartNanos = MathUtils.nowInNano();
+
         ChannelFuture future = bootstrap.connect(addr);
 
         future.addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) throws Exception {
+                if (future.isSuccess()) {
+                    statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_CONNECT)
+                            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(connectStartNanos));
+                } else {
+                    statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_CONNECT)
+                            .registerFailedEvent(MathUtils.elapsedMicroSec(connectStartNanos));
+                }
+
                 int rc;
                 Queue<GenericCallback<Void>> oldPendingOps;
 
@@ -328,11 +338,14 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     private void writeRequestToChannel(final Channel channel, final Request request,
                                        final GenericCallback<Void> cb) {
+        final long writeStartNanos = MathUtils.nowInNano();
         try {
             channel.write(request).addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture channelFuture) throws Exception {
                     if (!channelFuture.isSuccess()) {
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_WRITE)
+                                .registerFailedEvent(MathUtils.elapsedMicroSec(writeStartNanos));
                         if (channelFuture.getCause() instanceof ClosedChannelException) {
                             cb.operationComplete(ChannelRequestCompletionCode.ChannelClosedException, null);
                         } else {
@@ -341,6 +354,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                             cb.operationComplete(ChannelRequestCompletionCode.UnknownError, null);
                         }
                     } else {
+                        statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_WRITE)
+                                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(writeStartNanos));
                         cb.operationComplete(ChannelRequestCompletionCode.OK, null);
                     }
                 }
