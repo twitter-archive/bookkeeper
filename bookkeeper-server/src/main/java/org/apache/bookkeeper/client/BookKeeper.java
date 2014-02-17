@@ -424,9 +424,12 @@ public class BookKeeper {
          * Wait
          */
         counter.block(0);
-        if (counter.getLh() == null) {
-            LOG.error("ZooKeeper error: " + counter.getrc());
-            throw BKException.create(Code.ZKException);
+        if (counter.getrc() != Code.OK) {
+            LOG.error("Error while creating ledger : {}", counter.getrc());
+            throw BKException.create(counter.getrc());
+        } else if (counter.getLh() == null) {
+            LOG.error("Unexpected condition : no ledger handle returned for a success ledger creation");
+            throw BKException.create(Code.UnexpectedConditionException);
         }
 
         return counter.getLh();

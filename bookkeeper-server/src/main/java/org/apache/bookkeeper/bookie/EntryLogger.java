@@ -317,6 +317,16 @@ public class EntryLogger {
             public void fatalError() {
                 // Nothing to handle here. Will be handled in Bookie
             }
+
+            @Override
+            public void diskWritable(File disk) {
+                // Nothing to handle here. Will be handled in Bookie
+            }
+
+            @Override
+            public void diskJustWritable(File disk) {
+                // Nothing to handle here. Will be handled in Bookie
+            }
         };
     }
 

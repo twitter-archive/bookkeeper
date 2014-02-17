@@ -86,8 +86,10 @@ public abstract class BKException extends Exception {
             return new BKUnclosedFragmentException();
         case Code.WriteOnReadOnlyBookieException:
             return new BKWriteOnReadOnlyBookieException();
-        default:
+        case Code.IllegalOpException:
             return new BKIllegalOpException();
+        default:
+            return new BKUnexpectedConditionException();
         }
     }
 
@@ -120,6 +122,9 @@ public abstract class BKException extends Exception {
         int UnauthorizedAccessException = -102;
         int UnclosedFragmentException = -103;
         int WriteOnReadOnlyBookieException = -104;
+
+        // For all unexpected error conditions
+        int UnexpectedConditionException = -999;
     }
 
     public void setCode(int code) {
@@ -176,8 +181,10 @@ public abstract class BKException extends Exception {
             return "Attempting to use an unclosed fragment; This is not safe";
         case Code.WriteOnReadOnlyBookieException:
             return "Attempting to write on ReadOnly bookie";
-        default:
+        case Code.IllegalOpException:
             return "Invalid operation";
+        default:
+            return "Unexpected condition";
         }
     }
 
@@ -220,6 +227,12 @@ public abstract class BKException extends Exception {
     public static class BKIllegalOpException extends BKException {
         public BKIllegalOpException() {
             super(Code.IllegalOpException);
+        }
+    }
+
+    public static class BKUnexpectedConditionException extends BKException {
+        public BKUnexpectedConditionException() {
+            super(Code.UnexpectedConditionException);
         }
     }
 

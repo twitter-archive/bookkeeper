@@ -119,7 +119,9 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void suspendProcessing() {
-        nioServerFactory.suspendProcessing();
+        if (null != nioServerFactory) {
+            nioServerFactory.suspendProcessing();
+        }
     }
 
     /**
@@ -127,14 +129,18 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void resumeProcessing() {
-        nioServerFactory.resumeProcessing();
+        if (null != nioServerFactory) {
+            nioServerFactory.resumeProcessing();
+        }
     }
 
     public synchronized void shutdown() {
         if (!running) {
             return;
         }
-        nioServerFactory.shutdown();
+        if (null != nioServerFactory) {
+            nioServerFactory.shutdown();
+        }
 
         // Stop stats exporter.
         statsProvider.stop();
@@ -171,7 +177,7 @@ public class BookieServer {
     }
 
     public boolean isRunning() {
-        return bookie.isRunning() && nioServerFactory.isRunning() && running;
+        return bookie.isRunning() && isNioServerRunning() && running;
     }
 
     /**
@@ -189,11 +195,13 @@ public class BookieServer {
      * @return true if nio server is running, otherwise return false
      */
     public boolean isNioServerRunning() {
-        return nioServerFactory.isRunning();
+        return null != nioServerFactory && nioServerFactory.isRunning();
     }
 
     public void join() throws InterruptedException {
-        nioServerFactory.join();
+        if (null != nioServerFactory) {
+            nioServerFactory.join();
+        }
     }
 
     public int getExitCode() {

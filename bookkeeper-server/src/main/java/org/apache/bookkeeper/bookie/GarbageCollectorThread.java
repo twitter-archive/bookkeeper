@@ -184,10 +184,17 @@ public class GarbageCollectorThread extends Thread {
         lastMinorCompactionTime = lastMajorCompactionTime = MathUtils.now();
     }
 
-    public synchronized void forceGC() {
+    public synchronized void enableForceGC() {
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: " + Thread.currentThread().getName());
             notify();
+        }
+    }
+
+    public void disableForceGC() {
+        if (forceGarbageCollection.compareAndSet(true, false)) {
+            LOG.info("{} disabled force garbage collection since bookie has enough space now.", Thread
+                    .currentThread().getName());
         }
     }
 

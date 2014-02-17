@@ -30,6 +30,7 @@ import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.junit.Test;
 
 /**
  * Test to verify the readonly feature of bookies
@@ -45,6 +46,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
     /**
      * Check readonly bookie
      */
+    @Test(timeout = 60000)
     public void testBookieShouldServeAsReadOnly() throws Exception {
         killBookie(0);
         baseConf.setReadOnlyModeEnabled(true).setDiskCheckInterval(1000);
@@ -70,6 +72,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         Thread.sleep(baseConf.getDiskCheckInterval() * 2);
         try {
             ledger.addEntry("data".getBytes());
+            fail("Should fail to add entry since there isn't enough bookies alive.");
         } catch (BKException.BKNotEnoughBookiesException e) {
             // Expected
         }
@@ -88,9 +91,75 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         }
     }
 
+    @Test(timeout = 60000)
+    public void testBookieShouldTurnWritableFromReadOnly() throws Exception {
+        killBookie(0);
+        baseConf.setReadOnlyModeEnabled(true);
+        startNewBookie();
+        LedgerHandle ledger = bkc.createLedger(2, 2, DigestType.MAC,
+                "".getBytes());
+
+        // Check new bookie with readonly mode enabled.
+        File[] ledgerDirs = bsConfs.get(1).getLedgerDirs();
+        assertEquals("Only one ledger dir should be present", 1,
+                ledgerDirs.length);
+        Bookie bookie = bs.get(1).getBookie();
+        LedgerDirsManager ledgerDirsManager = bookie.getLedgerDirsManager();
+
+        for (int i = 0; i < 10; i++) {
+            ledger.addEntry("data".getBytes());
+        }
+
+        File testDir = new File(ledgerDirs[0], "current");
+
+        // Now add the current ledger dir to filled dirs list
+        ledgerDirsManager.addToFilledDirs(testDir);
+
+        try {
+            ledger.addEntry("data".getBytes());
+            fail("Should fail to add entry since there isn't enough bookies alive.");
+        } catch (BKException.BKNotEnoughBookiesException e) {
+            // Expected
+        }
+        LOG.info("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
+        assertTrue("Bookie should be running and converted to readonly mode",
+                bookie.isRunning() && bookie.isReadOnly());
+
+        // refresh the bookkeeper client
+        bkc.readBookiesBlocking();
+        // should fail to create ledger
+        try {
+            bkc.createLedger(2, 2, DigestType.MAC, "".getBytes());
+            fail("Should fail to create a ledger since there isn't enough bookies alive.");
+        } catch (BKException.BKNotEnoughBookiesException bke) {
+            // Expected.
+        }
+
+        // Now add the current ledger dir back to writable dirs list
+        ledgerDirsManager.addToWritableDirs(testDir, true);
+
+        Thread.sleep(2000);
+
+        LOG.info("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
+        assertTrue("Bookie should be running and converted back to writable mode", bookie.isRunning()
+                && !bookie.isReadOnly());
+        // force client to read bookies
+        bkc.readBookiesBlocking();
+        LedgerHandle newLedger = bkc.createLedger(2, 2, DigestType.MAC, "".getBytes());
+        for (int i = 0; i < 10; i++) {
+            newLedger.addEntry("data".getBytes());
+        }
+        Enumeration<LedgerEntry> readEntries = newLedger.readEntries(0, 9);
+        while (readEntries.hasMoreElements()) {
+            LedgerEntry entry = readEntries.nextElement();
+            assertEquals("Entry should contain correct data", "data", new String(entry.getEntry()));
+        }
+    }
+
     /**
      * check readOnlyModeEnabled=false
      */
+    @Test(timeout = 60000)
     public void testBookieShutdownIfReadOnlyModeNotEnabled() throws Exception {
         File[] ledgerDirs = bsConfs.get(1).getLedgerDirs();
         assertEquals("Only one ledger dir should be present", 1,
@@ -109,6 +178,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
 
         try {
             ledger.addEntry("data".getBytes());
+            fail("Should fail to add entry since there isn't enough bookies alive.");
         } catch (BKException.BKNotEnoughBookiesException e) {
             // Expected
         }
@@ -124,6 +194,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
     /**
      * Check multiple ledger dirs
      */
+    @Test(timeout = 60000)
     public void testBookieContinueWritingIfMultipleLedgersPresent()
             throws Exception {
         startNewBookieWithMultipleLedgerDirs(2);
@@ -175,6 +246,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
     /**
      * Test ledger creation with readonly bookies
      */
+    @Test(timeout = 60000)
     public void testLedgerCreationShouldFailWithReadonlyBookie() throws Exception {
         killBookie(1);
         baseConf.setReadOnlyModeEnabled(true);

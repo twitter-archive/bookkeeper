@@ -82,6 +82,13 @@ public class LedgerDirsManager {
     }
 
     /**
+     * @return full-filled ledger dirs.
+     */
+    public List<File> getFullFilledLedgerDirs() {
+        return filledDirs;
+    }
+
+    /**
      * Get dirs, which are full more than threshold
      */
     public boolean isDirFull(File dir) {
@@ -106,6 +113,34 @@ public class LedgerDirsManager {
             // Notify listeners about disk full
             for (LedgerDirsListener listener : listeners) {
                 listener.diskFull(dir);
+            }
+        }
+    }
+
+    /**
+     * Add the dir to writable dirs list.
+     *
+     * @param dir Dir
+     */
+    public void addToWritableDirs(File dir, boolean underWarnThreshold) {
+        if (writableLedgerDirectories.contains(dir)) {
+            return;
+        }
+        LOG.info("{} becomes writable. Adding it to writable dirs list.", dir);
+        // Update writable dirs list
+        List<File> updatedWritableDirs = new ArrayList<File>(writableLedgerDirectories);
+        updatedWritableDirs.add(dir);
+        writableLedgerDirectories = updatedWritableDirs;
+        // Update the filled dirs list
+        List<File> newDirs = new ArrayList<File>(filledDirs);
+        newDirs.removeAll(writableLedgerDirectories);
+        filledDirs = newDirs;
+        // Notify listeners about disk writable
+        for (LedgerDirsListener listener : listeners) {
+            if (underWarnThreshold) {
+                listener.diskWritable(dir);
+            } else {
+                listener.diskJustWritable(dir);
             }
         }
     }
@@ -177,50 +212,60 @@ public class LedgerDirsManager {
 
         @Override
         public void run() {
-            try {
-                while (true) {
-                    List<File> writableDirs;
+            while (true) {
+                List<File> writableDirs;
+                try {
+                    writableDirs = getWritableLedgerDirs();
+                } catch (NoWritableLedgerDirException e) {
+                    for (LedgerDirsListener listener : listeners) {
+                        listener.allDisksFull();
+                    }
+                    break;
+                }
+                // Check all writable dirs disk space usage.
+                for (File dir : writableDirs) {
                     try {
-                        writableDirs = getWritableLedgerDirs();
-                    } catch (NoWritableLedgerDirException e) {
+                        diskChecker.checkDir(dir);
+                    } catch (DiskErrorException e) {
+                        LOG.error("Ledger directory " + dir + " failed on disk checking : ", e);
+                        // Notify disk failure to all listeners
                         for (LedgerDirsListener listener : listeners) {
-                            listener.allDisksFull();
+                            listener.diskFailed(dir);
                         }
-                        break;
-                    }
-                    // Check all writable dirs disk space usage.
-                    for (File dir : writableDirs) {
-                        try {
-                            diskChecker.checkDir(dir);
-                        } catch (DiskErrorException e) {
-                            LOG.error("Ledger directory " + dir + " failed on disk checking : ", e);
-                            // Notify disk failure to all listeners
-                            for (LedgerDirsListener listener : listeners) {
-                                listener.diskFailed(dir);
-                            }
-                        } catch (DiskWarnThresholdException e) {
-                            LOG.warn("Ledger directory {} is almost full.", dir);
-                            for (LedgerDirsListener listener : listeners) {
-                                listener.diskAlmostFull(dir);
-                            }
-                        } catch (DiskOutOfSpaceException e) {
-                            LOG.error("Ledger directory {} is out-of-space.", dir);
-                            // Notify disk full to all listeners
-                            addToFilledDirs(dir);
+                    } catch (DiskWarnThresholdException e) {
+                        LOG.warn("Ledger directory {} is almost full.", dir);
+                        for (LedgerDirsListener listener : listeners) {
+                            listener.diskAlmostFull(dir);
                         }
-                    }
-                    try {
-                        Thread.sleep(interval);
-                    } catch (InterruptedException e) {
-                        LOG.info("LedgerDirsMonitor thread is interrupted");
-                        break;
+                    } catch (DiskOutOfSpaceException e) {
+                        LOG.error("Ledger directory {} is out-of-space.", dir);
+                        // Notify disk full to all listeners
+                        addToFilledDirs(dir);
                     }
                 }
-            } catch (Exception e) {
-                LOG.error("Error Occured while checking disks", e);
-                // Notify disk failure to all listeners
-                for (LedgerDirsListener listener : listeners) {
-                    listener.fatalError();
+                List<File> fullfilledDirs = new ArrayList<File>(getFullFilledLedgerDirs());
+                // Check all full-filled disk space usage
+                for (File dir : fullfilledDirs) {
+                    try {
+                        diskChecker.checkDir(dir);
+                        addToWritableDirs(dir, true);
+                    } catch (DiskErrorException e) {
+                        //Notify disk failure to all the listeners
+                        for (LedgerDirsListener listener : listeners) {
+                            listener.diskFailed(dir);
+                        }
+                    } catch (DiskWarnThresholdException e) {
+                        // the full-filled dir become writable but still above warn threshold
+                        addToWritableDirs(dir, false);
+                    } catch (DiskOutOfSpaceException e) {
+                        // the full-filled dir is still full-filled
+                    }
+                }
+                try {
+                    Thread.sleep(interval);
+                } catch (InterruptedException e) {
+                    LOG.info("LedgerDirsMonitor thread is interrupted");
+                    break;
                 }
             }
         }
@@ -284,6 +329,22 @@ public class LedgerDirsManager {
          *            Filled disk
          */
         void diskFull(File disk);
+
+        /**
+         * This will be notified on disk detected as writable and under warn threshold
+         *
+         * @param disk
+         *          Writable disk
+         */
+        void diskWritable(File disk);
+
+        /**
+         * This will be notified on disk detected as writable but still in warn threshold
+         *
+         * @param disk
+         *          Writable disk
+         */
+        void diskJustWritable(File disk);
 
         /**
          * This will be notified whenever all disks are detected as full.

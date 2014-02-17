@@ -67,7 +67,6 @@ import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
-import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -132,7 +131,7 @@ public class Bookie extends BookieThread {
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
 
     final private String zkBookieRegPath;
-    final private String zkReadonlyRegPath;
+    final private String zkBookieReadOnlyPath;
 
     final private AtomicBoolean readOnly = new AtomicBoolean(false);
     // executor to manage the state changes for a bookie.
@@ -629,9 +628,9 @@ public class Bookie extends BookieThread {
         }
 
         // ZK ephemeral node for this Bookie.
-        zkBookieRegPath = this.bookieRegistrationPath + getMyId();
-        zkReadonlyRegPath =
-            this.bookieReadonlyRegistrationPath + "/" + getMyId();
+        String myID = getMyId();
+        zkBookieRegPath = this.bookieRegistrationPath + myID;
+        zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
     }
 
     private void checkDiskSpace() throws NoWritableLedgerDirException,
@@ -776,7 +775,7 @@ public class Bookie extends BookieThread {
         // if setting it in bookie thread, the watcher might run before bookie thread.
         running = true;
         try {
-            registerBookie().get();
+            registerBookie(true).get();
         } catch (Exception ie) {
             LOG.error("Couldn't register bookie with zookeeper, shutting down : ", ie);
             shutdown(ExitCode.ZK_REG_FAIL);
@@ -816,6 +815,18 @@ public class Bookie extends BookieThread {
             public void fatalError() {
                 LOG.error("Fatal error reported by ledgerDirsManager");
                 triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            }
+
+            @Override
+            public void diskWritable(File disk) {
+                // Transition to writable mode when a disk becomes writable again.
+                transitionToWritableMode();
+            }
+
+            @Override
+            public void diskJustWritable(File disk) {
+                // Transition to writable mode when a disk becomes writable again.
+                transitionToWritableMode();
             }
         };
     }
@@ -880,17 +891,71 @@ public class Bookie extends BookieThread {
     }
 
     /**
+     * Check existence of <i>regPath</i> and wait it expired if possible
+     *
+     * @param regPath
+     *          reg node path.
+     * @return true if regPath exists, otherwise return false
+     * @throws IOException if can't create reg path
+     */
+    protected boolean checkRegNodeAndWaitExpired(String regPath) throws IOException {
+        final CountDownLatch prevNodeLatch = new CountDownLatch(1);
+        Watcher zkPrevRegNodewatcher = new Watcher() {
+            @Override
+            public void process(WatchedEvent event) {
+                // Check for prev znode deletion. Connection expiration is
+                // not handling, since bookie has logic to shutdown.
+                if (EventType.NodeDeleted == event.getType()) {
+                    prevNodeLatch.countDown();
+                }
+            }
+        };
+        try {
+            Stat stat = zk.exists(regPath, zkPrevRegNodewatcher);
+            if (null != stat) {
+                // if the ephemeral owner isn't current zookeeper client
+                // wait for it to be expired.
+                if (stat.getEphemeralOwner() != zk.getSessionId()) {
+                    LOG.info("Previous bookie registration znode: {} exists, so waiting zk sessiontimeout:"
+                            + " {} ms for znode deletion", regPath, conf.getZkTimeout());
+                    // waiting for the previous bookie reg znode deletion
+                    if (!prevNodeLatch.await(conf.getZkTimeout(), TimeUnit.MILLISECONDS)) {
+                        throw new NodeExistsException(regPath);
+                    } else {
+                        return false;
+                    }
+                }
+                return true;
+            } else {
+                return false;
+            }
+        } catch (KeeperException ke) {
+            LOG.error("ZK exception checking and wait ephemeral znode {} expired : ", regPath, ke);
+            throw new IOException("ZK exception checking and wait ephemeral znode "
+                    + regPath + " expired", ke);
+        } catch (InterruptedException ie) {
+            LOG.error("Interrupted checking and wait ephemeral znode {} expired : ", regPath, ie);
+            throw new IOException("Interrupted checking and wait ephemeral znode "
+                    + regPath + " expired", ie);
+        }
+    }
+
+    /**
      * Register as an available bookie
      */
-    protected Future<Void> registerBookie() {
+    protected Future<Void> registerBookie(final boolean throwException) {
         return stateService.submit(new Callable<Void>() {
             @Override
-            public Void call() {
+            public Void call() throws IOException {
                 try {
                     doRegisterBookie();
-                } catch (IOException ie) {
-                    LOG.error("Couldn't register bookie with zookeeper, shutting down", ie);
-                    shutdown(ExitCode.ZK_REG_FAIL);
+                } catch (IOException ioe) {
+                    if (throwException) {
+                        throw ioe;
+                    } else {
+                        LOG.error("Couldn't register bookie with zookeeper, shutting down : ", ioe);
+                        triggerBookieShutdown(ExitCode.ZK_REG_FAIL);
+                    }
                 }
                 return (Void)null;
             }
@@ -898,54 +963,25 @@ public class Bookie extends BookieThread {
     }
 
     protected void doRegisterBookie() throws IOException {
+        doRegisterBookie(readOnly.get() ? zkBookieReadOnlyPath : zkBookieRegPath);
+    }
+
+    private void doRegisterBookie(final String regPath) throws IOException {
         if (null == zk) {
             // zookeeper instance is null, means not register itself to zk
             return;
         }
 
-        String regPath = readOnly.get() ? zkReadonlyRegPath : zkBookieRegPath;
-
         // ZK ephemeral node for this Bookie.
-        final CountDownLatch prevNodeLatch = new CountDownLatch(1);
         try{
-            Watcher zkPrevRegNodewatcher = new Watcher() {
-                @Override
-                public void process(WatchedEvent event) {
-                    // Check for prev znode deletion. Connection expiration is
-                    // not handling, since bookie has logic to shutdown.
-                    if (EventType.NodeDeleted == event.getType()) {
-                        prevNodeLatch.countDown();
-                    }
-                }
-            };
-            Stat prevNodeState = zk.exists(regPath, zkPrevRegNodewatcher);
-            // when exists call returned, we should already have a new session
-            // it is safe to check whether the owner session is current session or not
-            // if it was not current session, wait for session timeout.
-            if (null != prevNodeState) {
-                if (readOnly.get() && prevNodeState.getEphemeralOwner() == zk.getSessionId()) {
-                    // the znode is created by transition to readOnly, do nothing just quit
-                    return;
-                }
-                LOG.info("Previous bookie registration znode: "
-                        + zkBookieRegPath
-                        + " exists, so waiting zk sessiontimeout: "
-                        + conf.getZkTimeout() + "ms for znode deletion");
-                // waiting for the previous bookie reg znode deletion
-                if (!prevNodeLatch.await(conf.getZkTimeout(),
-                        TimeUnit.MILLISECONDS)) {
-                    throw new KeeperException.NodeExistsException(
-                            zkBookieRegPath);
-                }
+            if (!checkRegNodeAndWaitExpired(regPath)) {
+                // Create the ZK ephemeral node for this Bookie.
+                zk.create(regPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                        CreateMode.EPHEMERAL);
+                LOG.info("Registered myself in ZooKeeper at {}.", regPath);
             }
-
-            // Create the ZK ephemeral node for this Bookie.
-            zk.create(zkBookieRegPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
-                    CreateMode.EPHEMERAL);
-            LOG.info("Registered myself in ZooKeeper at {}.", zkBookieRegPath);
         } catch (KeeperException ke) {
-            LOG.error("ZK exception registering ephemeral Znode for Bookie!",
-                    ke);
+            LOG.error("ZK exception registering ephemeral Znode for Bookie!", ke);
             // Throw an IOException back up. This will cause the Bookie
             // constructor to error out. Alternatively, we could do a System
             // exit here as this is a fatal error.
@@ -959,7 +995,56 @@ public class Bookie extends BookieThread {
         }
     }
 
-    /*
+    /**
+     * Transition the bookie from readOnly mode to writable
+     */
+    private Future<Void> transitionToWritableMode() {
+        return stateService.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                doTransitionToWritableMode();
+                return null;
+            }
+        });
+    }
+
+    @VisibleForTesting
+    public void doTransitionToWritableMode() {
+        if (shuttingdown) {
+            return;
+        }
+        if (!readOnly.compareAndSet(true, false)) {
+            return;
+        }
+        LOG.info("Transitioning Bookie to Writable mode and will serve read/write requests.");
+        // change zookeeper state only when using zookeeper
+        if (null == zk) {
+            return;
+        }
+        try {
+            doRegisterBookie(zkBookieRegPath);
+            try {
+                // Clear the current readonly node
+                zk.delete(zkBookieReadOnlyPath, -1);
+            } catch (KeeperException.NoNodeException nne) {
+                LOG.warn("No readonly bookie registered node {} when transitioning to writable",
+                        zkBookieReadOnlyPath, nne);
+            }
+        } catch (IOException e) {
+            LOG.error("Error in transition to ReadOnly Mode."
+                    + " Shutting down", e);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+        } catch (KeeperException e) {
+            LOG.error("Error in transition to ReadOnly Mode."
+                    + " Shutting down", e);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted Exception while transitioning to ReadOnly Mode.");
+        }
+    }
+
+    /**
      * Transition the bookie to readOnly mode
      */
     private Future<Void> transitionToReadOnlyMode() {
@@ -974,6 +1059,9 @@ public class Bookie extends BookieThread {
 
     @VisibleForTesting
     public void doTransitionToReadOnlyMode() {
+        if (shuttingdown) {
+            return;
+        }
         if (!readOnly.compareAndSet(false, true)) {
             return;
         }
@@ -1000,15 +1088,19 @@ public class Bookie extends BookieThread {
                     // this node is just now created by someone.
                 }
             }
-            // Create the readonly node
-            zk.create(this.zkReadonlyRegPath,
-                      new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
+            doRegisterBookie(zkBookieReadOnlyPath);
             try {
                 // Clear the current registered node
                 zk.delete(zkBookieRegPath, -1);
-            } catch (NoNodeException nne) {
-                // this node is remove due to session expired.
+            } catch (KeeperException.NoNodeException nne) {
+                LOG.warn("No writable bookie registered node {} when transitioning to readonly",
+                        zkBookieRegPath, nne);
             }
+        } catch (IOException e) {
+            LOG.error("Error in transition to ReadOnly Mode."
+                    + " Shutting down", e);
+            triggerBookieShutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
         } catch (KeeperException e) {
             LOG.error("Error in transition to ReadOnly Mode."
                     + " Shutting down", e);
@@ -1059,7 +1151,7 @@ public class Bookie extends BookieThread {
                 if (event.getType().equals(EventType.None) &&
                     event.getState().equals(KeeperState.Expired)) {
                     // schedule a re-register operation
-                    registerBookie();
+                    registerBookie(false);
                 }
             }
         });
@@ -1099,8 +1191,9 @@ public class Bookie extends BookieThread {
     // because shutdown can be called from sync thread which would be
     // interrupted by shutdown call.
     void triggerBookieShutdown(final int exitCode) {
-        LOG.info("Trigger shutting down bookie server, exit code {}.", exitCode);
-        Thread shutdownThread = new Thread() {
+        LOG.info("Triggering shutdown of Bookie-{} with exitCode {}",
+                 conf.getBookiePort(), exitCode);
+        BookieThread shutdownThread = new BookieThread("BookieShutdownTrigger") {
             @Override
             public void run() {
                 Bookie.this.shutdown(exitCode);

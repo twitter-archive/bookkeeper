@@ -31,6 +31,7 @@ import junit.framework.Assert;
 
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.test.ZooKeeperUtil;
 import org.apache.bookkeeper.util.DiskChecker.DiskErrorException;
@@ -79,6 +80,64 @@ public class BookieInitializationTest {
         void testRegisterBookie(ServerConfiguration conf) throws IOException {
             super.doRegisterBookie();
         }
+    }
+
+    /**
+     * Verify the bookie server exit code. On ZooKeeper exception, should return
+     * exit code ZK_REG_FAIL = 4
+     */
+    @Test(timeout = 20000)
+    public void testExitCodeZK_REG_FAIL() throws Exception {
+        File tmpDir = File.createTempFile("bookie", "test");
+        tmpDir.delete();
+        tmpDir.mkdir();
+
+        final ServerConfiguration conf = new ServerConfiguration()
+                .setZkServers(null).setJournalDirName(tmpDir.getPath())
+                .setLedgerDirNames(new String[] { tmpDir.getPath() });
+
+        // simulating ZooKeeper exception by assigning a closed zk client to bk
+        BookieServer bkServer = new BookieServer(conf) {
+            protected Bookie newBookie(ServerConfiguration conf)
+                    throws IOException, KeeperException, InterruptedException,
+                    BookieException {
+                MockBookie bookie = new MockBookie(conf);
+                bookie.zk = zkc;
+                zkc.close();
+                return bookie;
+            };
+        };
+
+        bkServer.start();
+        bkServer.join();
+        Assert.assertEquals("Failed to return ExitCode.ZK_REG_FAIL",
+                ExitCode.ZK_REG_FAIL, bkServer.getExitCode());
+    }
+
+    @Test(timeout = 20000)
+    public void testBookieRegistrationWithSameZooKeeperClient() throws Exception {
+        File tmpDir = File.createTempFile("bookie", "test");
+        tmpDir.delete();
+        tmpDir.mkdir();
+
+        final ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
+                .setZkServers(null).setJournalDirName(tmpDir.getPath())
+                .setLedgerDirNames(new String[] { tmpDir.getPath() });
+
+        final String bkRegPath = conf.getZkAvailableBookiesPath() + "/"
+                + InetAddress.getLocalHost().getHostAddress() + ":"
+                + conf.getBookiePort();
+
+        MockBookie b = new MockBookie(conf);
+        b.zk = zkc;
+        b.testRegisterBookie(conf);
+        Assert.assertNotNull("Bookie registration node doesn't exists!",
+                             zkc.exists(bkRegPath, false));
+
+        // test register bookie again if the registeration node is created by itself.
+        b.testRegisterBookie(conf);
+        Assert.assertNotNull("Bookie registration node doesn't exists!",
+                zkc.exists(bkRegPath, false));
     }
 
     /**
