@@ -151,7 +151,9 @@ public class BookKeeper {
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
 
-        mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
+        mainWorkerPool = OrderedSafeExecutor.newBuilder()
+                .name("bkc-worker").numThreads(conf.getNumWorkerThreads())
+                .statsLogger(statsLogger).build();
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();
@@ -229,7 +231,9 @@ public class BookKeeper {
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
 
-        mainWorkerPool = new OrderedSafeExecutor(conf.getNumWorkerThreads());
+        mainWorkerPool = OrderedSafeExecutor.newBuilder()
+                .name("bkc-worker").numThreads(conf.getNumWorkerThreads())
+                .statsLogger(statsLogger).build();
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();

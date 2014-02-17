@@ -11,12 +11,21 @@ import java.util.concurrent.ConcurrentMap;
  * bookie client stats logger
  */
 public class ClientStatsProvider {
-    private static final ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> pcbookieLoggerMap
-            = new ConcurrentHashMap<InetSocketAddress, PCBookieClientStatsLogger>();
+    private static final ConcurrentMap<String, ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger>> pcBookieLoggerMaps =
+            new ConcurrentHashMap<String, ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger>>();
 
     public static BookkeeperClientStatsLogger createBookKeeperClientStatsLogger(StatsLogger statsLogger) {
         StatsLogger underlying = statsLogger.scope("bookkeeper_client");
         return new BookkeeperClientStatsLogger(underlying);
+    }
+
+    private static ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> getLoggerMap(String scope) {
+        ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> loggerMap = pcBookieLoggerMaps.get(scope);
+        if (null == loggerMap) {
+            loggerMap = new ConcurrentHashMap<InetSocketAddress, PCBookieClientStatsLogger>();
+            pcBookieLoggerMaps.putIfAbsent(scope, loggerMap);
+        }
+        return loggerMap;
     }
 
     /**
@@ -26,18 +35,29 @@ public class ClientStatsProvider {
     public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(ClientConfiguration conf,
                                                                            InetSocketAddress addr,
                                                                            StatsLogger parentStatsLogger) {
-        if (!conf.getEnablePerHostStats()) {
-            return new PCBookieClientStatsLogger(parentStatsLogger.scope("per_channel_bookie_client"));
+        return getPCBookieStatsLoggerInstance("", conf, addr, parentStatsLogger);
+    }
+
+    public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(String scope,
+                                                                           ClientConfiguration conf,
+                                                                           InetSocketAddress addr,
+                                                                           StatsLogger parentStatsLogger) {
+        StatsLogger underlyingLogger = parentStatsLogger.scope("per_channel_bookie_client");
+        if (!"".equals(scope)) {
+            underlyingLogger = underlyingLogger.scope(scope);
         }
-        PCBookieClientStatsLogger statsLogger = pcbookieLoggerMap.get(addr);
+        if (!conf.getEnablePerHostStats()) {
+            return new PCBookieClientStatsLogger(underlyingLogger);
+        }
+        ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> loggerMap = getLoggerMap(scope);
+        PCBookieClientStatsLogger statsLogger = loggerMap.get(addr);
         if (null == statsLogger) {
             StringBuilder nameBuilder = new StringBuilder();
             nameBuilder.append(addr.getAddress().getHostAddress().replace('.', '_').replace('-', '_'))
                 .append("_").append(addr.getPort());
-            StatsLogger underlying =
-                parentStatsLogger.scope("per_channel_bookie_client").scope(nameBuilder.toString());
+            StatsLogger underlying = underlyingLogger.scope(nameBuilder.toString());
             PCBookieClientStatsLogger newStatsLogger = new PCBookieClientStatsLogger(underlying);
-            PCBookieClientStatsLogger oldStatsLogger = pcbookieLoggerMap.putIfAbsent(addr, newStatsLogger);
+            PCBookieClientStatsLogger oldStatsLogger = loggerMap.putIfAbsent(addr, newStatsLogger);
             if (null == oldStatsLogger) {
                 statsLogger = newStatsLogger;
             } else {

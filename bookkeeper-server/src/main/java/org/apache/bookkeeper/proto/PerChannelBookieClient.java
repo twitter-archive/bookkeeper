@@ -76,6 +76,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     // TODO: txnId generator per bookie?
     public static final AtomicLong txnIdGenerator = new AtomicLong(0);
 
+    // stats logger for 'pre' stage: complection key is removed from map (either response arrived or timeout)
+    private final PCBookieClientStatsLogger preStatsLogger;
+    // stats logger for 'callback' stage: callback is triggered
     private final PCBookieClientStatsLogger statsLogger;
     /**
      * Maps a completion key to a completion object that is of the respective completion type.
@@ -186,12 +189,22 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         this.state = ConnectionState.DISCONNECTED;
         this.readTimeoutTimer = null;
         this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(conf, addr, parentStatsLogger);
+        this.preStatsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance("pre", conf, addr, parentStatsLogger);
         this.timeoutExecutor = timeoutExecutor;
         // Schedule the timeout task
         if (null != this.timeoutExecutor) {
             this.timeoutExecutor.scheduleWithFixedDelay(new TimeoutTask(), conf.getTimeoutTaskIntervalMillis(),
                     conf.getTimeoutTaskIntervalMillis(), TimeUnit.MILLISECONDS);
         }
+    }
+
+    private CompletionValue removeCompletionKey(CompletionKey key, boolean completed) {
+        CompletionValue value = completionObjects.remove(key);
+        if (completed && null != value) {
+            long elapsedMicros = MathUtils.elapsedMicroSec(value.requestTimeNanos);
+            this.preStatsLogger.getOpStatsLogger(value.op).registerSuccessfulEvent(elapsedMicros);
+        }
+        return value;
     }
 
     private void connect() {
@@ -550,7 +563,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     void errorOutReadKey(final CompletionKey key) {
-        final ReadCompletion rc = (ReadCompletion)completionObjects.remove(key);
+        final ReadCompletion rc = (ReadCompletion)removeCompletionKey(key, false);
         if (null == rc) {
             return;
         }
@@ -572,7 +585,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     void errorOutAddKey(final CompletionKey key) {
-        final AddCompletion ac = (AddCompletion)completionObjects.remove(key);
+        final AddCompletion ac = (AddCompletion)removeCompletionKey(key, false);
         if (null == ac) {
             return;
         }
@@ -717,8 +730,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final Response response = (Response) e.getMessage();
         final BKPacketHeader header = response.getHeader();
 
-        final CompletionValue completionValue = completionObjects.remove(newCompletionKey(header.getTxnId(),
-                header.getOperation()));
+        final CompletionValue completionValue = removeCompletionKey(newCompletionKey(header.getTxnId(),
+                header.getOperation()), true);
         if (null == completionValue) {
             // Unexpected response, so log it. The txnId should have been present.
             if (LOG.isDebugEnabled()) {
@@ -819,16 +832,21 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
 
     static abstract class CompletionValue {
+        private final PCBookieClientOp op;
         public final Object ctx;
         // The ledgerId and entryId values are passed to the callbacks in case of a timeout.
         // TODO: change the callback signatures to remove these.
         protected final long ledgerId;
         protected final long entryId;
+        protected final long requestTimeNanos;
 
-        public CompletionValue(Object ctx, long ledgerId, long entryId) {
+        public CompletionValue(PCBookieClientOp op,
+                               Object ctx, long ledgerId, long entryId) {
+            this.op = op;
             this.ctx = ctx;
             this.ledgerId = ledgerId;
             this.entryId = entryId;
+            this.requestTimeNanos = MathUtils.nowInNano();
         }
     }
 
@@ -838,8 +856,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         public ReadCompletion(final PCBookieClientStatsLogger statsLogger, final PCBookieClientOp statsOp,
                               final ReadEntryCallback originalCallback,
                               final Object originalCtx, final long ledgerId, final long entryId) {
-            super(originalCtx, ledgerId, entryId);
-            final long requestTimeNanos = MathUtils.nowInNano();
+            super(statsOp, originalCtx, ledgerId, entryId);
             this.cb = new ReadEntryCallback() {
                 @Override
                 public void readEntryComplete(int rc, long ledgerId, long entryId, ChannelBuffer buffer, Object ctx) {
@@ -861,7 +878,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         public AddCompletion(final PCBookieClientStatsLogger statsLogger, final WriteCallback originalCallback,
                              final Object originalCtx, final long ledgerId, final long entryId) {
-            super(originalCtx, ledgerId, entryId);
+            super(PCBookieClientOp.ADD_ENTRY, originalCtx, ledgerId, entryId);
             final long requestTimeNanos = MathUtils.nowInNano();
             this.cb = new WriteCallback() {
                 @Override
@@ -888,9 +905,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     class CompletionKey {
-        public final long txnId;
-        public final OperationType operationType;
-        public final long requestAt;
+        final long txnId;
+        final OperationType operationType;
+        final long requestAt;
 
         CompletionKey(long txnId, OperationType operationType) {
             this.txnId = txnId;

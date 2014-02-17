@@ -19,12 +19,20 @@ package org.apache.bookkeeper.util;
  */
 
 import java.util.Random;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ScheduledExecutorService;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 
 /**
  * This class provides 2 things over the java {@link ScheduledExecutorService}.
@@ -42,21 +50,109 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
  *
  */
 public class OrderedSafeExecutor {
-    ExecutorService threads[];
-    Random rand = new Random();
+    final String name;
+    final ThreadPoolExecutor threads[];
+    final BlockingQueue<Runnable> queues[];
+    final Random rand = new Random();
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+
+        private String name = "OrderedSafeExecutor";
+        private int numThreads = Runtime.getRuntime().availableProcessors();
+        private ThreadFactory threadFactory = null;
+        private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
+
+        public Builder name(String name) {
+            this.name = name;
+            return this;
+        }
+
+        public Builder numThreads(int num) {
+            this.numThreads = num;
+            return this;
+        }
+
+        public Builder threadFactory(ThreadFactory threadFactory) {
+            this.threadFactory = threadFactory;
+            return this;
+        }
+
+        public Builder statsLogger(StatsLogger statsLogger) {
+            this.statsLogger = statsLogger;
+            return this;
+        }
+
+        public OrderedSafeExecutor build() {
+            if (null == threadFactory) {
+                threadFactory = Executors.defaultThreadFactory();
+            }
+            return new OrderedSafeExecutor(name, numThreads, threadFactory, statsLogger);
+        }
+
+    }
 
     public OrderedSafeExecutor(int numThreads) {
         this(numThreads, Executors.defaultThreadFactory());
     }
 
     public OrderedSafeExecutor(int numThreads, ThreadFactory threadFactory) {
+        this("OrderedSafeExecutor", numThreads, threadFactory, NullStatsLogger.INSTANCE);
+    }
+
+    private OrderedSafeExecutor(String name, int numThreads, ThreadFactory threadFactory,
+                                StatsLogger statsLogger) {
         if (numThreads <= 0) {
             throw new IllegalArgumentException();
         }
-
-        threads = new ExecutorService[numThreads];
+        this.name = name;
+        threads = new ThreadPoolExecutor[numThreads];
+        queues = new BlockingQueue[numThreads];
         for (int i = 0; i < numThreads; i++) {
-            threads[i] = Executors.newSingleThreadExecutor(threadFactory);
+            queues[i] = new LinkedBlockingQueue<Runnable>();
+            threads[i] =  new ThreadPoolExecutor(1, 1,
+                    0L, TimeUnit.MILLISECONDS, queues[i],
+                    new ThreadFactoryBuilder()
+                        .setNameFormat(name + "-orderedsafeexecutor-" + i + "-%d")
+                        .setThreadFactory(threadFactory)
+                        .build());
+            final int idx = i;
+            statsLogger.registerGauge(String.format("%s-queue-%d", name, i), new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
+
+                @Override
+                public Number getSample() {
+                    return queues[idx].size();
+                }
+            });
+            statsLogger.registerGauge(String.format("%s-completed-tasks-%d", name, i), new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
+
+                @Override
+                public Number getSample() {
+                    return threads[idx].getCompletedTaskCount();
+                }
+            });
+            statsLogger.registerGauge(String.format("%s-total-tasks-%d", name, i), new Gauge<Number>() {
+                @Override
+                public Number getDefaultValue() {
+                    return 0;
+                }
+
+                @Override
+                public Number getSample() {
+                    return threads[idx].getTaskCount();
+                }
+            });
         }
     }
 
