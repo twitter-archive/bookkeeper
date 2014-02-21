@@ -178,7 +178,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
             // Single region, fall back to RackAwareEnsemblePlacement
             if (numRegions < 2) {
-                perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
+                return perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
             }
 
             int remainingEnsemble = ensembleSize;
