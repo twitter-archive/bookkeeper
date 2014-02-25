@@ -163,7 +163,6 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         try {
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
             RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, REGIONID_DISTANCE_FROM_LEAVES);
-            BookieNode prevNode = null;
             int numRegions = perRegionPlacement.keySet().size();
             // If we were unable to get region information
             if (numRegions < 1) {
@@ -189,24 +188,43 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // Try and place as many nodes in a region as possible, the ones that cannot be
             // accommodated are placed on other regions
             // Within each region try and follow rack aware placement
-            for (String region: perRegionPlacement.keySet()) {
-                RackawareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
-                int targetEnsembleSize = Math.min(remainingEnsemble, (ensembleSize + numRegions - 1) / numRegions);
-                while(targetEnsembleSize > 0) {
-                    int targetWriteQuorum = Math.max(1, Math.min(remainingWriteQuorum, Math.round(1.0f * writeQuorumSize * targetEnsembleSize / ensembleSize)));
-                    RRTopologyAwareCoverageEnsemble tempEnsemble = new RRTopologyAwareCoverageEnsemble(ensemble);
-                    try {
-                        policyWithinRegion.newEnsembleInternal(targetEnsembleSize, targetWriteQuorum, excludeBookies, tempEnsemble);
-                        ensemble = tempEnsemble;
-                        remainingEnsemble -= targetEnsembleSize;
-                        remainingWriteQuorum -= writeQuorumSize;
-                        LOG.trace("Allocated {} bookies in region {}", targetEnsembleSize, region);
-                        break;
-                    } catch (BKException.BKNotEnoughBookiesException exc) {
-                        LOG.trace("Could not locate {} bookies in region {}", targetEnsembleSize, region);
-                        targetEnsembleSize--;
+            Set<String> regions = new HashSet<String>(perRegionPlacement.keySet());
+            while (remainingEnsemble > 0) {
+                Set<String> regionsToExclude = new HashSet<String>();
+                for (String region: regions) {
+                    RackawareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
+                    int targetEnsembleSize = Math.min(remainingEnsemble, (ensembleSize + numRegions - 1) / numRegions);
+                    boolean success = false;
+                    while(targetEnsembleSize > 0) {
+                        int targetWriteQuorum = Math.max(1, Math.min(remainingWriteQuorum, Math.round(1.0f * writeQuorumSize * targetEnsembleSize / ensembleSize)));
+                        RRTopologyAwareCoverageEnsemble tempEnsemble = new RRTopologyAwareCoverageEnsemble(ensemble);
+                        try {
+                            policyWithinRegion.newEnsembleInternal(targetEnsembleSize, targetWriteQuorum, excludeBookies, tempEnsemble);
+                            ensemble = tempEnsemble;
+                            remainingEnsemble -= targetEnsembleSize;
+                            remainingWriteQuorum -= writeQuorumSize;
+                            success = true;
+                            LOG.info("Allocated {} bookies in region {} : {}",
+                                    new Object[]{targetEnsembleSize, region, ensemble});
+                            break;
+                        } catch (BKException.BKNotEnoughBookiesException exc) {
+                            LOG.warn("Could not allocate {} bookies in region {}, try allocating {} bookies",
+                                     new Object[] { targetEnsembleSize, region, (targetEnsembleSize - 1) });
+                            targetEnsembleSize--;
+                        }
+                    }
+                    // we couldn't allocate bookies from a region, exclude it.
+                    if (!success) {
+                        regionsToExclude.add(region);
                     }
                 }
+                regions.removeAll(regionsToExclude);
+            }
+            ArrayList<InetSocketAddress> bookieList = ensemble.toList();
+            if (ensembleSize != bookieList.size()) {
+                LOG.error("Not enough {} bookies are available to form an ensemble : {}.",
+                          ensembleSize, bookieList);
+                throw new BKException.BKNotEnoughBookiesException();
             }
             return ensemble.toList();
         } finally {

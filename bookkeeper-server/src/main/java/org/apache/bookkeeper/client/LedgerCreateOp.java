@@ -103,6 +103,13 @@ class LedgerCreateOp implements GenericCallback<Long> {
             return;
         }
 
+        if (metadata.getEnsembleSize() != ensemble.size()) {
+            LOG.error("Failed to allocate enough bookie to create ledger : expected {} bookies," +
+                      " but only {} allocated.", metadata.getEnsembleSize(), ensemble.size());
+            createComplete(BKException.Code.NotEnoughBookiesException, null);
+            return;
+        }
+
         /*
          * Add ensemble to the configuration
          */

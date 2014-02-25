@@ -38,7 +38,6 @@ import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.net.ScriptBasedMapping;
 import org.apache.bookkeeper.util.ReflectionUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.commons.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -242,7 +241,13 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                 }
                 prevNode = selectFromRack(curRack, excludeNodes, ensemble, ensemble);
             }
-            return ensemble.toList();
+            ArrayList<InetSocketAddress> bookieList = ensemble.toList();
+            if (ensembleSize != bookieList.size()) {
+                LOG.error("Not enough {} bookies are available to form an ensemble : {}.",
+                          ensembleSize, bookieList);
+                throw new BKNotEnoughBookiesException();
+            }
+            return bookieList;
         } finally {
             rwLock.readLock().unlock();
         }
