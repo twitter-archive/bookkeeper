@@ -171,6 +171,10 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                         openComplete(BKException.Code.LedgerRecoveryException, null);
                     }
                 }
+                @Override
+                public String toString() {
+                    return String.format("Recover(%d)", ledgerId);
+                }
             });
         } else {
             lh.asyncReadLastConfirmed(new ReadLastConfirmedCallback() {

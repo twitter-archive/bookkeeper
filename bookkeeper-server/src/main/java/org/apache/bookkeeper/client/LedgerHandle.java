@@ -361,6 +361,10 @@ public class LedgerHandle {
                                         }
                                     }
                                 }
+                                @Override
+                                public String toString() {
+                                    return String.format("ReReadMetadataForClose(%d)", ledgerId);
+                                }
                             });
                         } else if (rc != BKException.Code.OK) {
                             LOG.error("Error update ledger metadata for ledger " + ledgerId + " : " + rc);
@@ -369,10 +373,20 @@ public class LedgerHandle {
                             cb.closeComplete(BKException.Code.OK, LedgerHandle.this, ctx);
                         }
                     }
-                };
+
+                    @Override
+                    public String toString() {
+                        return String.format("WriteLedgerConfigForClose(%d)", ledgerId);
+                    }
+                }
 
                 writeLedgerConfig(new CloseCb());
 
+            }
+
+            @Override
+            public String toString() {
+                return String.format("CloseLedgerHandle(%d)", ledgerId);
             }
         });
     }
@@ -892,7 +906,12 @@ public class LedgerHandle {
             // the failed bookie has been replaced
             unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
         }
-    };
+
+        @Override
+        public String toString() {
+            return String.format("ChangeEnsemble(%d)", ledgerId);
+        }
+    }
 
     /**
      * Callback which is reading the ledgerMetadata present in zk. This will try
@@ -921,7 +940,12 @@ public class LedgerHandle {
                             new Object[] { ensembleInfo.newEnsemble, metadata, newMeta });
                     handleUnrecoverableErrorDuringAdd(rc);
                 }
-            };
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("ReReadLedgerMetadata(%d)", ledgerId);
         }
 
         /**
@@ -1068,6 +1092,10 @@ public class LedgerHandle {
                                 recover(cb);
                             }
                         }
+                        @Override
+                        public String toString() {
+                            return String.format("ReReadMetadataForRecover(%d)", ledgerId);
+                        }
                     });
                 } else if (rc == BKException.Code.OK) {
                     recoveryOp.notifyClose();
@@ -1076,6 +1104,10 @@ public class LedgerHandle {
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
                 }
+            }
+            @Override
+            public String toString() {
+                return String.format("WriteLedgerConfigForRecoer(%d)", ledgerId);
             }
         });
     }

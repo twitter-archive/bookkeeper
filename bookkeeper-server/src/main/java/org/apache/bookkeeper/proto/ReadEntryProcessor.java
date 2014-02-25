@@ -146,4 +146,9 @@ class ReadEntryProcessor extends PacketProcessorBase {
         }
         sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST, toSend);
     }
+
+    @Override
+    public String toString() {
+        return String.format("ReadEntry(%d, %d)", ledgerId, entryId);
+    }
 }

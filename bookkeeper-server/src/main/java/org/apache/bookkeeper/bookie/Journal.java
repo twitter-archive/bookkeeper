@@ -318,6 +318,11 @@ class Journal extends BookieThread {
             }
             cb.writeComplete(0, ledgerId, entryId, null, ctx);
         }
+
+        @Override
+        public String toString() {
+            return String.format("QueueEntry(%d, %d)", ledgerId, entryId);
+        }
     }
 
     private class ForceWriteRequest {

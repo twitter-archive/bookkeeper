@@ -58,6 +58,8 @@ public class OrderedSafeExecutor {
     final OpStatsLogger taskExecutionStats;
     final boolean traceTaskExecution;
 
+    final static long SECOND_MICROS = TimeUnit.SECONDS.toMicros(1);
+
     public static Builder newBuilder() {
         return new Builder();
     }
@@ -117,7 +119,12 @@ public class OrderedSafeExecutor {
         public void safeRun() {
             long startNanos = MathUtils.nowInNano();
             this.runnable.safeRun();
-            taskExecutionStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
+            long elapsedMicroSec = MathUtils.elapsedMicroSec(startNanos);
+            taskExecutionStats.registerSuccessfulEvent(elapsedMicroSec);
+            if (elapsedMicroSec >= SECOND_MICROS) {
+                logger.warn("Runnable {}:{} took too long {} micros to execute.",
+                            new Object[] { runnable, runnable.getClass(), elapsedMicroSec });
+            }
         }
     }
 
@@ -286,6 +293,12 @@ public class OrderedSafeExecutor {
                     @Override
                     public void safeRun() {
                         safeOperationComplete(rc, result);
+                    }
+                    @Override
+                    public String toString() {
+                        return String.format("Callback(key=%s, name=%s)",
+                                             orderingKey,
+                                             OrderedSafeGenericCallback.this);
                     }
                 });
         }

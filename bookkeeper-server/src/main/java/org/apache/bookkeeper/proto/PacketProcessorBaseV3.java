@@ -64,4 +64,9 @@ abstract class PacketProcessorBaseV3 extends SafeRunnable {
         header.setTxnId(request.getHeader().getTxnId());
         return header.build();
     }
+
+    @Override
+    public String toString() {
+        return request.toString();
+    }
 }

@@ -118,7 +118,7 @@ public class LedgerFragmentReplicator {
      * then it re-replicates that batched entry fragments one by one. After
      * re-replication of all batched entry fragments, it will update the
      * ensemble info with new Bookie once
-     * 
+     *
      * @param lh
      *            LedgerHandle for the ledger
      * @param lf
@@ -222,7 +222,7 @@ public class LedgerFragmentReplicator {
      * This method asynchronously recovers a specific ledger entry by reading
      * the values via the BookKeeper Client (which would read it from the other
      * replicas) and then writing it to the chosen new bookie.
-     * 
+     *
      * @param entryId
      *            Ledger Entry ID to recover.
      * @param lh
@@ -296,7 +296,7 @@ public class LedgerFragmentReplicator {
             }
         }, null);
     }
-    
+
     /**
      * Callback for recovery of a single ledger fragment. Once the fragment has
      * had all entries replicated, update the ensemble in zookeeper. Once
@@ -398,6 +398,10 @@ public class LedgerFragmentReplicator {
                                             fragmentStartId, lh, oldBookie,
                                             newBookie);
                                 }
+                            }
+                            @Override
+                            public String toString() {
+                                return String.format("ReReadMetadataForUpdateEnsemble(%d)", lh.getId());
                             }
                         });
                 return;

@@ -118,4 +118,9 @@ class WriteEntryProcessor extends PacketProcessorBase {
                          buildResponse(rc));
         }
     }
+
+    @Override
+    public String toString() {
+        return String.format("WriteEntry(%d, %d)", ledgerId, entryId);
+    }
 }

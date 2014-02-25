@@ -82,6 +82,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
     private final static Logger LOG = LoggerFactory.getLogger(PerChannelBookieClient.class);
     public static final int MAX_FRAME_LENGTH = 2 * 1024 * 1024; // 2M
+    private final static long SECOND_MICROS = TimeUnit.SECONDS.toMicros(1);
     // TODO: txnId generator per bookie?
     public static final AtomicLong txnIdGenerator = new AtomicLong(0);
 
@@ -132,6 +133,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         CompletionValue value = completionObjects.remove(key);
         if (completed && null != value) {
             long elapsedMicros = MathUtils.elapsedMicroSec(value.requestTimeNanos);
+            if (OperationType.ADD_ENTRY == key.operationType && elapsedMicros > SECOND_MICROS) {
+                LOG.warn("ADD(txn={}, entry=({}, {})) takes too long {} micros to complete.",
+                         new Object[] { key.txnId, value.ledgerId, value.entryId, elapsedMicros });
+            }
             this.preStatsLogger.getOpStatsLogger(value.op).registerSuccessfulEvent(elapsedMicros);
         }
         return value;
@@ -524,6 +529,11 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 rc.cb.readEntryComplete(BKException.Code.BookieHandleNotAvailableException,
                                         rc.ledgerId, rc.entryId, null, rc.ctx);
             }
+
+            @Override
+            public String toString() {
+                return String.format("ErrorOutReadKey(%s)", key);
+            }
         });
     }
 
@@ -547,6 +557,11 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
                 ac.cb.writeComplete(BKException.Code.BookieHandleNotAvailableException, ac.ledgerId,
                                     ac.entryId, addr, ac.ctx);
+            }
+
+            @Override
+            public String toString() {
+                return String.format("ErrorOutAddKey(%s)", key);
             }
         });
     }
@@ -690,6 +705,13 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                                     addr + ", ignoring");
                             break;
                     }
+                }
+
+                @Override
+                public String toString() {
+                    return String.format("HandleResponse(Txn=%d, Type=%s, Entry=(%d, %d))",
+                                         header.getTxnId(), header.getOperation(),
+                                         completionValue.ledgerId, completionValue.entryId);
                 }
             });
         }
