@@ -69,6 +69,7 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // Stats
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
+    protected final static String ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
 
     /**
      * Construct a default client-side configuration
@@ -522,6 +523,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setEnablePerHostStats(boolean enabled) {
         setProperty(ENABLE_PER_HOST_STATS, enabled);
+        return this;
+    }
+
+    /**
+     * Whether to enable recording task execution stats.
+     *
+     * @return flag to enable/disable recording task execution stats.
+     */
+    public boolean getEnableTaskExecutionStats() {
+        return getBoolean(ENABLE_TASK_EXECUTION_STATS, false);
+    }
+
+    /**
+     * Enable/Disable recording task execution stats.
+     *
+     * @param enabled
+     *          flag to enable/disable recording task execution stats.
+     * @return client configuration.
+     */
+    public ClientConfiguration setEnableTaskExecutionStats(boolean enabled) {
+        setProperty(ENABLE_TASK_EXECUTION_STATS, enabled);
         return this;
     }
 }

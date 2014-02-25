@@ -32,6 +32,7 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 
 /**
@@ -54,6 +55,8 @@ public class OrderedSafeExecutor {
     final ThreadPoolExecutor threads[];
     final BlockingQueue<Runnable> queues[];
     final Random rand = new Random();
+    final OpStatsLogger taskExecutionStats;
+    final boolean traceTaskExecution;
 
     public static Builder newBuilder() {
         return new Builder();
@@ -65,6 +68,7 @@ public class OrderedSafeExecutor {
         private int numThreads = Runtime.getRuntime().availableProcessors();
         private ThreadFactory threadFactory = null;
         private StatsLogger statsLogger = NullStatsLogger.INSTANCE;
+        private boolean traceTaskExecution = false;
 
         public Builder name(String name) {
             this.name = name;
@@ -86,13 +90,35 @@ public class OrderedSafeExecutor {
             return this;
         }
 
+        public Builder traceTaskExecution(boolean enabled) {
+            this.traceTaskExecution = enabled;
+            return this;
+        }
+
         public OrderedSafeExecutor build() {
             if (null == threadFactory) {
                 threadFactory = Executors.defaultThreadFactory();
             }
-            return new OrderedSafeExecutor(name, numThreads, threadFactory, statsLogger);
+            return new OrderedSafeExecutor(name, numThreads, threadFactory,
+                                           statsLogger, traceTaskExecution);
         }
 
+    }
+
+    private class TimedRunnable extends SafeRunnable {
+
+        SafeRunnable runnable;
+
+        TimedRunnable(SafeRunnable runnable) {
+            this.runnable = runnable;
+        }
+
+        @Override
+        public void safeRun() {
+            long startNanos = MathUtils.nowInNano();
+            this.runnable.safeRun();
+            taskExecutionStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
+        }
     }
 
     public OrderedSafeExecutor(int numThreads) {
@@ -100,11 +126,11 @@ public class OrderedSafeExecutor {
     }
 
     public OrderedSafeExecutor(int numThreads, ThreadFactory threadFactory) {
-        this("OrderedSafeExecutor", numThreads, threadFactory, NullStatsLogger.INSTANCE);
+        this("OrderedSafeExecutor", numThreads, threadFactory, NullStatsLogger.INSTANCE, false);
     }
 
     private OrderedSafeExecutor(String name, int numThreads, ThreadFactory threadFactory,
-                                StatsLogger statsLogger) {
+                                StatsLogger statsLogger, boolean traceTaskExecution) {
         if (numThreads <= 0) {
             throw new IllegalArgumentException();
         }
@@ -154,6 +180,9 @@ public class OrderedSafeExecutor {
                 }
             });
         }
+        // stats
+        this.taskExecutionStats = statsLogger.scope(name).getOpStatsLogger("task_execution");
+        this.traceTaskExecution = traceTaskExecution;
     }
 
     public ExecutorService chooseThread() {
@@ -176,11 +205,19 @@ public class OrderedSafeExecutor {
 
     }
 
+    private SafeRunnable timedRunnable(SafeRunnable r) {
+        if (traceTaskExecution) {
+            return new TimedRunnable(r);
+        } else {
+            return r;
+        }
+    }
+
     /**
      * schedules a one time action to execute
      */
     public void submit(SafeRunnable r) {
-        chooseThread().submit(r);
+        chooseThread().submit(timedRunnable(r));
     }
 
     /**
@@ -189,7 +226,7 @@ public class OrderedSafeExecutor {
      * @param r
      */
     public void submitOrdered(Object orderingKey, SafeRunnable r) {
-        chooseThread(orderingKey).submit(r);
+        chooseThread(orderingKey).submit(timedRunnable(r));
     }
 
     public void shutdown() {

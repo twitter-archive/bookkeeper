@@ -35,9 +35,7 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ReflectionUtils;
-import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
-import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -152,8 +150,11 @@ public class BookKeeper {
         this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
 
         mainWorkerPool = OrderedSafeExecutor.newBuilder()
-                .name("bkc-worker").numThreads(conf.getNumWorkerThreads())
-                .statsLogger(statsLogger).build();
+                .name("bkc-worker")
+                .numThreads(conf.getNumWorkerThreads())
+                .statsLogger(statsLogger)
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .build();
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();
@@ -232,8 +233,11 @@ public class BookKeeper {
         this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
 
         mainWorkerPool = OrderedSafeExecutor.newBuilder()
-                .name("bkc-worker").numThreads(conf.getNumWorkerThreads())
-                .statsLogger(statsLogger).build();
+                .name("bkc-worker")
+                .numThreads(conf.getNumWorkerThreads())
+                .statsLogger(statsLogger)
+                .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .build();
         bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();
