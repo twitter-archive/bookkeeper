@@ -65,13 +65,11 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
 
         InetSocketAddress addr = getBookie(0);
-        AtomicLong bytesOutstanding = new AtomicLong(0);
         for (int i = 0; i < 1000; i++) {
-            PerChannelBookieClient client = new PerChannelBookieClient(executor, channelFactory,
-                                                                       addr, bytesOutstanding);
-            client.connectIfNeededAndDoOp(new GenericCallback<Void>() {
+            PerChannelBookieClient client = new PerChannelBookieClient(executor, channelFactory, addr);
+            client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
                     @Override
-                    public void operationComplete(int rc, Void result) {
+                    public void operationComplete(int rc, PerChannelBookieClient client) {
                         // do nothing, we don't care about doing anything with the connection,
                         // we just want to trigger it connecting.
                     }
@@ -84,9 +82,9 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
 
     @Test(timeout=60000)
     public void testDisconnectRace() throws Exception {
-        final GenericCallback<Void> nullop = new GenericCallback<Void>() {
+        final GenericCallback<PerChannelBookieClient> nullop = new GenericCallback<PerChannelBookieClient>() {
             @Override
-            public void operationComplete(int rc, Void result) {
+            public void operationComplete(int rc, PerChannelBookieClient client) {
                 // do nothing, we don't care about doing anything with the connection,
                 // we just want to trigger it connecting.
             }
@@ -97,9 +95,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
         InetSocketAddress addr = getBookie(0);
 
-        AtomicLong bytesOutstanding = new AtomicLong(0);
-        final PerChannelBookieClient client = new PerChannelBookieClient(executor,
-            channelFactory, addr, bytesOutstanding);
+        final PerChannelBookieClient client = new PerChannelBookieClient(executor, channelFactory, addr);
         final AtomicBoolean inconsistent = new AtomicBoolean(false);
         final AtomicBoolean running = new AtomicBoolean(true);
         Thread connectThread = new Thread() {

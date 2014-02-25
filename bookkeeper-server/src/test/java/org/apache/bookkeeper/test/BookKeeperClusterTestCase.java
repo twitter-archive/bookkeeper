@@ -124,8 +124,6 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     protected void startBKCluster() throws Exception {
         baseClientConf.setZkServers(zkUtil.getZooKeeperConnectString());
-        // Set this to a high value so that other tests are not affected.
-        baseClientConf.setTimeoutTaskIntervalMillis(100000L);
         if (numBookies > 0) {
             bkc = new BookKeeperTestClient(baseClientConf);
         }

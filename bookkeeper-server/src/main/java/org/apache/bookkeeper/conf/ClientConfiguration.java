@@ -50,6 +50,7 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // NIO Parameters
     protected final static String CLIENT_TCP_NODELAY = "clientTcpNoDelay";
+    protected final static String NUM_CHANNELS_PER_BOOKIE = "numChannelsPerBookie";
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
@@ -60,6 +61,8 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String ADD_ENTRY_TIMEOUT_SEC = "addEntryTimeoutSec";
     protected final static String READ_ENTRY_TIMEOUT_SEC = "readEntryTimeoutSec";
     protected final static String TIMEOUT_TASK_INTERVAL_MILLIS = "timeoutTaskIntervalMillis";
+    protected final static String TIMEOUT_TIMER_TICK_DURATION_MS = "timeoutTimerTickDurationMs";
+    protected final static String TIMEOUT_TIMER_NUM_TICKS = "timeoutTimerNumTicks";
 
     // Number Woker Threads
     protected final static String NUM_WORKER_THREADS = "numWorkerThreads";
@@ -205,6 +208,27 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Get num channels per bookie.
+     *
+     * @return num channels per bookie.
+     */
+    public int getNumChannelsPerBookie() {
+        return getInt(NUM_CHANNELS_PER_BOOKIE, 1);
+    }
+
+    /**
+     * Set num channels per bookie.
+     *
+     * @param numChannelsPerBookie
+     *          num channels per bookie.
+     * @return client configuration.
+     */
+    public ClientConfiguration setNumChannelsPerBookie(int numChannelsPerBookie) {
+        setProperty(NUM_CHANNELS_PER_BOOKIE, numChannelsPerBookie);
+        return this;
+    }
+
+    /**
      * Get zookeeper servers to connect
      *
      * @return zookeeper servers
@@ -331,13 +355,57 @@ public class ClientConfiguration extends AbstractConfiguration {
      * We do it more aggressive to not accumulate pending requests due to slow responses.
      * @return
      */
+    @Deprecated
     public long getTimeoutTaskIntervalMillis() {
         return getLong(TIMEOUT_TASK_INTERVAL_MILLIS,
-                TimeUnit.SECONDS.toMillis(Math.min(getAddEntryTimeout(), getReadEntryTimeout())));
+                TimeUnit.SECONDS.toMillis(Math.min(getAddEntryTimeout(), getReadEntryTimeout())) / 2);
     }
 
+    @Deprecated
     public ClientConfiguration setTimeoutTaskIntervalMillis(long timeoutMillis) {
         setProperty(TIMEOUT_TASK_INTERVAL_MILLIS, Long.toString(timeoutMillis));
+        return this;
+    }
+
+    /**
+     * Get the tick duration in milliseconds that used for timeout timer.
+     *
+     * @return tick duration in milliseconds
+     */
+    public long getTimeoutTimerTickDurationMs() {
+        return getLong(TIMEOUT_TIMER_TICK_DURATION_MS, 100);
+    }
+
+    /**
+     * Set the tick duration in milliseconds that used for timeout timer.
+     *
+     * @param tickDuration
+     *          tick duration in milliseconds.
+     * @return client configuration.
+     */
+    public ClientConfiguration setTimeoutTimerTickDurationMs(long tickDuration) {
+        setProperty(TIMEOUT_TIMER_TICK_DURATION_MS, tickDuration);
+        return this;
+    }
+
+    /**
+     * Get number of ticks that used for timeout timer.
+     *
+     * @return number of ticks that used for timeout timer.
+     */
+    public int getTimeoutTimerNumTicks() {
+        return getInt(TIMEOUT_TIMER_NUM_TICKS, 1024);
+    }
+
+    /**
+     * Set number of ticks that used for timeout timer.
+     *
+     * @param numTicks
+     *          number of ticks that used for timeout timer.
+     * @return client configuration.
+     */
+    public ClientConfiguration setTimeoutTimerNumTicks(int numTicks) {
+        setProperty(TIMEOUT_TIMER_NUM_TICKS, numTicks);
         return this;
     }
 

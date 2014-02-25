@@ -21,25 +21,18 @@ package org.apache.bookkeeper.client;
  *
  */
 
-import org.junit.*;
 import java.net.InetSocketAddress;
-import java.util.Enumeration;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.BookKeeperAdmin;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.junit.Assert;
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,59 +100,4 @@ public class TestReadTimeout extends BookKeeperClusterTestCase {
         Assert.assertTrue("Bookie set should not match", beforeSet.size() != 0);
     }
 
-    private boolean testTimeoutTask(long timeoutTaskMillis, int readTimeoutSecInit, int bookieSleepTime,
-                                 int readTimeoutSecAfter, long threadSleepMillis, boolean shouldFail) throws Exception {
-
-        baseClientConf.setTimeoutTaskIntervalMillis(timeoutTaskMillis);
-        baseClientConf.setReadTimeout(readTimeoutSecInit);
-
-        final AtomicBoolean done = new AtomicBoolean(false);
-
-        LedgerHandle lh = bkc.createLedger(3, 3, digestType, "testPasswd".getBytes());
-        String temp = "Foobar";
-        lh.addEntry(temp.getBytes());
-        // The before set will be the next striped ensemble. We've added only one entry.
-        Set<InetSocketAddress> beforeSet = new HashSet<InetSocketAddress>(lh.getLedgerMetadata().getEnsemble(1));
-        InetSocketAddress sleepingBookie = beforeSet.iterator().next();
-        CountDownLatch latch = sleepBookie(sleepingBookie, bookieSleepTime);
-        latch.await();
-
-        baseClientConf.setReadTimeout(readTimeoutSecAfter);
-        lh.asyncAddEntry(temp.getBytes(), new AddCallback() {
-            @Override
-            public void addComplete(int i, LedgerHandle ledgerHandle, long l, Object o) {
-                done.set(true);
-            }
-        }, null);
-        Thread.sleep(threadSleepMillis);
-        if (done.get() == shouldFail) {
-            return false;
-        }
-        if (!shouldFail && lh.getLedgerMetadata().getEnsemble(1).contains(sleepingBookie)) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Initial timeout task interval is 3 seconds. Read timeout is 8 seconds. So the PerChannelBookieClients will
-     * have channels with a ReadTimeoutHandler configured for 8 seconds. We write an entry and then put a bookie
-     * for that entry to sleep for 10 seconds. We wake up after 4 seconds and because the timeout task should have triggered
-     * and changed the ensemble to another set of bookies, our add operation should have completed.
-     * @throws Exception
-     */
-    @Test
-    public void testTimeoutTaskSuccess() throws Exception {
-        assertTrue("Did not timeout and add entry.", testTimeoutTask(3000L, 8, 10, 1, 5000L, false));
-    }
-
-    /**
-     * The timeout task should not trigger in this case and neither should the read timeout. The add would not have
-     * succeeded.
-     * @throws Exception
-     */
-    @Test
-    public void testTimeoutTaskFail() throws Exception {
-        assertTrue("Timed out and added entry when we shouldn't have", testTimeoutTask(8000L, 8, 10, 1, 3000L, true));
-    }
 }
