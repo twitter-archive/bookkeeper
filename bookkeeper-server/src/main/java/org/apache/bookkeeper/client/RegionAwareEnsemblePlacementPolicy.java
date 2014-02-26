@@ -47,6 +47,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
     private Configuration conf;
+    private ImmutableSet<InetSocketAddress> readOnlyBookies = null;
 
     public RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -140,6 +141,10 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                     regionSet = new HashSet<InetSocketAddress>();
                 }
                 perRegionPlacement.get(region).onClusterChangedInternal(leftBookies, regionSet);
+            }
+
+            if (!readOnlyBookies.isEmpty()) {
+                this.readOnlyBookies = ImmutableSet.copyOf(readOnlyBookies);
             }
 
             return deadBookies;
@@ -288,16 +293,21 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         } else {
             List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
             List<Integer> reorderList = new ArrayList<Integer>(writeSet.size());
+            List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
             for (Integer idx : writeSet) {
                 InetSocketAddress address = ensemble.get(idx);
                 String region = getRegion(address);
-                if (region.equals(myRegion)) {
+                if (null == knownBookies.get(address) &&
+                    ((null == readOnlyBookies) || !readOnlyBookies.contains(address))) {
+                    unAvailableList.add(idx);
+                } else if (region.equals(myRegion)) {
                     finalList.add(idx);
                 } else {
                     reorderList.add(idx);
                 }
             }
             finalList.addAll(reorderList);
+            finalList.addAll(unAvailableList);
             return finalList;
         }
     }

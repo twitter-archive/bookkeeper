@@ -108,6 +108,13 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         repp = new RegionAwareEnsemblePlacementPolicy();
         repp.initialize(conf);
 
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
         List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(0);
@@ -133,6 +140,99 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(writeSet, reoderSet);
     }
 
+    @Test
+    public void testNodeDown() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(3);
+        expectedSet.add(1);
+        expectedSet.add(2);
+        expectedSet.add(0);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+    @Test
+    public void testNodeReadOnly() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        Set<InetSocketAddress> ro = new HashSet<InetSocketAddress>();
+        ro.add(addr1);
+        repp.onClusterChanged(addrs, ro);
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(0);
+        expectedSet.add(3);
+        expectedSet.add(1);
+        expectedSet.add(2);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+
+
+    @Test
+    public void testTwoNodesDown() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        addrs.remove(addr2);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(3);
+        expectedSet.add(2);
+        expectedSet.add(0);
+        expectedSet.add(1);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+    @Test
     public void testReplaceBookieWithEnoughBookiesInSameRegion() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
