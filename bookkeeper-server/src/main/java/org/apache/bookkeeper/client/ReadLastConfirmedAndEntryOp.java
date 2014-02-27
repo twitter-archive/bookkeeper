@@ -3,13 +3,9 @@ package org.apache.bookkeeper.client;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -34,7 +30,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     Set<InetSocketAddress> heardFromHosts;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
-    final AtomicBoolean complete = new AtomicBoolean(false);
+    final AtomicBoolean requestComplete = new AtomicBoolean(false);
 
     final long requestTimeNano;
     private final LedgerHandle lh;
@@ -114,12 +110,28 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         boolean fail(int rc) {
             if (complete.compareAndSet(false, true)) {
                 this.rc = rc;
-                submitCallback(rc, lastAddConfirmed, null);
+                translateAndSetFirstError(rc);
+                completeRequest();
                 return true;
             } else {
                 return false;
             }
         }
+
+        private void translateAndSetFirstError(int rc) {
+            if (BKException.Code.OK == firstError ||
+                BKException.Code.NoSuchEntryException == firstError ||
+                BKException.Code.NoSuchLedgerExistsException == firstError) {
+                firstError = rc;
+            } else if (BKException.Code.BookieHandleNotAvailableException == firstError &&
+                BKException.Code.NoSuchEntryException != rc &&
+                BKException.Code.NoSuchLedgerExistsException != rc) {
+                // if other exception rather than NoSuchEntryException is returned
+                // we need to update firstError to indicate that it might be a valid read but just failed.
+                firstError = rc;
+            }
+        }
+
 
         /**
          * Log error <i>errMsg</i> and reattempt read from <i>host</i>.
@@ -132,17 +144,8 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
          *          read result code
          */
         void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            if (BKException.Code.OK == firstError ||
-                BKException.Code.NoSuchEntryException == firstError ||
-                BKException.Code.NoSuchLedgerExistsException == firstError) {
-                firstError = rc;
-            } else if (BKException.Code.BookieHandleNotAvailableException == firstError &&
-                BKException.Code.NoSuchEntryException != rc &&
-                BKException.Code.NoSuchLedgerExistsException != rc) {
-                // if other exception rather than NoSuchEntryException is returned
-                // we need to update firstError to indicate that it might be a valid read but just failed.
-                firstError = rc;
-            }
+            translateAndSetFirstError(rc);
+
             if (BKException.Code.NoSuchEntryException == rc ||
                 BKException.Code.NoSuchLedgerExistsException == rc) {
                 ++numMissedEntryReads;
@@ -314,7 +317,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
 
         synchronized InetSocketAddress sendNextRead() {
-            if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getWriteQuorumSize()) {
+            if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
 
@@ -509,37 +512,42 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                 lh.updateLastConfirmed(rCtx.getLastAddConfirmed(), 0L);
             }
 
+            hasValidResponse = true;
+
             if (entryId != BookieProtocol.LAST_ADD_CONFIRMED) {
                 if (request.complete(bookie, buffer, entryId)) {
                     // callback immediately
                     submitCallback(BKException.Code.OK, lastAddConfirmed, request);
-                    complete.set(true);
+                    requestComplete.set(true);
                     heardFromHosts.add(bookie);
-                    hasValidResponse = true;
                 }
             } else {
                 LOG.debug("Empty Response {}, {}", ledgerId, lastAddConfirmed);
                 request.logErrorAndReattemptRead(bookie, "Empty Response", rc);
                 return;
             }
-        } else if (BKException.Code.UnauthorizedAccessException == rc && !complete.get()) {
+        } else if (BKException.Code.UnauthorizedAccessException == rc && !requestComplete.get()) {
             submitCallback(rc, lastAddConfirmed, null);
-            complete.set(true);
+            requestComplete.set(true);
         } else {
             request.logErrorAndReattemptRead(bookie, "Error: " + BKException.getMessage(rc), rc);
             return;
         }
 
+        if (numResponsesPending <= 0) {
+            completeRequest();
+        }
+    }
 
-        if (numResponsesPending <= 0 && !complete.get()) {
+    private void completeRequest() {
+        if (requestComplete.compareAndSet(false, true)) {
             if (!hasValidResponse) {
                 // no success called
-                submitCallback(BKException.Code.LedgerRecoveryException, lastAddConfirmed, null);
+                submitCallback(request.firstError, lastAddConfirmed, null);
             } else {
                 // callback
                 submitCallback(BKException.Code.OK, lastAddConfirmed, null);
             }
-            complete.set(true);
         }
     }
 

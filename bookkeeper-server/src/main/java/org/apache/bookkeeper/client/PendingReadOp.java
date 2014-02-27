@@ -343,14 +343,16 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
 
-                // Do it a bit pessimistically, only when finished trying all replicas
-                // to check whether we received more missed reads than maxMissedReadsAllowed
-                if (BKException.Code.BookieHandleNotAvailableException == firstError &&
-                    numMissedEntryReads > maxMissedReadsAllowed) {
-                    firstError = BKException.Code.NoSuchEntryException;
-                }
+                if (!readsOutstanding()) {
+                    // Do it a bit pessimistically, only when finished trying all replicas
+                    // to check whether we received more missed reads than maxMissedReadsAllowed
+                    if (BKException.Code.BookieHandleNotAvailableException == firstError &&
+                        numMissedEntryReads > maxMissedReadsAllowed) {
+                        firstError = BKException.Code.NoSuchEntryException;
+                    }
 
-                fail(firstError);
+                    fail(firstError);
+                }
                 return null;
             }
 
