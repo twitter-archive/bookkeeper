@@ -47,7 +47,6 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
     private Configuration conf;
-    private ImmutableSet<InetSocketAddress> readOnlyBookies = null;
 
     public RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -82,74 +81,48 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public Set<InetSocketAddress> onClusterChanged(Set<InetSocketAddress> writableBookies,
-                                                   Set<InetSocketAddress> readOnlyBookies) {
-        rwLock.writeLock().lock();
-        try {
-            ImmutableSet<InetSocketAddress> joinedBookies, leftBookies, deadBookies;
-            Set<InetSocketAddress> oldBookieSet = knownBookies.keySet();
-            // left bookies : bookies in known bookies, but not in new writable bookie cluster.
-            leftBookies = Sets.difference(oldBookieSet, writableBookies).immutableCopy();
-            // joined bookies : bookies in new writable bookie cluster, but not in known bookies
-            joinedBookies = Sets.difference(writableBookies, oldBookieSet).immutableCopy();
-            // dead bookies.
-            deadBookies = Sets.difference(leftBookies, readOnlyBookies).immutableCopy();
+    protected void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies) {
+        super.handleBookiesThatLeft(leftBookies);
+
+        for(RackawareEnsemblePlacementPolicy policy: perRegionPlacement.values()) {
+            policy.handleBookiesThatLeft(leftBookies);
+        }
+    }
+
+    @Override
+    protected void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies) {
+        Map<String, Set<InetSocketAddress>> perRegionClusterChange = new HashMap<String, Set<InetSocketAddress>>();
+
+        // node joined
+        for (InetSocketAddress addr : joinedBookies) {
+            BookieNode node = createBookieNode(addr);
+            topology.add(node);
+            knownBookies.put(addr, node);
+            String region = getLocalRegion(node);
+            if (null == perRegionPlacement.get(region)) {
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(conf));
+            }
+
+            Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
+            if (null == regionSet) {
+                regionSet = new HashSet<InetSocketAddress>();
+                regionSet.add(addr);
+                perRegionClusterChange.put(region, regionSet);
+            } else {
+                regionSet.add(addr);
+            }
+
             if (LOG.isDebugEnabled()) {
-                LOG.debug(
-                    "Cluster changed : left bookies are {}, joined bookies are {}, while dead bookies are {}.",
-                    new Object[] { leftBookies, joinedBookies, deadBookies });
+                LOG.debug("Cluster changed : bookie {} joined the cluster.", addr);
             }
+        }
 
-            // node left
-            for (InetSocketAddress addr : leftBookies) {
-                BookieNode node = knownBookies.remove(addr);
-                topology.remove(node);
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Cluster changed : bookie {} left from cluster.", addr);
-                }
+        for(String region: perRegionPlacement.keySet()) {
+            Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
+            if (null == regionSet) {
+                regionSet = new HashSet<InetSocketAddress>();
             }
-
-            Map<String, Set<InetSocketAddress>> perRegionClusterChange = new HashMap<String, Set<InetSocketAddress>>();
-
-            // node joined
-            for (InetSocketAddress addr : joinedBookies) {
-                BookieNode node = createBookieNode(addr);
-                topology.add(node);
-                knownBookies.put(addr, node);
-                String region = getLocalRegion(node);
-                if (null == perRegionPlacement.get(region)) {
-                    perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(conf));
-                }
-
-                Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
-                if (null == regionSet) {
-                    regionSet = new HashSet<InetSocketAddress>();
-                    regionSet.add(addr);
-                    perRegionClusterChange.put(region, regionSet);
-                } else {
-                    regionSet.add(addr);
-                }
-
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Cluster changed : bookie {} joined the cluster.", addr);
-                }
-            }
-
-            for(String region: perRegionPlacement.keySet()) {
-                Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
-                if (null == regionSet) {
-                    regionSet = new HashSet<InetSocketAddress>();
-                }
-                perRegionPlacement.get(region).onClusterChangedInternal(leftBookies, regionSet);
-            }
-
-            if (!readOnlyBookies.isEmpty()) {
-                this.readOnlyBookies = ImmutableSet.copyOf(readOnlyBookies);
-            }
-
-            return deadBookies;
-        } finally {
-            rwLock.writeLock().unlock();
+            perRegionPlacement.get(region).handleBookiesThatJoined(regionSet);
         }
     }
 
@@ -289,7 +262,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     @Override
     public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
         if (UNKNOWN_REGION.equals(myRegion)) {
-            return writeSet;
+            return super.reorderReadSequence(ensemble, writeSet);
         } else {
             List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
             List<Integer> reorderList = new ArrayList<Integer>(writeSet.size());

@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import junit.framework.TestCase;
@@ -41,7 +42,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
     static final Logger LOG = LoggerFactory.getLogger(TestRackawareEnsemblePlacementPolicy.class);
 
     RackawareEnsemblePlacementPolicy repp;
+    final ArrayList<InetSocketAddress> ensemble = new ArrayList<InetSocketAddress>();
+    final List<Integer> writeSet = new ArrayList<Integer>();
     Configuration conf = new CompositeConfiguration();
+    InetSocketAddress addr1, addr2, addr3, addr4;
 
     @Override
     protected void setUp() throws Exception {
@@ -52,6 +56,23 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         StaticDNSResolver.addNodeToRack("localhost", NetworkTopology.DEFAULT_RACK);
         LOG.info("Set up static DNS Resolver.");
         conf.setProperty(REPP_DNS_RESOLVER_CLASS, StaticDNSResolver.class.getName());
+        addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostName(), NetworkTopology.DEFAULT_REGION + "/rack1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostName(), NetworkTopology.DEFAULT_RACK);
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostName(), NetworkTopology.DEFAULT_RACK);
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostName(), NetworkTopology.DEFAULT_REGION + "/rack2");
+        ensemble.add(addr1);
+        ensemble.add(addr2);
+        ensemble.add(addr3);
+        ensemble.add(addr4);
+        for (int i = 0; i < 4; i++) {
+            writeSet.add(i);
+        }
+
         repp = new RackawareEnsemblePlacementPolicy();
         repp.initialize(conf);
     }
@@ -62,12 +83,47 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         super.tearDown();
     }
 
+    static void updateMyRack(String rack) throws Exception {
+        StaticDNSResolver.addNodeToRack(InetAddress.getLocalHost().getHostAddress(), rack);
+        StaticDNSResolver.addNodeToRack(InetAddress.getLocalHost().getHostName(), rack);
+        StaticDNSResolver.addNodeToRack("127.0.0.1", rack);
+        StaticDNSResolver.addNodeToRack("localhost", rack);
+    }
+
+    @Test
+    public void testNodeDown() throws Exception {
+        repp.uninitalize();
+        updateMyRack(NetworkTopology.DEFAULT_RACK);
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(1);
+        expectedSet.add(2);
+        expectedSet.add(3);
+        expectedSet.add(0);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
     @Test
     public void testReplaceBookieWithEnoughBookiesInSameRack() throws Exception {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
         // update dns mapping
         StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
         StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/default-region/r2");
@@ -87,10 +143,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
 
     @Test
     public void testReplaceBookieWithEnoughBookiesInDifferentRack() throws Exception {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
         // update dns mapping
         StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
         StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/default-region/r2");
@@ -114,10 +170,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
 
     @Test
     public void testReplaceBookieWithNotEnoughBookies() throws Exception {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
         // update dns mapping
         StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
         StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/default-region/r2");
@@ -145,10 +201,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
 
     @Test
     public void testNewEnsembleWithSingleRack() throws Exception {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.9", 3181);
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -198,14 +254,14 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
 
     @Test
     public void testNewEnsembleWithEnoughRacks() throws Exception {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
-        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.5", 3181);
-        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.6", 3181);
-        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.7", 3181);
-        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.9", 3181);
         // update dns mapping
         StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
         StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/default-region/r2");
@@ -241,10 +297,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
      */
     @Test
     public void testRemoveBookieFromCluster() {
-        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
-        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
-        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.3", 3181);
-        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
         // update dns mapping
         StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
         StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/default-region/r2");

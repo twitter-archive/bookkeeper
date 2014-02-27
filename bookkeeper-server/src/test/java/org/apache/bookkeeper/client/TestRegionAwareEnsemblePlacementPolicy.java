@@ -97,7 +97,8 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         repp.initialize(conf);
 
         List<Integer> reorderSet = repp.reorderReadSequence(ensemble, writeSet);
-        assertTrue(reorderSet == writeSet);
+        assertFalse(reorderSet == writeSet);
+        assertEquals(writeSet, reorderSet);
     }
 
     @Test

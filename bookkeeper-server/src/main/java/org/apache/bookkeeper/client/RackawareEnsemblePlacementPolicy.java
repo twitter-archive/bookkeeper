@@ -81,6 +81,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected final Map<InetSocketAddress, BookieNode> knownBookies;
     protected BookieNode localNode;
     protected final ReentrantReadWriteLock rwLock;
+    protected ImmutableSet<InetSocketAddress> readOnlyBookies = null;
+
 
     public RackawareEnsemblePlacementPolicy() {
         topology = new NetworkTopology();
@@ -145,27 +147,6 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
         return netLoc;
     }
 
-    protected void onClusterChangedInternal(Set<InetSocketAddress> leftBookies, Set<InetSocketAddress> joinedBookies) {
-        // node left
-        for (InetSocketAddress addr : leftBookies) {
-            BookieNode node = knownBookies.remove(addr);
-            topology.remove(node);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Cluster changed : bookie {} left from cluster.", addr);
-            }
-        }
-
-        // node joined
-        for (InetSocketAddress addr : joinedBookies) {
-            BookieNode node = createBookieNode(addr);
-            topology.add(node);
-            knownBookies.put(addr, node);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Cluster changed : bookie {} joined the cluster.", addr);
-            }
-        }
-    }
-
     @Override
     public Set<InetSocketAddress> onClusterChanged(Set<InetSocketAddress> writableBookies,
             Set<InetSocketAddress> readOnlyBookies) {
@@ -184,10 +165,40 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                         "Cluster changed : left bookies are {}, joined bookies are {}, while dead bookies are {}.",
                         new Object[] { leftBookies, joinedBookies, deadBookies });
             }
-            onClusterChangedInternal(leftBookies, joinedBookies);
+            handleBookiesThatLeft(leftBookies);
+            handleBookiesThatJoined(joinedBookies);
+
+            if (!readOnlyBookies.isEmpty()) {
+                this.readOnlyBookies = ImmutableSet.copyOf(readOnlyBookies);
+            }
+
             return deadBookies;
         } finally {
             rwLock.writeLock().unlock();
+        }
+    }
+
+    protected void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies) {
+        for (InetSocketAddress addr : leftBookies) {
+            BookieNode node = knownBookies.remove(addr);
+            if(null != node) {
+                topology.remove(node);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Cluster changed : bookie {} left from cluster.", addr);
+                }
+            }
+        }
+    }
+
+    protected void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies) {
+        // node joined
+        for (InetSocketAddress addr : joinedBookies) {
+            BookieNode node = createBookieNode(addr);
+            topology.add(node);
+            knownBookies.put(addr, node);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Cluster changed : bookie {} joined the cluster.", addr);
+            }
         }
     }
 
@@ -370,4 +381,20 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
         throw new BKNotEnoughBookiesException();
     }
 
+    @Override
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+        List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
+        List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
+        for (Integer idx : writeSet) {
+            InetSocketAddress address = ensemble.get(idx);
+            if (null == knownBookies.get(address) &&
+                ((null == readOnlyBookies) || !readOnlyBookies.contains(address))) {
+                unAvailableList.add(idx);
+            } else {
+                finalList.add(idx);
+            }
+        }
+        finalList.addAll(unAvailableList);
+        return finalList;
+    }
 }
