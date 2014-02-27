@@ -28,6 +28,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.TimedLedgerManager;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
@@ -138,29 +139,10 @@ public class BookKeeper {
 
     public BookKeeper(final ClientConfiguration conf, StatsLogger statsLogger)
             throws IOException, InterruptedException, KeeperException {
-        this.conf = conf;
-        this.zk = ZooKeeperClient.createConnectedZooKeeperClient(
-                conf.getZkServers(), conf.getZkTimeout());
-
-        this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
-                                                                Executors.newCachedThreadPool());
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
-        this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
-        // initialize the ensemble placement
-        this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
-
-        mainWorkerPool = OrderedSafeExecutor.newBuilder()
-                .name("bkc-worker")
-                .numThreads(conf.getNumWorkerThreads())
-                .statsLogger(statsLogger)
-                .traceTaskExecution(conf.getEnableTaskExecutionStats())
-                .build();
-        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
-        bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
-        bookieWatcher.readBookiesBlocking();
-
-        ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
-        ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
+        this(conf,
+            ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout()),
+            new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
+            Executors.newCachedThreadPool()), statsLogger);
 
         ownChannelFactory = true;
         ownZKHandle = true;
@@ -186,6 +168,12 @@ public class BookKeeper {
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger)
+        throws IOException, InterruptedException, KeeperException {
+        this(conf, zk, statsLogger, null);
+        ownChannelFactory = true;
+    }
+
+    public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger, DNSToSwitchMapping dnsToSwitchMapping)
             throws IOException, InterruptedException, KeeperException {
         this(conf, zk, new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
                 Executors.newCachedThreadPool()), statsLogger);
@@ -216,6 +204,12 @@ public class BookKeeper {
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
                       StatsLogger statsLogger)
+        throws IOException, InterruptedException, KeeperException {
+        this(conf, zk, channelFactory, statsLogger, null);
+    }
+
+    public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
+                      StatsLogger statsLogger, DNSToSwitchMapping dnsResolver)
             throws IOException, InterruptedException, KeeperException {
         if (zk == null || channelFactory == null) {
             throw new NullPointerException();
@@ -230,7 +224,7 @@ public class BookKeeper {
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         // initialize the ensemble placement
-        this.placementPolicy = initializeEnsemblePlacementPolicy(conf);
+        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver);
 
         mainWorkerPool = OrderedSafeExecutor.newBuilder()
                 .name("bkc-worker")
@@ -246,11 +240,15 @@ public class BookKeeper {
         ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
     }
 
-    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(ClientConfiguration conf)
+    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(DNSToSwitchMapping dnsResolver)
         throws IOException {
         try {
             Class<? extends EnsemblePlacementPolicy> policyCls = conf.getEnsemblePlacementPolicy();
-            return ReflectionUtils.newInstance(policyCls).initialize(conf);
+            if (null == dnsResolver) {
+                return ReflectionUtils.newInstance(policyCls).initialize(conf);
+            } else {
+                return ReflectionUtils.newInstance(policyCls).initialize(dnsResolver);
+            }
         } catch (ConfigurationException e) {
             throw new IOException("Failed to initialize ensemble placement policy : ", e);
         }

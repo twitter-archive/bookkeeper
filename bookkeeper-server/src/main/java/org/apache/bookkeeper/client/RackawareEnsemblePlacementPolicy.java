@@ -95,9 +95,33 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
         return new BookieNode(addr, resolveNetworkLocation(addr));
     }
 
+    /**
+     * Initialize the policy.
+     *
+     * @param dnsResolver the object used to resolve addresses to their network address
+     * @return initialized ensemble placement policy
+     */
+    @Override
+    public RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
+        this.dnsResolver = dnsResolver;
+        BookieNode bn;
+        try {
+            bn = createBookieNode(new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), 0));
+        } catch (UnknownHostException e) {
+            LOG.error("Failed to get local host address : ", e);
+            bn = null;
+        }
+        localNode = bn;
+        LOG.info("Initialize rackaware ensemble placement policy @ {} @ {} : {}.",
+            new Object[] { localNode, null == localNode ? "Unknown" : localNode.getNetworkLocation(),
+                dnsResolver.getClass().getName() });
+        return this;
+    }
+
     @Override
     public RackawareEnsemblePlacementPolicy initialize(Configuration conf) {
         String dnsResolverName = conf.getString(REPP_DNS_RESOLVER_CLASS, ScriptBasedMapping.class.getName());
+        DNSToSwitchMapping dnsResolver;
         try {
             dnsResolver = ReflectionUtils.newInstance(dnsResolverName, DNSToSwitchMapping.class);
             if (dnsResolver instanceof Configurable) {
@@ -108,18 +132,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             dnsResolver = new DefaultResolver();
         }
 
-        BookieNode bn;
-        try {
-            bn = createBookieNode(new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), 0));
-        } catch (UnknownHostException e) {
-            LOG.error("Failed to get local host address : ", e);
-            bn = null;
-        }
-        localNode = bn;
-        LOG.info("Initialize rackaware ensemble placement policy @ {} @ {} : {}.",
-                 new Object[] { localNode, null == localNode ? "Unknown" : localNode.getNetworkLocation(),
-                         dnsResolver.getClass().getName() });
-        return this;
+        return initialize(dnsResolver);
     }
 
     @Override

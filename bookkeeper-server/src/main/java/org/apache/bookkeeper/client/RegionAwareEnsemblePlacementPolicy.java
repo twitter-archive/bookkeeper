@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
@@ -46,7 +47,6 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
-    private Configuration conf;
 
     public RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -100,7 +100,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             knownBookies.put(addr, node);
             String region = getLocalRegion(node);
             if (null == perRegionPlacement.get(region)) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(conf));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver));
             }
 
             Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
@@ -129,7 +129,13 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     @Override
     public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf) {
         super.initialize(conf);
-        this.conf = conf;
+        myRegion = getLocalRegion(localNode);
+        return this;
+    }
+
+    @Override
+    public RegionAwareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
+        super.initialize(dnsResolver);
         myRegion = getLocalRegion(localNode);
         return this;
     }

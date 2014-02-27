@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.commons.configuration.Configuration;
 
 /**
@@ -97,6 +98,17 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
             }
         }
         return retList;
+    }
+
+    /**
+     * Initialize the policy.
+     *
+     * @param dnsResolver the object used to resolve addresses to their network address
+     * @return initialized ensemble placement policy
+     */
+    @Override
+    public EnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
+        return this;
     }
 
     @Override
