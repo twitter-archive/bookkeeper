@@ -108,7 +108,8 @@ class FileInfo extends Observable {
     }
 
     synchronized Observable waitForLastAddConfirmedUpdate(long previousLAC, Observer observe) {
-        if (lac > previousLAC || isClosed || ((stateBits & STATE_FENCED_BIT) == STATE_FENCED_BIT)) {
+        if ((null != lac && lac > previousLAC)
+                || isClosed || ((stateBits & STATE_FENCED_BIT) == STATE_FENCED_BIT)) {
             LOG.trace("Wait For LAC {} , {}", this.lac, previousLAC);
             return null;
         }

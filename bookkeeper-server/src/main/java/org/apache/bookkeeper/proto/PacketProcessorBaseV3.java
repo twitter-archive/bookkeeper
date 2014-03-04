@@ -33,7 +33,7 @@ abstract class PacketProcessorBaseV3 extends SafeRunnable {
 
     protected void sendResponse(StatusCode code, Enum statOp, ByteBuffer...response) {
         srcConn.sendResponse(response);
-        if (StatusCode.EIO == code) {
+        if (StatusCode.EOK == code) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
         } else {
