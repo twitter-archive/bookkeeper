@@ -21,10 +21,16 @@
 
 package org.apache.bookkeeper.bookie;
 
-import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
-import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
+import com.google.common.util.concurrent.UncheckedExecutionException;
+
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
@@ -36,18 +42,46 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Observable;
 import java.util.Observer;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class IndexPersistenceMgr {
     private final static Logger LOG = LoggerFactory.getLogger(IndexPersistenceMgr.class);
-    ConcurrentMap<Long, FileInfo> fileInfoCache = new ConcurrentHashMap<Long, FileInfo>();
+
+    final RemovalListener<Long, FileInfo> fileInfoEvictionListener =
+        new RemovalListener<Long, FileInfo>() {
+            @Override
+            public void onRemoval(RemovalNotification<Long, FileInfo> notification) {
+                if (notification.wasEvicted()) {
+                    FileInfo fileInfo = notification.getValue();
+                    if (null == fileInfo) {
+                        return;
+                    }
+                    try {
+                        fileInfo.close(true);
+                        numOpenLedgers.decrementAndGet();
+                        LOG.info("Ledger {} is evicted from file info cache.",
+                                 notification.getKey());
+                    } catch (IOException ie) {
+                        LOG.error("Exception when ledger {} is evicted from file info cache.", ie);
+                    }
+                }
+            }
+        };
+
+    final Cache<Long, FileInfo> fileInfoCache;
+    final AtomicInteger numOpenLedgers = new AtomicInteger(0);
+    final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
+
     final int openFileLimit;
     final int pageSize;
     final int entriesPerPage;
@@ -56,7 +90,6 @@ public class IndexPersistenceMgr {
     // so LedgerManager has knowledge to garbage collect inactive/deleted ledgers
     final ActiveLedgerManager activeLedgerManager;
     private LedgerDirsManager ledgerDirsManager;
-    LinkedList<Long> openLedgers = new LinkedList<Long>();
     final private AtomicBoolean shouldRelocateIndexFile = new AtomicBoolean(false);
 
     public IndexPersistenceMgr (int pageSize,
@@ -73,6 +106,17 @@ public class IndexPersistenceMgr {
         getActiveLedgers();
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
 
+        // build the file info cache
+        CacheBuilder fileInfoCacheBuilder = CacheBuilder.newBuilder()
+            .concurrencyLevel(Math.max(1, Math.max(conf.getNumAddWorkerThreads(), conf.getNumReadWorkerThreads())))
+            .initialCapacity(conf.getFileInfoCacheInitialCapacity())
+            .maximumSize(openFileLimit)
+            .removalListener(fileInfoEvictionListener);
+        if (conf.getFileInfoMaxIdleTime() > 0) {
+            fileInfoCacheBuilder.expireAfterAccess(conf.getFileInfoMaxIdleTime(), TimeUnit.SECONDS);
+        }
+        fileInfoCache = fileInfoCacheBuilder.build();
+
         LOG.info("openFileLimit is {}.", openFileLimit);
 
         ServerStatsProvider.getStatsLoggerInstance().registerGauge(
@@ -85,54 +129,62 @@ public class IndexPersistenceMgr {
 
                     @Override
                     public Integer getSample() {
-                        return openLedgers.size();
+                        return numOpenLedgers.get();
                     }
                 }
         );
     }
 
-    FileInfo getFileInfo(Long ledger, byte masterKey[]) throws IOException {
-        FileInfo fi = fileInfoCache.get(ledger);
-        if (null == fi) {
-            boolean createdNewFile = false;
-            File lf = null;
-            synchronized (this) {
-                // Check if the index file exists on disk.
-                lf = findIndexFile(ledger);
-                if (null == lf) {
-                    if (null == masterKey) {
-                        throw new Bookie.NoLedgerException(ledger);
-                    }
-                    // We don't have a ledger index file on disk, so create it.
-                    lf = getNewLedgerIndexFile(ledger, null);
-                    createdNewFile = true;
-                }
-            }
-            fi = new FileInfo(lf, masterKey);
-            FileInfo oldFi = fileInfoCache.putIfAbsent(ledger, fi);
-            if (null != oldFi) {
-                // Some other thread won the race. We should delete our file if we created
-                // a new one and the paths are different.
-                if (createdNewFile && !oldFi.isSameFile(lf)) {
-                    fi.delete();
-                }
-                fi = oldFi;
-            } else {
-                if (createdNewFile) {
-                    // Else, we won and the active ledger manager should know about this.
-                    activeLedgerManager.addActiveLedger(ledger, true);
-                }
-                // Evict cached items from the file info cache if necessary
-                evictFileInfoIfNecessary();
-                synchronized (openLedgers) {
-                    openLedgers.offer(ledger);
-                }
-            }
+    void removeFileInfo(long ledger) {
+        closeLock.readLock().lock();
+        try {
+            fileInfoCache.invalidate(ledger);
+        } finally {
+            closeLock.readLock().unlock();
         }
+    }
 
-        assert null != fi;
-        fi.use();
-        return fi;
+    FileInfo getFileInfo(final Long ledger, final byte masterKey[]) throws IOException {
+        FileInfo fi;
+        closeLock.readLock().lock();
+        try {
+            fi = fileInfoCache.get(ledger, new Callable<FileInfo>() {
+                @Override
+                public FileInfo call() throws IOException {
+                    // Check if the index file exists on disk.
+                    File lf = findIndexFile(ledger);
+                    if (null == lf) {
+                        if (null == masterKey) {
+                            throw new Bookie.NoLedgerException(ledger);
+                        }
+                        // We don't have a ledger index file on disk, so create it.
+                        lf = getNewLedgerIndexFile(ledger, null);
+                        // A new ledger index file has been created for this Bookie.
+                        LOG.debug("New ledger index file created for ledgerId: {}", ledger);
+                        activeLedgerManager.addActiveLedger(ledger, true);
+                    }
+                    FileInfo fi = new FileInfo(lf, masterKey);
+                    numOpenLedgers.incrementAndGet();
+                    return fi;
+                }
+            });
+            fi.use();
+            return fi;
+        } catch (ExecutionException ee) {
+            if (ee.getCause() instanceof IOException) {
+                throw (IOException) ee.getCause();
+            } else {
+                throw new IOException("Failed to load file info for ledger " + ledger, ee);
+            }
+        } catch (UncheckedExecutionException uee) {
+            if (uee.getCause() instanceof IOException) {
+                throw (IOException) uee.getCause();
+            } else {
+                throw new IOException("Failed to load file info for ledger " + ledger, uee);
+            }
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
     private File getNewLedgerIndexFile(Long ledger, File dirExcl) throws NoWritableLedgerDirException {
@@ -208,10 +260,7 @@ public class IndexPersistenceMgr {
         // Remove it from the active ledger manager
         activeLedgerManager.removeActiveLedger(ledgerId);
         // Now remove it from all the other lists and maps.
-        fileInfoCache.remove(ledgerId);
-        synchronized (openLedgers) {
-            openLedgers.remove(ledgerId);
-        }
+        removeFileInfo(ledgerId);
     }
 
     private File findIndexFile(long ledgerId) throws IOException {
@@ -226,51 +275,36 @@ public class IndexPersistenceMgr {
     }
 
     public boolean ledgerExists(long ledgerId) throws IOException {
-        FileInfo fi = fileInfoCache.get(ledgerId);
-        if (fi == null) {
-            File lf = findIndexFile(ledgerId);
-            if (lf == null) {
-                return false;
+        FileInfo fi = null;
+        try {
+            fi = getFileInfo(ledgerId, null);
+            return true;
+        } catch (Bookie.NoLedgerException nle) {
+            return false;
+        } finally {
+            if (null != fi) {
+                fi.release();
             }
         }
-        return true;
     }
 
     public int getNumOpenLedgers() {
-        return openLedgers.size();
-    }
-
-    // evict file info if necessary
-    private void evictFileInfoIfNecessary() throws IOException {
-        if (openLedgers.size() > openFileLimit) {
-            Long ledgerToRemove;
-            synchronized (openLedgers) {
-                ledgerToRemove = openLedgers.poll();
-            }
-            if (null == ledgerToRemove) {
-                // Should not reach here. We probably cleared this while the thread
-                // was executing.
-                return;
-            }
-            LOG.info("Ledger {} is evicted from file info cache.",
-                ledgerToRemove);
-            FileInfo fi = fileInfoCache.remove(ledgerToRemove);
-            if (null == fi) {
-                // Seems like someone else already closed the file.
-                return;
-            }
-            fi.close(true);
-        }
+        return numOpenLedgers.get();
     }
 
     public void close() throws IOException {
-        for (Map.Entry<Long, FileInfo> fileInfo : fileInfoCache.entrySet()) {
-            FileInfo value = fileInfo.getValue();
-            if (value != null) {
-                value.close(true);
+        closeLock.writeLock().lock();
+        try {
+            ConcurrentMap<Long, FileInfo> fileInfos = fileInfoCache.asMap();
+            for (Map.Entry<Long, FileInfo> entry : fileInfos.entrySet()) {
+                // we don't need to force a ledger index to be created, we just need to close
+                // those opened file channels
+                // the ledger index creation would be handle by SyncThread and Eviction only.
+                entry.getValue().close(false);
             }
+        } finally {
+            closeLock.writeLock().unlock();
         }
-        fileInfoCache.clear();
     }
 
     Long getLastAddConfirmed(long ledgerId) throws IOException {
