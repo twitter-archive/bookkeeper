@@ -24,8 +24,9 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import org.apache.bookkeeper.util.ZeroBuffer;
 import java.util.concurrent.atomic.AtomicLong;
+
+import org.apache.bookkeeper.util.ZeroBuffer;
 
 /**
  * Provides a buffering layer in front of a FileChannel.
@@ -158,7 +159,7 @@ public class BufferedChannel extends BufferedReadChannel {
                     bytesToCopy = dest.remaining();
                 }
                 if (bytesToCopy == 0) {
-                    throw new IOException("Read past EOF");
+                    throw new ShortReadException("Read past EOF");
                 }
                 ByteBuffer src = writeBuffer.duplicate();
                 src.position((int) positionInBuffer);
@@ -192,8 +193,9 @@ public class BufferedChannel extends BufferedReadChannel {
                     }
                 }
                 while(readBuffer.remaining() > 0) {
-                    if (fileChannel.read(readBuffer, readBufferStartPosition+readBuffer.position()) <= 0) {
-                        throw new IOException("Short read");
+                    long readPosition = readBufferStartPosition + readBuffer.position();
+                    if (fileChannel.read(readBuffer, readPosition) <= 0) {
+                        throw new ShortReadException("Short read @ position " + readPosition);
                     }
                 }
                 ZeroBuffer.put(readBuffer);

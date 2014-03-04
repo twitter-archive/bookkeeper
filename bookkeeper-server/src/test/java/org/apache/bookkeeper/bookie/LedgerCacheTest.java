@@ -443,6 +443,8 @@ public class LedgerCacheTest extends TestCase {
 
         deleteThread.interrupt();
         flushThread.interrupt();
+        deleteThread.join();
+        flushThread.join();
     }
 
     private ByteBuffer generateEntry(long ledger, long entry) {

@@ -747,7 +747,7 @@ public class EntryLogger {
                 break;
             }
             if (readFromLogChannel(entryLogId, bc, sizeBuff, pos) != sizeBuff.capacity()) {
-                throw new IOException("Short read for entry size from entrylog " + entryLogId);
+                throw new ShortReadException("Short read for entry size from entrylog " + entryLogId);
             }
             long offset = pos;
             pos += 4;
@@ -760,7 +760,7 @@ public class EntryLogger {
             sizeBuff.clear();
             // try to read ledger id first
             if (readFromLogChannel(entryLogId, bc, lidBuff, pos) != lidBuff.capacity()) {
-                throw new IOException("Short read for ledger id from entrylog " + entryLogId);
+                throw new ShortReadException("Short read for ledger id from entrylog " + entryLogId);
             }
             lidBuff.flip();
             long lid = lidBuff.getLong();
@@ -775,7 +775,7 @@ public class EntryLogger {
             ByteBuffer buff = ByteBuffer.wrap(data);
             int rc = readFromLogChannel(entryLogId, bc, buff, pos);
             if (rc != data.length) {
-                throw new IOException("Short read for ledger entry from entryLog " + entryLogId
+                throw new ShortReadException("Short read for ledger entry from entryLog " + entryLogId
                                     + "@" + pos + "(" + rc + "!=" + data.length + ")");
             }
             buff.flip();

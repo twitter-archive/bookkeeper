@@ -430,6 +430,10 @@ public class GarbageCollectorThread extends Thread {
         try {
             entryLogger.scanEntryLog(entryLogId, new CompactionScanner(entryLogMeta));
             success = true;
+        } catch (ShortReadException sre) {
+            LOG.warn("Short read exception when compacting " + entryLogId + " : ", sre);
+            // ignore the last partial entry
+            success = true;
         } catch (IOException e) {
             LOG.info("Premature exception when compacting " + entryLogId, e);
         } finally {
@@ -575,7 +579,13 @@ public class GarbageCollectorThread extends Thread {
         EntryLogMetadata entryLogMeta = new EntryLogMetadata(entryLogId);
         ExtractionScanner scanner = new ExtractionScanner(entryLogMeta);
         // Read through the entry log file and extract the entry log meta
-        entryLogger.scanEntryLog(entryLogId, scanner);
+        try {
+            entryLogger.scanEntryLog(entryLogId, scanner);
+        } catch (ShortReadException sre) {
+            // short read exception, it means that the last entry in entry logger is corrupted due to
+            // an unsuccessful shutdown (e.g kill -9 or power off)
+            LOG.warn("Short read on retrieving entry log metadata for {} : ", entryLogId, sre);
+        }
         LOG.info("Retrieved entry log meta data entryLogId: {}, meta: {}", entryLogId, entryLogMeta);
         return entryLogMeta;
     }

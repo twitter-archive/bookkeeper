@@ -35,14 +35,13 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import java.util.Arrays;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class EntryLogTest extends TestCase {
     static Logger LOG = LoggerFactory.getLogger(EntryLogTest.class);
 
+    @Override
     @Before
     public void setUp() throws Exception {
     }
@@ -54,14 +53,6 @@ public class EntryLogTest extends TestCase {
             }
         }
         return true;
-    }
-
-    private ByteBuffer getBufferOfSize(int size) {
-        byte[] ret = new byte[size];
-        for (int i = 0; i < size; i++) {
-            ret[i] = (byte)(i % Byte.MAX_VALUE);
-        }
-        return ByteBuffer.wrap(ret);
     }
 
     @Test
@@ -138,6 +129,15 @@ public class EntryLogTest extends TestCase {
 
     @Test
     public void testCorruptEntryLog() throws Exception {
+        extractEntryLogMetadataFromCorruptedLog(false);
+    }
+
+    @Test
+    public void testGcExtractEntryLogMetadataFromCorruptedLog() throws Exception {
+        extractEntryLogMetadataFromCorruptedLog(true);
+    }
+
+    private void extractEntryLogMetadataFromCorruptedLog(boolean useGCExtracter) throws Exception {
         File tmpDir = File.createTempFile("bkTest", ".dir");
         tmpDir.delete();
         tmpDir.mkdir();
@@ -165,14 +165,18 @@ public class EntryLogTest extends TestCase {
         logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
 
         EntryLogMetadata meta = new EntryLogMetadata(0L);
-        ExtractionScanner scanner = new ExtractionScanner(meta);
-
-        try {
-            logger.scanEntryLog(0L, scanner);
-            fail("Should not reach here!");
-        } catch (IOException ie) {
+        if (useGCExtracter) {
+            // it should scan short-read entry log successfully.
+            meta = GarbageCollectorThread.extractMetaFromEntryLog(logger, 0);
+        } else {
+            ExtractionScanner scanner = new ExtractionScanner(meta);
+            try {
+                logger.scanEntryLog(0L, scanner);
+                fail("Should not reach here!");
+            } catch (IOException ie) {
+            }
+            LOG.info("Extracted Meta From Entry Log {}", meta);
         }
-        LOG.info("Extracted Meta From Entry Log {}", meta);
         assertNotNull(meta.ledgersMap.get(1L));
         assertNull(meta.ledgersMap.get(2L));
         assertNotNull(meta.ledgersMap.get(3L));
@@ -308,6 +312,7 @@ public class EntryLogTest extends TestCase {
         Assert.assertTrue(0 == generateEntry(3, 1).compareTo(ledgerStorage.getEntry(3, 1)));
     }
 
+    @Override
     @After
     public void tearDown() throws Exception {
     }

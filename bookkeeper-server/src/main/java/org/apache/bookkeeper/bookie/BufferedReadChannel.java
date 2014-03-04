@@ -23,8 +23,6 @@ package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -34,7 +32,6 @@ import java.nio.channels.FileChannel;
  * A Buffered channel without a write buffer. Only reads are buffered.
  */
 public class BufferedReadChannel extends BufferedChannelBase {
-    private static Logger LOG = LoggerFactory.getLogger(BufferedReadChannel.class);
     // The capacity of the read buffer.
     protected final int readCapacity;
     // The buffer for read operations.
@@ -89,7 +86,8 @@ public class BufferedReadChannel extends BufferedChannelBase {
                 readBufferStartPosition = currentPosition;
                 int readBytes = 0;
                 if ((readBytes = validateAndGetFileChannel().read(readBuffer, currentPosition)) <= 0) {
-                    throw new IOException("Reading from filechannel returned a non-positive value. Short read.");
+                    throw new ShortReadException(
+                            "Reading from filechannel returned a non-positive value. Short read.");
                 }
                 readBuffer.limit(readBytes);
             }
@@ -102,6 +100,7 @@ public class BufferedReadChannel extends BufferedChannelBase {
         readBuffer.limit(0);
     }
 
+    @Override
     protected void finalize () {
         ServerStatsProvider.getStatsLoggerInstance().getCounter(
                 BookkeeperServerStatsLogger.BookkeeperServerCounter.BUFFERED_READER_NUM_READ_REQUESTS)
