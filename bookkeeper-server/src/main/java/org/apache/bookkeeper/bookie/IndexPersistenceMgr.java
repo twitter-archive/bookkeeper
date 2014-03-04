@@ -32,6 +32,7 @@ import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerCounter;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.slf4j.Logger;
@@ -66,6 +67,8 @@ public class IndexPersistenceMgr {
                     if (null == fileInfo) {
                         return;
                     }
+                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                            BookkeeperServerCounter.LEDGER_CACHE_NUM_EVICTED_LEDGERS).inc();
                     try {
                         fileInfo.close(true);
                         numOpenLedgers.decrementAndGet();
