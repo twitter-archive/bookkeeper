@@ -57,6 +57,8 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String SPECULATIVE_READ_LAC_TIMEOUT = "speculativeReadLACTimeout";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
+    // Add Parameters
+    protected final static String DELAY_ENSEMBLE_CHANGE = "delayEnsembleChange";
     // Timeout Setting
     protected final static String ADD_ENTRY_TIMEOUT_SEC = "addEntryTimeoutSec";
     protected final static String READ_ENTRY_TIMEOUT_SEC = "readEntryTimeoutSec";
@@ -614,4 +616,31 @@ public class ClientConfiguration extends AbstractConfiguration {
         setProperty(ENABLE_TASK_EXECUTION_STATS, enabled);
         return this;
     }
+
+    /**
+     * Whether to delay ensemble change or not?
+     *
+     * @return true if to delay ensemble change, otherwise false.
+     */
+    public boolean getDelayEnsembleChange() {
+        return getBoolean(DELAY_ENSEMBLE_CHANGE, false);
+    }
+
+    /**
+     * Enable/Disable delaying ensemble change.
+     * <p>
+     * If set to true, ensemble change only happens when it can't meet
+     * ack quorum requirement. If set to false, ensemble change happens
+     * immediately when it received a failed write.
+     * </p>
+     *
+     * @param enabled
+     *          flag to enable/disable delaying ensemble change.
+     * @return client configuration.
+     */
+    public ClientConfiguration setDelayEnsembleChange(boolean enabled) {
+        setProperty(DELAY_ENSEMBLE_CHANGE, enabled);
+        return this;
+    }
+
 }

@@ -17,11 +17,15 @@
  */
 package org.apache.bookkeeper.client;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.bookkeeper.util.MathUtils;
 
+import java.net.InetSocketAddress;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Map;
 
 /**
  * A specific {@link DistributionSchedule} that places entries in round-robin
@@ -54,14 +58,30 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
     @Override
     public AckSet getAckSet() {
         final HashSet<Integer> ackSet = new HashSet<Integer>();
+        final HashMap<Integer, InetSocketAddress> failureMap =
+                new HashMap<Integer, InetSocketAddress>();
         return new AckSet() {
-            public boolean addBookieAndCheck(int bookieIndexHeardFrom) {
+            public boolean completeBookieAndCheck(int bookieIndexHeardFrom) {
+                failureMap.remove(bookieIndexHeardFrom);
                 ackSet.add(bookieIndexHeardFrom);
                 return ackSet.size() >= ackQuorumSize;
             }
 
+            @Override
+            public boolean failBookieAndCheck(int bookieIndexHeardFrom, InetSocketAddress address) {
+                ackSet.remove(bookieIndexHeardFrom);
+                failureMap.put(bookieIndexHeardFrom, address);
+                return failureMap.size() > (writeQuorumSize - ackQuorumSize);
+            }
+
+            @Override
+            public Map<Integer, InetSocketAddress> getFailedBookies() {
+                return ImmutableMap.copyOf(failureMap);
+            }
+
             public void removeBookie(int bookie) {
                 ackSet.remove(bookie);
+                failureMap.remove(bookie);
             }
         };
     }
@@ -101,7 +121,7 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
     public QuorumCoverageSet getCoverageSet() {
         return new RRQuorumCoverageSet();
     }
-    
+
     @Override
     public boolean hasEntry(long entryId, int bookieIndex) {
         return getWriteSet(entryId).contains(bookieIndex);

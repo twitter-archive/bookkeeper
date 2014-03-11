@@ -29,6 +29,7 @@ import org.apache.bookkeeper.versioning.Version;
 
 import java.security.GeneralSecurityException;
 import java.net.InetSocketAddress;
+import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
 /**
@@ -115,23 +116,18 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
     }
 
     @Override
-    void handleBookieFailure(final InetSocketAddress addr, final int bookieIndex) {
+    void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
         blockAddCompletions.incrementAndGet();
         synchronized (metadata) {
             try {
-                if (!metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
-                    // ensemble has already changed, failure of this addr is immaterial
-                    LOG.info("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
-                             addr, bookieIndex);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                if (ensembleInfo.replacedBookies.isEmpty()) {
                     blockAddCompletions.decrementAndGet();
                     return;
                 }
-
-                replaceBookieInMetadata(addr, bookieIndex);
-
                 blockAddCompletions.decrementAndGet();
                 // the failed bookie has been replaced
-                unsetSuccessAndSendWriteRequest(bookieIndex);
+                unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
             } catch (BKException.BKNotEnoughBookiesException e) {
                 LOG.error("Could not get additional bookie to "
                           + "remake ensemble, closing ledger: " + ledgerId);

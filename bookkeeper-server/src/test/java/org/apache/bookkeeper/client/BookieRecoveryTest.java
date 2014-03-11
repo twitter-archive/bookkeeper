@@ -234,6 +234,23 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
      */
     @Test(timeout = 60000)
     public void testMetadataConflictWithRecovery() throws Exception {
+        metadataConflictWithRecovery(bkc);
+    }
+
+    @Test(timeout = 60000)
+    public void testMetadataConflictWhenDelayingEnsembleChange() throws Exception {
+        ClientConfiguration newConf = new ClientConfiguration(baseClientConf);
+        newConf.setZkServers(zkUtil.getZooKeeperConnectString());
+        newConf.setDelayEnsembleChange(true);
+        BookKeeper newBkc = new BookKeeper(newConf);
+        try {
+            metadataConflictWithRecovery(newBkc);
+        } finally {
+            newBkc.close();
+        }
+    }
+
+    void metadataConflictWithRecovery(BookKeeper bkc) throws Exception {
         int numEntries = 10;
         byte[] data = "testMetadataConflictWithRecovery".getBytes();
 

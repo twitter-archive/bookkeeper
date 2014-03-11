@@ -19,7 +19,9 @@ package org.apache.bookkeeper.client;
  */
 
 import java.net.InetSocketAddress;
+import java.util.Map;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -146,12 +148,29 @@ class PendingAddOp implements WriteCallback {
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         default:
-            LOG.warn("Failed to write entry " + ledgerId + ", " + entryId + ": " + BKException.getMessage(rc));
-            lh.handleBookieFailure(addr, bookieIndex);
+            if (lh.bk.getConf().getDelayEnsembleChange()) {
+                if (ackSet.failBookieAndCheck(bookieIndex, addr)) {
+                    Map<Integer, InetSocketAddress> failedBookies = ackSet.getFailedBookies();
+                    LOG.warn("Failed to write entry ({}, {}) to bookies {}, handling failures.",
+                             new Object[] { ledgerId, entryId, failedBookies });
+                    // we can't meet ack quorum requirement, trigger ensemble change.
+                    lh.handleBookieFailure(failedBookies);
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Failed to write entry ({}, {}) to bookie ({}, {})," +
+                                  " but it didn't break ack quorum, delaying ensemble change : {}",
+                                  new Object[] { ledgerId, entryId, bookieIndex, addr, BKException.getMessage(rc) });
+                    }
+                }
+            } else {
+                LOG.warn("Failed to write entry ({}, {}): {}",
+                         new Object[] { ledgerId, entryId, BKException.getMessage(rc) });
+                lh.handleBookieFailure(ImmutableMap.of(bookieIndex, addr));
+            }
             return;
         }
 
-        if (ackSet.addBookieAndCheck(bookieIndex) && !completed) {
+        if (ackSet.completeBookieAndCheck(bookieIndex) && !completed) {
             completed = true;
 
             // do some quick checks to see if some adds may have finished. All

@@ -17,7 +17,10 @@
  */
 package org.apache.bookkeeper.client;
 
+import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Map;
+
 /**
  * This interface determins how entries are distributed among bookies.
  *
@@ -45,7 +48,26 @@ interface DistributionSchedule {
          * Add a bookie response and check if quorum has been met
          * @return true if quorum has been met, false otherwise
          */
-        public boolean addBookieAndCheck(int bookieIndexHeardFrom);
+        public boolean completeBookieAndCheck(int bookieIndexHeardFrom);
+
+        /**
+         * Received failure response from a bookie and check if ack quorum
+         * will be broken.
+         *
+         * @param bookieIndexHeardFrom
+         *          bookie index that failed.
+         * @param address
+         *          bookie address
+         * @return true if ack quorum is broken, false otherwise.
+         */
+        public boolean failBookieAndCheck(int bookieIndexHeardFrom, InetSocketAddress address);
+
+        /**
+         * Return the list of bookies that already failed.
+         *
+         * @return the list of bookies that already failed.
+         */
+        public Map<Integer, InetSocketAddress> getFailedBookies();
 
         /**
          * Invalidate a previous bookie response.
@@ -75,10 +97,10 @@ interface DistributionSchedule {
     }
 
     public QuorumCoverageSet getCoverageSet();
-    
+
     /**
      * Whether entry presents on given bookie index
-     * 
+     *
      * @param entryId
      *            - entryId to check the presence on given bookie index
      * @param bookieIndex

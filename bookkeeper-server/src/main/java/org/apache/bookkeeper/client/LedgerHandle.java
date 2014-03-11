@@ -25,7 +25,10 @@ import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -800,50 +803,59 @@ public class LedgerHandle {
 
     }
 
-    ArrayList<InetSocketAddress> replaceBookieInMetadata(final InetSocketAddress addr, final int bookieIndex)
+    EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies)
             throws BKException.BKNotEnoughBookiesException {
-        InetSocketAddress newBookie;
-        LOG.info("Handling failure of bookie: {} index: {}", addr, bookieIndex);
         final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
         final long newEnsembleStartEntry = lastAddConfirmed + 1;
-
-        // avoid parallel ensemble changes to same ensemble.
+        final HashSet<Integer> replacedBookies = new HashSet<Integer>();
         synchronized (metadata) {
-            newBookie = bk.bookieWatcher.replaceBookie(metadata.currentEnsemble, bookieIndex);
-
             newEnsemble.addAll(metadata.currentEnsemble);
-            newEnsemble.set(bookieIndex, newBookie);
-
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Changing ensemble from: " + metadata.currentEnsemble
-                        + " to: " + newEnsemble + " for ledger: " + ledgerId
-                        + " starting at entry: " + (lastAddConfirmed + 1));
+            for (Map.Entry<Integer, InetSocketAddress> entry : failedBookies.entrySet()) {
+                int idx = entry.getKey();
+                InetSocketAddress addr = entry.getValue();
+                LOG.info("Handling failure of bookie: {} index: {}", addr, idx);
+                if (!newEnsemble.get(idx).equals(addr)) {
+                    // ensemble has already changed, failure of this addr is immaterial
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
+                                  addr, idx);
+                    }
+                    continue;
+                }
+                try {
+                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(newEnsemble, idx);
+                    newEnsemble.set(idx, newBookie);
+                    replacedBookies.add(idx);
+                } catch (BKException.BKNotEnoughBookiesException e) {
+                    // if there is no bookie replaced, we throw not enough bookie exception
+                    if (replacedBookies.size() <= 0) {
+                        throw e;
+                    } else {
+                        break;
+                    }
+                }
             }
-
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Changing ensemble from: {} to: {} for ledger: {} starting at entry: {}," +
+                        " failed bookies: {}, replaced bookies: {}",
+                          new Object[] { metadata.currentEnsemble, newEnsemble, ledgerId,
+                                  (lastAddConfirmed + 1), failedBookies, replacedBookies });
+            }
             metadata.addEnsemble(newEnsembleStartEntry, newEnsemble);
         }
-        return newEnsemble;
+        return new EnsembleInfo(newEnsemble, failedBookies, replacedBookies);
     }
 
-    void handleBookieFailure(final InetSocketAddress addr, final int bookieIndex) {
+    void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
         blockAddCompletions.incrementAndGet();
 
         synchronized (metadata) {
-            if (!metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
-                // ensemble has already changed, failure of this addr is immaterial
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Write did not succeed to {}, bookieIndex {}, but we have already fixed it.",
-                         addr, bookieIndex);
-                }
-                blockAddCompletions.decrementAndGet();
-                return;
-            }
-
             try {
-                ArrayList<InetSocketAddress> newEnsemble = replaceBookieInMetadata(addr, bookieIndex);
-
-                EnsembleInfo ensembleInfo = new EnsembleInfo(newEnsemble, bookieIndex,
-                                                             addr);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                if (ensembleInfo.replacedBookies.isEmpty()) {
+                    blockAddCompletions.decrementAndGet();
+                    return;
+                }
                 writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
             } catch (BKException.BKNotEnoughBookiesException e) {
                 LOG.error("Could not get additional bookie to "
@@ -855,16 +867,17 @@ public class LedgerHandle {
     }
 
     // Contains newly reformed ensemble, bookieIndex, failedBookieAddress
-    private static final class EnsembleInfo {
+    static final class EnsembleInfo {
         private final ArrayList<InetSocketAddress> newEnsemble;
-        private final int bookieIndex;
-        private final InetSocketAddress addr;
+        private final Map<Integer, InetSocketAddress> failedBookies;
+        final Set<Integer> replacedBookies;
 
         public EnsembleInfo(ArrayList<InetSocketAddress> newEnsemble,
-                int bookieIndex, InetSocketAddress addr) {
+                            Map<Integer, InetSocketAddress> failedBookies,
+                            Set<Integer> replacedBookies) {
             this.newEnsemble = newEnsemble;
-            this.bookieIndex = bookieIndex;
-            this.addr = addr;
+            this.failedBookies = failedBookies;
+            this.replacedBookies = replacedBookies;
         }
     }
 
@@ -904,7 +917,7 @@ public class LedgerHandle {
             bk.getStatsLogger().getCounter(
                     BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
             // the failed bookie has been replaced
-            unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
+            unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
         }
 
         @Override
@@ -990,13 +1003,11 @@ public class LedgerHandle {
             // the ensemble change of the failed bookie is failed due to metadata conflicts. so try to
             // update the ensemble change metadata again. Otherwise, it means that the ensemble change
             // is already succeed, unset the success and re-adding entries.
-            if (newMeta.currentEnsemble.get(ensembleInfo.bookieIndex).equals(
-                    ensembleInfo.addr)) {
+            if (!areFailedBookiesReplaced(newMeta, ensembleInfo)) {
                 // If the in-memory data doesn't contains the failed bookie, it means the ensemble change
                 // didn't finish, so try to resolve conflicts with the metadata read from zookeeper and
                 // update ensemble changed metadata again.
-                if (!metadata.currentEnsemble.get(ensembleInfo.bookieIndex)
-                        .equals(ensembleInfo.addr)) {
+                if (areFailedBookiesReplaced(metadata, ensembleInfo)) {
                     return updateMetadataIfPossible(newMeta);
                 }
             } else {
@@ -1005,9 +1016,26 @@ public class LedgerHandle {
                         BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
                 blockAddCompletions.decrementAndGet();
-                unsetSuccessAndSendWriteRequest(ensembleInfo.bookieIndex);
+                unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
             }
             return true;
+        }
+
+        /**
+         * Check whether all the failed bookies are replaced.
+         *
+         * @param newMeta
+         *          new ledger metadata
+         * @param ensembleInfo
+         *          ensemble info used for ensemble change.
+         * @return true if all failed bookies are replaced, false otherwise
+         */
+        private boolean areFailedBookiesReplaced(LedgerMetadata newMeta, EnsembleInfo ensembleInfo) {
+            boolean replaced = true;
+            for (Map.Entry<Integer, InetSocketAddress> entry : ensembleInfo.failedBookies.entrySet()) {
+                replaced = !newMeta.currentEnsemble.get(entry.getKey()).equals(entry.getValue());
+            }
+            return replaced;
         }
 
         private boolean updateMetadataIfPossible(LedgerMetadata newMeta) {
@@ -1033,11 +1061,13 @@ public class LedgerHandle {
             return true;
         }
 
-    };
+    }
 
-    void unsetSuccessAndSendWriteRequest(final int bookieIndex) {
+    void unsetSuccessAndSendWriteRequest(final Set<Integer> bookies) {
         for (PendingAddOp pendingAddOp : pendingAddOps) {
-            pendingAddOp.unsetSuccessAndSendWriteRequest(bookieIndex);
+            for (Integer bookieIndex: bookies) {
+                pendingAddOp.unsetSuccessAndSendWriteRequest(bookieIndex);
+            }
         }
     }
 

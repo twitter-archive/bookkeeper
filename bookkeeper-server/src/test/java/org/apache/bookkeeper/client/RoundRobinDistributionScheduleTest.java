@@ -25,7 +25,6 @@ import java.util.List;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-import junit.framework.TestCase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,10 +39,10 @@ public class RoundRobinDistributionScheduleTest {
         assertEquals("Write set is wrong size", wSet.size(), 3);
 
         DistributionSchedule.AckSet ackSet = schedule.getAckSet();
-        assertFalse("Shouldn't ack yet", ackSet.addBookieAndCheck(wSet.get(0)));
-        assertFalse("Shouldn't ack yet", ackSet.addBookieAndCheck(wSet.get(0)));
-        assertTrue("Should ack after 2 unique", ackSet.addBookieAndCheck(wSet.get(2)));
-        assertTrue("Should still be acking", ackSet.addBookieAndCheck(wSet.get(1)));
+        assertFalse("Shouldn't ack yet", ackSet.completeBookieAndCheck(wSet.get(0)));
+        assertFalse("Shouldn't ack yet", ackSet.completeBookieAndCheck(wSet.get(0)));
+        assertTrue("Should ack after 2 unique", ackSet.completeBookieAndCheck(wSet.get(2)));
+        assertTrue("Should still be acking", ackSet.completeBookieAndCheck(wSet.get(1)));
 
         DistributionSchedule.QuorumCoverageSet covSet = schedule.getCoverageSet();
         assertFalse("Shouldn't cover yet", covSet.addBookieAndCheckCovered(0));
