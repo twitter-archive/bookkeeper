@@ -65,6 +65,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String TIMEOUT_TASK_INTERVAL_MILLIS = "timeoutTaskIntervalMillis";
     protected final static String TIMEOUT_TIMER_TICK_DURATION_MS = "timeoutTimerTickDurationMs";
     protected final static String TIMEOUT_TIMER_NUM_TICKS = "timeoutTimerNumTicks";
+    protected final static String CONNECT_TIMEOUT_MILLIS = "connectTimeoutMillis";
 
     // Number Woker Threads
     protected final static String NUM_WORKER_THREADS = "numWorkerThreads";
@@ -408,6 +409,28 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setTimeoutTimerNumTicks(int numTicks) {
         setProperty(TIMEOUT_TIMER_NUM_TICKS, numTicks);
+        return this;
+    }
+
+    /**
+     * Get netty connect timeout in millis.
+     *
+     * @return netty connect timeout in millis.
+     */
+    public int getConnectTimeoutMillis() {
+        // 10 seconds as netty default value.
+        return getInt(CONNECT_TIMEOUT_MILLIS, 10000);
+    }
+
+    /**
+     * Set netty connect timeout in millis.
+     *
+     * @param connectTimeoutMillis
+     *          netty connect timeout in millis.
+     * @return client configuration.
+     */
+    public ClientConfiguration setConnectTimeoutMillis(int connectTimeoutMillis) {
+        setProperty(CONNECT_TIMEOUT_MILLIS, connectTimeoutMillis);
         return this;
     }
 

@@ -151,6 +151,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         bootstrap.setPipelineFactory(this);
         bootstrap.setOption("tcpNoDelay", conf.getClientTcpNoDelay());
         bootstrap.setOption("keepAlive", true);
+        bootstrap.setOption("connectTimeoutMillis", conf.getConnectTimeoutMillis());
 
         final long connectStartNanos = MathUtils.nowInNano();
 
