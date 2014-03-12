@@ -34,6 +34,7 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
@@ -280,6 +281,8 @@ public class NIOServerFactory extends Thread {
 
         long startReadNanos;
 
+        final AtomicLong pendingBytesPerCnxn = new AtomicLong(0);
+
         void doIO(SelectionKey k) throws InterruptedException {
             try {
                 if (sock == null) {
@@ -359,6 +362,7 @@ public class NIOServerFactory extends Thread {
                         int sent = sock.write(directBuffer);
 
                         numPendingOutgoingBytes.add(-sent);
+                        pendingBytesPerCnxn.addAndGet(-sent);
                         sentBytesStat.registerSuccessfulEvent(sent);
                         sentLatencyStat.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startNanos));
 
@@ -490,14 +494,17 @@ public class NIOServerFactory extends Thread {
          * @see org.apache.zookeeper.server.ServerCnxnIface#close()
          */
         public void close() {
-            if (closed) {
-                return;
+            synchronized (this) {
+                if (closed) {
+                    return;
+                }
+                closed = true;
             }
-            closed = true;
             synchronized (cnxns) {
                 cnxns.remove(this);
             }
             LOG.debug("close NIOServerCnxn: {}", sock);
+            numPendingOutgoingBytes.add(-pendingBytesPerCnxn.get());
             try {
                 /*
                  * The following sequence of code is stupid! You would think
@@ -568,6 +575,7 @@ public class NIOServerFactory extends Thread {
                 }
             }
             numPendingOutgoingBytes.add(4 + total);
+            pendingBytesPerCnxn.addAndGet(4 + total);
             makeWritable(sk);
         }
 
