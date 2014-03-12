@@ -30,7 +30,7 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.StringReader;
 
-import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 
 import org.apache.zookeeper.ZooKeeper;
@@ -252,7 +252,19 @@ class Cookie {
 
     private static String getZkPath(ServerConfiguration conf)
             throws UnknownHostException {
+        return getZkPath(conf, Bookie.getBookieAddress(conf));
+    }
+
+    private static String getZkPath(ServerConfiguration conf, InetSocketAddress address) {
         String bookieCookiePath = conf.getZkLedgersRootPath() + "/" + COOKIE_NODE;
-        return bookieCookiePath + "/" + StringUtils.addrToString(Bookie.getBookieAddress(conf));
+        return bookieCookiePath + "/" + StringUtils.addrToString(address);
+    }
+
+    public static void removeCookieForBookie(ServerConfiguration conf, ZooKeeper zk,
+                                             InetSocketAddress address)
+            throws KeeperException, InterruptedException {
+        String zkPath = getZkPath(conf, address);
+        zk.delete(zkPath, -1);
+        LOG.info("Removed cookie from {} for bookie {}.", conf.getZkLedgersRootPath(), address);
     }
 }

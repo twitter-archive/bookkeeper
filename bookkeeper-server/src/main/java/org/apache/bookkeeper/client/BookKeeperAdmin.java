@@ -66,7 +66,7 @@ public class BookKeeperAdmin {
 
     // BookKeeper client instance
     private BookKeeper bkc;
-    
+
     // LedgerFragmentReplicator instance
     private LedgerFragmentReplicator lfr;
 
@@ -119,7 +119,7 @@ public class BookKeeperAdmin {
      */
     public BookKeeperAdmin(ClientConfiguration conf) throws IOException, InterruptedException, KeeperException {
         // Create the ZooKeeper client instance
-        zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout()); 
+        zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout());
         // Create the bookie path
         bookiesPath = conf.getZkAvailableBookiesPath();
         // Create the BookKeeper client instance
@@ -130,7 +130,7 @@ public class BookKeeperAdmin {
     /**
      * Constructor that takes in a BookKeeper instance . This will be useful,
      * when users already has bk instance ready.
-     * 
+     *
      * @param bkc
      *            - bookkeeper instance
      */
@@ -139,6 +139,10 @@ public class BookKeeperAdmin {
         this.zk = bkc.zk;
         this.bookiesPath = bkc.getConf().getZkAvailableBookiesPath();
         this.lfr = new LedgerFragmentReplicator(bkc);
+    }
+
+    public ZooKeeper getZooKeeper() {
+        return this.zk;
     }
 
     /**
@@ -169,12 +173,12 @@ public class BookKeeperAdmin {
     public void asyncOpenLedger(final long lId, final OpenCallback cb, final Object ctx) {
         new LedgerOpenOp(bkc, lId, cb, ctx).initiate();
     }
-    
+
     /**
      * Open a ledger as an administrator. This means that no digest password
      * checks are done. Otherwise, the call is identical to
      * BookKeeper#openLedger
-     * 
+     *
      * @param lId
      *            - ledger identifier
      * @see BookKeeper#openLedger
@@ -212,12 +216,12 @@ public class BookKeeperAdmin {
     public void asyncOpenLedgerNoRecovery(final long lId, final OpenCallback cb, final Object ctx) {
         new LedgerOpenOp(bkc, lId, cb, ctx).initiateWithoutRecovery();
     }
-    
+
     /**
      * Open a ledger as an administrator without recovering the ledger. This
      * means that no digest password checks are done. Otherwise, the call is
      * identical to BookKeeper#openLedgerNoRecovery
-     * 
+     *
      * @param lId
      *            ledger identifier
      * @see BookKeeper#openLedgerNoRecovery
@@ -446,8 +450,8 @@ public class BookKeeperAdmin {
      * Get a new random bookie, but ensure that it isn't one that is already
      * in the ensemble for the ledger.
      */
-    private InetSocketAddress getNewBookie(final List<InetSocketAddress> bookiesAlreadyInEnsemble, 
-                                           final List<InetSocketAddress> availableBookies) 
+    private InetSocketAddress getNewBookie(final List<InetSocketAddress> bookiesAlreadyInEnsemble,
+                                           final List<InetSocketAddress> availableBookies)
             throws BKException.BKNotEnoughBookiesException {
         ArrayList<InetSocketAddress> candidates = new ArrayList<InetSocketAddress>();
         candidates.addAll(availableBookies);
@@ -584,13 +588,13 @@ public class BookKeeperAdmin {
                         newBookie = getNewBookie(lh.getLedgerMetadata().getEnsembles().get(startEntryId),
                                                  availableBookies);
                     } catch (BKException.BKNotEnoughBookiesException bke) {
-                        ledgerFragmentsMcb.processResult(BKException.Code.NotEnoughBookiesException, 
+                        ledgerFragmentsMcb.processResult(BKException.Code.NotEnoughBookiesException,
                                                          null, null);
                         continue;
                     }
-                    
+
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("Replicating fragment from [" + startEntryId 
+                        LOG.debug("Replicating fragment from [" + startEntryId
                                   + "," + endEntryId + "] of ledger " + lh.getId()
                                   + " to " + newBookie);
                     }
@@ -623,7 +627,7 @@ public class BookKeeperAdmin {
      * This method asynchronously recovers a ledger fragment which is a
      * contiguous portion of a ledger that was stored in an ensemble that
      * included the failed bookie.
-     * 
+     *
      * @param lh
      *            - LedgerHandle for the ledger
      * @param lf
@@ -644,7 +648,7 @@ public class BookKeeperAdmin {
 
     /**
      * Replicate the Ledger fragment to target Bookie passed.
-     * 
+     *
      * @param lh
      *            - ledgerHandle
      * @param ledgerFragment
@@ -686,7 +690,7 @@ public class BookKeeperAdmin {
 
     /**
      * Format the BookKeeper metadata in zookeeper
-     * 
+     *
      * @param isInteractive
      *            Whether format should ask prompt for confirmation if old data
      *            exists or not.

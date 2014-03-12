@@ -36,6 +36,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.EntryFormatter;
 import org.apache.bookkeeper.util.Tool;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.PropertiesConfiguration;
@@ -45,6 +46,7 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.ParseException;
+import org.apache.zookeeper.KeeperException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -171,6 +173,7 @@ public class BookieShell implements Tool {
             opts.addOption("f", "force", false,
                     "If [nonInteractive] is specified, then whether"
                             + " to force delete the old data without prompt..?");
+            opts.addOption("d", "removeCookie", false, "Remove its cookie on zookeeper");
         }
 
         @Override
@@ -185,7 +188,7 @@ public class BookieShell implements Tool {
 
         @Override
         String getUsage() {
-            return "bookieformat [-nonInteractive] [-force]";
+            return "bookieformat [-nonInteractive] [-force] [-removeCookie]";
         }
 
         @Override
@@ -195,6 +198,21 @@ public class BookieShell implements Tool {
 
             ServerConfiguration conf = new ServerConfiguration(bkConf);
             boolean result = Bookie.format(conf, interactive, force);
+            // remove cookie
+            if (cmdLine.hasOption("d")) {
+                InetSocketAddress address = Bookie.getBookieAddress(conf);
+                ZooKeeperClient zkc =
+                        ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(),
+                                conf.getZkTimeout());
+                try {
+                    Cookie.removeCookieForBookie(conf, zkc, address);
+                } catch (KeeperException.NoNodeException nne) {
+                    // ignore no node exception
+                    LOG.warn("No cookie to remove for {} : ", address, nne);
+                } finally {
+                    zkc.close();
+                }
+            }
             return (result) ? 0 : 1;
         }
     }
@@ -207,6 +225,7 @@ public class BookieShell implements Tool {
 
         public RecoverCmd() {
             super(CMD_RECOVER);
+            opts.addOption("d", "delete", false, "Delete cookie node for the bookie.");
         }
 
         @Override
@@ -235,16 +254,14 @@ public class BookieShell implements Tool {
             ClientConfiguration adminConf = new ClientConfiguration(bkConf);
             BookKeeperAdmin admin = new BookKeeperAdmin(adminConf);
             try {
-                return bkRecovery(admin, args);
+                return bkRecovery(admin, args, opts.hasOption("d"));
             } finally {
-                if (null != admin) {
-                    admin.close();
-                }
+                admin.close();
             }
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, String[] args)
-                throws InterruptedException, BKException {
+        private int bkRecovery(BookKeeperAdmin bkAdmin, String[] args, boolean removeCookie)
+                throws InterruptedException, BKException, KeeperException {
             final String bookieSrcString[] = args[0].split(":");
             if (bookieSrcString.length != 2) {
                 System.err.println("BookieSrc inputted has invalid format"
@@ -266,6 +283,9 @@ public class BookieShell implements Tool {
             }
 
             bkAdmin.recoverBookieData(bookieSrc, bookieDest);
+            if (removeCookie) {
+                Cookie.removeCookieForBookie(bkConf, bkAdmin.getZooKeeper(), bookieSrc);
+            }
             return 0;
         }
     }
