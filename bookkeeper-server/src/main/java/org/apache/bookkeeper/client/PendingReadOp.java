@@ -41,6 +41,7 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
@@ -53,7 +54,8 @@ import org.slf4j.LoggerFactory;
  * application as soon as it arrives rather than waiting for the whole thing.
  *
  */
-class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
+class PendingReadOp extends SafeRunnable
+        implements Enumeration<LedgerEntry>, ReadEntryCallback {
     private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
     final int speculativeReadTimeout;
@@ -427,6 +429,30 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
         return this;
     }
 
+    @Override
+    public void safeRun() {
+        int x = 0;
+        for (LedgerEntryRequest r : seq) {
+            if (!r.isComplete()) {
+                if (null == r.maybeSendSpeculativeRead(heardFromHosts)) {
+                    // Subsequent speculative read will not materialize anyway
+                    cancelSpeculativeTask(false);
+                }
+                else {
+                    LOG.debug("Send speculative read for {}. Hosts heard are {}.",
+                              r, heardFromHosts);
+                    ++x;
+                }
+            }
+        }
+        if (x > 0) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Send {} speculative reads for ledger {} ({}, {}). Hosts heard are {}.",
+                        new Object[] { x, lh.getId(), startEntryId, endEntryId, heardFromHosts });
+            }
+        }
+    }
+
     public void initiate() {
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeNanos = MathUtils.nowInNano();
@@ -436,26 +462,7 @@ class PendingReadOp implements Enumeration<LedgerEntry>, ReadEntryCallback {
             speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
                     @Override
                     public void run() {
-                        int x = 0;
-                        for (LedgerEntryRequest r : seq) {
-                            if (!r.isComplete()) {
-                                if (null == r.maybeSendSpeculativeRead(heardFromHosts)) {
-                                    // Subsequent speculative read will not materialize anyway
-                                    cancelSpeculativeTask(false);
-                                }
-                                else {
-                                    LOG.debug("Send speculative read for {}. Hosts heard are {}.",
-                                              r, heardFromHosts);
-                                    ++x;
-                                }
-                            }
-                        }
-                        if (x > 0) {
-                            if (LOG.isDebugEnabled()) {
-                                LOG.debug("Send {} speculative reads for ledger {} ({}, {}). Hosts heard are {}.",
-                                        new Object[] { x, lh.getId(), startEntryId, endEntryId, heardFromHosts });
-                            }
-                        }
+                        lh.bk.mainWorkerPool.submitOrdered(lh.getId(), PendingReadOp.this);
                     }
                 }, speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
         }

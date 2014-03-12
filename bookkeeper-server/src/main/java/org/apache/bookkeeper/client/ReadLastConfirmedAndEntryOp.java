@@ -15,19 +15,22 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.ReadEntryCallback {
+public class ReadLastConfirmedAndEntryOp extends SafeRunnable
+        implements BookkeeperInternalCallbacks.ReadEntryCallback {
     static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedAndEntryOp.class);
 
     final int speculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> speculativeTask = null;
     ReadLACAndEntryRequest request;
-    Set<InetSocketAddress> heardFromHosts;
+    final Set<InetSocketAddress> heardFromHosts;
+    final Set<InetSocketAddress> emptyResponsesFromHosts;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     final AtomicBoolean requestComplete = new AtomicBoolean(false);
@@ -37,7 +40,9 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     private final LastConfirmedAndEntryCallback cb;
 
     private int numResponsesPending;
+    private final int numEmptyResponsesAllowed;
     private volatile boolean hasValidResponse = false;
+    private final long prevLastAddConfirmed;
     private long lastAddConfirmed;
     private long timeOutInMillis;
 
@@ -376,15 +381,18 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                                 long lac, long timeOutInMillis, ScheduledExecutorService scheduler) {
         this.lh = lh;
         this.cb = cb;
-        this.lastAddConfirmed = lac;
+        this.prevLastAddConfirmed = this.lastAddConfirmed = lac;
         this.timeOutInMillis = timeOutInMillis;
         this.numResponsesPending = 0;
+        this.numEmptyResponsesAllowed = getLedgerMetadata().getWriteQuorumSize()
+                - getLedgerMetadata().getAckQuorumSize() + 1;
         this.requestTimeNano = MathUtils.nowInNano();
         this.scheduler = scheduler;
         maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
             - getLedgerMetadata().getAckQuorumSize();
         speculativeReadTimeout = lh.bk.getConf().getSpeculativeReadLACTimeout();
         heardFromHosts = new HashSet<InetSocketAddress>();
+        emptyResponsesFromHosts = new HashSet<InetSocketAddress>();
     }
 
     protected LedgerMetadata getLedgerMetadata() {
@@ -403,29 +411,39 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         return this;
     }
 
+    /**
+     * Speculative Read Logic
+     */
+    @Override
+    public void safeRun() {
+        boolean started = false;
+        if (!request.isComplete()) {
+            if (null == request.maybeSendSpeculativeRead(heardFromHosts)) {
+                // Subsequent speculative read will not materialize anyway
+                cancelSpeculativeTask(false);
+            }
+            else {
+                LOG.debug("Send speculative read for {}. Hosts heard are {}.",
+                    request, heardFromHosts);
+                started = true;
+            }
+        }
+        if (started) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Send speculative ReadLAC for ledger {} (previousLAC: {}). Hosts heard are {}.",
+                    new Object[] {lh.getId(), lastAddConfirmed, heardFromHosts });
+            }
+        }
+    }
+
     public void initiate() {
         if (speculativeReadTimeout > 0 && !parallelRead) {
             speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
                 @Override
                 public void run() {
-                    boolean started = false;
-                    if (!request.isComplete()) {
-                        if (null == request.maybeSendSpeculativeRead(heardFromHosts)) {
-                            // Subsequent speculative read will not materialize anyway
-                            cancelSpeculativeTask(false);
-                        }
-                        else {
-                            LOG.debug("Send speculative read for {}. Hosts heard are {}.",
-                                request, heardFromHosts);
-                            started = true;
-                        }
-                    }
-                    if (started) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Send speculative ReadLAC for ledger {} (previousLAC: {}). Hosts heard are {}.",
-                                new Object[] {lh.getId(), lastAddConfirmed, heardFromHosts });
-                        }
-                    }
+                    // let the speculative read running this same thread
+                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
+                            ReadLastConfirmedAndEntryOp.this);
                 }
             }, speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
         }
@@ -487,6 +505,13 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         } else {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY)
                 .registerSuccessfulEvent(latencyMicros);
+            Enum op;
+            if (this.prevLastAddConfirmed < lastAddConfirmed) {
+                op = BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_HIT;
+            } else {
+                op = BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_MISS;
+            }
+            lh.getStatsLogger().getOpStatsLogger(op).registerSuccessfulEvent(latencyMicros);
         }
         cancelSpeculativeTask(true);
         cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry);
@@ -523,7 +548,12 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                 }
             } else {
                 LOG.debug("Empty Response {}, {}", ledgerId, lastAddConfirmed);
-                request.logErrorAndReattemptRead(bookie, "Empty Response", rc);
+                emptyResponsesFromHosts.add(bookie);
+                if (emptyResponsesFromHosts.size() >= numEmptyResponsesAllowed) {
+                    completeRequest();
+                } else {
+                    request.logErrorAndReattemptRead(bookie, "Empty Response", rc);
+                }
                 return;
             }
         } else if (BKException.Code.UnauthorizedAccessException == rc && !requestComplete.get()) {
