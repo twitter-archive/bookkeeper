@@ -189,7 +189,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         rc = BKException.Code.BookieHandleNotAvailableException;
                         channel = null;
                     } else {
-                        LOG.warn("Could not connect to bookie: " + addr);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Could not connect to bookie: {}", addr);
+                        }
                         rc = BKException.Code.BookieHandleNotAvailableException;
                         channel = null;
                         if (state != ConnectionState.CLOSED) {
