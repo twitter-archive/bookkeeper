@@ -57,7 +57,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
 
     static Logger LOG = LoggerFactory.getLogger(AbstractZkLedgerManager.class);
 
-    static int ZK_CONNECT_BACKOFF_MS = 200;
+    static final int ZK_CONNECT_BACKOFF_MS_MIN = 200;
+    static final int ZK_CONNECT_BACKOFF_MS_MAX = 2000;
 
     // Ledger Node Prefix
     static public final String LEDGER_NODE_PREFIX = "L";
@@ -79,6 +80,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
     protected class ReadLedgerMetadataTask implements Runnable, GenericCallback<LedgerMetadata> {
 
         final long ledgerId;
+        int currentZKEBackOff = ZK_CONNECT_BACKOFF_MS_MIN;
 
         ReadLedgerMetadataTask(long ledgerId) {
             this.ledgerId = ledgerId;
@@ -97,6 +99,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
         @Override
         public void operationComplete(int rc, final LedgerMetadata result) {
             if (BKException.Code.OK == rc) {
+                // reset the back off after a successful operation
+                currentZKEBackOff = ZK_CONNECT_BACKOFF_MS_MIN;
                 final Set<LedgerMetadataListener> listenerSet = listeners.get(ledgerId);
                 if (null != listenerSet) {
                     LOG.debug("Ledger metadata is changed for {} : {}.", ledgerId, result);
@@ -117,8 +121,17 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                             ledgerId, listenerSet.size());
                 }
             } else {
+                // Use constant backoff for all bookkeeper specific exceptions;
+                // for ZK exceptions, use exponential back off
+                int backOff = ZK_CONNECT_BACKOFF_MS_MIN;
+                if (BKException.Code.ZKException == rc) {
+                    backOff = currentZKEBackOff;
+                    // Double the backoff for the next retry up to the maximum allowed back off
+                    currentZKEBackOff = Math.min(2 * currentZKEBackOff, ZK_CONNECT_BACKOFF_MS_MAX);
+                }
+
                 LOG.warn("Failed on read ledger metadata of ledger {} : {}", ledgerId, rc);
-                scheduler.schedule(this, ZK_CONNECT_BACKOFF_MS, TimeUnit.MILLISECONDS);
+                scheduler.schedule(this, backOff, TimeUnit.MILLISECONDS);
             }
         }
     }
@@ -285,6 +298,13 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     readCb.operationComplete(BKException.Code.NoSuchLedgerExistsException, null);
                     return;
                 }
+
+                if (rc == KeeperException.Code.SESSIONEXPIRED.intValue()) {
+                    LOG.warn("ZK session expired while reading metadata for ledger {}", ledgerId);
+                    readCb.operationComplete(BKException.Code.ZKException, null);
+                    return;
+                }
+
                 if (rc != KeeperException.Code.OK.intValue()) {
                     LOG.error("Could not read metadata for ledger: " + ledgerId,
                               KeeperException.create(KeeperException.Code.get(rc), path));
