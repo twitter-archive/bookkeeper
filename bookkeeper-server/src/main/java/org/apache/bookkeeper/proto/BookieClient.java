@@ -65,13 +65,20 @@ public class BookieClient implements PerChannelBookieClientFactory {
     private ReentrantReadWriteLock closeLock;
     private final StatsLogger statsLogger;
     private final int numConnectionsPerBookie;
+    // whether the timer is one we created, or is owned by whoever
+    // instantiated us
+    private final boolean ownTimer;
 
     public BookieClient(ClientConfiguration conf, ClientSocketChannelFactory channelFactory, OrderedSafeExecutor executor) {
-        this(conf, channelFactory, executor, NullStatsLogger.INSTANCE);
+        this(conf, channelFactory, executor, NullStatsLogger.INSTANCE, null);
     }
 
     public BookieClient(ClientConfiguration conf, ClientSocketChannelFactory channelFactory, OrderedSafeExecutor executor,
-                        StatsLogger statsLogger) {
+                        StatsLogger statsLogger, HashedWheelTimer requestTimer) {
+        if (null == channelFactory) {
+            throw new NullPointerException();
+        }
+
         this.conf = conf;
         this.channelFactory = channelFactory;
         this.executor = executor;
@@ -79,10 +86,16 @@ public class BookieClient implements PerChannelBookieClientFactory {
         this.closeLock = new ReentrantReadWriteLock();
         this.statsLogger = statsLogger;
         this.numConnectionsPerBookie = conf.getNumChannelsPerBookie();
-        this.requestTimer = new HashedWheelTimer(
+        if (null == requestTimer) {
+            this.requestTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("BookieClientTimer-%d").build(),
                 conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
                 conf.getTimeoutTimerNumTicks());
+            this.ownTimer = true;
+        } else {
+            this.requestTimer = requestTimer;
+            this.ownTimer = false;
+        }
     }
 
     @Override
@@ -238,8 +251,10 @@ public class BookieClient implements PerChannelBookieClientFactory {
         } finally {
             closeLock.writeLock().unlock();
         }
-        // Shut down the timeout executor.
-        this.requestTimer.stop();
+        // Shut down the timeout executor if we created it.
+        if (ownTimer) {
+            this.requestTimer.stop();
+        }
     }
 
     private static class Counter {

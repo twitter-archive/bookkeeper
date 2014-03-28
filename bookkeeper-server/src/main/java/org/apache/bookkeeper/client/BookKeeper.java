@@ -42,6 +42,7 @@ import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 /**
  * BookKeeper client. We assume there is one single writer to a ledger at any
@@ -78,10 +81,10 @@ public class BookKeeper {
 
     // whether the socket factory is one we created, or is owned by whoever
     // instantiated us
-    boolean ownChannelFactory = false;
+    final boolean ownChannelFactory;
     // whether the zk handle is one we created, or is owned by whoever
     // instantiated us
-    boolean ownZKHandle = false;
+    final boolean ownZKHandle;
 
     final BookieClient bookieClient;
     final BookieWatcher bookieWatcher;
@@ -101,6 +104,58 @@ public class BookKeeper {
     interface ZKConnectCallback {
         public void connected();
         public void connectionFailed(int code);
+    }
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    public static class Builder {
+
+        ClientConfiguration conf = null;
+        ZooKeeper zk = null;
+        ClientSocketChannelFactory channelFactory = null;
+        StatsLogger statsLogger = null;
+        DNSToSwitchMapping dnsResolver = null;
+        HashedWheelTimer requestTimer = null;
+
+
+        public Builder config(ClientConfiguration conf) {
+            this.conf = conf;
+            return this;
+        }
+
+        public Builder zk(ZooKeeper zk) {
+            this.zk = zk;
+            return this;
+        }
+
+        public Builder channelFactory(ClientSocketChannelFactory channelFactory) {
+            this.channelFactory = channelFactory;
+            return this;
+        }
+
+        public Builder statsLogger(StatsLogger statsLogger) {
+            this.statsLogger = statsLogger;
+            return this;
+        }
+
+        public Builder dnsResolver(DNSToSwitchMapping dnsResolver) {
+            this.dnsResolver = dnsResolver;
+            return this;
+        }
+
+        public Builder requestTimer(HashedWheelTimer requestTimer) {
+            this.requestTimer = requestTimer;
+            return this;
+        }
+
+
+        public BookKeeper build() throws IOException, InterruptedException, KeeperException {
+            return new BookKeeper(conf, zk, channelFactory,
+                statsLogger, dnsResolver, requestTimer);
+        }
+
     }
 
     /**
@@ -134,18 +189,12 @@ public class BookKeeper {
      */
     public BookKeeper(final ClientConfiguration conf)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, NullStatsLogger.INSTANCE);
+        this(conf, null, null, NullStatsLogger.INSTANCE, null, null);
     }
 
     public BookKeeper(final ClientConfiguration conf, StatsLogger statsLogger)
             throws IOException, InterruptedException, KeeperException {
-        this(conf,
-            ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout()),
-            new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
-            Executors.newCachedThreadPool()), statsLogger);
-
-        ownChannelFactory = true;
-        ownZKHandle = true;
+        this(conf, null, null, statsLogger, null, null);
     }
 
     /**
@@ -164,20 +213,17 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, NullStatsLogger.INSTANCE);
+        this(conf, zk, null, NullStatsLogger.INSTANCE, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, statsLogger, null);
-        ownChannelFactory = true;
+        this(conf, zk, null, statsLogger, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger, DNSToSwitchMapping dnsToSwitchMapping)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
-                Executors.newCachedThreadPool()), statsLogger);
-        ownChannelFactory = true;
+        this(conf, zk, null, statsLogger, dnsToSwitchMapping, null);
     }
 
     /**
@@ -199,28 +245,48 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, channelFactory, NullStatsLogger.INSTANCE);
+        this(conf, zk, channelFactory, NullStatsLogger.INSTANCE, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
                       StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, channelFactory, statsLogger, null);
+        this(conf, zk, channelFactory, statsLogger, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
                       StatsLogger statsLogger, DNSToSwitchMapping dnsResolver)
+        throws IOException, InterruptedException, KeeperException {
+        this(conf, zk, channelFactory, statsLogger, dnsResolver, null);
+
+    }
+
+    private BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
+                      StatsLogger statsLogger, DNSToSwitchMapping dnsResolver, HashedWheelTimer requestTimer)
             throws IOException, InterruptedException, KeeperException {
-        if (zk == null || channelFactory == null) {
-            throw new NullPointerException();
-        }
-        if (!zk.getState().isConnected()) {
-            LOG.error("Unconnected zookeeper handle passed to bookkeeper");
-            throw KeeperException.create(KeeperException.Code.CONNECTIONLOSS);
-        }
         this.conf = conf;
-        this.zk = zk;
-        this.channelFactory = channelFactory;
+
+        if (null == zk) {
+            this.zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout());
+            this.ownZKHandle = true;
+        } else {
+            if (!zk.getState().equals(ZooKeeper.States.CONNECTED)) {
+                LOG.error("Unconnected zookeeper handle passed to bookkeeper");
+                throw KeeperException.create(KeeperException.Code.CONNECTIONLOSS);
+            }
+            this.zk = zk;
+            this.ownZKHandle = false;
+        }
+
+        if (null == channelFactory) {
+            this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
+                Executors.newCachedThreadPool());
+            this.ownChannelFactory = true;
+        } else {
+            this.channelFactory = channelFactory;
+            this.ownChannelFactory = false;
+        }
+
         this.scheduler = Executors.newSingleThreadScheduledExecutor();
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         // initialize the ensemble placement
@@ -232,11 +298,13 @@ public class BookKeeper {
                 .statsLogger(statsLogger)
                 .traceTaskExecution(conf.getEnableTaskExecutionStats())
                 .build();
-        bookieClient = new BookieClient(conf, channelFactory, mainWorkerPool, statsLogger);
+
+
+        bookieClient = new BookieClient(conf, this.channelFactory, mainWorkerPool, statsLogger, requestTimer);
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();
 
-        ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, zk);
+        ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
         ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
     }
 
