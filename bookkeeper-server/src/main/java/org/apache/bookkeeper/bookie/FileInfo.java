@@ -219,21 +219,23 @@ class FileInfo extends Observable {
      * @return true if set fence succeed, otherwise false when
      * it already fenced or failed to set fenced.
      */
-    synchronized public boolean setFenced() throws IOException {
-        checkOpen(false);
-        LOG.debug("Try to set fenced state in file info {} : state bits {}.", lf, stateBits);
-        if ((stateBits & STATE_FENCED_BIT) != STATE_FENCED_BIT) {
-            // not fenced yet
-            stateBits |= STATE_FENCED_BIT;
-            needFlushHeader = true;
-            synchronized (this) {
-                setChanged();
+    public boolean setFenced() throws IOException {
+        boolean returnVal = false;
+        synchronized (this) {
+            checkOpen(false);
+            LOG.debug("Try to set fenced state in file info {} : state bits {}.", lf, stateBits);
+            if ((stateBits & STATE_FENCED_BIT) != STATE_FENCED_BIT) {
+                // not fenced yet
+                stateBits |= STATE_FENCED_BIT;
+                needFlushHeader = true;
+                synchronized (this) {
+                    setChanged();
+                }
+                returnVal = true;
             }
-            notifyObservers(Long.MAX_VALUE);
-            return true;
-        } else {
-            return false;
         }
+        notifyObservers(Long.MAX_VALUE);
+        return returnVal;
     }
 
     // flush the header when header is changed
@@ -283,16 +285,16 @@ class FileInfo extends Observable {
      *          if set to true, the index is forced to create before closed,
      *          if set to false, the index is not forced to create.
      */
-    synchronized public void close(boolean force) throws IOException {
-        isClosed = true;
-        checkOpen(force);
+    public void close(boolean force) throws IOException {
         synchronized (this) {
+            isClosed = true;
+            checkOpen(force);
             setChanged();
+            if (useCount.get() == 0 && fc != null) {
+                fc.close();
+            }
         }
         notifyObservers(Long.MAX_VALUE);
-        if (useCount.get() == 0 && fc != null) {
-            fc.close();
-        }
     }
 
     synchronized public long write(ByteBuffer[] buffs, long position) throws IOException {
