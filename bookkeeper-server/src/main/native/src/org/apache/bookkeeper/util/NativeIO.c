@@ -22,7 +22,7 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
-#include <asm-x86_64/unistd.h>
+#include <unistd.h>
 #include "config.h"
 
 #if defined(HAVE_SYNC_FILE_RANGE)
