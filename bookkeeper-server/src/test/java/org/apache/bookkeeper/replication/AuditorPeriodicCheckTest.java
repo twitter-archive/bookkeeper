@@ -20,8 +20,11 @@
  */
 package org.apache.bookkeeper.replication;
 
+import org.apache.bookkeeper.client.AsyncCallback;
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
@@ -64,7 +67,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
     private HashMap<String, AuditorElector> auditorElectors = new HashMap<String, AuditorElector>();
     private List<ZooKeeper> zkClients = new LinkedList<ZooKeeper>();
 
-    private final static int CHECK_INTERVAL = 1000; // run every second
+    private final static int CHECK_INTERVAL = 1; // run every second
 
     public AuditorPeriodicCheckTest() {
         super(3);
@@ -150,7 +153,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
             if (underReplicatedLedger != -1) {
                 break;
             }
-            Thread.sleep(CHECK_INTERVAL);
+            Thread.sleep(CHECK_INTERVAL * 1000);
         }
         assertEquals("Ledger should be under replicated", ledgerId, underReplicatedLedger);
         underReplicationManager.close();
@@ -198,7 +201,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
             if (underReplicatedLedger != -1) {
                 break;
             }
-            Thread.sleep(CHECK_INTERVAL);
+            Thread.sleep(CHECK_INTERVAL * 1000);
         }
         assertEquals("Ledger should be under replicated", ledgerToCorrupt, underReplicatedLedger);
         underReplicationManager.close();
@@ -212,15 +215,34 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
         LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bsConfs.get(0), zkc);
         final LedgerUnderreplicationManager underReplicationManager = mFactory.newLedgerUnderreplicationManager();
         final int numLedgers = 100;
+        final int numMsgs = 100;
+        final CountDownLatch completeLatch = new CountDownLatch(numMsgs*numLedgers);
+        final AtomicInteger rc = new AtomicInteger(BKException.Code.OK);
 
+        List<LedgerHandle> lhs = new ArrayList<LedgerHandle>();
         for (int i = 0; i < numLedgers; i++) {
             LedgerHandle lh = bkc.createLedger(3, 3, DigestType.CRC32, "passwd".getBytes());
-
+            lhs.add(lh);
             for (int j = 0; j < 100; j++) {
-                lh.addEntry("testdata".getBytes());
+                lh.asyncAddEntry("testdata".getBytes(), new AsyncCallback.AddCallback() {
+                        public void addComplete(int rc2, LedgerHandle lh, long entryId, Object ctx) {
+                            if (rc.compareAndSet(BKException.Code.OK, rc2)) {
+                                LOG.info("Failed to add entry : {}", BKException.getMessage(rc2));
+                            }
+                            completeLatch.countDown();
+                        }
+                    }, null);
             }
+        }
+        completeLatch.await();
+        if (rc.get() != BKException.Code.OK) {
+            throw BKException.create(rc.get());
+        }
+
+        for (LedgerHandle lh : lhs) {
             lh.close();
         }
+
         underReplicationManager.disableLedgerReplication();
 
         final AtomicInteger numReads = new AtomicInteger(0);
@@ -232,45 +254,42 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
                     throws IOException, NoLedgerException {
                 // we want to disable during checking
                 numReads.incrementAndGet();
-                try {
-                    underReplicationManager.disableLedgerReplication();
-                } catch (ReplicationException.UnavailableException ue) {
-                    LOG.error("Couldn't disable ledger replication", ue);
-                }
                 throw new IOException("Fake I/O exception");
             }
         };
         bsConfs.add(conf);
         bs.add(startBookie(conf, deadBookie));
 
-        Thread.sleep(CHECK_INTERVAL * 2);
+        Thread.sleep(CHECK_INTERVAL * 2000);
         assertEquals("Nothing should have tried to read", 0, numReads.get());
         underReplicationManager.enableLedgerReplication();
+        Thread.sleep(CHECK_INTERVAL * 2000); // give it time to run
+
+        underReplicationManager.disableLedgerReplication();
+        // give it time to stop, from this point nothing new should be marked
+        Thread.sleep(CHECK_INTERVAL * 2000);
 
         int numUnderreplicated = 0;
         long underReplicatedLedger = -1;
-        for (int i = 0; i < 10; i++) {
-            underReplicatedLedger = underReplicationManager.pollLedgerToRereplicate();
-            if (underReplicatedLedger != -1) {
-                break;
-            }
-            Thread.sleep(CHECK_INTERVAL);
-        }
-        assertTrue("Some ledger should be under replicated", -1 != underReplicatedLedger);
-        numUnderreplicated++;
-        underReplicationManager.markLedgerReplicated(underReplicatedLedger);
-        while (underReplicatedLedger != -1) {
+        do {
             underReplicatedLedger = underReplicationManager.pollLedgerToRereplicate();
             if (underReplicatedLedger == -1) {
                 break;
-            } else {
-                numUnderreplicated++;
             }
+            numUnderreplicated++;
+
             underReplicationManager.markLedgerReplicated(underReplicatedLedger);
-        }
-        LOG.info("{} of {} ledgers underreplicated", numUnderreplicated, numLedgers);
-        assertTrue("Some but not all should be underreplicated",
-                   numUnderreplicated > 0 && numUnderreplicated < numLedgers);
+        } while (underReplicatedLedger != -1);
+
+        Thread.sleep(CHECK_INTERVAL * 2000); // give a chance to run again (it shouldn't, it's disabled)
+
+        // ensure that nothing is marked as underreplicated
+        underReplicatedLedger = underReplicationManager.pollLedgerToRereplicate();
+        assertEquals("There should be no underreplicated ledgers", -1, underReplicatedLedger);
+
+        LOG.info("{} of {} ledgers underreplicated", numUnderreplicated, numUnderreplicated);
+        assertTrue("All should be underreplicated",
+                numUnderreplicated <= numLedgers && numUnderreplicated > 0);
     }
 
     /**
