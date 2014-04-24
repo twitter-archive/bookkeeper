@@ -996,4 +996,11 @@ public class BookKeeperAdmin {
         }
         return true;
     }
+
+    /**
+     * @return the metadata for the passed ledger handle
+     */
+    public LedgerMetadata getLedgerMetadata(LedgerHandle lh) {
+        return lh.getLedgerMetadata();
+    }
 }

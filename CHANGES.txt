@@ -86,6 +86,78 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-649: Race condition in sync ZKUtils.createFullPathOptimistic() (ivank)
 
+        BOOKKEEPER-580: improve close logic (sijie & ivank via ivank)
+
+        BOOKKEEPER-446: BookKeeper.createLedger(..) should not mask the error with ZKException (sijie via ivank)
+
+        BOOKKEEPER-675: Log noise fixup before cutting 4.2.2 (ivank)
+
+        BOOKKEEPER-638: Two bookies could start at the same time to access bookie data. (sijie via ivank)
+
+        BOOKKEEPER-676: Make add asynchrounous in ledger recovery (aniruddha via ivank)
+
+        BOOKKEEPER-673: Ledger length can be inaccurate in failure case (sijie via ivank)
+
+        BOOKKEEPER-688: NPE exception in PerChannelBookieClient (ivank via sijie)
+
+        BOOKKEEPER-659: LRU page management in ledger cache. (Aniruddha, Robin Dhamankar & sijie via ivank)
+
+        BOOKKEEPER-700: GarbageCollectorThread exsiting with ArrayIndexOutOfBoundsException (rakeshr via ivank)
+
+        BOOKKEEPER-678: BookieServer shutdown hangs indefinitely at NioServerSocketChannelFactory.releaseExternalResources (rakeshr via ivank)
+
+        BOOKKEEPER-565: Make an option to separate storing entry log files from index files. (sijie via ivank)
+
+        BOOKKEEPER-711: bookkeeper-daemon.sh will not remove the pid file one successful stop (vinay via sijie)
+
+        BOOKKEEPER-712: bookkeeper script should use 'java' from JAVA_HOME (vinay via sijie)
+
+	BOOKKEEPER-709: SlowBookieTest#testSlowBookie fails intermittently (Rakesh R via fpj)
+
+        BOOKKEEPER-714: Logging channel exceptions in PerChannelBookieClient (sijie)
+
+        BOOKKEEPER-662: Major GC should kick in immediately if remaining space reaches a warning threshold (sijie via ivank)
+
+        BOOKKEEPER-710: OpenLedgerNoRecovery should watch ensemble change. (sijie via ivank)
+
+        BOOKKEEPER-429: Provide separate read and write threads in the bookkeeper server (Aniruddha via sijie)
+
+        BOOKKEEPER-696: stats collection on bookkeeper client (Aniruddha, ivank via sijie)
+
+        BOOKKEEPER-661: Turn readonly back to writable if spaces are reclaimed. (sijie via ivank)
+
+        BOOKKEEPER-720: CheckpointSource.MIN#compareTo does exactly the opposite of what it should (ivank via sijie)
+
+        BOOKKEEPER-643: Improve concurrency of entry logger (sijie & Aniruddha via ivank)
+
+        BOOKKEEPER-703: Document all the settings added in BOOKKEEPER-656 (sijie)
+
+        BOOKKEEPER-727: Names of bookie write/read threads are backwards (ivank via fpj)
+
+        BOOKKEEPER-728: Bookkeeper#Builder is not public, so can't be used outside of client package (ivank via fpj)
+
+        BOOKKEEPER-729: Bookie shouldn't exit with 0, if exiting from deathwatcher and thread death was caused by OOM (ivank via fpj)
+
+        BOOKKEEPER-725: AutoRecoveryMain should exit with error code if deathwatcher finds dead thread (ivank via sijie)
+
+        BOOKKEEPER-726: PerChannelBookieClient should print address that it failed to connect to when it fails to correct (ivank via sijie)
+
+        BOOKKEEPER-724: Shade introduces RAT error (sijie via fpj)
+
+        BOOKKEEPER-654: Bookkeeper client operations are allowed even after its closure, bk#close() (sijie via ivank)
+
+        BOOKKEEPER-717: journal should look forward to group time-out entries (sijie via ivank)
+
+        BOOKKEEPER-715: bookie: delay dropping journal cached pages (sijie via ivank)
+
+        BOOKKEEPER-730: Shade pom file missing apache license header (ivank)
+
+        BOOKKEEPER-740: AutoRecoveryMainTest#testAutoRecoverySessionLoss is failing (Rakesh via sijie)
+
+        BOOKKEEPER-432: Improve performance of entry log range read per ledger entries (yixue, sijie via ivank)
+
+        BOOKKEEPER-742: Fix for empty ledgers losing quorum. (ivank)
+
       hedwig-server:
 
         BOOKKEEPER-601: readahead cache size isn't updated correctly (sijie via fpj)

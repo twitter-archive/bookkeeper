@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -55,15 +56,17 @@ import org.apache.bookkeeper.replication.ReplicationException.UnavailableExcepti
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.collections.CollectionUtils;
-import com.google.common.collect.Sets;
+import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.AsyncCallback;
-import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.SettableFuture;
 
 /**
  * Auditor is a single entity in the entire Bookie cluster and will be watching
@@ -142,49 +145,49 @@ public class Auditor implements BookiesListener {
         }
     }
 
-    private synchronized void submitAuditTask() {
-        synchronized (this) {
-            if (executor.isShutdown()) {
-                return;
-            }
-            executor.submit(new Runnable() {
-                    public void run() {
-                        try {
-                            waitIfLedgerReplicationDisabled();
-
-                            List<String> availableBookies = getAvailableBookies();
-
-                            // casting to String, as knownBookies and availableBookies
-                            // contains only String values
-                            // find new bookies(if any) and update the known bookie list
-                            Collection<String> newBookies = CollectionUtils.subtract(
-                                    availableBookies, knownBookies);
-                            knownBookies.addAll(newBookies);
-
-                            // find lost bookies(if any)
-                            Collection<String> lostBookies = CollectionUtils.subtract(
-                                    knownBookies, availableBookies);
-
-                            if (lostBookies.size() > 0) {
-                                knownBookies.removeAll(lostBookies);
-                                Map<String, Set<Long>> ledgerDetails = generateBookie2LedgersIndex();
-                                handleLostBookies(lostBookies, ledgerDetails);
-                            }
-                        } catch (BKException bke) {
-                            LOG.error("Exception getting bookie list", bke);
-                        } catch (KeeperException ke) {
-                            LOG.error("Exception while watching available bookies", ke);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            LOG.error("Interrupted while watching available bookies ", ie);
-                        } catch (BKAuditException bke) {
-                            LOG.error("Exception while watching available bookies", bke);
-                        } catch (UnavailableException ue) {
-                            LOG.error("Exception while watching available bookies", ue);
-                        }
-                    }
-                });
+    @VisibleForTesting
+    synchronized Future<?> submitAuditTask() {
+        if (executor.isShutdown()) {
+            SettableFuture<Void> f = SettableFuture.<Void>create();
+            f.setException(new BKAuditException("Auditor shutting down"));
+            return f;
         }
+        return executor.submit(new Runnable() {
+                @SuppressWarnings("unchecked")
+                public void run() {
+                    try {
+                        waitIfLedgerReplicationDisabled();
+
+                        List<String> availableBookies = getAvailableBookies();
+
+                        // casting to String, as knownBookies and availableBookies
+                        // contains only String values
+                        // find new bookies(if any) and update the known bookie list
+                        Collection<String> newBookies = CollectionUtils.subtract(
+                                availableBookies, knownBookies);
+                        knownBookies.addAll(newBookies);
+
+                        // find lost bookies(if any)
+                        Collection<String> lostBookies = CollectionUtils.subtract(
+                                knownBookies, availableBookies);
+
+                        if (lostBookies.size() > 0) {
+                            knownBookies.removeAll(lostBookies);
+                            Map<String, Set<Long>> ledgerDetails = generateBookie2LedgersIndex();
+                            handleLostBookies(lostBookies, ledgerDetails);
+                        }
+                    } catch (BKException bke) {
+                        LOG.error("Exception getting bookie list", bke);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        LOG.error("Interrupted while watching available bookies ", ie);
+                    } catch (BKAuditException bke) {
+                        LOG.error("Exception while watching available bookies", bke);
+                    } catch (UnavailableException ue) {
+                        LOG.error("Exception while watching available bookies", ue);
+                    }
+                }
+            });
     }
 
     public void start() {
@@ -301,7 +304,7 @@ public class Auditor implements BookiesListener {
 
     private void handleLostBookies(Collection<String> lostBookies,
             Map<String, Set<Long>> ledgerDetails) throws BKAuditException,
-            KeeperException, InterruptedException {
+            InterruptedException {
         LOG.info("Following are the failed bookies: " + lostBookies
                 + " and searching its ledgers for re-replication");
 
@@ -313,7 +316,7 @@ public class Auditor implements BookiesListener {
     }
 
     private void publishSuspectedLedgers(String bookieIP, Set<Long> ledgers)
-            throws KeeperException, InterruptedException, BKAuditException {
+            throws InterruptedException, BKAuditException {
         if (null == ledgers || ledgers.size() == 0) {
             // there is no ledgers available for this bookie and just
             // ignoring the bookie failures
@@ -361,11 +364,6 @@ public class Auditor implements BookiesListener {
                 lh.close();
             } catch (BKException bke) {
                 LOG.error("Error closing lh", bke);
-                if (rc == BKException.Code.OK) {
-                    rc = BKException.Code.ZKException;
-                }
-            } catch (KeeperException ke) {
-                LOG.error("Couldn't publish suspected ledger", ke);
                 if (rc == BKException.Code.OK) {
                     rc = BKException.Code.ZKException;
                 }

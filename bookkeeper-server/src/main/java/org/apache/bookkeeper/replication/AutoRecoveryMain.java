@@ -22,11 +22,11 @@ package org.apache.bookkeeper.replication;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.util.HashSet;
 import java.util.Set;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieCriticalThread;
@@ -148,6 +148,11 @@ public class AutoRecoveryMain {
 
     private int getExitCode() {
         return exitCode;
+    }
+
+    @VisibleForTesting
+    public Auditor getAuditor() {
+        return auditorElector.getAuditor();
     }
 
     /*

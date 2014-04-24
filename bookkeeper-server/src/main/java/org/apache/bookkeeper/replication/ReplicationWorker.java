@@ -1,21 +1,21 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one 
- * or more contributor license agreements.  See the NOTICE file 
- * distributed with this work for additional information 
- * regarding copyright ownership.  The ASF licenses this file 
- * to you under the Apache License, Version 2.0 (the 
- * "License"); you may not use this file except in compliance 
- * with the License.  You may obtain a copy of the License at 
- * 
- *   http://www.apache.org/licenses/LICENSE-2.0 
- * 
- * Unless required by applicable law or agreed to in writing, 
- * software distributed under the License is distributed on an 
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY 
- * KIND, either express or implied.  See the License for the 
- * specific language governing permissions and limitations 
- * under the License. 
- * 
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
  */
 package org.apache.bookkeeper.replication;
 
@@ -25,18 +25,22 @@ import java.util.List;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.SortedMap;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.bookkeeper.bookie.BookieThread;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BKException.BKBookieHandleNotAvailableException;
+import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
+import org.apache.bookkeeper.client.BKException.BKReadException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerChecker;
 import org.apache.bookkeeper.client.LedgerFragment;
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.BKException.BKBookieHandleNotAvailableException;
-import org.apache.bookkeeper.client.BKException.BKNoSuchLedgerExistsException;
-import org.apache.bookkeeper.client.BKException.BKReadException;
+import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -72,7 +76,7 @@ public class ReplicationWorker implements Runnable {
      * Replication worker for replicating the ledger fragments from
      * UnderReplicationManager to the targetBookie. This target bookie will be a
      * local bookie.
-     * 
+     *
      * @param zkc
      *            - ZK instance
      * @param conf
@@ -196,11 +200,11 @@ public class ReplicationWorker implements Runnable {
             }
         }
 
-        if (foundOpenFragments) {
+        if (foundOpenFragments || isLastSegmentOpenAndMissingBookies(lh)) {
             deferLedgerLockRelease(ledgerIdToReplicate);
             return;
         }
-        
+
         fragments = getUnderreplicatedFragments(lh);
         if (fragments.size() == 0) {
             LOG.info("Ledger replicated successfully. ledger id is: "
@@ -212,6 +216,45 @@ public class ReplicationWorker implements Runnable {
             underreplicationManager
                     .releaseUnderreplicatedLedger(ledgerIdToReplicate);
         }
+    }
+
+    /**
+     * When checking the fragments of a ledger, there is a corner case
+     * where if the last segment/ensemble is open, but nothing has been written to
+     * some of the quorums in the ensemble, bookies can fail without any action being
+     * taken. This is fine, until enough bookies fail to cause a quorum to become
+     * unavailable, by which time the ledger is unrecoverable.
+     *
+     * For example, if in a E3Q2, only 1 entry is written and the last bookie
+     * in the ensemble fails, nothing has been written to it, so nothing needs to be
+     * recovered. But if the second to last bookie fails, we've now lost quorum for
+     * the second entry, so it's impossible to see if the second has been written or
+     * not.
+     *
+     * To avoid this situation, we need to check if bookies in the final open ensemble
+     * are unavailable, and take action if so. The action to take is to close the ledger,
+     * after a grace period as the writting client may replace the faulty bookie on its
+     * own.
+     *
+     * Missing bookies in closed ledgers are fine, as we know the last confirmed add, so
+     * we can tell which entries are supposed to exist and rereplicate them if necessary.
+     */
+    private boolean isLastSegmentOpenAndMissingBookies(LedgerHandle lh) throws BKException {
+        LedgerMetadata md = admin.getLedgerMetadata(lh);
+        if (md.isClosed()) {
+            return false;
+        }
+
+        SortedMap<Long, ArrayList<InetSocketAddress>> ensembles
+            = admin.getLedgerMetadata(lh).getEnsembles();
+        ArrayList<InetSocketAddress> finalEnsemble = ensembles.get(ensembles.lastKey());
+        Collection<InetSocketAddress> available = admin.getAvailableBookies();
+        for (InetSocketAddress b : finalEnsemble) {
+            if (!available.contains(b)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Gets the under replicated fragments */
@@ -236,6 +279,10 @@ public class ReplicationWorker implements Runnable {
                 LedgerHandle lh = null;
                 try {
                     lh = admin.openLedgerNoRecovery(ledgerId);
+                    if (isLastSegmentOpenAndMissingBookies(lh)) {
+                        lh = admin.openLedger(ledgerId);
+                    }
+
                     Set<LedgerFragment> fragments = getUnderreplicatedFragments(lh);
                     for (LedgerFragment fragment : fragments) {
                         if (!fragment.isClosed()) {
@@ -281,7 +328,7 @@ public class ReplicationWorker implements Runnable {
         };
         pendingReplicationTimer.schedule(timerTask, gracePeriod);
     }
-    
+
     /**
      * Stop the replication worker service
      */
