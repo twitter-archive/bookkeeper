@@ -31,6 +31,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -63,6 +65,8 @@ import org.slf4j.LoggerFactory;
 public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     final static Logger logger = LoggerFactory.getLogger(ZooKeeperClient.class);
+
+    private static final int DEFAULT_RETRY_EXECUTOR_THREAD_COUNT = 1;
 
     // ZooKeeper client connection variables
     private final String connectString;
@@ -205,13 +209,21 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
     }
 
     public static ZooKeeperClient createConnectedZooKeeperClient(
+        String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
+        RetryPolicy operationRetryPolicy, StatsLogger statsLogger)
+        throws KeeperException, InterruptedException, IOException {
+        return createConnectedZooKeeperClient(connectString, sessionTimeoutMs, childWatchers, operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
+
+    }
+
+    public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
-            RetryPolicy operationRetryPolicy, StatsLogger statsLogger)
+            RetryPolicy operationRetryPolicy, StatsLogger statsLogger, int retryExecThreadCount)
                     throws KeeperException, InterruptedException, IOException {
         ZooKeeperWatcherBase watcherManager =
                 new ZooKeeperWatcherBase(sessionTimeoutMs, childWatchers);
         ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                operationRetryPolicy, statsLogger);
+                operationRetryPolicy, statsLogger, retryExecThreadCount);
         try {
             watcherManager.waitForConnection();
         } catch (KeeperException ke) {
@@ -232,7 +244,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
         ZooKeeperWatcherBase watcherManager =
                 new ZooKeeperWatcherBase(sessionTimeoutMs, childWatchers);
         ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                connectRetryPolicy, operationRetryPolicy, statsLogger);
+                connectRetryPolicy, operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
         try {
             watcherManager.waitForConnection();
         } catch (KeeperException ke) {
@@ -249,13 +261,22 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             RetryPolicy operationRetryPolicy, StatsLogger statsLogger) throws IOException {
         this(connectString, sessionTimeoutMs, watcherManager,
              new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE),
-             operationRetryPolicy, statsLogger);
+             operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
+    }
+
+    ZooKeeperClient(String connectString, int sessionTimeoutMs, ZooKeeperWatcherBase watcherManager,
+                    RetryPolicy operationRetryPolicy, StatsLogger statsLogger,
+                    int retryExecThreadCount) throws IOException {
+        this(connectString, sessionTimeoutMs, watcherManager,
+            new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE),
+            operationRetryPolicy, statsLogger, retryExecThreadCount);
     }
 
     private ZooKeeperClient(String connectString, int sessionTimeoutMs,
             ZooKeeperWatcherBase watcherManager,
             RetryPolicy connectRetryPolicy, RetryPolicy operationRetryPolicy,
-            StatsLogger statsLogger) throws IOException {
+            StatsLogger statsLogger,
+            int retryExecThreadCount) throws IOException {
         super(connectString, sessionTimeoutMs, watcherManager);
         this.connectString = connectString;
         this.sessionTimeoutMs = sessionTimeoutMs;
@@ -263,9 +284,9 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
         this.connectRetryPolicy = connectRetryPolicy;
         this.operationRetryPolicy = operationRetryPolicy;
         this.retryExecutor =
-                Executors.newScheduledThreadPool(Runtime.getRuntime().availableProcessors());
+                Executors.newScheduledThreadPool(retryExecThreadCount, new ThreadFactoryBuilder().setNameFormat("ZKC-retry-executor-%d").build());
         this.connectExecutor =
-                Executors.newSingleThreadExecutor();
+                Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().setNameFormat("ZKC-connect-executor-%d").build());
         // added itself to the watcher
         watcherManager.addChildWatcher(this);
 
