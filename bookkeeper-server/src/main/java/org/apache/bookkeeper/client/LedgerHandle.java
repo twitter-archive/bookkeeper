@@ -586,6 +586,10 @@ public class LedgerHandle {
                                                entryId, lastAddConfirmed, currentLength, data, offset, length);
                     op.initiate(toSend);
                 }
+                @Override
+                public String toString() {
+                    return String.format("AsyncAddEntry(lid=%d, eid=%d)", ledgerId, entryId);
+                }
             });
         } catch (RuntimeException e) {
             cb.addComplete(BKException.Code.InterruptedException,

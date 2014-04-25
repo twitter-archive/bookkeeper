@@ -128,7 +128,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         return clientPool;
     }
 
-    public void closeClients(Set<InetSocketAddress> addrs) {
+    public void closeClients(final Set<InetSocketAddress> addrs) {
         final HashSet<PerChannelBookieClientPool> clients =
                 new HashSet<PerChannelBookieClientPool>();
         for (InetSocketAddress a : addrs) {
@@ -147,6 +147,10 @@ public class BookieClient implements PerChannelBookieClientFactory {
                     for (PerChannelBookieClientPool c : clients) {
                         c.disconnect();
                     }
+                }
+                @Override
+                public String toString() {
+                    return String.format("CloseClients(%s)", addrs);
                 }
             });
     }

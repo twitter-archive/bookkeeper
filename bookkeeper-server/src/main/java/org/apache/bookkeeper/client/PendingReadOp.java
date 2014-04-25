@@ -574,4 +574,9 @@ class PendingReadOp extends SafeRunnable
     public int size() {
         return seq.size();
     }
+
+    @Override
+    public String toString() {
+        return String.format("PendingReadOp(lid=%d, [%d-%d])", lh.ledgerId, startEntryId, endEntryId);
+    }
 }

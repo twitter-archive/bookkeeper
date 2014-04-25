@@ -581,4 +581,9 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
     }
 
+    @Override
+    public String toString() {
+        return String.format("ReadLastConfirmedAndEntryOp(lid=%d, lac=%d])", lh.ledgerId, lastAddConfirmed);
+    }
+
 }
