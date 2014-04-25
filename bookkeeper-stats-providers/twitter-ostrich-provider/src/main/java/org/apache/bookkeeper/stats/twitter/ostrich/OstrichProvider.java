@@ -4,6 +4,7 @@ import com.twitter.ostrich.admin.CustomHttpHandler;
 import com.twitter.ostrich.admin.RuntimeEnvironment;
 import com.twitter.ostrich.admin.StatsFactory;
 import com.twitter.util.Duration;
+import org.apache.bookkeeper.stats.CachingStatsProvider;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.commons.configuration.Configuration;
@@ -23,7 +24,7 @@ public class OstrichProvider implements StatsProvider {
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
 
     private com.twitter.ostrich.admin.AdminHttpService statsExporter = null;
-    private final String collectionName;
+    private final CachingStatsProvider cachingStatsProvider;
 
     private static <T> List<T> list(T ... ts) {
         List<T> result = List$.MODULE$.empty();
@@ -46,8 +47,24 @@ public class OstrichProvider implements StatsProvider {
         this("");
     }
 
-    public OstrichProvider(String collectionName) {
-        this.collectionName = collectionName;
+    public OstrichProvider(final String collectionName) {
+        this.cachingStatsProvider = new CachingStatsProvider(new StatsProvider() {
+            @Override
+            public void start(Configuration conf) {
+                // nop
+            }
+
+            @Override
+            public void stop() {
+                // nop
+            }
+
+            @Override
+            public StatsLogger getStatsLogger(String scope) {
+                return new OstrichStatsLoggerImpl(scope,
+                        com.twitter.ostrich.stats.Stats.get(collectionName));
+            }
+        });
     }
 
     @Override
@@ -70,6 +87,6 @@ public class OstrichProvider implements StatsProvider {
 
     @Override
     public StatsLogger getStatsLogger(String scope) {
-        return new OstrichStatsLoggerImpl(scope, com.twitter.ostrich.stats.Stats.get(collectionName));
+        return cachingStatsProvider.getStatsLogger(scope);
     }
 }
