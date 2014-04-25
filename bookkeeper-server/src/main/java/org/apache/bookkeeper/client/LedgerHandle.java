@@ -314,9 +314,12 @@ public class LedgerHandle {
                     // Close operation is idempotent, so no need to check if we are
                     // already closed
                     metadata.close(lastAddConfirmed);
-                    errorOutPendingAdds(rc);
                     lastAddPushed = lastAddConfirmed;
                 }
+
+                // error out all pending adds during closing, the callbacks shouldn't be
+                // running under any bk locks.
+                errorOutPendingAdds(rc);
 
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Closing ledger: " + ledgerId + " at entryId: "
@@ -550,22 +553,29 @@ public class LedgerHandle {
 
         final long entryId;
         final long currentLength;
+        boolean wasClosed = false;
         synchronized(this) {
             // synchronized on this to ensure that
             // the ledger isn't closed between checking and
             // updating lastAddPushed
             if (metadata.isClosed()) {
-                LOG.warn("Attempt to add to closed ledger: " + ledgerId);
-                cb.addComplete(BKException.Code.LedgerClosedException,
-                               LedgerHandle.this, INVALID_ENTRY_ID, ctx);
-                return;
+                wasClosed = true;
+                entryId = -1;
+                currentLength = 0;
+            } else {
+                entryId = ++lastAddPushed;
+                currentLength = addToLength(length);
+                op.setEntryId(entryId);
+                bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).inc();
+                pendingAddOps.add(op);
             }
+        }
 
-            entryId = ++lastAddPushed;
-            currentLength = addToLength(length);
-            op.setEntryId(entryId);
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).inc();
-            pendingAddOps.add(op);
+        if (wasClosed) {
+            LOG.warn("Attempt to add to closed ledger: {}", ledgerId);
+            cb.addComplete(BKException.Code.LedgerClosedException,
+                           LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            return;
         }
 
         try {
@@ -1075,30 +1085,45 @@ public class LedgerHandle {
         bk.getLedgerManager().readLedgerMetadata(ledgerId, cb);
     }
 
-    synchronized void recover(GenericCallback<Void> finalCb) {
+    void recover(GenericCallback<Void> finalCb) {
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
                 this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
-        if (metadata.isClosed()) {
-            lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
-            length = metadata.getLength();
 
+        boolean wasClosed = false;
+        boolean wasInRecovery = false;
+
+        synchronized (this) {
+            if (metadata.isClosed()) {
+                lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
+                length = metadata.getLength();
+                wasClosed = true;
+            } else {
+                wasClosed = false;
+                if (metadata.isInRecovery()) {
+                    wasInRecovery = true;
+                } else {
+                    wasInRecovery = false;
+                    metadata.markLedgerInRecovery();
+                }
+            }
+        }
+
+        if (wasClosed) {
             // We are already closed, nothing to do
             cb.operationComplete(BKException.Code.OK, null);
             return;
         }
 
-        // if metadata is already in recover, dont try to write again,
-        // just do the recovery from the starting point
-        if (metadata.isInRecovery()) {
+        if (wasInRecovery) {
+            // if metadata is already in recover, dont try to write again,
+            // just do the recovery from the starting point
             new LedgerRecoveryOp(LedgerHandle.this, cb)
-                    .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
-                    .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                    .setCouldClose(true)
-                    .initiate();
+                        .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
+                        .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
+                        .setCouldClose(true)
+                        .initiate();
             return;
         }
-
-        metadata.markLedgerInRecovery();
 
         final LedgerRecoveryOp recoveryOp = new LedgerRecoveryOp(LedgerHandle.this, cb)
                 .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
