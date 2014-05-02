@@ -27,7 +27,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
 
     final int speculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> speculativeTask = null;
     ReadLACAndEntryRequest request;
     final Set<InetSocketAddress> heardFromHosts;
     final Set<InetSocketAddress> emptyResponsesFromHosts;
@@ -399,13 +398,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         return lh.metadata;
     }
 
-    protected void cancelSpeculativeTask(boolean mayInterruptIfRunning) {
-        if (speculativeTask != null) {
-            speculativeTask.cancel(mayInterruptIfRunning);
-            speculativeTask = null;
-        }
-    }
-
     ReadLastConfirmedAndEntryOp parallelRead(boolean enabled) {
         this.parallelRead = enabled;
         return this;
@@ -416,36 +408,36 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
      */
     @Override
     public void safeRun() {
-        boolean started = false;
-        if (!request.isComplete()) {
-            if (null == request.maybeSendSpeculativeRead(heardFromHosts)) {
-                // Subsequent speculative read will not materialize anyway
-                cancelSpeculativeTask(false);
-            }
-            else {
-                LOG.debug("Send speculative read for {}. Hosts heard are {}.",
-                    request, heardFromHosts);
-                started = true;
-            }
-        }
-        if (started) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Send speculative ReadLAC for ledger {} (previousLAC: {}). Hosts heard are {}.",
-                    new Object[] {lh.getId(), lastAddConfirmed, heardFromHosts });
+        if (!requestComplete.get() && !request.isComplete()) {
+            if (null != request.maybeSendSpeculativeRead(heardFromHosts)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
+                        new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHosts });
+                }
+                if (speculativeReadTimeout > 0) {
+                    scheduler.schedule(new Runnable() {
+                        @Override
+                        public void run() {
+                            // let the speculative read running this same thread
+                            lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
+                                ReadLastConfirmedAndEntryOp.this);
+                        }
+                    }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+                }
             }
         }
     }
 
     public void initiate() {
         if (speculativeReadTimeout > 0 && !parallelRead) {
-            speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
+            scheduler.schedule(new Runnable() {
                 @Override
                 public void run() {
                     // let the speculative read running this same thread
                     lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
-                            ReadLastConfirmedAndEntryOp.this);
+                        ReadLastConfirmedAndEntryOp.this);
                 }
-            }, speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+            }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
         }
 
         if (parallelRead) {
@@ -513,7 +505,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             }
             lh.getStatsLogger().getOpStatsLogger(op).registerSuccessfulEvent(latencyMicros);
         }
-        cancelSpeculativeTask(true);
         cb.readLastConfirmedAndEntryComplete(rc, lastAddConfirmed, entry);
     }
 
