@@ -54,7 +54,8 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
-    protected final static String SPECULATIVE_READ_LAC_TIMEOUT = "speculativeReadLACTimeout";
+    protected final static String FIRST_SPECULATIVE_READ_LAC_TIMEOUT = "firstSpeculativeReadLACTimeout";
+    protected final static String MAX_SPECULATIVE_READ_LAC_TIMEOUT = "maxSpeculativeReadLACTimeout";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
     // Add Parameters
@@ -497,7 +498,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
-     * Get the period of time after which a speculative read last add confirmed and entry
+     * Get the period of time after which the first speculative read last add confirmed and entry
      * should be triggered.
      * A speculative entry request is sent to the next replica bookie before
      * an error or response has been received for the previous entry read request.
@@ -511,12 +512,24 @@ public class ClientConfiguration extends AbstractConfiguration {
      *
      * @return the speculative request timeout in milliseconds. Default 1500.
      */
-    public int getSpeculativeReadLACTimeout() {
-        return getInt(SPECULATIVE_READ_LAC_TIMEOUT, 1500);
+    public int getFirstSpeculativeReadLACTimeout() {
+        return getInt(FIRST_SPECULATIVE_READ_LAC_TIMEOUT, 1500);
+    }
+
+
+    /**
+     * Get the maximum interval between successive speculative read last add confirmed and entry
+     * requests.
+     *
+     * @return the max speculative request timeout in milliseconds. Default 5000.
+     */
+    public int getMaxSpeculativeReadLACTimeout() {
+        return getInt(MAX_SPECULATIVE_READ_LAC_TIMEOUT, 5000);
     }
 
     /**
-     * Set the speculative read last add confirmed timeout.
+     * Set the period of time after which the first speculative read last add confirmed and entry
+     * should be triggered.
      * A lower timeout will reduce read latency in the case of a failed bookie,
      * while increasing the load on bookies and the network.
      *
@@ -527,8 +540,20 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @param timeout the timeout value, in milliseconds
      * @return client configuration
      */
-    public ClientConfiguration setSpeculativeReadLACTimeout(int timeout) {
-        setProperty(SPECULATIVE_READ_LAC_TIMEOUT, timeout);
+    public ClientConfiguration setFirstSpeculativeReadLACTimeout(int timeout) {
+        setProperty(FIRST_SPECULATIVE_READ_LAC_TIMEOUT, timeout);
+        return this;
+    }
+
+    /**
+     * Set the maximum interval between successive speculative read last add confirmed and entry
+     * requests.
+     *
+     * @param timeout the timeout value, in milliseconds
+     * @return client configuration
+     */
+    public ClientConfiguration setMaxSpeculativeReadLACTimeout(int timeout) {
+        setProperty(MAX_SPECULATIVE_READ_LAC_TIMEOUT, timeout);
         return this;
     }
 

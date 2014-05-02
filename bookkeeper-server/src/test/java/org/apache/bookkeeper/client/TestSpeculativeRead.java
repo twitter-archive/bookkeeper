@@ -88,7 +88,7 @@ public class TestSpeculativeRead extends BaseTestCase {
 
     BookKeeper createClientForReadLAC(int specTimeout) throws Exception {
         ClientConfiguration conf = new ClientConfiguration()
-            .setSpeculativeReadLACTimeout(specTimeout)
+            .setFirstSpeculativeReadLACTimeout(specTimeout)
             .setReadTimeout(30000);
         conf.setZkServers(zkUtil.getZooKeeperConnectString());
         return new BookKeeper(conf);
@@ -460,6 +460,50 @@ public class TestSpeculativeRead extends BaseTestCase {
             bkspec.close();
         }
     }
+
+    /**
+     * Test that if more than one replica is down, we can still read, as long as the quorum
+     * size is larger than the number of down replicas.
+     */
+    @Test
+    public void testSpeculativeReadLACMultipleReplicasDown() throws Exception {
+        LedgerHandle lh = getLedgerToWrite(5, 5, 3);
+        int timeout = 200;
+        BookKeeper bkspec = createClientForReadLAC(timeout);
+
+        LedgerHandle l = bkspec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+
+        lh.addEntry("Data for test".getBytes());
+
+        // sleep bookie 1, 2 & 4
+        CountDownLatch sleepLatch = new CountDownLatch(1);
+        long entryId = l.getLastAddConfirmed() + 1;
+        sleepBookie(lh.getLedgerMetadata().getEnsemble(entryId).get(
+            lh.distributionSchedule.getWriteSet(entryId).get(0))
+            , sleepLatch);
+        sleepBookie(lh.getLedgerMetadata().getEnsemble(entryId).get(
+            lh.distributionSchedule.getWriteSet(entryId).get(1))
+            , sleepLatch);
+
+        try {
+            // second should have to hit two timeouts (bookie 0 & 1)
+            // bookie 2 has the entry
+            LatchCallback latch1 = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
+            latch1.expectTimeout(timeout);
+            latch1.expectTimeout(timeout*2);
+            latch1.expectSuccess(timeout*2);
+            LOG.info("Timeout {} latch1 duration {}", timeout, latch1.getDuration());
+            assertTrue("should have taken longer than two timeouts, but less than 3",
+                latch1.getDuration() >= timeout*3
+                    && latch1.getDuration() < timeout*4);
+        } finally {
+            sleepLatch.countDown();
+            l.close();
+            bkspec.close();
+        }
+    }
+
 
     /**
      * Test that if after a speculative read is kicked off, the original read completes

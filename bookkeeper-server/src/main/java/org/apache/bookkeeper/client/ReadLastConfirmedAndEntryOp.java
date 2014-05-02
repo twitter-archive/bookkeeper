@@ -25,7 +25,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         implements BookkeeperInternalCallbacks.ReadEntryCallback {
     static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedAndEntryOp.class);
 
-    final int speculativeReadTimeout;
+    int speculativeReadTimeout;
+    final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     ReadLACAndEntryRequest request;
     final Set<InetSocketAddress> heardFromHosts;
@@ -389,7 +390,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         this.scheduler = scheduler;
         maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
             - getLedgerMetadata().getAckQuorumSize();
-        speculativeReadTimeout = lh.bk.getConf().getSpeculativeReadLACTimeout();
+        speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadLACTimeout();
+        maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadLACTimeout();
         heardFromHosts = new HashSet<InetSocketAddress>();
         emptyResponsesFromHosts = new HashSet<InetSocketAddress>();
     }
@@ -415,6 +417,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
                         new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHosts });
                 }
                 if (speculativeReadTimeout > 0) {
+                    speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
                     scheduler.schedule(new Runnable() {
                         @Override
                         public void run() {
