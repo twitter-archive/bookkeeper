@@ -67,6 +67,17 @@ public class TestSpeculativeRead extends BaseTestCase {
         return l.getId();
     }
 
+    LedgerHandle getLedgerToWrite(int ensemble, int writeQuorum, int ackQuorum) throws Exception {
+        byte[] data = "Data for test".getBytes();
+        LedgerHandle l = bkc.createLedger(ensemble, writeQuorum, ackQuorum, digestType, passwd);
+        for (int i = 0; i < 10; i++) {
+            l.addEntry(data);
+        }
+
+        return l;
+    }
+
+
     BookKeeper createClient(int specTimeout) throws Exception {
         ClientConfiguration conf = new ClientConfiguration()
             .setSpeculativeReadTimeout(specTimeout)
@@ -75,11 +86,27 @@ public class TestSpeculativeRead extends BaseTestCase {
         return new BookKeeper(conf);
     }
 
-    class LatchCallback implements ReadCallback {
+    BookKeeper createClientForReadLAC(int specTimeout) throws Exception {
+        ClientConfiguration conf = new ClientConfiguration()
+            .setSpeculativeReadLACTimeout(specTimeout)
+            .setReadTimeout(30000);
+        conf.setZkServers(zkUtil.getZooKeeperConnectString());
+        return new BookKeeper(conf);
+    }
+
+    class LatchCallback implements ReadCallback, ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback, AsyncCallback.ReadLastConfirmedAndEntryCallback {
         CountDownLatch l = new CountDownLatch(1);
         boolean success = false;
         long startMillis = System.currentTimeMillis();
         long endMillis = Long.MAX_VALUE;
+
+        @Override
+        public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry) {
+            endMillis = System.currentTimeMillis();
+            LOG.debug("Got response {} {}", rc, getDuration());
+            success = rc == BKException.Code.OK;
+            l.countDown();
+        }
 
         public void readComplete(int rc,
                                  LedgerHandle lh,
@@ -108,6 +135,14 @@ public class TestSpeculativeRead extends BaseTestCase {
         void expectTimeout(int milliseconds) throws Exception {
             assertFalse(l.await(milliseconds, TimeUnit.MILLISECONDS));
         }
+
+        @Override
+        public void readLastConfirmedAndEntryComplete(int rc, long lastConfirmed, LedgerEntry entry, Object ctx) {
+            endMillis = System.currentTimeMillis();
+            LOG.debug("Got response {} {}", rc, getDuration());
+            success = rc == BKException.Code.OK;
+            l.countDown();
+        }
     }
 
     /**
@@ -123,8 +158,9 @@ public class TestSpeculativeRead extends BaseTestCase {
     @Test
     public void testSpeculativeRead() throws Exception {
         long id = getLedgerToRead(3,2);
+        int timeout = 400;
         BookKeeper bknospec = createClient(0); // disabled
-        BookKeeper bkspec = createClient(2000);
+        BookKeeper bkspec = createClient(timeout);
 
         LedgerHandle lnospec = bknospec.openLedger(id, digestType, passwd);
         LedgerHandle lspec = bkspec.openLedger(id, digestType, passwd);
@@ -140,8 +176,8 @@ public class TestSpeculativeRead extends BaseTestCase {
             LatchCallback speccb = new LatchCallback();
             lnospec.asyncReadEntries(0, 0, nospeccb, null);
             lspec.asyncReadEntries(0, 0, speccb, null);
-            nospeccb.expectSuccess(2000);
-            speccb.expectSuccess(2000);
+            nospeccb.expectSuccess(timeout);
+            speccb.expectSuccess(timeout);
 
             // read second entry, both look for second book, spec read client
             // tries third bookie, nonspec client hangs as read timeout is very long.
@@ -149,8 +185,8 @@ public class TestSpeculativeRead extends BaseTestCase {
             speccb = new LatchCallback();
             lnospec.asyncReadEntries(1, 1, nospeccb, null);
             lspec.asyncReadEntries(1, 1, speccb, null);
-            speccb.expectSuccess(4000);
-            nospeccb.expectTimeout(4000);
+            speccb.expectSuccess(2 * timeout);
+            nospeccb.expectTimeout(2 * timeout);
         } finally {
             sleepLatch.countDown();
             lspec.close();
@@ -167,7 +203,7 @@ public class TestSpeculativeRead extends BaseTestCase {
     @Test
     public void testSpeculativeReadMultipleReplicasDown() throws Exception {
         long id = getLedgerToRead(5,5);
-        int timeout = 5000;
+        int timeout = 400;
         BookKeeper bkspec = createClient(timeout);
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
@@ -238,7 +274,7 @@ public class TestSpeculativeRead extends BaseTestCase {
     @Test
     public void testSpeculativeReadFirstReadCompleteIsOk() throws Exception {
         long id = getLedgerToRead(2,2);
-        int timeout = 1000;
+        int timeout = 400;
         BookKeeper bkspec = createClient(timeout);
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
@@ -281,7 +317,7 @@ public class TestSpeculativeRead extends BaseTestCase {
     @Test
     public void testSpeculativeReadScheduling() throws Exception {
         long id = getLedgerToRead(3,2);
-        int timeout = 1000;
+        int timeout = 400;
         BookKeeper bkspec = createClient(timeout);
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
@@ -335,6 +371,195 @@ public class TestSpeculativeRead extends BaseTestCase {
                 }
             }
 
+            l.close();
+            bkspec.close();
+        }
+    }
+
+    /**
+     * Test basic speculative functionality.
+     * - Create 2 clients with read timeout disabled, one with spec
+     *   read enabled, the other not.
+     * - create ledger
+     * - sleep second bookie in ensemble
+     * - read first entry, both should find on first bookie.
+     * - read second bookie, spec client should find on bookie three,
+     *   non spec client should hang.
+     */
+    @Test
+    public void testSpeculativeReadLAC() throws Exception {
+        LedgerHandle lh = getLedgerToWrite(3, 3, 2);
+        int timeOut = 400;
+        BookKeeper bknospec = createClientForReadLAC(0); // disabled
+        BookKeeper bkspec = createClientForReadLAC(timeOut);
+
+        LedgerHandle lnospec = bknospec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+        LedgerHandle lspec = bkspec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+
+        lh.addEntry("Data for test".getBytes());
+
+        // sleep second bookie
+        CountDownLatch sleepLatch = new CountDownLatch(1);
+        long entryId = lnospec.getLastAddConfirmed() + 1;
+        sleepBookie(lnospec.getLedgerMetadata().getEnsemble(entryId).get(
+            lnospec.distributionSchedule.getWriteSet(entryId).get(0))
+            , sleepLatch);
+
+        try {
+            // read last confirmed
+            LatchCallback nospeccb = new LatchCallback();
+            LatchCallback speccb = new LatchCallback();
+            lnospec.asyncReadLastConfirmedAndEntry(10000, nospeccb, null);
+            lspec.asyncReadLastConfirmedAndEntry(10000, speccb, null);
+            speccb.expectSuccess(2 * timeOut);
+            nospeccb.expectTimeout(2 * timeOut);
+        } finally {
+            sleepLatch.countDown();
+            lspec.close();
+            lnospec.close();
+            bkspec.close();
+            bknospec.close();
+        }
+    }
+
+    /**
+     * Test that if one replica is down, we can still read, as long as the quorum
+     * size is larger than the number of down replicas.
+     */
+    @Test
+    public void testSpeculativeReadLACOneReplicaDown() throws Exception {
+        LedgerHandle lh = getLedgerToWrite(5, 5, 3);
+        int timeout = 400;
+        BookKeeper bkspec = createClientForReadLAC(timeout);
+
+        LedgerHandle l = bkspec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+
+        lh.addEntry("Data for test".getBytes());
+
+        // sleep bookie 1, 2 & 4
+        CountDownLatch sleepLatch = new CountDownLatch(1);
+        long entryId = l.getLastAddConfirmed() + 1;
+        sleepBookie(lh.getLedgerMetadata().getEnsemble(entryId).get(
+            lh.distributionSchedule.getWriteSet(entryId).get(0))
+            , sleepLatch);
+
+        try {
+            // second should have to hit two timeouts (bookie 1 & 2)
+            // bookie 3 has the entry
+            LatchCallback latch1 = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
+            latch1.expectTimeout(timeout);
+            latch1.expectSuccess(timeout*2);
+            LOG.info("Timeout {} latch1 duration {}", timeout, latch1.getDuration());
+            assertTrue("should have taken longer than two timeouts, but less than 3",
+                latch1.getDuration() >= timeout
+                    && latch1.getDuration() < timeout*2);
+        } finally {
+            sleepLatch.countDown();
+            l.close();
+            bkspec.close();
+        }
+    }
+
+    /**
+     * Test that if after a speculative read is kicked off, the original read completes
+     * nothing bad happens.
+     */
+    @Test
+    public void testSpeculativeReadLACFirstReadCompleteIsOk() throws Exception {
+        LedgerHandle lh = getLedgerToWrite(2, 2, 2);
+        int timeout = 400;
+        BookKeeper bkspec = createClientForReadLAC(timeout);
+
+        LedgerHandle l = bkspec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+
+        lh.addEntry("Data for test".getBytes());
+
+        // sleep bookies
+        CountDownLatch sleepLatch0 = new CountDownLatch(1);
+        CountDownLatch sleepLatch1 = new CountDownLatch(1);
+        long entryId = l.getLastAddConfirmed() + 1;
+        sleepBookie(lh.getLedgerMetadata().getEnsemble(entryId).get(
+            lh.distributionSchedule.getWriteSet(entryId).get(0))
+            , sleepLatch0);
+        sleepBookie(lh.getLedgerMetadata().getEnsemble(entryId).get(
+            lh.distributionSchedule.getWriteSet(entryId).get(1))
+            , sleepLatch1);
+
+        try {
+            // read goes to first bookie, spec read timeout occurs,
+            // goes to second
+            LatchCallback latch0 = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(10000, latch0, null);
+            latch0.expectTimeout(timeout);
+
+            // wake up first bookie
+            sleepLatch0.countDown();
+            latch0.expectSuccess(timeout/2);
+
+            sleepLatch1.countDown();
+
+            lh.addEntry("Data for test".getBytes());
+
+            // check we can read next entry without issue
+            LatchCallback latch1 = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
+            latch1.expectSuccess(timeout/2);
+
+        } finally {
+            sleepLatch0.countDown();
+            sleepLatch1.countDown();
+            l.close();
+            bkspec.close();
+        }
+    }
+
+    /**
+     * Unit test for the speculative read scheduling method
+     */
+    @Test
+    public void testSpeculativeReadLastEntryAndOpScheduling() throws Exception {
+        int timeout = 400;
+        long id = getLedgerToRead(3,2);
+        BookKeeper bkspec = createClientForReadLAC(timeout);
+
+        LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
+
+        ArrayList<InetSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
+        Set<InetSocketAddress> allHosts = new HashSet(ensemble);
+        Set<InetSocketAddress> noHost = new HashSet();
+        Set<InetSocketAddress> secondHostOnly = new HashSet();
+        secondHostOnly.add(ensemble.get(1));
+        ReadLastConfirmedAndEntryOp.ReadLACAndEntryRequest req0 = null, req2 = null, req4 = null;
+        try {
+            LatchCallback latch0 = new LatchCallback();
+            ReadLastConfirmedAndEntryOp op = new ReadLastConfirmedAndEntryOp(l, latch0,
+                5, 500, bkspec.scheduler);
+
+            // if we've already heard from all hosts,
+            // we only send the initial read
+            req0 = op.new SequenceReadRequest(ensemble, l.getId(), 0);
+            assertTrue("Should have sent to first",
+                req0.maybeSendSpeculativeRead(allHosts).equals(ensemble.get(0)));
+            assertNull("Should not have sent another",
+                req0.maybeSendSpeculativeRead(allHosts));
+
+            // if we have heard from some hosts, but not one we have sent to
+            // send again
+            req2 = op.new SequenceReadRequest(ensemble, l.getId(), 2);
+            assertTrue("Should have sent to third",
+                req2.maybeSendSpeculativeRead(noHost).equals(ensemble.get(2)));
+            assertTrue("Should have sent to first",
+                req2.maybeSendSpeculativeRead(secondHostOnly).equals(ensemble.get(0)));
+
+            // if we have heard from some hosts, which includes one we sent to
+            // do not read again
+            req4 = op.new SequenceReadRequest(ensemble, l.getId(), 4);
+            assertTrue("Should have sent to second",
+                req4.maybeSendSpeculativeRead(noHost).equals(ensemble.get(1)));
+            assertNull("Should not have sent another",
+                req4.maybeSendSpeculativeRead(secondHostOnly));
+        } finally {
             l.close();
             bkspec.close();
         }
