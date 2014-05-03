@@ -43,6 +43,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
     static final int REGIONID_DISTANCE_FROM_LEAVES = 2;
     static final String UNKNOWN_REGION = "UnknownRegion";
+    static final int REMOTE_NODE_IN_REORDER_SEQUENCE = 2;
 
     protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
@@ -271,7 +272,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             return super.reorderReadSequence(ensemble, writeSet);
         } else {
             List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
-            List<Integer> reorderList = new ArrayList<Integer>(writeSet.size());
+            List<Integer> localList = new ArrayList<Integer>(writeSet.size());
+            List<Integer> remoteList = new ArrayList<Integer>(writeSet.size());
             List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
             for (Integer idx : writeSet) {
                 InetSocketAddress address = ensemble.get(idx);
@@ -280,12 +282,28 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                     ((null == readOnlyBookies) || !readOnlyBookies.contains(address))) {
                     unAvailableList.add(idx);
                 } else if (region.equals(myRegion)) {
-                    finalList.add(idx);
+                    localList.add(idx);
                 } else {
-                    reorderList.add(idx);
+                    remoteList.add(idx);
                 }
             }
-            finalList.addAll(reorderList);
+
+            // Insert a node from the remote region at the specified location so we
+            // try more than one region within the max allowed latency
+            for (int i = 0; i < REMOTE_NODE_IN_REORDER_SEQUENCE; i++) {
+                if (localList.size() > 0) {
+                    finalList.add(localList.remove(0));
+                } else {
+                    break;
+                }
+            }
+
+            if (remoteList.size() > 0) {
+                finalList.add(remoteList.remove(0));
+            }
+
+            finalList.addAll(localList);
+            finalList.addAll(remoteList);
             finalList.addAll(unAvailableList);
             return finalList;
         }
