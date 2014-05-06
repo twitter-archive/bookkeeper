@@ -80,6 +80,8 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String DISK_USAGE_WARN_THRESHOLD = "diskUsageWarnThreshold";
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
     protected final static String AUDITOR_PERIODIC_CHECK_INTERVAL = "auditorPeriodicCheckInterval";
+    protected final static String AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL = "auditorPeriodicBookieCheckInterval";
+    protected final static String AUTO_RECOVERY_DAEMON_ENABLED = "autoRecoveryDaemonEnabled";
 
     // Worker Thread parameters.
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
@@ -1208,6 +1210,54 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @return The interval in seconds
      */
     public long getAuditorPeriodicCheckInterval() {
-        return getLong(AUDITOR_PERIODIC_CHECK_INTERVAL, 86400);
+        return getLong(AUDITOR_PERIODIC_CHECK_INTERVAL, 604800);
     }
+
+    /**
+     * Set the interval between auditor bookie checks.
+     * The auditor bookie check, checks ledger metadata to see which bookies
+     * contain entries for each ledger. If a bookie which should contain entries
+     * is unavailable, then the ledger containing that entry is marked for recovery.
+     * Setting this to 0 disabled the periodic check. Bookie checks will still
+     * run when a bookie fails.
+     *
+     * @param interval The period in seconds.
+     */
+    public void setAuditorPeriodicBookieCheckInterval(long interval) {
+        setProperty(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, interval);
+    }
+
+    /**
+     * Get the interval between auditor bookie check runs.
+     * @see #setAuditorPeriodicBookieCheckInterval(long)
+     * @return the interval between bookie check runs, in seconds. Default is 84600 (= 1 day)
+     */
+    public long getAuditorPeriodicBookieCheckInterval() {
+        return getLong(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, 84600);
+    }
+
+    /**
+     * Sets that whether the auto-recovery service can start along with Bookie
+     * server itself or not
+     *
+     * @param enabled
+     *            - true if need to start auto-recovery service. Otherwise
+     *            false.
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setAutoRecoveryDaemonEnabled(boolean enabled) {
+        setProperty(AUTO_RECOVERY_DAEMON_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Get whether the Bookie itself can start auto-recovery service also or not
+     *
+     * @return true - if Bookie should start auto-recovery service along with
+     *         it. false otherwise.
+     */
+    public boolean isAutoRecoveryDaemonEnabled() {
+        return getBoolean(AUTO_RECOVERY_DAEMON_ENABLED, false);
+    }
+
 }
