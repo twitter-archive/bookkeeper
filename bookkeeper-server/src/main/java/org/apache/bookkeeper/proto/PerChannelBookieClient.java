@@ -152,6 +152,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         bootstrap.setOption("tcpNoDelay", conf.getClientTcpNoDelay());
         bootstrap.setOption("keepAlive", true);
         bootstrap.setOption("connectTimeoutMillis", conf.getConnectTimeoutMillis());
+        bootstrap.setOption("child.sendBufferSize", conf.getClientSendBufferSize());
+        bootstrap.setOption("child.receiveBufferSize", conf.getClientReceiveBufferSize());
+        bootstrap.setOption("writeBufferLowWaterMark", conf.getClientWriteBufferLowWaterMark());
+        bootstrap.setOption("writeBufferHighWaterMark", conf.getClientWriteBufferHighWaterMark());
 
         final long connectStartNanos = MathUtils.nowInNano();
 

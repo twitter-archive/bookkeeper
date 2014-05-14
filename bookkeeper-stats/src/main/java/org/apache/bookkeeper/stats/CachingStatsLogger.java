@@ -8,14 +8,12 @@ public class CachingStatsLogger implements StatsLogger {
     protected final StatsLogger underlying;
     protected final ConcurrentMap<String, Counter> counters;
     protected final ConcurrentMap<String, OpStatsLogger> opStatsLoggers;
-    protected final ConcurrentMap<String, String> gauges;
     protected final ConcurrentMap<String, StatsLogger> scopeStatsLoggers;
 
     public CachingStatsLogger(StatsLogger statsLogger) {
         this.underlying = statsLogger;
         this.counters = new ConcurrentHashMap<String, Counter>();
         this.opStatsLoggers = new ConcurrentHashMap<String, OpStatsLogger>();
-        this.gauges = new ConcurrentHashMap<String, String>();
         this.scopeStatsLoggers = new ConcurrentHashMap<String, StatsLogger>();
     }
 
@@ -43,9 +41,6 @@ public class CachingStatsLogger implements StatsLogger {
 
     @Override
     public <T extends Number> void registerGauge(String name, Gauge<T> gauge) {
-        if (null != gauges.putIfAbsent(name, name)) {
-            return;
-        }
         underlying.registerGauge(name, gauge);
     }
 

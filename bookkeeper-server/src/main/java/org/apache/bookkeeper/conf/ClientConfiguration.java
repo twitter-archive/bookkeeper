@@ -50,6 +50,10 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // NIO Parameters
     protected final static String CLIENT_TCP_NODELAY = "clientTcpNoDelay";
+    protected final static String CLIENT_SENDBUFFER_SIZE = "clientSendBufferSize";
+    protected final static String CLIENT_RECEIVEBUFFER_SIZE = "clientReceiveBufferSize";
+    protected final static String CLIENT_WRITEBUFFER_LOW_WATER_MARK = "clientWriteBufferLowWaterMark";
+    protected final static String CLIENT_WRITEBUFFER_HIGH_WATER_MARK = "clientWriteBufferHighWaterMark";
     protected final static String NUM_CHANNELS_PER_BOOKIE = "numChannelsPerBookie";
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
@@ -208,6 +212,90 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setClientTcpNoDelay(boolean noDelay) {
         setProperty(CLIENT_TCP_NODELAY, Boolean.toString(noDelay));
+        return this;
+    }
+
+    /**
+     * Get client send buffer size.
+     *
+     * @return client send buffer size
+     */
+    public int getClientSendBufferSize() {
+        return getInt(CLIENT_SENDBUFFER_SIZE, 1 * 1024 * 1024);
+    }
+
+    /**
+     * Set client send buffer size.
+     *
+     * @param bufferSize
+     *          send buffer size.
+     * @return client configuration.
+     */
+    public ClientConfiguration setClientSendBufferSize(int bufferSize) {
+        setProperty(CLIENT_SENDBUFFER_SIZE, bufferSize);
+        return this;
+    }
+
+    /**
+     * Get client receive buffer size.
+     *
+     * @return client receive buffer size.
+     */
+    public int getClientReceiveBufferSize() {
+        return getInt(CLIENT_RECEIVEBUFFER_SIZE, 1 * 1024 * 1024);
+    }
+
+    /**
+     * Set client receive buffer size.
+     *
+     * @param bufferSize
+     *          receive buffer size.
+     * @return client configuration.
+     */
+    public ClientConfiguration setClientReceiveBufferSize(int bufferSize) {
+        setProperty(CLIENT_RECEIVEBUFFER_SIZE, bufferSize);
+        return this;
+    }
+
+
+    /**
+     * Get netty channel write buffer low water mark.
+     * @return write buffer low water mark.
+     */
+    public int getClientWriteBufferLowWaterMark() {
+        return getInt(CLIENT_WRITEBUFFER_LOW_WATER_MARK, 32 * 1024);
+    }
+
+    /**
+     * Set client write buffer low water mark.
+     *
+     * @param waterMark
+     *          write buffer low water mark.
+     * @return client configuration.
+     */
+    public ClientConfiguration setClientWriteBufferLowWaterMark(int waterMark) {
+        setProperty(CLIENT_WRITEBUFFER_LOW_WATER_MARK, waterMark);
+        return this;
+    }
+
+    /**
+     * Get netty channel write buffer high water mark.
+     *
+     * @return write buffer high water mark.
+     */
+    public int getClientWriteBufferHighWaterMark() {
+        return getInt(CLIENT_WRITEBUFFER_HIGH_WATER_MARK, 64 * 1024);
+    }
+
+    /**
+     * Set client write buffer high water mark.
+     *
+     * @param waterMark
+     *          write buffer high water mark.
+     * @return client configuration.
+     */
+    public ClientConfiguration setClientWriteBufferHighWaterMark(int waterMark) {
+        setProperty(CLIENT_WRITEBUFFER_HIGH_WATER_MARK, waterMark);
         return this;
     }
 
