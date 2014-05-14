@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -244,7 +245,6 @@ public class LedgerHandle {
      *          callback implementation
      * @param origCtx
      *          control object
-     * @throws InterruptedException
      */
     public void asyncClose(final CloseCallback origCb, final Object origCtx) {
         CloseCallback cb = new CloseCallback() {
@@ -262,6 +262,16 @@ public class LedgerHandle {
         asyncCloseInternal(cb, origCtx, BKException.Code.LedgerClosedException);
     }
 
+    void asyncCloseInternal(final CloseCallback cb, final Object ctx, final int rc) {
+        try {
+            doAsyncCloseInternal(cb, ctx, rc);
+        } catch (RejectedExecutionException re) {
+            LOG.debug("Failed to close ledger {} : ", ledgerId, re);
+            errorOutPendingAdds(bk.getReturnRc(rc));
+            cb.closeComplete(bk.getReturnRc(BKException.Code.InterruptedException), this, ctx);
+        }
+    }
+
     /**
      * Same as public version of asyncClose except that this one takes an
      * additional parameter which is the return code to hand to all the pending
@@ -271,7 +281,7 @@ public class LedgerHandle {
      * @param ctx
      * @param rc
      */
-    void asyncCloseInternal(final CloseCallback finalCb, final Object ctx, final int rc) {
+    void doAsyncCloseInternal(final CloseCallback finalCb, final Object ctx, final int rc) {
         final CloseCallback cb = new CloseCallback() {
 
             final long startTime = MathUtils.nowInNano();
@@ -591,8 +601,8 @@ public class LedgerHandle {
                     return String.format("AsyncAddEntry(lid=%d, eid=%d)", ledgerId, entryId);
                 }
             });
-        } catch (RuntimeException e) {
-            cb.addComplete(BKException.Code.InterruptedException,
+        } catch (RejectedExecutionException e) {
+            cb.addComplete(bk.getReturnRc(BKException.Code.InterruptedException),
                     LedgerHandle.this, INVALID_ENTRY_ID, ctx);
         }
     }

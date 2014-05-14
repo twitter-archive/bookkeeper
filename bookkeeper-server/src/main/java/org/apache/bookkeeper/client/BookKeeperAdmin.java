@@ -431,7 +431,7 @@ public class BookKeeperAdmin {
 
             @Override
             public void processResult(int rc, String path, Object ctx) {
-                cb.recoverComplete(rc, ctx);
+                cb.recoverComplete(bkc.getReturnRc(rc), ctx);
             }
         }
 
@@ -669,7 +669,7 @@ public class BookKeeperAdmin {
         asyncRecoverLedgerFragment(lh, ledgerFragment, cb, targetBookieAddress);
         syncCounter.block(0);
         if (syncCounter.getrc() != BKException.Code.OK) {
-            throw BKException.create(syncCounter.getrc());
+            throw BKException.create(bkc.getReturnRc(syncCounter.getrc()));
         }
     }
 

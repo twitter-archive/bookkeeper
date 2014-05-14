@@ -137,6 +137,10 @@ class PendingAddOp implements WriteCallback {
         case BKException.Code.OK:
             // continue
             break;
+        case BKException.Code.ClientClosedException:
+            // bookie client is closed.
+            lh.errorOutPendingAdds(rc);
+            return;
         case BKException.Code.LedgerFencedException:
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Fencing exception on write: " + ledgerId + ", " + entryId);

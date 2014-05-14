@@ -6,6 +6,7 @@ import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -438,21 +439,14 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
                 }
                 if (speculativeReadTimeout > 0) {
                     speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
-                    scheduler.schedule(new Runnable() {
-                        @Override
-                        public void run() {
-                            // let the speculative read running this same thread
-                            lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
-                                ReadLastConfirmedAndEntryOp.this);
-                        }
-                    }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+                    scheduleSpeculativeRead(speculativeReadTimeout);
                 }
             }
         }
     }
 
-    public void initiate() {
-        if (speculativeReadTimeout > 0 && !parallelRead) {
+    private void scheduleSpeculativeRead(final int speculativeReadTimeout) {
+        try {
             scheduler.schedule(new Runnable() {
                 @Override
                 public void run() {
@@ -461,6 +455,15 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
                         ReadLastConfirmedAndEntryOp.this);
                 }
             }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException re) {
+            LOG.warn("Failed to schedule speculative readLAC for ledger {} (lac = {}, speculativeReadTimeout = {}) : ",
+                    new Object[] { lh.getId(), lastAddConfirmed, speculativeReadTimeout, re });
+        }
+    }
+
+    public void initiate() {
+        if (speculativeReadTimeout > 0 && !parallelRead) {
+            scheduleSpeculativeRead(speculativeReadTimeout);
         }
 
         if (parallelRead) {

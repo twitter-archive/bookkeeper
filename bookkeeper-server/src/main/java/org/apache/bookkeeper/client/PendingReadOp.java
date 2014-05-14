@@ -30,6 +30,7 @@ import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -479,12 +480,19 @@ class PendingReadOp extends SafeRunnable
         ArrayList<InetSocketAddress> ensemble = null;
 
         if (speculativeReadTimeout > 0 && !parallelRead) {
-            speculativeTask = scheduler.scheduleWithFixedDelay(new Runnable() {
-                    @Override
-                    public void run() {
-                        lh.bk.mainWorkerPool.submitOrdered(lh.getId(), PendingReadOp.this);
-                    }
-                }, speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+            Runnable readTask = new Runnable() {
+                @Override
+                public void run() {
+                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(), PendingReadOp.this);
+                }
+            };
+            try {
+                speculativeTask = scheduler.scheduleWithFixedDelay(readTask,
+                        speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+            } catch (RejectedExecutionException re) {
+                LOG.warn("Failed to schedule speculative reads for ledger {} ({}, {}) : ",
+                    new Object[] { lh.getId(), startEntryId, endEntryId, re });
+            }
         }
 
         do {

@@ -20,16 +20,20 @@
  */
 package org.apache.bookkeeper.client;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
+import org.apache.bookkeeper.client.AsyncCallback.IsClosedCallback;
 import org.apache.bookkeeper.client.BKException.Code;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.meta.CleanupLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.TimedLedgerManager;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.proto.BookieClient;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -51,8 +55,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * BookKeeper client. We assume there is one single writer to a ledger at any
@@ -72,8 +75,6 @@ public class BookKeeper {
     static final Logger LOG = LoggerFactory.getLogger(BookKeeper.class);
 
     final ZooKeeper zk;
-    final CountDownLatch connectLatch = new CountDownLatch(1);
-    final static int zkConnectTimeoutMs = 5000;
     final ClientSocketChannelFactory channelFactory;
 
     // The stats logger for this client.
@@ -101,10 +102,9 @@ public class BookKeeper {
 
     final ClientConfiguration conf;
 
-    interface ZKConnectCallback {
-        public void connected();
-        public void connectionFailed(int code);
-    }
+    // Close State
+    boolean closed = false;
+    final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
 
     public static Builder newBuilder() {
         return new Builder();
@@ -305,7 +305,8 @@ public class BookKeeper {
         bookieWatcher.readBookiesBlocking();
 
         ledgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
-        ledgerManager = TimedLedgerManager.of(ledgerManagerFactory.newLedgerManager(), statsLogger);
+        ledgerManager = TimedLedgerManager.of(new CleanupLedgerManager(ledgerManagerFactory.newLedgerManager()),
+                                              statsLogger);
     }
 
     private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(DNSToSwitchMapping dnsResolver)
@@ -322,8 +323,25 @@ public class BookKeeper {
         }
     }
 
+    int getReturnRc(int rc) {
+        if (BKException.Code.OK == rc) {
+            return rc;
+        } else {
+            if (bookieClient.isClosed()) {
+                return BKException.Code.ClientClosedException;
+            } else {
+                return rc;
+            }
+        }
+    }
+
     LedgerManager getLedgerManager() {
         return ledgerManager;
+    }
+
+    @VisibleForTesting
+    LedgerManager getUnderlyingLedgerManager() {
+        return ((CleanupLedgerManager) (((TimedLedgerManager) ledgerManager).getUnderlying())).getUnderlying();
     }
 
     /**
@@ -335,7 +353,7 @@ public class BookKeeper {
      */
     public enum DigestType {
         MAC, CRC32
-    };
+    }
 
     ZooKeeper getZkHandle() {
         return zk;
@@ -424,9 +442,18 @@ public class BookKeeper {
         if (writeQuorumSize < ackQuorumSize) {
             throw new IllegalArgumentException("Write quorum must be larger than ack quorum");
         }
-        new LedgerCreateOp(BookKeeper.this, ensSize, writeQuorumSize,
-                           ackQuorumSize, digestType, passwd, cb, ctx)
-            .initiate();
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                cb.createComplete(BKException.Code.ClientClosedException, null, ctx);
+                return;
+            }
+            new LedgerCreateOp(BookKeeper.this, ensSize, writeQuorumSize,
+                               ackQuorumSize, digestType, passwd, cb, ctx)
+                .initiate();
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
 
@@ -533,7 +560,16 @@ public class BookKeeper {
      */
     public void asyncOpenLedger(final long lId, final DigestType digestType, final byte passwd[],
                                 final OpenCallback cb, final Object ctx) {
-        new LedgerOpenOp(BookKeeper.this, lId, digestType, passwd, cb, ctx).initiate();
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                cb.openComplete(BKException.Code.ClientClosedException, null, ctx);
+                return;
+            }
+            new LedgerOpenOp(BookKeeper.this, lId, digestType, passwd, cb, ctx).initiate();
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
     /**
@@ -565,7 +601,16 @@ public class BookKeeper {
      */
     public void asyncOpenLedgerNoRecovery(final long lId, final DigestType digestType, final byte passwd[],
                                           final OpenCallback cb, final Object ctx) {
-        new LedgerOpenOp(BookKeeper.this, lId, digestType, passwd, cb, ctx).initiateWithoutRecovery();
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                cb.openComplete(BKException.Code.ClientClosedException, null, ctx);
+                return;
+            }
+            new LedgerOpenOp(BookKeeper.this, lId, digestType, passwd, cb, ctx).initiateWithoutRecovery();
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
 
@@ -651,7 +696,16 @@ public class BookKeeper {
      *            optional control object
      */
     public void asyncDeleteLedger(final long lId, final DeleteCallback cb, final Object ctx) {
-        new LedgerDeleteOp(BookKeeper.this, lId, cb, ctx).initiate();
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                cb.deleteComplete(BKException.Code.ClientClosedException, ctx);
+                return;
+            }
+            new LedgerDeleteOp(BookKeeper.this, lId, cb, ctx).initiate();
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
 
@@ -686,10 +740,95 @@ public class BookKeeper {
     }
 
     /**
+     * Check asynchronously whether the ledger with identifier <i>lId</i>
+     * has been closed.
+     *
+     * @param lId   ledger identifier
+     * @param cb    callback method
+     */
+    public void asyncIsClosed(long lId, final IsClosedCallback cb, final Object ctx){
+        ledgerManager.readLedgerMetadata(lId, new GenericCallback<LedgerMetadata>(){
+            public void operationComplete(int rc, LedgerMetadata lm){
+                if (rc == BKException.Code.OK) {
+                    cb.isClosedComplete(rc, lm.isClosed(), ctx);
+                } else {
+                    cb.isClosedComplete(rc, false, ctx);
+                }
+            }
+        });
+    }
+
+    /**
+     * Check whether the ledger with identifier <i>lId</i>
+     * has been closed.
+     *
+     * @param lId
+     * @return boolean true if ledger has been closed
+     * @throws BKException
+     * @throws java.lang.InterruptedException
+     */
+    public boolean isClosed(long lId) throws BKException, InterruptedException {
+        final class Result {
+            int rc;
+            boolean isClosed;
+            final CountDownLatch notifier = new CountDownLatch(1);
+        }
+
+        final Result result = new Result();
+
+        final IsClosedCallback cb = new IsClosedCallback(){
+            public void isClosedComplete(int rc, boolean isClosed, Object ctx){
+                    result.isClosed = isClosed;
+                    result.rc = rc;
+                    result.notifier.countDown();
+            }
+        };
+
+        /*
+         * Call asynchronous version of isClosed
+         */
+        asyncIsClosed(lId, cb, null);
+
+        /*
+         * Wait for callback
+         */
+        result.notifier.await();
+
+        if (result.rc != BKException.Code.OK) {
+            throw BKException.create(result.rc);
+        }
+
+        return result.isClosed;
+    }
+
+    /**
      * Shuts down client.
      *
      */
     public void close() throws InterruptedException, BKException {
+        closeLock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        } finally {
+            closeLock.writeLock().unlock();
+        }
+
+        // Close bookie client so all pending bookie requests would be failed
+        // which will reject any incoming bookie requests.
+        bookieClient.close();
+        try {
+            // Close ledger manage so all pending metadata requests would be failed
+            // which will reject any incoming metadata requests.
+            ledgerManager.close();
+            ledgerManagerFactory.uninitialize();
+        } catch (IOException ie) {
+            LOG.error("Failed to close ledger manager : ", ie);
+        }
+
+        // Close the scheduler
         scheduler.shutdown();
         if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
             LOG.warn("The scheduler did not shutdown cleanly");
@@ -697,14 +836,6 @@ public class BookKeeper {
         mainWorkerPool.shutdown();
         if (!mainWorkerPool.awaitTermination(10, TimeUnit.SECONDS)) {
             LOG.warn("The mainWorkerPool did not shutdown cleanly");
-        }
-
-        bookieClient.close();
-        try {
-            ledgerManager.close();
-            ledgerManagerFactory.uninitialize();
-        } catch (IOException ie) {
-            LOG.error("Failed to close ledger manager : ", ie);
         }
 
         if (ownChannelFactory) {

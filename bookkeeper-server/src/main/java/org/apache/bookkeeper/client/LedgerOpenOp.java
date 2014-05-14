@@ -168,7 +168,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                     } else if (rc == BKException.Code.UnauthorizedAccessException) {
                         openComplete(BKException.Code.UnauthorizedAccessException, null);
                     } else {
-                        openComplete(BKException.Code.LedgerRecoveryException, null);
+                        openComplete(bk.getReturnRc(BKException.Code.LedgerRecoveryException), null);
                     }
                 }
                 @Override
@@ -182,7 +182,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 public void readLastConfirmedComplete(int rc,
                         long lastConfirmed, Object ctx) {
                     if (rc != BKException.Code.OK) {
-                        openComplete(BKException.Code.ReadException, null);
+                        openComplete(bk.getReturnRc(BKException.Code.ReadException), null);
                     } else {
                         lh.lastAddConfirmed = lh.lastAddPushed = lastConfirmed;
                         openComplete(BKException.Code.OK, lh);

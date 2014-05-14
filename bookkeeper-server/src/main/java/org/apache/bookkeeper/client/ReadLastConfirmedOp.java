@@ -38,6 +38,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
     RecoveryData maxRecoveredData;
     volatile boolean completed = false;
     final long requestTimeNano;
+    int lastSeenError = BKException.Code.ReadException;
 
     LastConfirmedDataCallback cb;
     final DistributionSchedule.QuorumCoverageSet coverageSet;
@@ -120,6 +121,11 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
             submitCallback(rc);
             completed = true;
         }
+
+        if (!heardValidResponse && BKException.Code.OK != rc) {
+            lastSeenError = rc;
+        }
+
         // other return codes dont count as valid responses
         if (heardValidResponse
             && coverageSet.addBookieAndCheckCovered(bookieIndex)
@@ -135,7 +141,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
         if (numResponsesPending == 0 && !completed) {
             // Have got all responses back but was still not enough, just fail the operation
             LOG.error("While readLastConfirmed ledger: " + ledgerId + " did not hear success responses from all quorums");
-            submitCallback(BKException.Code.LedgerRecoveryException);
+            submitCallback(lastSeenError);
         }
 
     }

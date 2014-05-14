@@ -70,6 +70,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * This class manages all details of connection to a particular bookie. It also
@@ -109,6 +110,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     volatile ConnectionState state;
+    final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
     private final ClientConfiguration conf;
 
     public PerChannelBookieClient(OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
@@ -140,6 +142,20 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             this.preStatsLogger.getOpStatsLogger(value.op).registerSuccessfulEvent(elapsedMicros);
         }
         return value;
+    }
+
+    private void completeOperation(GenericCallback<PerChannelBookieClient> op,
+                                   int rc, PerChannelBookieClient client) {
+        closeLock.readLock().lock();
+        try {
+            if (ConnectionState.CLOSED == state) {
+                op.operationComplete(BKException.Code.ClientClosedException, client);
+            } else {
+                op.operationComplete(rc, client);
+            }
+        } finally {
+            closeLock.readLock().unlock();
+        }
     }
 
     private void connect() {
@@ -213,7 +229,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 }
 
                 for (GenericCallback<PerChannelBookieClient> pendingOp : oldPendingOps) {
-                    pendingOp.operationComplete(rc, PerChannelBookieClient.this);
+                    completeOperation(pendingOp, rc, PerChannelBookieClient.this);
                 }
             }
         });
@@ -257,7 +273,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         }
 
         if (completeOpNow) {
-            op.operationComplete(opRc, this);
+            completeOperation(op, opRc, this);
         }
 
     }
@@ -494,6 +510,16 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     public void close() {
         LOG.info("Closing the per channel bookie client for {}", addr);
+        closeLock.writeLock().lock();
+        try {
+            if (ConnectionState.CLOSED == state) {
+                return;
+            }
+            state = ConnectionState.CLOSED;
+            errorOutOutstandingEntries(BKException.Code.ClientClosedException);
+        } finally {
+            closeLock.writeLock().unlock();
+        }
         closeInternal(true);
     }
 
@@ -518,11 +544,15 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     void errorOutReadKey(final CompletionKey key) {
-        final ReadCompletion rc = (ReadCompletion)removeCompletionKey(key, false);
-        if (null == rc) {
+        errorOutReadKey(key, BKException.Code.BookieHandleNotAvailableException);
+    }
+
+    void errorOutReadKey(final CompletionKey key, final int rc) {
+        final ReadCompletion readCompletion = (ReadCompletion)removeCompletionKey(key, false);
+        if (null == readCompletion) {
             return;
         }
-        executor.submitOrdered(rc.ledgerId, new SafeRunnable() {
+        executor.submitOrdered(readCompletion.ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
                 String bAddress = "null";
@@ -530,21 +560,26 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                     bAddress = channel.getRemoteAddress().toString();
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Could not write request for reading entry: " + rc.entryId + " ledger-id: "
-                              + rc.ledgerId + " bookie: " + bAddress);
+                    LOG.debug("Could not write request for reading entry: {} ledger-id: {} bookie: {}",
+                              new Object[] { readCompletion.entryId, readCompletion.ledgerId, bAddress });
                 }
-                rc.cb.readEntryComplete(BKException.Code.BookieHandleNotAvailableException,
-                                        rc.ledgerId, rc.entryId, null, rc.ctx);
+                readCompletion.cb.readEntryComplete(rc, readCompletion.ledgerId, readCompletion.entryId,
+                                                    null, readCompletion.ctx);
             }
 
             @Override
             public String toString() {
-                return String.format("ErrorOutReadKey(%s)", key);
+                return String.format("ErrorOutReadKey(%s, lid=%d, eid=%d)",
+                                     key, readCompletion.ledgerId, readCompletion.entryId);
             }
         });
     }
 
     void errorOutAddKey(final CompletionKey key) {
+        errorOutAddKey(key, BKException.Code.BookieHandleNotAvailableException);
+    }
+
+    void errorOutAddKey(final CompletionKey key, final int rc) {
         final AddCompletion ac = (AddCompletion)removeCompletionKey(key, false);
         if (null == ac) {
             return;
@@ -554,21 +589,22 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             public void safeRun() {
 
                 String bAddress = "null";
-                if(channel != null)
-                    bAddress = channel.getRemoteAddress().toString();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Could not write request for adding entry: " + ac.entryId + " ledger-id: "
-                          + ac.ledgerId + " bookie: " + bAddress);
-                    LOG.debug("Invoked callback method: " + ac.entryId);
+                Channel c = channel;
+                if(c != null) {
+                    bAddress = c.getRemoteAddress().toString();
                 }
-
-                ac.cb.writeComplete(BKException.Code.BookieHandleNotAvailableException, ac.ledgerId,
-                                    ac.entryId, addr, ac.ctx);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Could not write request for adding entry: {} ledger-id: {} bookie: {}",
+                              new Object[] { ac.entryId, ac.ledgerId, bAddress });
+                }
+                ac.cb.writeComplete(rc, ac.ledgerId, ac.entryId, addr, ac.ctx);
+                LOG.debug("Invoked callback method: {}", ac.entryId);
             }
 
             @Override
             public String toString() {
-                return String.format("ErrorOutAddKey(%s)", key);
+                return String.format("ErrorOutAddKey(%s, lid=%d, eid=%d)",
+                                     key, ac.ledgerId, ac.entryId);
             }
         });
     }
@@ -580,7 +616,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * here.
      */
 
-    void errorOutOutstandingEntries() {
+    void errorOutOutstandingEntries(int rc) {
 
         // DO NOT rewrite these using Map.Entry iterations. We want to iterate
         // on keys and see if we are successfully able to remove the key from
@@ -590,10 +626,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         for (CompletionKey key : completionObjects.keySet()) {
             switch (key.operationType) {
                 case ADD_ENTRY:
-                    errorOutAddKey(key);
+                    errorOutAddKey(key, rc);
                     break;
                 case READ_ENTRY:
-                    errorOutReadKey(key);
+                    errorOutReadKey(key, rc);
                     break;
             }
         }
@@ -622,7 +658,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     @Override
     public void channelDisconnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
-        errorOutOutstandingEntries();
+        errorOutOutstandingEntries(BKException.Code.BookieHandleNotAvailableException);
         reactToDisconnectedChannel(e);
         // we don't want to reconnect right away. If someone sends a request to
         // this address, we will reconnect.

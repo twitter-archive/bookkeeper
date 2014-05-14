@@ -62,6 +62,8 @@ public abstract class BKException extends Exception {
             return new BKBookieHandleNotAvailableException();
         case Code.ZKException:
             return new ZKException();
+        case Code.MetaStoreException:
+            return new MetaStoreException();
         case Code.LedgerRecoveryException:
             return new BKLedgerRecoveryException();
         case Code.LedgerClosedException:
@@ -86,6 +88,10 @@ public abstract class BKException extends Exception {
             return new BKUnclosedFragmentException();
         case Code.WriteOnReadOnlyBookieException:
             return new BKWriteOnReadOnlyBookieException();
+        case Code.ReplicationException:
+            return new BKReplicationException();
+        case Code.ClientClosedException:
+            return new BKClientClosedException();
         case Code.IllegalOpException:
             return new BKIllegalOpException();
         default:
@@ -116,12 +122,17 @@ public abstract class BKException extends Exception {
         int InterruptedException = -15;
         int ProtocolVersionException = -16;
         int MetadataVersionException = -17;
+        int MetaStoreException = -18;
+        int ClientClosedException = -19;
 
         int IllegalOpException = -100;
         int LedgerFencedException = -101;
         int UnauthorizedAccessException = -102;
         int UnclosedFragmentException = -103;
         int WriteOnReadOnlyBookieException = -104;
+
+        // generic exception code used to propagate in replication pipeline
+        int ReplicationException = -200;
 
         // For all unexpected error conditions
         int UnexpectedConditionException = -999;
@@ -157,6 +168,8 @@ public abstract class BKException extends Exception {
             return "Bookie handle is not available";
         case Code.ZKException:
             return "Error while using ZooKeeper";
+        case Code.MetaStoreException:
+            return "Error while using MetaStore";
         case Code.LedgerRecoveryException:
             return "Error while recovering ledger";
         case Code.LedgerClosedException:
@@ -181,6 +194,10 @@ public abstract class BKException extends Exception {
             return "Attempting to use an unclosed fragment; This is not safe";
         case Code.WriteOnReadOnlyBookieException:
             return "Attempting to write on ReadOnly bookie";
+        case Code.ReplicationException:
+            return "Errors in replication pipeline";
+        case Code.ClientClosedException:
+            return "BookKeeper client is closed";
         case Code.IllegalOpException:
             return "Invalid operation";
         default:
@@ -278,6 +295,12 @@ public abstract class BKException extends Exception {
         }
     }
 
+    public static class MetaStoreException extends BKException {
+        public MetaStoreException() {
+            super(Code.MetaStoreException);
+        }
+    }
+
     public static class BKLedgerRecoveryException extends BKException {
         public BKLedgerRecoveryException() {
             super(Code.LedgerRecoveryException);
@@ -325,4 +348,17 @@ public abstract class BKException extends Exception {
             super(Code.WriteOnReadOnlyBookieException);
         }
     }
+
+    public static class BKReplicationException extends BKException {
+        public BKReplicationException() {
+            super(Code.ReplicationException);
+        }
+    }
+
+    public static class BKClientClosedException extends BKException {
+        public BKClientClosedException() {
+            super(Code.ClientClosedException);
+        }
+    }
+
 }

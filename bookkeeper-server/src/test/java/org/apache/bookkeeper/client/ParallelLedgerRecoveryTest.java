@@ -22,7 +22,6 @@ package org.apache.bookkeeper.client;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.meta.TimedLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.LedgerMetadataListener;
@@ -209,8 +208,7 @@ public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
         newConf.setRecoveryReadBatchSize(batchSize);
         BookKeeper newBk = new BookKeeper(newConf);
 
-        TestLedgerManager tlm =
-                (TestLedgerManager) (((TimedLedgerManager) newBk.getLedgerManager()).getUnderlying());
+        TestLedgerManager tlm = (TestLedgerManager) newBk.getUnderlyingLedgerManager();
 
         final LedgerHandle lh = newBk.createLedger(numBookies, 2, 2, digestType, "".getBytes());
         CountDownLatch latch1 = new CountDownLatch(1);
