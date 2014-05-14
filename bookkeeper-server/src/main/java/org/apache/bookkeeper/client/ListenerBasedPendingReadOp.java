@@ -56,8 +56,6 @@ class ListenerBasedPendingReadOp extends PendingReadOp {
             // callback with completed entry
             listener.onEntryComplete(request.getRc(), lh, request, ctx);
         }
-        // if all entries are already completed.
-        cancelSpeculativeTask(true);
     }
 
     @Override

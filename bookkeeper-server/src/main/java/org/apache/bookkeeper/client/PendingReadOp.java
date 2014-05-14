@@ -55,13 +55,12 @@ import org.slf4j.LoggerFactory;
  * application as soon as it arrives rather than waiting for the whole thing.
  *
  */
-class PendingReadOp extends SafeRunnable
-        implements Enumeration<LedgerEntry>, ReadEntryCallback {
+class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
-    final int speculativeReadTimeout;
+    int speculativeReadTimeout;
+    final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> speculativeTask = null;
     Queue<LedgerEntryRequest> seq;
     Set<InetSocketAddress> heardFromHosts;
     ReadCallback cb;
@@ -215,6 +214,20 @@ class PendingReadOp extends SafeRunnable
         @Override
         public String toString() {
             return String.format("L%d-E%d", ledgerId, entryId);
+        }
+
+        // Speculative read
+        void scheduleSpeculativeReadIfNecessary() {
+            if (!isComplete() && null != maybeSendSpeculativeRead(heardFromHosts)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Send speculative read for {}. Hosts heard are {}.",
+                              this, heardFromHosts);
+                }
+                if (speculativeReadTimeout > 0) {
+                    speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
+                    scheduleSpeculativeRead(this, speculativeReadTimeout);
+                }
+            }
         }
     }
 
@@ -425,19 +438,13 @@ class PendingReadOp extends SafeRunnable
         numPendingEntries = endEntryId - startEntryId + 1;
         maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
                 - getLedgerMetadata().getAckQuorumSize();
-        speculativeReadTimeout = lh.bk.getConf().getSpeculativeReadTimeout();
+        speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadTimeout();
+        maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadTimeout();
         heardFromHosts = new HashSet<InetSocketAddress>();
     }
 
     protected LedgerMetadata getLedgerMetadata() {
         return lh.metadata;
-    }
-
-    protected void cancelSpeculativeTask(boolean mayInterruptIfRunning) {
-        if (speculativeTask != null) {
-            speculativeTask.cancel(mayInterruptIfRunning);
-            speculativeTask = null;
-        }
     }
 
     PendingReadOp parallelRead(boolean enabled) {
@@ -450,27 +457,23 @@ class PendingReadOp extends SafeRunnable
         return this;
     }
 
-    @Override
-    public void safeRun() {
-        int x = 0;
-        for (LedgerEntryRequest r : seq) {
-            if (!r.isComplete()) {
-                if (null == r.maybeSendSpeculativeRead(heardFromHosts)) {
-                    // Subsequent speculative read will not materialize anyway
-                    cancelSpeculativeTask(false);
+    private void scheduleSpeculativeRead(final LedgerEntryRequest r, final int speculativeReadTimeout) {
+        try {
+            scheduler.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    // let the speculative read running this same thread
+                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(), new SafeRunnable() {
+                        @Override
+                        public void safeRun() {
+                            r.scheduleSpeculativeReadIfNecessary();
+                        }
+                    });
                 }
-                else {
-                    LOG.debug("Send speculative read for {}. Hosts heard are {}.",
-                              r, heardFromHosts);
-                    ++x;
-                }
-            }
-        }
-        if (x > 0) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Send {} speculative reads for ledger {} ({}, {}). Hosts heard are {}.",
-                        new Object[] { x, lh.getId(), startEntryId, endEntryId, heardFromHosts });
-            }
+            }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException re) {
+            LOG.warn("Failed to schedule speculative read for entry ({}, {}), speculativeReadTimeout = {} : ",
+                     new Object[] { lh.getId(), r.getEntryId(), speculativeReadTimeout, re });
         }
     }
 
@@ -478,22 +481,6 @@ class PendingReadOp extends SafeRunnable
         long nextEnsembleChange = startEntryId, i = startEntryId;
         this.requestTimeNanos = MathUtils.nowInNano();
         ArrayList<InetSocketAddress> ensemble = null;
-
-        if (speculativeReadTimeout > 0 && !parallelRead) {
-            Runnable readTask = new Runnable() {
-                @Override
-                public void run() {
-                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(), PendingReadOp.this);
-                }
-            };
-            try {
-                speculativeTask = scheduler.scheduleWithFixedDelay(readTask,
-                        speculativeReadTimeout, speculativeReadTimeout, TimeUnit.MILLISECONDS);
-            } catch (RejectedExecutionException re) {
-                LOG.warn("Failed to schedule speculative reads for ledger {} ({}, {}) : ",
-                    new Object[] { lh.getId(), startEntryId, endEntryId, re });
-            }
-        }
 
         do {
             if (i == nextEnsembleChange) {
@@ -512,6 +499,9 @@ class PendingReadOp extends SafeRunnable
         // read the entries.
         for (LedgerEntryRequest entry : seq) {
             entry.read();
+            if (speculativeReadTimeout > 0 && !parallelRead) {
+                scheduleSpeculativeRead(entry, speculativeReadTimeout);
+            }
         }
     }
 
@@ -586,7 +576,6 @@ class PendingReadOp extends SafeRunnable
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
-        cancelSpeculativeTask(true);
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);
     }
     @Override
