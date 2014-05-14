@@ -374,6 +374,26 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
                 sendNextRead();
             }
         }
+
+        @Override
+        boolean complete(InetSocketAddress host, ChannelBuffer buffer, long entryId) {
+            boolean completed = super.complete(host, buffer, entryId);
+            if (completed) {
+                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
+                        .registerSuccessfulEvent(nextReplicaIndexToReadFrom);
+            }
+            return completed;
+        }
+
+        @Override
+        boolean fail(int rc) {
+            boolean completed = super.fail(rc);
+            if (completed) {
+                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
+                        .registerFailedEvent(nextReplicaIndexToReadFrom);
+            }
+            return completed;
+        }
     }
 
 

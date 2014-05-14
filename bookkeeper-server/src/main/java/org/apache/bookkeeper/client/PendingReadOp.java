@@ -390,6 +390,26 @@ class PendingReadOp extends SafeRunnable
                 sendNextRead();
             }
         }
+
+        @Override
+        boolean complete(InetSocketAddress host, ChannelBuffer buffer) {
+            boolean completed = super.complete(host, buffer);
+            if (completed) {
+                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
+                        .registerSuccessfulEvent(nextReplicaIndexToReadFrom);
+            }
+            return completed;
+        }
+
+        @Override
+        boolean fail(int rc) {
+            boolean completed = super.fail(rc);
+            if (completed) {
+                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
+                        .registerFailedEvent(nextReplicaIndexToReadFrom);
+            }
+            return completed;
+        }
     }
 
     PendingReadOp(LedgerHandle lh, ScheduledExecutorService scheduler,
