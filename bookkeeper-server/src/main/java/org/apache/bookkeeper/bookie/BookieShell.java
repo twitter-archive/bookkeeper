@@ -71,6 +71,7 @@ public class BookieShell implements Tool {
     static final String CMD_HELP = "help";
 
     final ServerConfiguration bkConf = new ServerConfiguration();
+    File[] indexDirectories;
     File[] ledgerDirectories;
     File journalDirectory;
 
@@ -532,6 +533,8 @@ public class BookieShell implements Tool {
         bkConf.loadConf(conf);
         journalDirectory = Bookie.getCurrentDirectory(bkConf.getJournalDir());
         ledgerDirectories = Bookie.getCurrentDirectories(bkConf.getLedgerDirs());
+        File[] idxDirs = bkConf.getIndexDirs();
+        indexDirectories = null != idxDirs ? idxDirs : ledgerDirectories;
         formatter = EntryFormatter.newEntryFormatter(bkConf, ENTRY_FORMATTER_CLASS);
         LOG.info("Using entry formatter " + formatter.getClass().getName());
         pageSize = bkConf.getPageSize();
@@ -612,7 +615,7 @@ public class BookieShell implements Tool {
     private File getLedgerFile(long ledgerId) {
         String ledgerName = LedgerCacheImpl.getLedgerName(ledgerId);
         File lf = null;
-        for (File d : ledgerDirectories) {
+        for (File d : indexDirectories) {
             lf = new File(d, ledgerName);
             if (lf.exists()) {
                 break;
