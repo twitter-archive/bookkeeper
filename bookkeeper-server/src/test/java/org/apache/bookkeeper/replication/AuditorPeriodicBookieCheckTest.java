@@ -76,7 +76,8 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
         auditorZookeeper = ZkUtils.createConnectedZookeeperClient(
                 zkUtil.getZooKeeperConnectString(), w);
 
-        auditorElector = new AuditorElector(addr, conf, auditorZookeeper);
+        auditorElector = new AuditorElector(addr, conf,
+                auditorZookeeper);
         auditorElector.start();
     }
 

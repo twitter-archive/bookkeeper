@@ -164,6 +164,20 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-744: Run the auditor bookie check periodically (ivank)
 
+        BOOKKEEPER-629: Support hostname based ledger metadata to help users to change IP with existing installation (rakeshr via ivank)
+
+	BOOKKEEPER-755: Incorrect number of seconds specified in a day (Joseph Redfern via fpj)
+	
+	BOOKKEEPER-750: Flake in BookieAutoRecoveryTest#testEmptyLedgerLosesQuorumEventually (ivank via fpj)
+
+        BOOKKEEPER-756: Use HashedwheelTimer for request timeouts for PCBC (sijie via ivank)
+
+        BOOKKEEPER-758: Add TryReadLastAddConfirmed API (sijie via ivank)
+
+        BOOKKEEPER-751: Ensure all the bookkeeper callbacks not run under ledger handle lock (sijie via ivank)
+
+        BOOKKEEPER-745: Fix for false reports of ledger unreplication during rolling restarts. (ivank)
+
       hedwig-server:
 
         BOOKKEEPER-601: readahead cache size isn't updated correctly (sijie via fpj)
