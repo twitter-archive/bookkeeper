@@ -40,7 +40,7 @@ public class LedgerEntryPage {
     private final ByteBuffer page;
     volatile private boolean clean = true;
     private final AtomicInteger useCount = new AtomicInteger();
-    volatile private int version;
+    private final AtomicInteger version = new AtomicInteger(0);
     volatile private int last = -1; // Last update position
     private final LEPStateChangeCallback callback;
 
@@ -102,7 +102,7 @@ public class LedgerEntryPage {
         return (int)getLedger() ^ (int)(getFirstEntry());
     }
     void setClean(int versionOfCleaning) {
-        this.clean = (versionOfCleaning == version);
+        this.clean = (versionOfCleaning == version.get());
 
         if ((null != callback) && clean) {
             callback.onSetClean(this);
@@ -116,7 +116,7 @@ public class LedgerEntryPage {
     public void setOffset(long offset, int position) {
         checkPage();
         page.putLong(position, offset);
-        version++;
+        version.incrementAndGet();
         if (last < position/8) {
             last = position/8;
         }
@@ -158,7 +158,7 @@ public class LedgerEntryPage {
         return entryKey.getLedgerId();
     }
     int getVersion() {
-        return version;
+        return version.get();
     }
     public EntryKey getEntryKey() {
         return entryKey;

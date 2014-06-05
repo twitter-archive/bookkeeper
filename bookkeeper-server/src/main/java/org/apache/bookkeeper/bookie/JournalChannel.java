@@ -40,6 +40,7 @@ import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.google.common.base.Charsets.UTF_8;
 import static org.apache.bookkeeper.util.NativeIO.*;
 
 /**
@@ -56,7 +57,7 @@ class JournalChannel implements Closeable {
     final int formatVersion;
     long nextPrealloc = 0;
 
-    final byte[] MAGIC_WORD = "BKLG".getBytes();
+    final byte[] MAGIC_WORD = "BKLG".getBytes(UTF_8);
 
     final static int SECTOR_SIZE = 512;
     private final static int START_OF_FILE = -12345;

@@ -79,8 +79,7 @@ public final class NativeIO {
         try {
             field = cls.getDeclaredField(fieldName);
             field.setAccessible(true);
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             // We don't really expect this so throw an assertion to
             // catch this during development
             assert false;
@@ -97,10 +96,6 @@ public final class NativeIO {
      */
     public static int getSysFileDescriptor(FileDescriptor descriptor) {
         Field field = getFieldByReflection(descriptor.getClass(), "fd");
-
-        if (field == null) {
-            return -1;
-        }
 
         try {
             return field.getInt(descriptor);
@@ -136,7 +131,7 @@ public final class NativeIO {
         } catch (UnsupportedOperationException uoe) {
             LOG.warn("sys fallocate isn't supported : ", uoe);
             sysFallocatePossible = false;
-        }  catch (UnsatisfiedLinkError nle) {
+        } catch (UnsatisfiedLinkError nle) {
             LOG.warn("Unsatisfied Link error: sys fallocate failed on file descriptor {}, offset {}, bytes {} : ",
                     new Object[] { fd, offset, nbytes, nle });
             sysFallocatePossible = false;

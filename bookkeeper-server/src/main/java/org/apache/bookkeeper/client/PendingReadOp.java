@@ -160,7 +160,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * @param rc
          *          read result code
          */
-        void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
             if (BKException.Code.OK == firstError ||
                 BKException.Code.NoSuchEntryException == firstError ||
                 BKException.Code.NoSuchLedgerExistsException == firstError) {
@@ -291,6 +291,10 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             this.erroredReplicas = new BitSet(lh.getLedgerMetadata().getWriteQuorumSize());
         }
 
+        private synchronized int getNextReplicaIndexToReadFrom() {
+            return nextReplicaIndexToReadFrom;
+        }
+
         private int getReplicaIndex(InetSocketAddress host) {
             int bookieIndex = ensemble.indexOf(host);
             if (bookieIndex == -1) {
@@ -410,7 +414,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             boolean completed = super.complete(host, buffer);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
-                        .registerSuccessfulEvent(nextReplicaIndexToReadFrom);
+                        .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
         }
@@ -420,7 +424,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             boolean completed = super.fail(rc);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
-                        .registerFailedEvent(nextReplicaIndexToReadFrom);
+                        .registerFailedEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
         }

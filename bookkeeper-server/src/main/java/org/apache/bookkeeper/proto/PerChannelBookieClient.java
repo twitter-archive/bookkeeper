@@ -631,6 +631,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 case READ_ENTRY:
                     errorOutReadKey(key, rc);
                     break;
+                default:
+                    break;
             }
         }
     }
@@ -1001,6 +1003,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 break;
             case EFENCED:
                 rcToRet = BKException.Code.LedgerFencedException;
+                break;
+            default:
                 break;
         }
         return rcToRet;

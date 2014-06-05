@@ -20,6 +20,8 @@
  */
 package org.apache.bookkeeper.proto;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
@@ -404,7 +406,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
             }
         };
         Counter counter = new Counter();
-        byte hello[] = "hello".getBytes();
+        byte hello[] = "hello".getBytes(UTF_8);
         long ledger = Long.parseLong(args[2]);
         ClientSocketChannelFactory channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors
                 .newCachedThreadPool());

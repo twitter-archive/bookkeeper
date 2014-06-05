@@ -62,7 +62,6 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                             .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
-                Cnxn conn = (Cnxn) ctx;
                 // rc can only be EOK in the current implementation. Could be EIO in future?
                 // TODO: Map for all return codes.
                 StatusCode status;

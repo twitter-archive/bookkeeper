@@ -21,6 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -65,7 +67,7 @@ class FileInfo extends Observable {
     /**
      * The fingerprint of a ledger index file
      */
-    static final public int signature = ByteBuffer.wrap("BKLE".getBytes()).getInt();
+    static final public int signature = ByteBuffer.wrap("BKLE".getBytes(UTF_8)).getInt();
     static final public int headerVersion = 0;
 
     static final long START_OF_DATA = 1024;
@@ -96,15 +98,17 @@ class FileInfo extends Observable {
     }
 
     long setLastAddConfirmed(long lac) {
+        long lacToReturn;
         synchronized (this) {
             if (null == this.lac || this.lac < lac) {
                 this.lac = lac;
                 setChanged();
             }
+            lacToReturn = this.lac;
         }
-        LOG.trace("Updating LAC {} , {}", this.lac, lac);
-        notifyObservers(this.lac);
-        return this.lac;
+        LOG.trace("Updating LAC {} , {}", lacToReturn, lac);
+        notifyObservers(lacToReturn);
+        return lacToReturn;
     }
 
     synchronized Observable waitForLastAddConfirmedUpdate(long previousLAC, Observer observe) {
@@ -260,8 +264,13 @@ class FileInfo extends Observable {
         return readAbsolute(bb, position + START_OF_DATA);
     }
 
-     private int readAbsolute(ByteBuffer bb, long start) throws IOException {
+    private int readAbsolute(ByteBuffer bb, long start) throws IOException {
         checkOpen(false);
+        synchronized (this) {
+            if (fc == null) {
+                return 0;
+            }
+        }
         int total = 0;
         int rc = 0;
         while(bb.remaining() > 0) {

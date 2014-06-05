@@ -184,7 +184,9 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                     if (rc != BKException.Code.OK) {
                         openComplete(bk.getReturnRc(BKException.Code.ReadException), null);
                     } else {
-                        lh.lastAddConfirmed = lh.lastAddPushed = lastConfirmed;
+                        synchronized (lh) {
+                            lh.lastAddConfirmed = lh.lastAddPushed = lastConfirmed;
+                        }
                         openComplete(BKException.Code.OK, lh);
                     }
                 }

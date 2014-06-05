@@ -38,6 +38,8 @@ import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 /**
  * Performing auditor election using Apache ZooKeeper. Using ZooKeeper as a
  * coordination service, when a bookie bids for auditor, it creates an ephemeral
@@ -71,7 +73,7 @@ public class AuditorElector {
 
     /**
      * AuditorElector for performing the auditor election
-     * 
+     *
      * @param bookieId
      *            - bookie identifier, comprises HostAddress:Port
      * @param conf
@@ -95,10 +97,10 @@ public class AuditorElector {
      * Performing the auditor election using the ZooKeeper ephemeral sequential
      * znode. The bookie which has created the least sequential will be elect as
      * Auditor.
-     * 
+     *
      * @throws UnavailableException
      *             when performing auditor election
-     * 
+     *
      */
     public void doElection() throws UnavailableException {
         try {
@@ -120,7 +122,7 @@ public class AuditorElector {
             if (children.get(AUDITOR_INDEX).equals(voteNode)) {
                 // update the auditor bookie id in the election path. This is
                 // done for debugging purpose
-                zkc.setData(getVotePath(""), bookieId.getBytes(), -1);
+                zkc.setData(getVotePath(""), bookieId.getBytes(UTF_8), -1);
                 auditor = new Auditor(bookieId, conf, zkc);
                 auditor.start();
             } else {
@@ -149,7 +151,7 @@ public class AuditorElector {
     private void createMyVote() throws KeeperException, InterruptedException {
         if (null == myVote || null == zkc.exists(myVote, false)) {
             myVote = zkc.create(getVotePath(PATH_SEPARATOR + VOTE_PREFIX),
-                    bookieId.getBytes(), Ids.OPEN_ACL_UNSAFE,
+                    bookieId.getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE,
                     CreateMode.EPHEMERAL_SEQUENTIAL);
         }
     }
@@ -232,7 +234,7 @@ public class AuditorElector {
     /**
      * If current bookie is running as auditor, return the status of the
      * auditor. Otherwise return the status of elector.
-     * 
+     *
      * @return
      */
     public boolean isRunning() {

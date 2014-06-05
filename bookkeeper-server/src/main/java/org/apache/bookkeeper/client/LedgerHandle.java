@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
@@ -136,8 +137,12 @@ public class LedgerHandle {
      *
      * @return the last confirmed entry id or {@link #INVALID_ENTRY_ID INVALID_ENTRY_ID} if no entry has been confirmed
      */
-    public long getLastAddConfirmed() {
+    public synchronized long getLastAddConfirmed() {
         return lastAddConfirmed;
+    }
+
+    synchronized void setLastAddConfirmed(long lac) {
+        this.lastAddConfirmed = lac;
     }
 
     /**
@@ -301,7 +306,7 @@ public class LedgerHandle {
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
-                if (metadata.isClosed()) {
+                if (isClosed()) {
                     // if the metadata is already closed, we don't need to proceed the process
                     // otherwise, it might end up encountering bad version error log messages when updating metadata
                     cb.closeComplete(BKException.Code.LedgerClosedException, LedgerHandle.this, ctx);
@@ -310,11 +315,15 @@ public class LedgerHandle {
                 final long prevLastEntryId;
                 final long prevLength;
                 final State prevState;
+                List<PendingAddOp> pendingAdds;
 
                 synchronized(LedgerHandle.this) {
                     prevState = metadata.getState();
                     prevLastEntryId = metadata.getLastEntryId();
                     prevLength = metadata.getLength();
+
+                    // drain pending adds first
+                    pendingAdds = drainPendingAddsToErrorOut();
 
                     // synchronized on LedgerHandle.this to ensure that
                     // lastAddPushed can not be updated after the metadata
@@ -329,7 +338,7 @@ public class LedgerHandle {
 
                 // error out all pending adds during closing, the callbacks shouldn't be
                 // running under any bk locks.
-                errorOutPendingAdds(rc);
+                errorOutPendingAdds(rc, pendingAdds);
 
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Closing ledger: " + ledgerId + " at entryId: "
@@ -366,12 +375,12 @@ public class LedgerHandle {
                                             metadata.setEnsembles(newMeta.getEnsembles());
                                             metadata.setVersion(newMeta.version);
                                             metadata.setLength(length);
-                                            metadata.close(lastAddConfirmed);
+                                            metadata.close(getLastAddConfirmed());
                                             writeLedgerConfig(new CloseCb());
                                             return;
                                         } else {
                                             metadata.setLength(length);
-                                            metadata.close(lastAddConfirmed);
+                                            metadata.close(getLastAddConfirmed());
                                             LOG.warn("Conditional update ledger metadata for ledger " + ledgerId + " failed.");
                                             cb.closeComplete(rc, LedgerHandle.this, ctx);
                                         }
@@ -446,7 +455,7 @@ public class LedgerHandle {
     public void asyncReadEntries(long firstEntry, long lastEntry,
                                  ReadCallback cb, Object ctx) {
         // Little sanity check
-        if (firstEntry < 0 || lastEntry > lastAddConfirmed
+        if (firstEntry < 0 || lastEntry > getLastAddConfirmed()
                 || firstEntry > lastEntry) {
             cb.readComplete(BKException.Code.ReadException, this, null, ctx);
             return;
@@ -593,8 +602,8 @@ public class LedgerHandle {
                 @Override
                 public void safeRun() {
                     ChannelBuffer toSend = macManager.computeDigestAndPackageForSending(
-                                               entryId, lastAddConfirmed, currentLength, data, offset, length);
-                    op.initiate(toSend);
+                                               entryId, getLastAddConfirmed(), currentLength, data, offset, length);
+                    op.initiate(toSend, length);
                 }
                 @Override
                 public String toString() {
@@ -607,7 +616,7 @@ public class LedgerHandle {
         }
     }
 
-    void updateLastConfirmed(long lac, long len) {
+    synchronized void updateLastConfirmed(long lac, long len) {
         if (lac > lastAddConfirmed) {
             lastAddConfirmed = lac;
             bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_HITS).inc();
@@ -634,8 +643,14 @@ public class LedgerHandle {
      */
 
     public void asyncReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
-        if (isClosed()) {
-            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+        boolean isClosed;
+        long lastEntryId;
+        synchronized (this) {
+            isClosed = metadata.isClosed();
+            lastEntryId = metadata.getLastEntryId();
+        }
+        if (isClosed) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, lastEntryId, ctx);
             return;
         }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
@@ -652,9 +667,29 @@ public class LedgerHandle {
         new ReadLastConfirmedOp(this, innercb).initiate();
     }
 
+    /**
+     * Obtains asynchronously the last confirmed write from a quorum of bookies.
+     * It is similar as
+     * {@link #asyncTryReadLastConfirmed(org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback, Object)},
+     * but it doesn't wait all the responses from the quorum. It would callback
+     * immediately if it received a LAC which is larger than current LAC.
+     *
+     * @see #asyncTryReadLastConfirmed(org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback, Object)
+     *
+     * @param cb
+     *          callback to return read last confirmed
+     * @param ctx
+     *          callback context
+     */
     public void asyncTryReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
-        if (isClosed()) {
-            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+        boolean isClosed;
+        long lastEntryId;
+        synchronized (this) {
+            isClosed = metadata.isClosed();
+            lastEntryId = metadata.getLastEntryId();
+        }
+        if (isClosed) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, lastEntryId, ctx);
             return;
         }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
@@ -677,8 +712,14 @@ public class LedgerHandle {
     }
 
     public void asyncReadLastConfirmedLongPoll(final long timeOutInMillis, final ReadLastConfirmedCallback cb, final Object ctx) {
-        if (isClosed()) {
-            cb.readLastConfirmedComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), ctx);
+        boolean isClosed;
+        long lastEntryId;
+        synchronized (this) {
+            isClosed = metadata.isClosed();
+            lastEntryId = metadata.getLastEntryId();
+        }
+        if (isClosed) {
+            cb.readLastConfirmedComplete(BKException.Code.OK, lastEntryId, ctx);
             return;
         }
         ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
@@ -705,8 +746,14 @@ public class LedgerHandle {
     }
 
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final boolean parallel, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
-        if (isClosed()) {
-            cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, getLedgerMetadata().getLastEntryId(), null, ctx);
+        boolean isClosed;
+        long lastEntryId;
+        synchronized (this) {
+            isClosed = metadata.isClosed();
+            lastEntryId = metadata.getLastEntryId();
+        }
+        if (isClosed) {
+            cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, lastEntryId, null, ctx);
             return;
         }
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
@@ -776,7 +823,6 @@ public class LedgerHandle {
      * @throws InterruptedException
      * @throws BKException
      */
-
     public long readLastConfirmed()
             throws InterruptedException, BKException {
         LastConfirmedCtx ctx = new LastConfirmedCtx();
@@ -788,6 +834,31 @@ public class LedgerHandle {
         }
 
         if(ctx.getRC() != BKException.Code.OK) throw BKException.create(ctx.getRC());
+        return ctx.getlastConfirmed();
+    }
+
+    /**
+     * Obtains synchronously the last confirmed write from a quorum of bookies.
+     * It is similar as {@link #readLastConfirmed()}, but it doesn't wait all the responses
+     * from the quorum. It would callback immediately if it received a LAC which is larger
+     * than current LAC.
+     *
+     * @see #readLastConfirmed()
+     *
+     * @return The entry id of the last confirmed write or {@link #INVALID_ENTRY_ID INVALID_ENTRY_ID}
+     *         if no entry has been confirmed
+     * @throws InterruptedException
+     * @throws BKException
+     */
+    public long tryReadLastConfirmed() throws InterruptedException, BKException {
+        LastConfirmedCtx ctx = new LastConfirmedCtx();
+        asyncTryReadLastConfirmed(new SyncReadLastConfirmedCallback(), ctx);
+        synchronized (ctx) {
+            while (!ctx.ready()) {
+                ctx.wait();
+            }
+        }
+        if (ctx.getRC() != BKException.Code.OK) throw BKException.create(ctx.getRC());
         return ctx.getlastConfirmed();
     }
 
@@ -803,10 +874,23 @@ public class LedgerHandle {
     }
 
     void errorOutPendingAdds(int rc) {
+        errorOutPendingAdds(rc, drainPendingAddsToErrorOut());
+    }
+
+    synchronized List<PendingAddOp> drainPendingAddsToErrorOut() {
         PendingAddOp pendingAddOp;
+        List<PendingAddOp> opsDrained = new ArrayList<PendingAddOp>(pendingAddOps.size());
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
             bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
-            pendingAddOp.submitCallback(rc);
+            addToLength(-pendingAddOp.entryLength);
+            opsDrained.add(pendingAddOp);
+        }
+        return opsDrained;
+    }
+
+    void errorOutPendingAdds(int rc, List<PendingAddOp> ops) {
+        for (PendingAddOp op : ops) {
+            op.submitCallback(rc);
         }
     }
 
@@ -821,7 +905,7 @@ public class LedgerHandle {
             }
             pendingAddOps.remove();
             bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
-            lastAddConfirmed = pendingAddOp.entryId;
+            setLastAddConfirmed(pendingAddOp.entryId);
             pendingAddOp.submitCallback(BKException.Code.OK);
         }
 
@@ -830,7 +914,7 @@ public class LedgerHandle {
     EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies)
             throws BKException.BKNotEnoughBookiesException {
         final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
-        final long newEnsembleStartEntry = lastAddConfirmed + 1;
+        final long newEnsembleStartEntry = getLastAddConfirmed() + 1;
         final HashSet<Integer> replacedBookies = new HashSet<Integer>();
         synchronized (metadata) {
             newEnsemble.addAll(metadata.currentEnsemble);
@@ -863,7 +947,7 @@ public class LedgerHandle {
                 LOG.debug("Changing ensemble from: {} to: {} for ledger: {} starting at entry: {}," +
                         " failed bookies: {}, replaced bookies: {}",
                           new Object[] { metadata.currentEnsemble, newEnsemble, ledgerId,
-                                  (lastAddConfirmed + 1), failedBookies, replacedBookies });
+                                  (getLastAddConfirmed() + 1), failedBookies, replacedBookies });
             }
             metadata.addEnsemble(newEnsembleStartEntry, newEnsemble);
         }

@@ -234,7 +234,7 @@ class Journal extends BookieThread {
                     bb.clear();
                     mark.readLogMark(bb);
                     if (curMark.compare(mark) < 0) {
-                        curMark.setLogMark(mark.getLogFileId(), mark.logFileOffset);
+                        curMark.setLogMark(mark.getLogFileId(), mark.getLogFileOffset());
                     }
                 } catch (IOException e) {
                     LOG.error("Problems reading from " + file + " (this is okay if it is the first time starting this bookie");

@@ -333,7 +333,7 @@ public class EntryMemTable {
             return newEntry(ledgerId, entryId, entry);
         }
 
-        assert alloc != null && alloc.getData() != null;
+        assert alloc.getData() != null;
         entry.get(alloc.getData(), alloc.getOffset(), len);
         return new EntryKeyValue(ledgerId, entryId, alloc.getData(), alloc.getOffset(), len);
     }

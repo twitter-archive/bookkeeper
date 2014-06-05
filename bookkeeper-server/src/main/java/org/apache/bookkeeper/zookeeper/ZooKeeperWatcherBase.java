@@ -88,6 +88,8 @@ public class ZooKeeperWatcherBase implements Watcher {
             clientConnectLatch = new CountDownLatch(1);
             LOG.error("ZooKeeper client connection to the ZooKeeper server has expired!");
             break;
+        default:
+            break;
         }
         notifyEvent(event);
     }

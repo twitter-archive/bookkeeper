@@ -23,9 +23,7 @@ import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
@@ -55,6 +53,8 @@ import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 public class BenchThroughputLatency implements AddCallback, Runnable {
     static Logger LOG = LoggerFactory.getLogger(BenchThroughputLatency.class);
@@ -274,7 +274,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
         final int sockTimeout = Integer.valueOf(cmd.getOptionValue("sockettimeout", "5"));
 
         String coordinationZnode = cmd.getOptionValue("coordnode");
-        final byte[] passwd = cmd.getOptionValue("password", "benchPasswd").getBytes();
+        final byte[] passwd = cmd.getOptionValue("password", "benchPasswd").getBytes(UTF_8);
 
         String latencyFile = cmd.getOptionValue("latencyFile", "latencyDump.dat");
 
@@ -385,7 +385,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
 
         if (zk != null) {
             zk.create(coordinationZnode + "/worker-",
-                      ("tp " + tp + " duration " + bench.getDuration()).getBytes(),
+                      ("tp " + tp + " duration " + bench.getDuration()).getBytes(UTF_8),
                       ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL);
             zk.close();
         }
@@ -394,7 +394,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
         OutputStream fos = new BufferedOutputStream(new FileOutputStream(latencyFile));
 
         for(Long l: latency) {
-            fos.write((Long.toString(l)+"\t"+(l/1000000)+ "ms\n").getBytes());
+            fos.write((Long.toString(l)+"\t"+(l/1000000)+ "ms\n").getBytes(UTF_8));
         }
         fos.flush();
         fos.close();

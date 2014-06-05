@@ -21,6 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -165,7 +167,7 @@ public class EntryLogger {
         // within the same JVM. All of these Bookie instances access this header
         // so there can be race conditions when entry logs are rolled over and
         // this header buffer is cleared before writing it into the new logChannel.
-        LOGFILE_HEADER.put("BKLO".getBytes());
+        LOGFILE_HEADER.put("BKLO".getBytes(UTF_8));
         // Find the largest logId
         long logId = -1;
         for (File dir : ledgerDirsManager.getAllLedgerDirs()) {
@@ -475,7 +477,7 @@ public class EntryLogger {
     private void setLastLogId(File dir, long logId) throws IOException {
         FileOutputStream fos;
         fos = new FileOutputStream(new File(dir, "lastId"));
-        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos));
+        BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos, UTF_8));
         try {
             bw.write(Long.toHexString(logId) + "\n");
             bw.flush();
@@ -529,7 +531,7 @@ public class EntryLogger {
         } catch (FileNotFoundException e) {
             return -1;
         }
-        BufferedReader br = new BufferedReader(new InputStreamReader(fis));
+        BufferedReader br = new BufferedReader(new InputStreamReader(fis, UTF_8));
         try {
             String lastIdString = br.readLine();
             return Long.parseLong(lastIdString, 16);

@@ -350,9 +350,6 @@ public class IndexPersistenceMgr {
         FileInfo fi = null;
         try {
             fi = getFileInfo(ledgerId, null);
-            if (null == fi) {
-                throw new IOException("Exception while reading master key for ledger:" + ledgerId);
-            }
             return fi.getMasterKey();
         } finally {
             if (null != fi) {
@@ -376,10 +373,7 @@ public class IndexPersistenceMgr {
         FileInfo fi = null;
         try {
             fi = getFileInfo(ledgerId, null);
-            if (null != fi) {
-                return fi.setFenced();
-            }
-            return false;
+            return fi.setFenced();
         } finally {
             if (null != fi) {
                 fi.release();
@@ -391,10 +385,7 @@ public class IndexPersistenceMgr {
         FileInfo fi = null;
         try {
             fi = getFileInfo(ledgerId, null);
-            if (null != fi) {
-                return fi.isFenced();
-            }
-            return false;
+            return fi.isFenced();
         } finally {
             if (null != fi) {
                 fi.release();

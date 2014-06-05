@@ -21,6 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FilenameFilter;
@@ -259,7 +261,7 @@ public class Bookie extends BookieThread {
      * Properly I should change SyncThread to an executor, which is a more natural way for
      * callback on sync requests.
      */
-    class SyncRequest extends FutureTask<Boolean> {
+    static class SyncRequest extends FutureTask<Boolean> {
 
         final SyncAction action;
 
@@ -304,7 +306,6 @@ public class Bookie extends BookieThread {
 
         final LinkedBlockingQueue<SyncRequest> syncRequests =
                 new LinkedBlockingQueue<SyncRequest>();
-        CheckPoint completed;
 
         private final Object suspensionLock = new Object();
         private boolean suspended = false;
@@ -404,11 +405,6 @@ public class Bookie extends BookieThread {
             startCheckpoint(cp);
             this.join();
 
-            // Roll log upon shutdown
-            if (completed == null || cp.compareTo(completed) > 0) {
-                LOG.info("Checkpointing ledger storage at {} during shutting down.", cp);
-                checkPoint(cp);
-            }
             LOG.info("Finished shutting down SyncThread.");
         }
 
@@ -549,7 +545,7 @@ public class Bookie extends BookieThread {
         try {
             byte[] data = zk.getData(conf.getZkLedgersRootPath() + "/"
                     + INSTANCEID, false, null);
-            instanceId = new String(data);
+            instanceId = new String(data, UTF_8);
         } catch (KeeperException.NoNodeException e) {
             LOG.warn("INSTANCEID not exists in zookeeper. Not considering it for data verification");
         }

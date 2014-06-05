@@ -231,7 +231,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @param idleTime
      *          Idle time, in seconds.
      * @see #getFileInfoMaxIdleTime
-     * @return server configuration object. 
+     * @return server configuration object.
      */
     public ServerConfiguration setFileInfoMaxIdleTime(long idleTime) {
         setProperty(FILEINFO_MAX_IDLE_TIME, idleTime);
@@ -475,9 +475,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public File[] getLedgerDirs() {
         String[] ledgerDirNames = getLedgerDirNames();
-        if (null == ledgerDirNames) {
-            return null;
-        }
+
         File[] ledgerDirs = new File[ledgerDirNames.length];
         for (int i = 0; i < ledgerDirNames.length; i++) {
             ledgerDirs[i] = new File(ledgerDirNames[i]);

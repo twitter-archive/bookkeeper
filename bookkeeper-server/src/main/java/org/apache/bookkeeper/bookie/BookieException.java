@@ -92,6 +92,9 @@ public abstract class BookieException extends Exception {
         case Code.UpgradeException:
             err = "Error performing an upgrade operation ";
             break;
+        default:
+            err = "Invalid operation";
+            break;
         }
         String reason = super.getMessage();
         if (reason == null) {

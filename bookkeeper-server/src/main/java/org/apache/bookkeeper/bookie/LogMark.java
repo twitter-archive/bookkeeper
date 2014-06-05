@@ -22,9 +22,9 @@ package org.apache.bookkeeper.bookie;
 import java.nio.ByteBuffer;
 
 /**
- * Ledger log stream position
+ * Journal stream position
  */
-public class LogMark {
+class LogMark {
     long logFileId;
     long logFileOffset;
 
@@ -35,7 +35,7 @@ public class LogMark {
     }
 
     public LogMark(LogMark other) {
-        setLogMark(other.logFileId, other.logFileOffset);
+        setLogMark(other.getLogFileId(), other.getLogFileOffset());
     }
 
     public LogMark(long logFileId, long logFileOffset) {
@@ -65,16 +65,16 @@ public class LogMark {
         this.logFileOffset = logFileOffset;
     }
 
-    public int compare(LogMark other) {
-        long ret = this.logFileId - other.logFileId;
+    public synchronized int compare(LogMark other) {
+        long ret = this.logFileId - other.getLogFileId();
         if (ret == 0) {
-            ret = this.logFileOffset - other.logFileOffset;
+            ret = this.logFileOffset - other.getLogFileOffset();
         }
         return (ret < 0)? -1 : ((ret > 0)? 1 : 0);
     }
 
     @Override
-    public String toString() {
+    public synchronized String toString() {
         StringBuilder sb = new StringBuilder();
 
         sb.append("LogMark: logFileId - ").append(logFileId)

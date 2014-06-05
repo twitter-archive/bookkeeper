@@ -17,6 +17,8 @@
  */
 package org.apache.bookkeeper.conf;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -165,7 +167,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @see #setBookieRecoveryPasswd
      */
     public byte[] getBookieRecoveryPasswd() {
-        return this.getString(PASSWD, "").getBytes();
+        return this.getString(PASSWD, "").getBytes(UTF_8);
     }
 
     /**
@@ -183,7 +185,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return client configuration
      */
     public ClientConfiguration setBookieRecoveryPasswd(byte[] passwd) {
-        setProperty(PASSWD, new String(passwd));
+        setProperty(PASSWD, new String(passwd, UTF_8));
         return this;
     }
 

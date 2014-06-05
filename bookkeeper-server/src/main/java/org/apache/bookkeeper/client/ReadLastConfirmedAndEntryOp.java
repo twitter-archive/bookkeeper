@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -64,6 +63,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             this.ensemble = ensemble;
             this.orderedEnsemble = lh.bk.placementPolicy.reorderReadLACSequence(ensemble,
                 lh.distributionSchedule.getWriteSet(entryId));
+        }
+
+        synchronized int getFirstError() {
+            return firstError;
         }
 
         /**
@@ -124,7 +127,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             }
         }
 
-        private void translateAndSetFirstError(int rc) {
+        synchronized private void translateAndSetFirstError(int rc) {
             if (BKException.Code.OK == firstError ||
                 BKException.Code.NoSuchEntryException == firstError ||
                 BKException.Code.NoSuchLedgerExistsException == firstError) {
@@ -149,7 +152,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @param rc
          *          read result code
          */
-        void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
             translateAndSetFirstError(rc);
 
             if (BKException.Code.NoSuchEntryException == rc ||
@@ -257,6 +260,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             this.sentReplicas = new BitSet(orderedEnsemble.size());
             this.erroredReplicas = new BitSet(orderedEnsemble.size());
             this.emptyResponseReplicas = new BitSet(orderedEnsemble.size());
+        }
+
+        private synchronized int getNextReplicaIndexToReadFrom() {
+            return nextReplicaIndexToReadFrom;
         }
 
         private int getReplicaIndex(InetSocketAddress host) {
@@ -381,7 +388,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             boolean completed = super.complete(host, buffer, entryId);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
-                        .registerSuccessfulEvent(nextReplicaIndexToReadFrom);
+                        .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
         }
@@ -391,7 +398,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             boolean completed = super.fail(rc);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
-                        .registerFailedEvent(nextReplicaIndexToReadFrom);
+                        .registerFailedEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
         }
@@ -590,7 +597,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         if (requestComplete.compareAndSet(false, true)) {
             if (!hasValidResponse) {
                 // no success called
-                submitCallback(request.firstError, lastAddConfirmed, null);
+                submitCallback(request.getFirstError(), lastAddConfirmed, null);
             } else {
                 // callback
                 submitCallback(BKException.Code.OK, lastAddConfirmed, null);

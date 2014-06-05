@@ -83,7 +83,6 @@ class WriteEntryProcessor extends PacketProcessorBase {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                             .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
-                Cnxn conn = (Cnxn) ctx;
                 assert ledgerId == WriteEntryProcessor.this.ledgerId;
                 assert entryId == WriteEntryProcessor.this.entryId;
                 sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,

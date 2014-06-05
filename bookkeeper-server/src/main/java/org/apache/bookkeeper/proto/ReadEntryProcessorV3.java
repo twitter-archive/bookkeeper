@@ -104,14 +104,16 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
 
                     if (readRequest.hasTimeOut()) {
                         logger.trace("Waiting For LAC Update {}: Timeout {}", previousLAC, readRequest.getTimeOut());
-                        expirationTimerTask = requestTimer.newTimeout(new TimerTask() {
-                            @Override
-                            public void run(Timeout timeout) throws Exception {
-                                // When the timeout expires just get whatever is the current
-                                // readLastConfirmed
-                                ReadEntryProcessorV3.this.scheduleDeferredRead(observable, true);
-                            }
-                        }, readRequest.getTimeOut(), TimeUnit.MILLISECONDS);
+                        synchronized (this) {
+                            expirationTimerTask = requestTimer.newTimeout(new TimerTask() {
+                                @Override
+                                public void run(Timeout timeout) throws Exception {
+                                    // When the timeout expires just get whatever is the current
+                                    // readLastConfirmed
+                                    ReadEntryProcessorV3.this.scheduleDeferredRead(observable, true);
+                                }
+                            }, readRequest.getTimeOut(), TimeUnit.MILLISECONDS);
+                        }
                     }
                     return null;
                 }

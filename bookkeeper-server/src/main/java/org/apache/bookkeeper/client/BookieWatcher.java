@@ -129,10 +129,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
         HashSet<InetSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
 
-        final Set<InetSocketAddress> deadBookies;
         synchronized (this) {
             Set<InetSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
-            deadBookies = placementPolicy.onClusterChanged(newBookieAddrs, readonlyBookies);
+            placementPolicy.onClusterChanged(newBookieAddrs, readonlyBookies);
         }
 
         // we don't need to close clients here, because:

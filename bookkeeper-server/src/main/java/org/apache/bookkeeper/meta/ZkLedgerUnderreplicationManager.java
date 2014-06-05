@@ -37,10 +37,10 @@ import org.apache.zookeeper.ZooDefs.Ids;
 
 import com.google.protobuf.TextFormat;
 import com.google.common.base.Joiner;
+import static com.google.common.base.Charsets.UTF_8;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.charset.Charset;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,7 +72,6 @@ import org.slf4j.LoggerFactory;
  */
 public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationManager {
     static final Logger LOG = LoggerFactory.getLogger(ZkLedgerUnderreplicationManager.class);
-    static final Charset UTF8 = Charset.forName("UTF-8");
     public static final String UNDER_REPLICATION_NODE = "underreplication";
     static final String DISABLE_NODE = "disable";
     static final String LAYOUT="BASIC";
@@ -139,7 +138,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                     = LedgerRereplicationLayoutFormat.newBuilder();
                 builder.setType(LAYOUT).setVersion(LAYOUT_VERSION);
                 try {
-                    zkc.create(layoutZNode, TextFormat.printToString(builder.build()).getBytes(UTF8),
+                    zkc.create(layoutZNode, TextFormat.printToString(builder.build()).getBytes(UTF_8),
                                Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
                 } catch (KeeperException.NodeExistsException nne) {
                     // someone else managed to create it
@@ -152,7 +151,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                     = LedgerRereplicationLayoutFormat.newBuilder();
 
                 try {
-                    TextFormat.merge(new String(layoutData, UTF8), builder);
+                    TextFormat.merge(new String(layoutData, UTF_8), builder);
                     LedgerRereplicationLayoutFormat layout = builder.build();
                     if (!layout.getType().equals(LAYOUT)
                             || layout.getVersion() != LAYOUT_VERSION) {
@@ -196,7 +195,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
         String subdir2 = String.format("%04x", ledgerId >> 32 & 0xffff);
         String subdir3 = String.format("%04x", ledgerId >> 16 & 0xffff);
         String subdir4 = String.format("%04x", ledgerId & 0xffff);
-        
+
         return String.format("%s/%s/%s/%s/%s",
                              base, subdir1, subdir2, subdir3, subdir4);
     }
@@ -217,7 +216,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                 try {
                     builder.addReplica(missingReplica);
                     ZkUtils.createFullPathOptimistic(zkc, znode, TextFormat
-                            .printToString(builder.build()).getBytes(UTF8),
+                            .printToString(builder.build()).getBytes(UTF_8),
                             Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
                 } catch (KeeperException.NodeExistsException nee) {
                     Stat s = zkc.exists(znode, false);
@@ -227,14 +226,14 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                     try {
                         byte[] bytes = zkc.getData(znode, false, s);
                         builder.clear();
-                        TextFormat.merge(new String(bytes, UTF8), builder);
+                        TextFormat.merge(new String(bytes, UTF_8), builder);
                         UnderreplicatedLedgerFormat data = builder.build();
                         if (data.getReplicaList().contains(missingReplica)) {
                             return; // nothing to add
                         }
                         builder.addReplica(missingReplica);
                         zkc.setData(znode,
-                                    TextFormat.printToString(builder.build()).getBytes(UTF8),
+                                    TextFormat.printToString(builder.build()).getBytes(UTF_8),
                                     s.getVersion());
                     } catch (KeeperException.NoNodeException nne) {
                         continue;
@@ -329,7 +328,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
                     }
 
                     long ledgerId = getLedgerId(tryChild);
-                    zkc.create(lockPath, TextFormat.printToString(lockData).getBytes(UTF8),
+                    zkc.create(lockPath, TextFormat.printToString(lockData).getBytes(UTF_8),
                                Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL);
                     heldLocks.put(ledgerId, new Lock(lockPath, stat.getVersion()));
                     return ledgerId;
@@ -404,7 +403,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             cb.await();
         }
     }
-    
+
     @Override
     public void releaseUnderreplicatedLedger(long ledgerId) throws ReplicationException.UnavailableException {
         LOG.debug("releaseLedger(ledgerId={})", ledgerId);
@@ -449,7 +448,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
         try {
             ZkUtils.createFullPathOptimistic(zkc, basePath + '/'
                     + ZkLedgerUnderreplicationManager.DISABLE_NODE, ""
-                    .getBytes(), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                    .getBytes(UTF_8), Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
             LOG.info("Auto ledger re-replication is disabled!");
         } catch (KeeperException ke) {
             LOG.error("Exception while stopping replication", ke);

@@ -1,5 +1,3 @@
-package org.apache.bookkeeper.client;
-
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -17,6 +15,7 @@ package org.apache.bookkeeper.client;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.util.Map;
@@ -47,6 +46,7 @@ class PendingAddOp implements WriteCallback {
     AddCallback cb;
     Object ctx;
     long entryId;
+    int entryLength;
 
     DistributionSchedule.AckSet ackSet;
     boolean completed = false;
@@ -107,9 +107,10 @@ class PendingAddOp implements WriteCallback {
         sendWriteRequest(bookieIndex);
     }
 
-    void initiate(ChannelBuffer toSend) {
+    void initiate(ChannelBuffer toSend, int entryLength) {
         requestTimeNanos = MathUtils.nowInNano();
         this.toSend = toSend;
+        this.entryLength = entryLength;
         for (int bookieIndex : lh.distributionSchedule.getWriteSet(entryId)) {
             sendWriteRequest(bookieIndex);
         }

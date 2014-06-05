@@ -19,17 +19,14 @@
  */
 package org.apache.bookkeeper.benchmark;
 
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher.Event;
 
 import java.util.Enumeration;
 import java.util.Collections;
@@ -43,12 +40,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.PosixParser;
-import org.apache.commons.cli.ParseException;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +85,7 @@ public class BenchReadThroughputLatency {
         try {
             bk = new BookKeeper(conf);
             while (true) {
-                lh = bk.openLedgerNoRecovery(ledgerId, BookKeeper.DigestType.CRC32, 
+                lh = bk.openLedgerNoRecovery(ledgerId, BookKeeper.DigestType.CRC32,
                                              passwd);
                 long lastConfirmed = Math.min(lh.getLastAddConfirmed(), absoluteLimit);
                 if (lastConfirmed == lastRead) {
@@ -151,7 +148,7 @@ public class BenchReadThroughputLatency {
 
     public static void main(String[] args) throws Exception {
         Options options = new Options();
-        options.addOption("ledger", true, "Ledger to read. If empty, read all ledgers which come available. " 
+        options.addOption("ledger", true, "Ledger to read. If empty, read all ledgers which come available. "
                           + " Cannot be used with -listen");
         options.addOption("listen", true, "Listen for creation of <arg> ledgers, and read each one fully");
         options.addOption("password", true, "Password used to access ledgers (default 'benchPasswd')");
@@ -168,7 +165,7 @@ public class BenchReadThroughputLatency {
         }
 
         final String servers = cmd.getOptionValue("zookeeper", "localhost:2181");
-        final byte[] passwd = cmd.getOptionValue("password", "benchPasswd").getBytes();
+        final byte[] passwd = cmd.getOptionValue("password", "benchPasswd").getBytes(UTF_8);
         final int sockTimeout = Integer.valueOf(cmd.getOptionValue("sockettimeout", "5"));
         if (cmd.hasOption("ledger") && cmd.hasOption("listen")) {
             LOG.error("Cannot used -ledger and -listen together");
@@ -208,7 +205,7 @@ public class BenchReadThroughputLatency {
             zk.register(new Watcher() {
                     public void process(WatchedEvent event) {
                         try {
-                            if (event.getState() == Event.KeeperState.SyncConnected 
+                            if (event.getState() == Event.KeeperState.SyncConnected
                                 && event.getType() == Event.EventType.None) {
                                 connectedLatch.countDown();
                             } else if (event.getType() == Event.EventType.NodeCreated

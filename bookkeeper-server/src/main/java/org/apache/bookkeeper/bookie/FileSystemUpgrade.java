@@ -30,7 +30,6 @@ import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.ParseException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +51,8 @@ import org.apache.commons.configuration.ConfigurationException;
 
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * Application for upgrading the bookkeeper filesystem
@@ -115,7 +115,7 @@ public class FileSystemUpgrade {
         if (!v2versionFile.exists()) {
             return 1;
         }
-        Scanner s = new Scanner(v2versionFile);
+        Scanner s = new Scanner(v2versionFile, UTF_8.name());
         try {
             return s.nextInt();
         } catch (NoSuchElementException nse) {

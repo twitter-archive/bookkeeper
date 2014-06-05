@@ -23,7 +23,11 @@ public class ClientStatsProvider {
         ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> loggerMap = pcBookieLoggerMaps.get(scope);
         if (null == loggerMap) {
             loggerMap = new ConcurrentHashMap<InetSocketAddress, PCBookieClientStatsLogger>();
-            pcBookieLoggerMaps.putIfAbsent(scope, loggerMap);
+            ConcurrentMap<InetSocketAddress, PCBookieClientStatsLogger> oldLoggerMap =
+                pcBookieLoggerMaps.putIfAbsent(scope, loggerMap);
+            if (null != oldLoggerMap) {
+                loggerMap = oldLoggerMap;
+            }
         }
         return loggerMap;
     }
