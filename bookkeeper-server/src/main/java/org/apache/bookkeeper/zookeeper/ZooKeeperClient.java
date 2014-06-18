@@ -313,9 +313,10 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             }
 
             // Create a watcher manager
+            StatsLogger watcherStatsLogger = statsLogger.scope("watcher");
             ZooKeeperWatcherBase watcherManager =
-                    null == watchers ? new ZooKeeperWatcherBase(sessionTimeoutMs) :
-                            new ZooKeeperWatcherBase(sessionTimeoutMs, watchers);
+                    null == watchers ? new ZooKeeperWatcherBase(sessionTimeoutMs, watcherStatsLogger) :
+                            new ZooKeeperWatcherBase(sessionTimeoutMs, watchers, watcherStatsLogger);
             // Client the client
             ZooKeeperClient client = new ZooKeeperClient(
                     connectString,
