@@ -121,7 +121,11 @@ public class BookKeeperAdmin {
      */
     public BookKeeperAdmin(ClientConfiguration conf) throws IOException, InterruptedException, KeeperException {
         // Create the ZooKeeper client instance
-        zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout());
+        zk = ZooKeeperClient.newBuilder()
+                .connectString(conf.getZkServers())
+                .sessionTimeoutMs(conf.getZkTimeout())
+                .requestRateLimit(conf.getZkRequestRateLimit())
+                .build();
         // Create the bookie path
         bookiesPath = conf.getZkAvailableBookiesPath();
         // Create the BookKeeper client instance
@@ -337,7 +341,7 @@ public class BookKeeperAdmin {
                     return;
                 }
                 getAvailableBookies(bookieSrc, bookieDest, cb, context);
-            };
+            }
         }, null);
     }
 

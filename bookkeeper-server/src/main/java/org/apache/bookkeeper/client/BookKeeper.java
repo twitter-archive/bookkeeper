@@ -40,6 +40,7 @@ import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.ReflectionUtils;
+import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.zookeeper.KeeperException;
@@ -267,7 +268,14 @@ public class BookKeeper {
         this.conf = conf;
 
         if (null == zk) {
-            this.zk = ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(), conf.getZkTimeout());
+            this.zk = ZooKeeperClient.newBuilder()
+                    .connectString(conf.getZkServers())
+                    .sessionTimeoutMs(conf.getZkTimeout())
+                    .operationRetryPolicy(new BoundExponentialBackoffRetryPolicy(conf.getZkTimeout(),
+                            conf.getZkTimeout(), 0))
+                    .statsLogger(statsLogger)
+                    .requestRateLimit(conf.getZkRequestRateLimit())
+                    .build();
             this.ownZKHandle = true;
         } else {
             if (!zk.getState().equals(ZooKeeper.States.CONNECTED)) {

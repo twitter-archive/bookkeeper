@@ -51,6 +51,7 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
     protected final static String LEDGER_MANAGER_TYPE = "ledgerManagerType";
     protected final static String LEDGER_MANAGER_FACTORY_CLASS = "ledgerManagerFactoryClass";
     protected final static String ZK_LEDGERS_ROOT_PATH = "zkLedgersRootPath";
+    protected final static String ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
     protected final static String AVAILABLE_NODE = "available";
     protected final static String REREPLICATION_ENTRY_BATCH_SIZE = "rereplicationEntryBatchSize";
 
@@ -79,7 +80,7 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
      *          Other Configuration
      */
     public void loadConf(AbstractConfiguration baseConf) {
-        addConfiguration(baseConf); 
+        addConfiguration(baseConf);
     }
 
     /**
@@ -101,7 +102,7 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
      */
     @Deprecated
     public void setLedgerManagerType(String lmType) {
-        setProperty(LEDGER_MANAGER_TYPE, lmType); 
+        setProperty(LEDGER_MANAGER_TYPE, lmType);
     }
 
     /**
@@ -174,7 +175,26 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
     public String getZkAvailableBookiesPath() {
         return getZkLedgersRootPath() + "/" + AVAILABLE_NODE;
     }
-    
+
+    /**
+     * Get zookeeper access request rate limit.
+     *
+     * @return zookeeper access request rate limit.
+     */
+    public double getZkRequestRateLimit() {
+        return getDouble(ZK_REQUEST_RATE_LIMIT, 0);
+    }
+
+    /**
+     * Set zookeeper access request rate limit.
+     *
+     * @param rateLimit
+     *          zookeeper access request rate limit.
+     */
+    public void setZkRequestRateLimit(double rateLimit) {
+        setProperty(ZK_REQUEST_RATE_LIMIT, rateLimit);
+    }
+
     /**
      * Set the max entries to keep in fragment for re-replication. If fragment
      * has more entries than this count, then the original fragment will be

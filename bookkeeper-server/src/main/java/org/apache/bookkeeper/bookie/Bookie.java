@@ -1171,10 +1171,14 @@ public class Bookie extends BookieThread {
                 }
             }
         });
-        return ZooKeeperClient.createConnectedZooKeeperClient(
-            conf.getZkServers(), conf.getZkTimeout(), watchers,
-            new BoundExponentialBackoffRetryPolicy(conf.getZkRetryBackoffStartMs(),
-                    conf.getZkRetryBackoffMaxMs(), Integer.MAX_VALUE));
+        return ZooKeeperClient.newBuilder()
+                .connectString(conf.getZkServers())
+                .sessionTimeoutMs(conf.getZkTimeout())
+                .watchers(watchers)
+                .operationRetryPolicy(new BoundExponentialBackoffRetryPolicy(conf.getZkRetryBackoffStartMs(),
+                        conf.getZkRetryBackoffMaxMs(), Integer.MAX_VALUE))
+                .requestRateLimit(conf.getZkRequestRateLimit())
+                .build();
     }
 
     public boolean isRunning() {

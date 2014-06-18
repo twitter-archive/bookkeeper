@@ -23,8 +23,8 @@ package org.apache.bookkeeper.zookeeper;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.RateLimiter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
-import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
@@ -111,12 +111,19 @@ class ZooWorker {
      *          Synchronous zookeeper operation wrapped in a {@link Callable}.
      * @param retryPolicy
      *          Retry policy to execute the synchronous operation.
+     * @param rateLimiter
+     *          Rate limiter for zookeeper calls
+     * @param statsLogger
+     *          Stats Logger for zookeeper client.
      * @return result of the zookeeper operation
      * @throws KeeperException any non-recoverable exception or recoverable exception exhausted all retires.
      * @throws InterruptedException the operation is interrupted.
      */
-    public static<T> T syncCallWithRetries(
-            ZooKeeperClient client, ZooCallable<T> proc, RetryPolicy retryPolicy, OpStatsLogger statsLogger)
+    public static<T> T syncCallWithRetries(ZooKeeperClient client,
+                                           ZooCallable<T> proc,
+                                           RetryPolicy retryPolicy,
+                                           RateLimiter rateLimiter,
+                                           OpStatsLogger statsLogger)
     throws KeeperException, InterruptedException {
         T result = null;
         boolean isDone = false;
@@ -128,6 +135,9 @@ class ZooWorker {
                     client.waitForConnection();
                 }
                 logger.debug("Execute {} at {} retry attempt.", proc, attempts);
+                if (null != rateLimiter) {
+                    rateLimiter.acquire();
+                }
                 result = proc.call();
                 isDone = true;
                 statsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
@@ -150,12 +160,6 @@ class ZooWorker {
             }
         }
         return result;
-    }
-
-    static<T> T syncCallWithRetries(
-            ZooCallable<T> proc, RetryPolicy retryPolicy, OpStatsLogger statsLogger)
-            throws KeeperException, InterruptedException {
-        return syncCallWithRetries(null, proc, retryPolicy, statsLogger);
     }
 
 }

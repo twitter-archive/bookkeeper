@@ -31,6 +31,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.RateLimiter;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -78,6 +81,9 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     private final ScheduledExecutorService retryExecutor;
     private final ExecutorService connectExecutor;
+
+    // rate limiter
+    private final RateLimiter rateLimiter;
 
     // retry polices
     private final RetryPolicy connectRetryPolicy;
@@ -127,7 +133,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                         return String.format("ZooKeeper Client Creator (%s)", connectString);
                     }
 
-                }, connectRetryPolicy, createClientStats);
+                }, connectRetryPolicy, rateLimiter, createClientStats);
             } catch (Exception e) {
                 logger.error("Gave up reconnecting to ZooKeeper : ", e);
                 Runtime.getRuntime().exit(-1);
@@ -137,6 +143,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     };
 
+    @VisibleForTesting
     public static ZooKeeper createConnectedZooKeeper(String connectString, int sessionTimeoutMs)
                     throws KeeperException, InterruptedException, IOException {
         ZooKeeperWatcherBase watcher = new ZooKeeperWatcherBase(sessionTimeoutMs);
@@ -153,53 +160,43 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
         return zk;
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(String connectString, int sessionTimeoutMs)
             throws KeeperException, InterruptedException, IOException {
         return createConnectedZooKeeperClient(connectString, sessionTimeoutMs, NullStatsLogger.INSTANCE);
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, StatsLogger statsLogger)
                     throws KeeperException, InterruptedException, IOException {
-        ZooKeeperWatcherBase watcherManager = new ZooKeeperWatcherBase(sessionTimeoutMs);
-        ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, 0), statsLogger);
-        try {
-            watcherManager.waitForConnection();
-        } catch (KeeperException ke) {
-            client.close();
-            throw ke;
-        } catch (InterruptedException ie) {
-            client.close();
-            throw ie;
-        }
-        return client;
+        return ZooKeeperClient.newBuilder()
+                .connectString(connectString)
+                .sessionTimeoutMs(sessionTimeoutMs)
+                .statsLogger(statsLogger)
+                .build();
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, RetryPolicy operationRetryPolicy)
             throws KeeperException, InterruptedException, IOException {
         return createConnectedZooKeeperClient(connectString, sessionTimeoutMs, operationRetryPolicy, NullStatsLogger.INSTANCE);
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, RetryPolicy operationRetryPolicy, StatsLogger statsLogger)
                     throws KeeperException, InterruptedException, IOException {
-        ZooKeeperWatcherBase watcherManager = new ZooKeeperWatcherBase(sessionTimeoutMs);
-        ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                operationRetryPolicy, statsLogger);
-        try {
-            watcherManager.waitForConnection();
-        } catch (KeeperException ke) {
-            client.close();
-            throw ke;
-        } catch (InterruptedException ie) {
-            client.close();
-            throw ie;
-        }
-        return client;
+        return ZooKeeperClient.newBuilder()
+                .connectString(connectString)
+                .sessionTimeoutMs(sessionTimeoutMs)
+                .operationRetryPolicy(operationRetryPolicy)
+                .statsLogger(statsLogger)
+                .build();
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
             RetryPolicy operationRetryPolicy)
@@ -208,81 +205,169 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 operationRetryPolicy, NullStatsLogger.INSTANCE);
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
         String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
         RetryPolicy operationRetryPolicy, StatsLogger statsLogger)
         throws KeeperException, InterruptedException, IOException {
-        return createConnectedZooKeeperClient(connectString, sessionTimeoutMs, childWatchers, operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
-
+        return createConnectedZooKeeperClient(connectString, sessionTimeoutMs, childWatchers,
+                operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
             RetryPolicy operationRetryPolicy, StatsLogger statsLogger, int retryExecThreadCount)
                     throws KeeperException, InterruptedException, IOException {
-        ZooKeeperWatcherBase watcherManager =
-                new ZooKeeperWatcherBase(sessionTimeoutMs, childWatchers);
-        ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                operationRetryPolicy, statsLogger, retryExecThreadCount);
-        try {
-            watcherManager.waitForConnection();
-        } catch (KeeperException ke) {
-            client.close();
-            throw ke;
-        } catch (InterruptedException ie) {
-            client.close();
-            throw ie;
-        }
-        return client;
+        return ZooKeeperClient.newBuilder()
+                .connectString(connectString)
+                .sessionTimeoutMs(sessionTimeoutMs)
+                .watchers(childWatchers)
+                .operationRetryPolicy(operationRetryPolicy)
+                .statsLogger(statsLogger)
+                .retryThreadCount(retryExecThreadCount)
+                .build();
     }
 
+    @Deprecated
     public static ZooKeeperClient createConnectedZooKeeperClient(
             String connectString, int sessionTimeoutMs, Set<Watcher> childWatchers,
             RetryPolicy connectRetryPolicy, RetryPolicy operationRetryPolicy,
             StatsLogger statsLogger)
             throws KeeperException, InterruptedException, IOException {
-        ZooKeeperWatcherBase watcherManager =
-                new ZooKeeperWatcherBase(sessionTimeoutMs, childWatchers);
-        ZooKeeperClient client = new ZooKeeperClient(connectString, sessionTimeoutMs, watcherManager,
-                connectRetryPolicy, operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
-        try {
-            watcherManager.waitForConnection();
-        } catch (KeeperException ke) {
-            client.close();
-            throw ke;
-        } catch (InterruptedException ie) {
-            client.close();
-            throw ie;
-        }
-        return client;
+        return ZooKeeperClient.newBuilder()
+                .connectString(connectString)
+                .sessionTimeoutMs(sessionTimeoutMs)
+                .watchers(childWatchers)
+                .connectRetryPolicy(connectRetryPolicy)
+                .operationRetryPolicy(operationRetryPolicy)
+                .statsLogger(statsLogger)
+                .build();
     }
 
+    public static class Builder {
+        String connectString = null;
+        int sessionTimeoutMs = 10000;
+        Set<Watcher> watchers = null;
+        RetryPolicy connectRetryPolicy = null;
+        RetryPolicy operationRetryPolicy = null;
+        StatsLogger statsLogger = NullStatsLogger.INSTANCE;
+        int retryExecThreadCount = DEFAULT_RETRY_EXECUTOR_THREAD_COUNT;
+        double requestRateLimit = 0;
+
+        private Builder() {}
+
+        public Builder connectString(String connectString) {
+            this.connectString = connectString;
+            return this;
+        }
+
+        public Builder sessionTimeoutMs(int sessionTimeoutMs) {
+            this.sessionTimeoutMs = sessionTimeoutMs;
+            return this;
+        }
+
+        public Builder watchers(Set<Watcher> watchers) {
+            this.watchers = watchers;
+            return this;
+        }
+
+        public Builder connectRetryPolicy(RetryPolicy retryPolicy) {
+            this.connectRetryPolicy = retryPolicy;
+            return this;
+        }
+
+        public Builder operationRetryPolicy(RetryPolicy retryPolicy) {
+            this.operationRetryPolicy = retryPolicy;
+            return this;
+        }
+
+        public Builder statsLogger(StatsLogger statsLogger) {
+            this.statsLogger = statsLogger;
+            return this;
+        }
+
+        public Builder requestRateLimit(double requestRateLimit) {
+            this.requestRateLimit = requestRateLimit;
+            return this;
+        }
+
+        public Builder retryThreadCount(int numThreads) {
+            this.retryExecThreadCount = numThreads;
+            return this;
+        }
+
+        public ZooKeeperClient build() throws IOException, KeeperException, InterruptedException {
+            Preconditions.checkNotNull(connectString);
+            Preconditions.checkArgument(sessionTimeoutMs > 0);
+            Preconditions.checkNotNull(statsLogger);
+            Preconditions.checkArgument(retryExecThreadCount > 0);
+
+            if (null == connectRetryPolicy) {
+                connectRetryPolicy =
+                        new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE);
+            }
+            if (null == operationRetryPolicy) {
+                operationRetryPolicy =
+                        new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, 0);
+            }
+
+            // Create a watcher manager
+            ZooKeeperWatcherBase watcherManager =
+                    null == watchers ? new ZooKeeperWatcherBase(sessionTimeoutMs) :
+                            new ZooKeeperWatcherBase(sessionTimeoutMs, watchers);
+            // Client the client
+            ZooKeeperClient client = new ZooKeeperClient(
+                    connectString,
+                    sessionTimeoutMs,
+                    watcherManager,
+                    connectRetryPolicy,
+                    operationRetryPolicy,
+                    statsLogger,
+                    retryExecThreadCount,
+                    requestRateLimit
+            );
+            // Wait for connection to be established.
+            try {
+                watcherManager.waitForConnection();
+            } catch (KeeperException ke) {
+                client.close();
+                throw ke;
+            } catch (InterruptedException ie) {
+                client.close();
+                throw ie;
+            }
+            return client;
+        }
+    }
+
+    public static Builder newBuilder() {
+        return new Builder();
+    }
+
+    @VisibleForTesting
     ZooKeeperClient(String connectString, int sessionTimeoutMs, ZooKeeperWatcherBase watcherManager,
             RetryPolicy operationRetryPolicy, StatsLogger statsLogger) throws IOException {
         this(connectString, sessionTimeoutMs, watcherManager,
              new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE),
-             operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT);
+             operationRetryPolicy, statsLogger, DEFAULT_RETRY_EXECUTOR_THREAD_COUNT, 0);
     }
 
-    ZooKeeperClient(String connectString, int sessionTimeoutMs, ZooKeeperWatcherBase watcherManager,
-                    RetryPolicy operationRetryPolicy, StatsLogger statsLogger,
-                    int retryExecThreadCount) throws IOException {
-        this(connectString, sessionTimeoutMs, watcherManager,
-            new BoundExponentialBackoffRetryPolicy(sessionTimeoutMs, sessionTimeoutMs, Integer.MAX_VALUE),
-            operationRetryPolicy, statsLogger, retryExecThreadCount);
-    }
-
-    private ZooKeeperClient(String connectString, int sessionTimeoutMs,
-            ZooKeeperWatcherBase watcherManager,
-            RetryPolicy connectRetryPolicy, RetryPolicy operationRetryPolicy,
-            StatsLogger statsLogger,
-            int retryExecThreadCount) throws IOException {
+    private ZooKeeperClient(String connectString,
+                            int sessionTimeoutMs,
+                            ZooKeeperWatcherBase watcherManager,
+                            RetryPolicy connectRetryPolicy,
+                            RetryPolicy operationRetryPolicy,
+                            StatsLogger statsLogger,
+                            int retryExecThreadCount,
+                            double rate) throws IOException {
         super(connectString, sessionTimeoutMs, watcherManager);
         this.connectString = connectString;
         this.sessionTimeoutMs = sessionTimeoutMs;
         this.watcherManager = watcherManager;
         this.connectRetryPolicy = connectRetryPolicy;
         this.operationRetryPolicy = operationRetryPolicy;
+        this.rateLimiter = rate > 0 ? RateLimiter.create(rate) : null;
         this.retryExecutor =
                 Executors.newScheduledThreadPool(retryExecThreadCount, new ThreadFactoryBuilder().setNameFormat("ZKC-retry-executor-%d").build());
         this.connectExecutor =
@@ -347,17 +432,27 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
         }
     }
 
-
-    static abstract class RetryRunnable implements Runnable {
+    static abstract class ZkRetryRunnable implements Runnable {
 
         final ZooWorker worker;
+        final RateLimiter rateLimiter;
         final Runnable that;
 
-        RetryRunnable(RetryPolicy retryPolicy, OpStatsLogger statsLogger) {
-            worker = new ZooWorker(retryPolicy, statsLogger);
+        ZkRetryRunnable(RetryPolicy retryPolicy, RateLimiter rateLimiter, OpStatsLogger statsLogger) {
+            this.worker = new ZooWorker(retryPolicy, statsLogger);
+            this.rateLimiter = rateLimiter;
             that = this;
         }
 
+        @Override
+        public void run() {
+            if (null != rateLimiter) {
+                rateLimiter.acquire();
+            }
+            zkRun();
+        }
+
+        abstract void zkRun();
     }
 
     // inherits from ZooKeeper client for all operations
@@ -422,7 +517,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return zkHandle.multi(ops);
             }
 
-        }, operationRetryPolicy, multiStats);
+        }, operationRetryPolicy, rateLimiter, multiStats);
     }
 
     @Override
@@ -456,12 +551,12 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return zkHandle.getACL(path, stat);
             }
 
-        }, operationRetryPolicy, getACLStats);
+        }, operationRetryPolicy, rateLimiter, getACLStats);
     }
 
     @Override
     public void getACL(final String path, final Stat stat, final ACLCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getACLStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getACLStats) {
 
             final ACLCallback aclCb = new ACLCallback() {
 
@@ -483,7 +578,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             }
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getACL(path, stat, aclCb, worker);
@@ -515,13 +610,13 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return zkHandle.setACL(path, acl, version);
             }
 
-        }, operationRetryPolicy, setACLStats);
+        }, operationRetryPolicy, rateLimiter, setACLStats);
     }
 
     @Override
     public void setACL(final String path, final List<ACL> acl, final int version,
             final StatCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, setACLStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, setACLStats) {
 
             final StatCallback stCb = new StatCallback() {
 
@@ -543,7 +638,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             }
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.setACL(path, acl, version, stCb, worker);
@@ -558,7 +653,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     @Override
     public void sync(final String path, final VoidCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, syncStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, syncStats) {
 
             final VoidCallback vCb = new VoidCallback() {
 
@@ -580,7 +675,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             }
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.sync(path, vCb, worker);
@@ -633,13 +728,13 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("create (%s, acl = %s, mode = %s)", path, acl, createMode);
             }
 
-        }, operationRetryPolicy, createStats);
+        }, operationRetryPolicy, rateLimiter, createStats);
     }
 
     @Override
     public void create(final String path, final byte[] data, final List<ACL> acl,
             final CreateMode createMode, final StringCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, createStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, createStats) {
 
             final StringCallback createCb = new StringCallback() {
 
@@ -656,7 +751,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.create(path, data, acl, createMode, createCb, worker);
@@ -694,12 +789,12 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("delete (%s, version = %d)", path, version);
             }
 
-        }, operationRetryPolicy, deleteStats);
+        }, operationRetryPolicy, rateLimiter, deleteStats);
     }
 
     @Override
     public void delete(final String path, final int version, final VoidCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, deleteStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, deleteStats) {
 
             final VoidCallback deleteCb = new VoidCallback() {
 
@@ -716,7 +811,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.delete(path, version, deleteCb, worker);
@@ -752,7 +847,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("exists (%s, watcher = %s)", path, watcher);
             }
 
-        }, operationRetryPolicy, existsStats);
+        }, operationRetryPolicy, rateLimiter, existsStats);
     }
 
     @Override
@@ -773,12 +868,12 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("exists (%s, watcher = %s)", path, watch);
             }
 
-        }, operationRetryPolicy, existsStats);
+        }, operationRetryPolicy, rateLimiter, existsStats);
     }
 
     @Override
     public void exists(final String path, final Watcher watcher, final StatCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, existsStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, existsStats) {
 
             final StatCallback stCb = new StatCallback() {
 
@@ -795,7 +890,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.exists(path, watcher, stCb, worker);
@@ -815,7 +910,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     @Override
     public void exists(final String path, final boolean watch, final StatCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, existsStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, existsStats) {
 
             final StatCallback stCb = new StatCallback() {
 
@@ -832,7 +927,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.exists(path, watch, stCb, worker);
@@ -869,7 +964,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getData (%s, watcher = %s)", path, watcher);
             }
 
-        }, operationRetryPolicy, getStats);
+        }, operationRetryPolicy, rateLimiter, getStats);
     }
 
     @Override
@@ -891,12 +986,12 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getData (%s, watcher = %s)", path, watch);
             }
 
-        }, operationRetryPolicy, getStats);
+        }, operationRetryPolicy, rateLimiter, getStats);
     }
 
     @Override
     public void getData(final String path, final Watcher watcher, final DataCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getStats) {
 
             final DataCallback dataCb = new DataCallback() {
 
@@ -913,7 +1008,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getData(path, watcher, dataCb, worker);
@@ -933,7 +1028,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
 
     @Override
     public void getData(final String path, final boolean watch, final DataCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getStats) {
 
             final DataCallback dataCb = new DataCallback() {
 
@@ -950,7 +1045,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getData(path, watch, dataCb, worker);
@@ -987,13 +1082,13 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("setData (%s, version = %d)", path, version);
             }
 
-        }, operationRetryPolicy, setStats);
+        }, operationRetryPolicy, rateLimiter, setStats);
     }
 
     @Override
     public void setData(final String path, final byte[] data, final int version,
             final StatCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, setStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, setStats) {
 
             final StatCallback stCb = new StatCallback() {
 
@@ -1010,7 +1105,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.setData(path, data, version, stCb, worker);
@@ -1047,7 +1142,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getChildren (%s, watcher = %s)", path, watcher);
             }
 
-        }, operationRetryPolicy, getChildrenStats);
+        }, operationRetryPolicy, rateLimiter, getChildrenStats);
     }
 
     @Override
@@ -1069,13 +1164,13 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getChildren (%s, watcher = %s)", path, watch);
             }
 
-        }, operationRetryPolicy, getChildrenStats);
+        }, operationRetryPolicy, rateLimiter, getChildrenStats);
     }
 
     @Override
     public void getChildren(final String path, final Watcher watcher,
             final Children2Callback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getChildrenStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getChildrenStats) {
 
             final Children2Callback childCb = new Children2Callback() {
 
@@ -1093,7 +1188,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getChildren(path, watcher, childCb, worker);
@@ -1114,7 +1209,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
     @Override
     public void getChildren(final String path, final boolean watch, final Children2Callback cb,
             final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getChildrenStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getChildrenStats) {
 
             final Children2Callback childCb = new Children2Callback() {
 
@@ -1132,7 +1227,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getChildren(path, watch, childCb, worker);
@@ -1170,7 +1265,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getChildren (%s, watcher = %s)", path, watcher);
             }
 
-        }, operationRetryPolicy, getChildrenStats);
+        }, operationRetryPolicy, rateLimiter, getChildrenStats);
     }
 
     @Override
@@ -1192,13 +1287,13 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
                 return String.format("getChildren (%s, watcher = %s)", path, watch);
             }
 
-        }, operationRetryPolicy, getChildrenStats);
+        }, operationRetryPolicy, rateLimiter, getChildrenStats);
     }
 
     @Override
     public void getChildren(final String path, final Watcher watcher,
             final ChildrenCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getChildrenStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getChildrenStats) {
 
             final ChildrenCallback childCb = new ChildrenCallback() {
 
@@ -1216,7 +1311,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getChildren(path, watcher, childCb, worker);
@@ -1237,7 +1332,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
     @Override
     public void getChildren(final String path, final boolean watch,
             final ChildrenCallback cb, final Object context) {
-        final Runnable proc = new RetryRunnable(operationRetryPolicy, getChildrenStats) {
+        final Runnable proc = new ZkRetryRunnable(operationRetryPolicy, rateLimiter, getChildrenStats) {
 
             final ChildrenCallback childCb = new ChildrenCallback() {
 
@@ -1255,7 +1350,7 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             };
 
             @Override
-            public void run() {
+            void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
                     ZooKeeperClient.super.getChildren(path, watch, childCb, worker);
