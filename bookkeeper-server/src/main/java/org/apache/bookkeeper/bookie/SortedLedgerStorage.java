@@ -26,6 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
@@ -49,7 +50,10 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
         super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null);
         this.memTable = new EntryMemTable(conf, progress);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
-                new DaemonThreadFactory((Thread.NORM_PRIORITY + Thread.MAX_PRIORITY)/2));
+                new ThreadFactoryBuilder()
+                        .setThreadFactory(new DaemonThreadFactory((Thread.NORM_PRIORITY + Thread.MAX_PRIORITY)/2))
+                        .setNameFormat("SortedLedgerStorageExecutor-%d")
+                        .build());
         this.checkpointer = progress;
     }
 

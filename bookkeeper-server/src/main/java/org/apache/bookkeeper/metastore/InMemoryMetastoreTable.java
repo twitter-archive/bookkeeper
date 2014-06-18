@@ -23,6 +23,7 @@ import java.util.TreeMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.metastore.MSException.Code;
 import org.apache.bookkeeper.versioning.Version;
 import org.apache.bookkeeper.versioning.Versioned;
@@ -96,7 +97,8 @@ public class InMemoryMetastoreTable implements MetastoreScannableTable {
     public InMemoryMetastoreTable(InMemoryMetaStore metastore, String name) {
         this.map = new TreeMap<String, Versioned<Value>>();
         this.name = name;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                new ThreadFactoryBuilder().setNameFormat("inmemory-metastore-scheduler-%").build());
     }
 
     @Override

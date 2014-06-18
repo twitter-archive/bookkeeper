@@ -28,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerMetadata;
@@ -149,7 +150,9 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
         this.zk = zk;
         this.ledgerRootPath = conf.getZkLedgersRootPath();
         this.activeLedgers = new SnapshotMap<Long, Boolean>();
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                new ThreadFactoryBuilder().setNameFormat("bkc-zkledgermanager-%d").build()
+        );
     }
 
     /**

@@ -50,6 +50,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
@@ -142,7 +143,8 @@ public class Bookie extends BookieThread {
 
     final private AtomicBoolean readOnly = new AtomicBoolean(false);
     // executor to manage the state changes for a bookie.
-    final ExecutorService stateService = Executors.newSingleThreadExecutor();
+    final ExecutorService stateService = Executors.newSingleThreadExecutor(
+            new ThreadFactoryBuilder().setNameFormat("BookieStateService-%d").build());
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;

@@ -19,6 +19,7 @@ package org.apache.bookkeeper.proto;
 
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
@@ -97,7 +98,10 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
             createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
                             "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d",
                             BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_LONG_POLL);
-        this.requestTimer = new HashedWheelTimer(this.serverCfg.getRequestTimerTickDurationMs(), TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
+        this.requestTimer = new HashedWheelTimer(
+                new ThreadFactoryBuilder().setNameFormat("BookieRequestTimer-%d").build(),
+                this.serverCfg.getRequestTimerTickDurationMs(),
+                TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
     }
 
     private ExecutorService createExecutor(int numThreads, String nameFormat, BookkeeperServerStatsLogger.BookkeeperServerGauge guage) {

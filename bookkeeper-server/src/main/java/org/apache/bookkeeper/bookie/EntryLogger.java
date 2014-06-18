@@ -51,13 +51,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.collect.MapMaker;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.MapMaker;
 
 /**
  * This class manages the writing of the bookkeeper entries. All the new
@@ -371,7 +371,8 @@ public class EntryLogger {
 
         EntryLoggerAllocator(long logId) {
             preallocatedLogId = logId;
-            allocatorExecutor = Executors.newSingleThreadExecutor();
+            allocatorExecutor = Executors.newSingleThreadExecutor(
+                    new ThreadFactoryBuilder().setNameFormat("EntryLoggerAllocator-%d").build());
         }
 
         synchronized BufferedLogChannel createNewLog() throws IOException {

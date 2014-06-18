@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.client;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.AsyncCallback.CreateCallback;
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
@@ -287,15 +288,17 @@ public class BookKeeper {
         }
 
         if (null == channelFactory) {
-            this.channelFactory = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
-                Executors.newCachedThreadPool());
+            this.channelFactory = new NioClientSocketChannelFactory(
+                Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("bkc-nio-boss-%d").build()),
+                Executors.newCachedThreadPool(new ThreadFactoryBuilder().setNameFormat("bkc-nio-worker-%d").build()));
             this.ownChannelFactory = true;
         } else {
             this.channelFactory = channelFactory;
             this.ownChannelFactory = false;
         }
 
-        this.scheduler = Executors.newSingleThreadScheduledExecutor();
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(
+                new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver);

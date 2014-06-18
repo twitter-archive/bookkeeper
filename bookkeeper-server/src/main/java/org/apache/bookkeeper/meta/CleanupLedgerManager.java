@@ -197,5 +197,6 @@ public class CleanupLedgerManager implements LedgerManager {
                 callback.operationComplete(BKException.Code.ClientClosedException, null);
             }
         }
+        underlying.close();
     }
 }
