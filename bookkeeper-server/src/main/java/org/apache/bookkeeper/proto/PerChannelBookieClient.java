@@ -501,14 +501,22 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      * Disconnects the bookie client. It can be reused.
      */
     public void disconnect() {
+        disconnect(true);
+    }
+
+    public void disconnect(boolean wait) {
         LOG.info("Disconnecting the per channel bookie client for {}", addr);
-        closeInternal(false);
+        closeInternal(false, wait);
     }
 
     /**
      * Closes the bookie client permanently. It cannot be reused.
      */
     public void close() {
+        close(true);
+    }
+
+    public void close(boolean wait) {
         LOG.info("Closing the per channel bookie client for {}", addr);
         closeLock.writeLock().lock();
         try {
@@ -520,10 +528,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         } finally {
             closeLock.writeLock().unlock();
         }
-        closeInternal(true);
+        closeInternal(true, wait);
     }
 
-    private void closeInternal(boolean permanent) {
+    private void closeInternal(boolean permanent, boolean wait) {
         Channel channelToClose = null;
 
         synchronized (this) {
@@ -539,7 +547,10 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         }
 
         if (null != channelToClose) {
-            channelToClose.close().awaitUninterruptibly();
+            ChannelFuture cf = channelToClose.close();
+            if (wait) {
+                cf.awaitUninterruptibly();
+            }
         }
     }
 
