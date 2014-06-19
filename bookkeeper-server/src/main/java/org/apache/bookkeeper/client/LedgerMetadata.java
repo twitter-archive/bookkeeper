@@ -23,9 +23,11 @@ import java.io.StringReader;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -197,7 +199,7 @@ public class LedgerMetadata {
         return state == LedgerMetadataFormat.State.IN_RECOVERY;
     }
 
-    LedgerMetadataFormat.State getState() {
+    public LedgerMetadataFormat.State getState() {
         return state;
     }
 
@@ -524,5 +526,13 @@ public class LedgerMetadata {
                 ensembles.put(key, ensemble);
             }
         }
+    }
+
+    Set<InetSocketAddress> getBookiesInThisLedger() {
+        Set<InetSocketAddress> bookies = new HashSet<InetSocketAddress>();
+        for (ArrayList<InetSocketAddress> ensemble : ensembles.values()) {
+            bookies.addAll(ensemble);
+        }
+        return bookies;
     }
 }

@@ -98,7 +98,7 @@ public class InMemoryMetastoreTable implements MetastoreScannableTable {
         this.map = new TreeMap<String, Versioned<Value>>();
         this.name = name;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
-                new ThreadFactoryBuilder().setNameFormat("inmemory-metastore-scheduler-%").build());
+                new ThreadFactoryBuilder().setNameFormat("inmemory-metastore-scheduler-%d").build());
     }
 
     @Override

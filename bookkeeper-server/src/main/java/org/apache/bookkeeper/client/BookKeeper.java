@@ -355,6 +355,10 @@ public class BookKeeper {
         return ((CleanupLedgerManager) (((TimedLedgerManager) ledgerManager).getUnderlying())).getUnderlying();
     }
 
+    EnsemblePlacementPolicy getPlacementPolicy() {
+        return placementPolicy;
+    }
+
     /**
      * There are 2 digest types that can be used for verification. The CRC32 is
      * cheap to compute but does not protect against byzantine bookies (i.e., a

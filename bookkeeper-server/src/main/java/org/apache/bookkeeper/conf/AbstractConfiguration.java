@@ -54,6 +54,7 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
     protected final static String ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
     protected final static String AVAILABLE_NODE = "available";
     protected final static String REREPLICATION_ENTRY_BATCH_SIZE = "rereplicationEntryBatchSize";
+    protected final static String ASYNC_PROCESS_LEDGERS_CONCURRENCY = "asyncProcessLedgersConcurrency";
 
     protected AbstractConfiguration() {
         super();
@@ -211,5 +212,26 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
      */
     public long getRereplicationEntryBatchSize() {
         return getLong(REREPLICATION_ENTRY_BATCH_SIZE, 10);
+    }
+
+    /**
+     * Set the concurrency to run processing ledgers. This is a limit on how many
+     * {@link org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor}s could
+     * be run at the same time. if it is set to less than or equal to zero, the client
+     * will process ledgers as fast as it could.
+     *
+     * @param concurrency
+     *          concurrency to run processing ledgers.
+     */
+    public void setAsyncProcessLedgersConcurrency(int concurrency) {
+        setProperty(ASYNC_PROCESS_LEDGERS_CONCURRENCY, concurrency);
+    }
+
+    /**
+     * Get the concurrency to run processing ledgers.
+     * @return the concurrency to run processing ledgers.
+     */
+    public int getAsyncProcessLedgersConcurrency() {
+        return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 1);
     }
 }

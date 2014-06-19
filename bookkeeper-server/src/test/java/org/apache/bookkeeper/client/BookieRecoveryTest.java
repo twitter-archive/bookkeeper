@@ -25,25 +25,25 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.List;
-import java.util.Map;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.HashMap;
-import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
-
-import org.jboss.netty.buffer.ChannelBuffer;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import org.apache.bookkeeper.test.MultiLedgerManagerMultiDigestTestCase;
+
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.client.AsyncCallback.RecoverCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.junit.After;
@@ -53,7 +53,7 @@ import org.junit.Test;
 /**
  * This class tests the bookie recovery admin functionality.
  */
-public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
+public class BookieRecoveryTest extends BookKeeperClusterTestCase {
     static Logger LOG = LoggerFactory.getLogger(BookieRecoveryTest.class);
 
     // Object used for synchronizing async method calls
@@ -89,10 +89,11 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
     BookKeeperAdmin bkAdmin;
 
     // Constructor
-    public BookieRecoveryTest(String ledgerManagerFactory, DigestType digestType) {
+    public BookieRecoveryTest() {
         super(3);
-        this.digestType = digestType;
-        this.ledgerManagerFactory = ledgerManagerFactory;
+
+        this.digestType = DigestType.CRC32;
+        this.ledgerManagerFactory = "org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory";
         LOG.info("Using ledger manager " + ledgerManagerFactory);
         // set ledger manager
         baseConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
@@ -197,15 +198,12 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
      *
      * @param oldLhs
      *            Old Ledger Handles
-     * @param startEntryId
-     *            Start Entry Id to read
-     * @param endEntryId
+     * @param untilEntryId
      *            End Entry Id to read
      * @throws BKException
      * @throws InterruptedException
      */
-    private void verifyRecoveredLedgers(List<LedgerHandle> oldLhs, long startEntryId, long endEntryId) throws BKException,
-        InterruptedException {
+    private void verifyRecoveredLedgers(List<LedgerHandle> oldLhs, long untilEntryId) throws Exception {
         // Get a set of LedgerHandles for all of the ledgers to verify
         List<LedgerHandle> lhs = new ArrayList<LedgerHandle>();
         for (int i = 0; i < oldLhs.size(); i++) {
@@ -214,14 +212,8 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
         // Read the ledger entries to verify that they are all present and
         // correct in the new bookie.
         for (LedgerHandle lh : lhs) {
-            Enumeration<LedgerEntry> entries = lh.readEntries(startEntryId, endEntryId);
-            while (entries.hasMoreElements()) {
-                LedgerEntry entry = entries.nextElement();
-                assertTrue(new String(entry.getEntry()).equals("LedgerId: " + entry.getLedgerId() + ", EntryId: "
-                           + entry.getEntryId()));
-            }
+            verifyFullyReplicated(lh, untilEntryId);
         }
-
     }
 
     /**
@@ -280,6 +272,69 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
         lh.close();
     }
 
+    @Test(timeout = 60000)
+    public void testBookieRecoveryFirstEnsemble() throws Exception {
+        testBookieRecoveryWholeEnsemble(false);
+    }
+
+    @Test(timeout = 60000)
+    public void testBookieRecoveryLastEnsemble() throws Exception {
+        testBookieRecoveryWholeEnsemble(true);
+    }
+
+    private void testBookieRecoveryWholeEnsemble(boolean testOnLastEnsemble) throws Exception {
+        // Create the ledgers
+        List<LedgerHandle> lhs = createLedgers(3, 3, 3);
+
+        int numMsgs = 10;
+        writeEntriestoLedgers(numMsgs, 0, lhs);
+
+        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        for (ServerConfiguration conf : bsConfs) {
+            int port = conf.getBookiePort();
+            InetSocketAddress bookie =
+                    new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), port);
+            bookiesSrc.add(bookie);
+        }
+        Set<ServerConfiguration> confsKilled = new HashSet<ServerConfiguration>();
+        if (!testOnLastEnsemble) {
+            for (InetSocketAddress bookie : bookiesSrc) {
+                LOG.info("Killed bookie {}", bookie);
+                confsKilled.add(killBookie(bookie));
+            }
+
+            // Startup three new bookies servers
+            for (int i = 0; i < 3; i++) {
+                startNewBookie();
+            }
+
+            // Write some more entries to roll new ensemble
+            writeEntriestoLedgers(numMsgs, 10, lhs);
+
+            // Startup the killed servers
+            for (ServerConfiguration conf : confsKilled) {
+                bs.add(startBookie(conf));
+                LOG.info("Started bookie at port {}", conf.getBookiePort());
+            }
+        } else {
+            // Startup three new bookies servers
+            for (int i = 0; i < 3; i++) {
+                startNewBookie();
+            }
+        }
+
+        // Call the async recover bookie method.
+        LOG.info("Now recover the data on the whole ensemble (" + bookiesSrc
+                + ", testOnLastEnsemble = " + testOnLastEnsemble
+                + ") and replicate it to a random available one");
+        bkAdmin.recoverBookieData(bookiesSrc);
+
+        // Verify the recovered ledger metadata
+        verifyLedgerMetadata(lhs, bookiesSrc);
+        // Verify the recovered ledger entries are okay.
+        verifyRecoveredLedgers(lhs, 2 * numMsgs - 1);
+    }
+
     /**
      * This tests the asynchronous bookie recovery functionality by writing
      * entries into 3 bookies, killing one bookie, starting up a new one to
@@ -289,7 +344,7 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
      *
      * @throws Exception
      */
-    @Test
+    @Test(timeout = 60000)
     public void testAsyncBookieRecoveryToSpecificBookie() throws Exception {
         // Create the ledgers
         int numLedgers = 3;
@@ -329,64 +384,12 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
             assertTrue(bookieRecoverCb.success);
         }
 
+        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        bookiesSrc.add(bookieSrc);
+        // Verify the recovered ledger metadata
+        verifyLedgerMetadata(lhs, bookiesSrc);
         // Verify the recovered ledger entries are okay.
-        verifyRecoveredLedgers(lhs, 0, 2 * numMsgs - 1);
-    }
-
-    /**
-     * This tests the asynchronous bookie recovery functionality by writing
-     * entries into 3 bookies, killing one bookie, starting up a few new
-     * bookies, and then recovering the ledger entries from the killed bookie
-     * onto random available bookie servers. We'll verify that the entries
-     * stored on the killed bookie are properly copied over and restored onto
-     * the other bookies.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testAsyncBookieRecoveryToRandomBookies() throws Exception {
-        // Create the ledgers
-        int numLedgers = 3;
-        List<LedgerHandle> lhs = createLedgers(numLedgers);
-
-        // Write the entries for the ledgers with dummy values.
-        int numMsgs = 10;
-        writeEntriestoLedgers(numMsgs, 0, lhs);
-
-        // Shutdown the first bookie server
-        LOG.info("Finished writing all ledger entries so shutdown one of the bookies.");
-        int initialPort = bsConfs.get(0).getBookiePort();
-        bs.get(0).shutdown();
-        bs.remove(0);
-
-        // Startup three new bookie servers
-        for (int i = 0; i < 3; i++) {
-            startNewBookie();
-        }
-
-        // Write some more entries for the ledgers so a new ensemble will be
-        // created for them.
-        writeEntriestoLedgers(numMsgs, 10, lhs);
-
-        // Call the async recover bookie method.
-        InetSocketAddress bookieSrc = new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), initialPort);
-        InetSocketAddress bookieDest = null;
-        LOG.info("Now recover the data on the killed bookie (" + bookieSrc
-                 + ") and replicate it to a random available one");
-        // Initiate the sync object
-        sync.value = false;
-        bkAdmin.asyncRecoverBookieData(bookieSrc, bookieDest, bookieRecoverCb, sync);
-
-        // Wait for the async method to complete.
-        synchronized (sync) {
-            while (sync.value == false) {
-                sync.wait();
-            }
-            assertTrue(bookieRecoverCb.success);
-        }
-
-        // Verify the recovered ledger entries are okay.
-        verifyRecoveredLedgers(lhs, 0, 2 * numMsgs - 1);
+        verifyRecoveredLedgers(lhs, 2 * numMsgs - 1);
     }
 
     /**
@@ -398,7 +401,7 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
      *
      * @throws Exception
      */
-    @Test
+    @Test(timeout = 60000)
     public void testSyncBookieRecoveryToSpecificBookie() throws Exception {
         // Create the ledgers
         int numLedgers = 3;
@@ -428,8 +431,32 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
                  + bookieDest + ")");
         bkAdmin.recoverBookieData(bookieSrc, bookieDest);
 
+        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        bookiesSrc.add(bookieSrc);
+        // Verify the recovered ledger metadata
+        verifyLedgerMetadata(lhs, bookiesSrc);
         // Verify the recovered ledger entries are okay.
-        verifyRecoveredLedgers(lhs, 0, 2 * numMsgs - 1);
+        verifyRecoveredLedgers(lhs, 2 * numMsgs - 1);
+    }
+
+    /**
+     * This tests the asynchronous bookie recovery functionality by writing
+     * entries into 3 bookies, killing one bookie, starting up a few new
+     * bookies, and then recovering the ledger entries from the killed bookie
+     * onto random available bookie servers. We'll verify that the entries
+     * stored on the killed bookie are properly copied over and restored onto
+     * the other bookies.
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 60000)
+    public void testAsyncBookieRecoveryToRandomBookies1() throws Exception {
+        testBookieRecoveryToRandomBookies(true, 1);
+    }
+
+    @Test(timeout = 60000)
+    public void testAsyncBookieRecoveryToRandomBookies2() throws Exception {
+        testBookieRecoveryToRandomBookies(true, 2);
     }
 
     /**
@@ -442,21 +469,37 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
      *
      * @throws Exception
      */
-    @Test
-    public void testSyncBookieRecoveryToRandomBookies() throws Exception {
+    @Test(timeout = 60000)
+    public void testSyncBookieRecoveryToRandomBookies1() throws Exception {
+        testBookieRecoveryToRandomBookies(false, 1);
+    }
+
+    @Test(timeout = 60000)
+    public void testSyncBookieRecoveryToRandomBookies2() throws Exception {
+        testBookieRecoveryToRandomBookies(false, 2);
+    }
+
+    private void testBookieRecoveryToRandomBookies(boolean async, int numBookiesToKill) throws Exception {
         // Create the ledgers
         int numLedgers = 3;
-        List<LedgerHandle> lhs = createLedgers(numLedgers);
+        List<LedgerHandle> lhs = createLedgers(numLedgers, 3, 3);
 
         // Write the entries for the ledgers with dummy values.
         int numMsgs = 10;
         writeEntriestoLedgers(numMsgs, 0, lhs);
 
         // Shutdown the first bookie server
-        LOG.info("Finished writing all ledger entries so shutdown one of the bookies.");
-        int initialPort = bsConfs.get(0).getBookiePort();
-        bs.get(0).shutdown();
-        bs.remove(0);
+        LOG.info("Finished writing all ledger entries so shutdown {} bookies.", numBookiesToKill);
+
+        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        for (int i = 0; i < numBookiesToKill; i++) {
+            int portToKill = bsConfs.get(0).getBookiePort();
+            bs.get(0).shutdown();
+            bs.remove(0);
+            InetSocketAddress bookieToKill =
+                    new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), portToKill);
+            bookiesSrc.add(bookieToKill);
+        }
 
         // Startup three new bookie servers
         for (int i = 0; i < 3; i++) {
@@ -467,15 +510,29 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
         // created for them.
         writeEntriestoLedgers(numMsgs, 10, lhs);
 
-        // Call the sync recover bookie method.
-        InetSocketAddress bookieSrc = new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), initialPort);
-        InetSocketAddress bookieDest = null;
-        LOG.info("Now recover the data on the killed bookie (" + bookieSrc
+        // Call the async recover bookie method.
+        LOG.info("Now recover the data on the killed bookie (" + bookiesSrc
                  + ") and replicate it to a random available one");
-        bkAdmin.recoverBookieData(bookieSrc, bookieDest);
+        if (async) {
+            // Initiate the sync object
+            sync.value = false;
+            bkAdmin.asyncRecoverBookieData(bookiesSrc, bookieRecoverCb, sync);
 
+            // Wait for the async method to complete.
+            synchronized (sync) {
+                while (sync.value == false) {
+                    sync.wait();
+                }
+                assertTrue(bookieRecoverCb.success);
+            }
+        } else {
+            bkAdmin.recoverBookieData(bookiesSrc);
+        }
+
+        // Verify the recovered ledger metadata
+        verifyLedgerMetadata(lhs, bookiesSrc);
         // Verify the recovered ledger entries are okay.
-        verifyRecoveredLedgers(lhs, 0, 2 * numMsgs - 1);
+        verifyRecoveredLedgers(lhs, 2 * numMsgs - 1);
     }
 
     private static class ReplicationVerificationCallback implements ReadEntryCallback {
@@ -507,6 +564,32 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
                 return numSuccess.get();
             }
         }
+    }
+
+    private void verifyLedgerMetadata(List<LedgerHandle> lhs, Set<InetSocketAddress> bookiesReplaced) throws Exception {
+        for (LedgerHandle lh : lhs) {
+            verifyLedgerMetadata(lh, bookiesReplaced);
+        }
+    }
+
+    private void verifyLedgerMetadata(LedgerHandle lh, Set<InetSocketAddress> bookiesReplaced) throws Exception {
+        LedgerMetadata md = getLedgerMetadata(lh);
+        boolean containReplacedBookies = false;
+        for (Map.Entry<Long, ArrayList<InetSocketAddress>> e : md.getEnsembles().entrySet()) {
+            Set<InetSocketAddress> uniqueBookies = new HashSet<InetSocketAddress>();
+            uniqueBookies.addAll(e.getValue());
+            assertEquals(e.getValue().size(), uniqueBookies.size());
+            for (InetSocketAddress addr : e.getValue()) {
+                if (bookiesReplaced.contains(addr)) {
+                    containReplacedBookies = true;
+                }
+            }
+        }
+        if (containReplacedBookies) {
+            LOG.error("Ledger {} still contains replaced bookies {} : {}",
+                    new Object[]{lh.getId(), bookiesReplaced, md});
+        }
+        assertFalse("Should not contain replaced bookies : " + bookiesReplaced + " in " + md, containReplacedBookies);
     }
 
     private boolean verifyFullyReplicated(LedgerHandle lh, long untilEntry) throws Exception {
@@ -598,7 +681,7 @@ public class BookieRecoveryTest extends MultiLedgerManagerMultiDigestTestCase {
                 for (InetSocketAddress addr : e.getValue()) {
                     if (set.contains(addr)) {
                         LOG.error("Dupe " + addr + " found in ensemble for fragment " + fragment
-                                + " of ledger " + lh.getId());
+                                + " of ledger " + lh.getId() + " : " + e.getValue());
                         numDupes++;
                     }
                     set.add(addr);

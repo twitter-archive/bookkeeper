@@ -1181,4 +1181,13 @@ public class ServerConfiguration extends AbstractConfiguration {
     public int getDiskCheckInterval() {
         return getInt(DISK_CHECK_INTERVAL, 10 * 1000);
     }
+
+    /**
+     * Bookie Servers uses this for garbage collections. so set it to 0, which is the behavior
+     * as before.
+     */
+    @Override
+    public int getAsyncProcessLedgersConcurrency() {
+        return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 0);
+    }
 }

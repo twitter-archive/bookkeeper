@@ -1,21 +1,21 @@
 /**
- * Licensed to the Apache Software Foundation (ASF) under one 
- * or more contributor license agreements.  See the NOTICE file 
- * distributed with this work for additional information 
- * regarding copyright ownership.  The ASF licenses this file 
- * to you under the Apache License, Version 2.0 (the 
- * "License"); you may not use this file except in compliance 
- * with the License.  You may obtain a copy of the License at 
- * 
- *   http://www.apache.org/licenses/LICENSE-2.0 
- * 
- * Unless required by applicable law or agreed to in writing, 
- * software distributed under the License is distributed on an 
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY 
- * KIND, either express or implied.  See the License for the 
- * specific language governing permissions and limitations 
- * under the License. 
- * 
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ *
  */
 package org.apache.bookkeeper.client;
 
@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.Map.Entry;
@@ -100,7 +101,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         BookKeeperAdmin admin = new BookKeeperAdmin(baseClientConf);
         lh.close();
         // 0-9 entries should be copy to new bookie
-        
+
         for (LedgerFragment lf : result) {
             admin.replicateLedgerFragment(lh, lf, newBkAddr);
         }
@@ -181,7 +182,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         }
         assertEquals("Should be only one unclosed fragment", 1, unclosedCount);
     }
-    
+
     /**
      * Tests that ReplicateLedgerFragment should return false if replication
      * fails
@@ -225,7 +226,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
             }
         }
     }
-    
+
     /**
      * Tests that splitIntoSubFragment should be able to split the original
      * passed fragment into sub fragments at correct boundaries
@@ -262,8 +263,10 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
     void testSplitIntoSubFragments(final long oriFragmentFirstEntry,
             final long oriFragmentLastEntry, long entriesPerSubFragment,
             long expectedSubFragments, LedgerHandle lh) {
+        Set<Integer> bookieIndexes = new HashSet<Integer>();
+        bookieIndexes.add(0);
         LedgerFragment fr = new LedgerFragment(lh, oriFragmentFirstEntry,
-                oriFragmentLastEntry, 0) {
+                oriFragmentLastEntry, bookieIndexes) {
             @Override
             public long getLastStoredEntryId() {
                 return oriFragmentLastEntry;

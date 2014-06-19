@@ -99,14 +99,14 @@ public class LedgerChecker {
         if (firstStored == lastStored) {
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(1,
                     fragment, cb);
-            bookieClient.readEntry(fragment.getAddress(), fragment
+            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
                     .getLedgerId(), firstStored, manycb, null);
         } else {
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(2,
                     fragment, cb);
-            bookieClient.readEntry(fragment.getAddress(), fragment
+            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
                     .getLedgerId(), firstStored, manycb, null);
-            bookieClient.readEntry(fragment.getAddress(), fragment
+            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
                     .getLedgerId(), lastStored, manycb, null);
         }
     }
@@ -186,8 +186,10 @@ public class LedgerChecker {
                 .getLedgerMetadata().getEnsembles().entrySet()) {
             if (curEntryId != null) {
                 for (int i = 0; i < curEnsemble.size(); i++) {
+                    Set<Integer> bookieIndexes = new HashSet<Integer>();
+                    bookieIndexes.add(i);
                     fragments.add(new LedgerFragment(lh, curEntryId,
-                            e.getKey() - 1, i));
+                            e.getKey() - 1, bookieIndexes));
                 }
             }
             curEntryId = e.getKey();
@@ -219,8 +221,10 @@ public class LedgerChecker {
 
             final Set<LedgerFragment> finalSegmentFragments = new HashSet<LedgerFragment>();
             for (int i = 0; i < curEnsemble.size(); i++) {
+                Set<Integer> bookieIndexes = new HashSet<Integer>();
+                bookieIndexes.add(i);
                 finalSegmentFragments.add(new LedgerFragment(lh, curEntryId,
-                        lastEntry, i));
+                        lastEntry, bookieIndexes));
             }
 
             // Check for the case that no last confirmed entry has

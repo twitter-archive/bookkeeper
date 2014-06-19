@@ -18,7 +18,9 @@
 package org.apache.bookkeeper.meta;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +71,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
     protected final AbstractConfiguration conf;
     protected final ZooKeeper zk;
     protected final String ledgerRootPath;
+    protected final int asyncProcessLedgersConcurrency;
 
     // A sorted map to stored all active ledger ids
     protected final SnapshotMap<Long, Boolean> activeLedgers;
@@ -149,6 +152,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
         this.conf = conf;
         this.zk = zk;
         this.ledgerRootPath = conf.getZkLedgersRootPath();
+        this.asyncProcessLedgersConcurrency = conf.getAsyncProcessLedgersConcurrency();
         this.activeLedgers = new SnapshotMap<Long, Boolean>();
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-zkledgermanager-%d").build()
@@ -503,20 +507,45 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
 
                 LOG.debug("Processing ledgers: {}", zkActiveLedgers);
 
-                // no ledgers found, return directly
-                if (zkActiveLedgers.size() == 0) {
-                    finalCb.processResult(successRc, null, ctx);
-                    return;
-                }
-
-                MultiCallback mcb = new MultiCallback(zkActiveLedgers.size(), finalCb, ctx,
-                                                      successRc, failureRc);
-                // start loop over all ledgers
-                for (Long ledger : zkActiveLedgers) {
-                    processor.process(ledger, mcb);
-                }
+                processLedgers(zkActiveLedgers.iterator(), processor,
+                               asyncProcessLedgersConcurrency <= 0 ? zkActiveLedgers.size() : asyncProcessLedgersConcurrency,
+                               finalCb, ctx, successRc, failureRc);
             }
         });
+    }
+
+    private void processLedgers(final Iterator<Long> ledgersIter, final Processor<Long> processor,
+                                final int concurrency, final VoidCallback finalCb, final Object ctx,
+                                final int successRc, final int failureRc) {
+        List<Long> ledgersToProcess = new ArrayList<Long>(concurrency);
+        while (ledgersIter.hasNext() && ledgersToProcess.size() < concurrency) {
+            ledgersToProcess.add(ledgersIter.next());
+        }
+        if (ledgersToProcess.size() == 0) {
+            finalCb.processResult(successRc, null, ctx);
+            return;
+        }
+        MultiCallback mcb;
+        if (ledgersIter.hasNext()) {
+            // still have ledgers left
+            mcb = new MultiCallback(ledgersToProcess.size(), new VoidCallback() {
+                @Override
+                public void processResult(int newRc, String path, Object newCtx) {
+                    if (newRc != successRc) {
+                        finalCb.processResult(failureRc, null, ctx);
+                        return;
+                    }
+                    // succeed and continue
+                    processLedgers(ledgersIter, processor, concurrency, finalCb, ctx, successRc, successRc);
+                }
+            }, ctx, successRc, failureRc);
+        } else {
+            // reach the end
+            mcb = new MultiCallback(ledgersToProcess.size(), finalCb, ctx, successRc, failureRc);
+        }
+        for (Long ledger : ledgersToProcess) {
+            processor.process(ledger, mcb);
+        }
     }
 
     /**
