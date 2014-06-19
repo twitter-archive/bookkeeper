@@ -53,6 +53,16 @@ How do I build?
  * -Dtest.exclude=<TESTCLASSNAME>
  * -Dtest.exclude.pattern=**/<TESTCLASSNAME1>.java,**/<TESTCLASSNAME2>.java
 
+NOTE:
+
+BookKeeper uses maven-shade-plugin to build shade packages for old versions for
+backward compatibility testing. This shade plugin is only able to run at 'package'
+phase. So there are two ways to run bookkeeper tests:
+
+ * Run 'mvn clean package' under bookkeeper root directory
+ * Run 'mvn clean test' under bookkeeper/bookkeeper-server directory after you run
+   'mvn clean install -DskipTests' under bookkeeper directory
+
 --------------------------------------------------------------------------------
 How do I run the services?
 
