@@ -141,7 +141,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     protected void stopBKCluster() throws Exception {
         if (bkc != null) {
-            bkc.close();;
+            bkc.close();
         }
 
         for (BookieServer server : bs) {
@@ -175,6 +175,19 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         }
         conf.setLedgerDirNames(ledgerDirNames);
         return conf;
+    }
+
+    protected void stopAllBookies() throws Exception {
+        for (BookieServer server : bs) {
+            server.shutdown();
+        }
+        bs.clear();
+    }
+
+    protected void startAllBookies() throws Exception {
+        for (ServerConfiguration conf : bsConfs) {
+            bs.add(startBookie(conf));
+        }
     }
 
     /**
@@ -274,7 +287,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      *
      * @param addr
      *          Socket Address
-     * @param latch
+     * @param l
      *          Latch to wait on
      * @throws InterruptedException
      * @throws IOException
@@ -358,8 +371,6 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * Helper method to startup a new bookie server with the indicated port
      * number
      *
-     * @param port
-     *            Port to start the new bookie server on
      * @throws IOException
      */
     public int startNewBookie()

@@ -63,7 +63,7 @@ public class LedgerCloseTest extends BookKeeperClusterTestCase {
         BookKeeper bkc = new BookKeeper(conf);
         LedgerHandle lh = bkc.createLedger(6, 3, DigestType.CRC32, new byte[] {});
         final CountDownLatch latch = new CountDownLatch(1);
-        stopBKCluster();
+        stopAllBookies();
         final AtomicInteger i = new AtomicInteger(0xdeadbeef);
         AsyncCallback.AddCallback cb = new AsyncCallback.AddCallback() {
             @Override
@@ -77,6 +77,7 @@ public class LedgerCloseTest extends BookKeeperClusterTestCase {
         assertEquals(i.get(), BKException.Code.NotEnoughBookiesException);
         assertEquals(0, lh.getLength());
         assertEquals(LedgerHandle.INVALID_ENTRY_ID, lh.getLastAddConfirmed());
+        startAllBookies();
         LedgerHandle newLh = bkc.openLedger(lh.getId(), DigestType.CRC32, new byte[] {});
         assertEquals(0, newLh.getLength());
         assertEquals(LedgerHandle.INVALID_ENTRY_ID, newLh.getLastAddConfirmed());
