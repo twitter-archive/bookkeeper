@@ -93,7 +93,6 @@ public class IndexPersistenceMgr {
     // so LedgerManager has knowledge to garbage collect inactive/deleted ledgers
     final ActiveLedgerManager activeLedgerManager;
     private LedgerDirsManager ledgerDirsManager;
-    final private AtomicBoolean shouldRelocateIndexFile = new AtomicBoolean(false);
 
     public IndexPersistenceMgr (int pageSize,
                                 int entriesPerPage,
@@ -110,7 +109,7 @@ public class IndexPersistenceMgr {
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
 
         // build the file info cache
-        CacheBuilder fileInfoCacheBuilder = CacheBuilder.newBuilder()
+        CacheBuilder<Long, FileInfo> fileInfoCacheBuilder = CacheBuilder.newBuilder()
             .concurrencyLevel(Math.max(1, Math.max(conf.getNumAddWorkerThreads(), conf.getNumReadWorkerThreads())))
             .initialCapacity(conf.getFileInfoCacheInitialCapacity())
             .maximumSize(openFileLimit)
@@ -147,6 +146,41 @@ public class IndexPersistenceMgr {
         }
     }
 
+    /**
+     * Handle IOException thrown on getting file info. If <i>masterKey</i> isn't null and NoLedgerException encountered,
+     * we need to create a new file info with current <i>masterKey</i>.
+     *
+     * @param ledger
+     *          ledger id.
+     * @param masterKey
+     *          master key to create this ledger
+     * @param ioe
+     *          io exception thrown on getting file info.
+     * @return file info.
+     * @throws IOException
+     */
+    private FileInfo handleIOExceptionOnGetFileInfo(final Long ledger, byte[] masterKey, IOException ioe)
+            throws IOException {
+        if (null == masterKey || !(ioe instanceof Bookie.NoLedgerException)) {
+            throw ioe;
+        }
+
+        // We don't have a ledger index file on disk, so create it.
+        File lf = getNewLedgerIndexFile(ledger, null);
+        FileInfo fi = new FileInfo(lf, masterKey);
+        FileInfo oldFi = fileInfoCache.asMap().putIfAbsent(ledger, fi);
+        if (null != oldFi) {
+            fi = oldFi;
+        } else {
+            // A new ledger index file has been created for this Bookie.
+            LOG.debug("New ledger index file created for ledgerId: {}", ledger);
+            activeLedgerManager.addActiveLedger(ledger, true);
+            numOpenLedgers.incrementAndGet();
+        }
+        fi.use();
+        return fi;
+    }
+
     FileInfo getFileInfo(final Long ledger, final byte masterKey[]) throws IOException {
         FileInfo fi;
         closeLock.readLock().lock();
@@ -157,14 +191,7 @@ public class IndexPersistenceMgr {
                     // Check if the index file exists on disk.
                     File lf = findIndexFile(ledger);
                     if (null == lf) {
-                        if (null == masterKey) {
-                            throw new Bookie.NoLedgerException(ledger);
-                        }
-                        // We don't have a ledger index file on disk, so create it.
-                        lf = getNewLedgerIndexFile(ledger, null);
-                        // A new ledger index file has been created for this Bookie.
-                        LOG.debug("New ledger index file created for ledgerId: {}", ledger);
-                        activeLedgerManager.addActiveLedger(ledger, true);
+                        throw new Bookie.NoLedgerException(ledger);
                     }
                     FileInfo fi = new FileInfo(lf, masterKey);
                     numOpenLedgers.incrementAndGet();
@@ -175,13 +202,13 @@ public class IndexPersistenceMgr {
             return fi;
         } catch (ExecutionException ee) {
             if (ee.getCause() instanceof IOException) {
-                throw (IOException) ee.getCause();
+                return handleIOExceptionOnGetFileInfo(ledger, masterKey, (IOException) ee.getCause());
             } else {
                 throw new IOException("Failed to load file info for ledger " + ledger, ee);
             }
         } catch (UncheckedExecutionException uee) {
             if (uee.getCause() instanceof IOException) {
-                throw (IOException) uee.getCause();
+                return handleIOExceptionOnGetFileInfo(ledger, masterKey, (IOException) uee.getCause());
             } else {
                 throw new IOException("Failed to load file info for ledger " + ledger, uee);
             }

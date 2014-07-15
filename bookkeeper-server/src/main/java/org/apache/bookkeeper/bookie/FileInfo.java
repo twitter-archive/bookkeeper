@@ -33,6 +33,7 @@ import java.util.Observable;
 import java.util.Observer;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -168,7 +169,8 @@ class FileInfo extends Observable {
         }
     }
 
-    synchronized private void checkOpen(boolean create) throws IOException {
+    @VisibleForTesting
+    synchronized void checkOpen(boolean create) throws IOException {
         if (fc != null) {
             return;
         }
