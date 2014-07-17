@@ -30,6 +30,18 @@
   <artifactId>bookkeeper</artifactId>
   <packaging>pom</packaging>
   <name>bookkeeper</name>
+  <distributionManagement>
+    <repository>
+      <id>artifactory-release</id>
+      <name>Twitter Artifactory Releases</name>
+      <url>http://artifactory.local.twitter.com/libs-releases-local</url>
+    </repository>
+    <snapshotRepository>
+      <id>artifactory-snapshot</id>
+      <name>Twitter Artifactory Snapshots</name>
+      <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
+    </snapshotRepository>
+  </distributionManagement>
   <modules>
     <module>compat-deps</module>
     <!--
