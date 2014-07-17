@@ -123,7 +123,7 @@ class FileInfo extends Observable {
         return this;
     }
 
-    public File getLf() {
+    public synchronized File getLf() {
         return lf;
     }
 
@@ -262,11 +262,28 @@ class FileInfo extends Observable {
         return rc;
     }
 
-    public int read(ByteBuffer bb, long position) throws IOException {
-        return readAbsolute(bb, position + START_OF_DATA);
+    public int read(ByteBuffer bb, long position, boolean bestEffort)
+            throws IOException {
+        return readAbsolute(bb, position + START_OF_DATA, bestEffort);
     }
 
-    private int readAbsolute(ByteBuffer bb, long start) throws IOException {
+    /**
+     * Read data from position <i>start</i> to fill the byte buffer <i>bb</i>.
+     * If <i>bestEffort </i> is provided, it would return when it reaches EOF.
+     * Otherwise, it would throw {@link org.apache.bookkeeper.bookie.ShortReadException}
+     * if it reaches EOF.
+     *
+     * @param bb
+     *          byte buffer of data
+     * @param start
+     *          start position to read data
+     * @param bestEffort
+     *          flag indicates if it is a best-effort read
+     * @return number of bytes read
+     * @throws IOException
+     */
+    private int readAbsolute(ByteBuffer bb, long start, boolean bestEffort)
+            throws IOException {
         checkOpen(false);
         synchronized (this) {
             if (fc == null) {
@@ -280,7 +297,11 @@ class FileInfo extends Observable {
                 rc = fc.read(bb, start);
             }
             if (rc <= 0) {
-                throw new IOException("Short read");
+                if (bestEffort) {
+                    return total;
+                } else {
+                    throw new ShortReadException("Short read at " + getLf().getPath() + "@" + start);
+                }
             }
             total += rc;
             // should move read position
@@ -410,7 +431,7 @@ class FileInfo extends Observable {
         }
     }
 
-    public boolean delete() {
+    public synchronized boolean delete() {
         return lf.delete();
     }
 
@@ -424,7 +445,7 @@ class FileInfo extends Observable {
         }
     }
 
-    public boolean isSameFile(File f) {
+    public synchronized boolean isSameFile(File f) {
         return this.lf.equals(f);
     }
 }

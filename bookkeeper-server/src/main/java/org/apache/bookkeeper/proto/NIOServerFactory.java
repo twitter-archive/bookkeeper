@@ -579,17 +579,21 @@ public class NIOServerFactory extends Thread {
             makeWritable(sk);
         }
 
-        synchronized public void sendResponse(ByteBuffer... bb) {
-            if (closed) {
-                return;
-            }
-            sendBuffers(bb);
-            synchronized (NIOServerFactory.this) {
+        public void sendResponse(ByteBuffer... bb) {
+            synchronized (this) {
+                if (closed) {
+                    return;
+                }
+                sendBuffers(bb);
                 outstandingRequests--;
-                // check throttling
-                if (outstandingRequests < outstandingLimit) {
-                    sk.selector().wakeup();
-                    enableRecv();
+            }
+            synchronized (NIOServerFactory.this) {
+                synchronized (this) {
+                    // check throttling
+                    if (outstandingRequests < outstandingLimit) {
+                        sk.selector().wakeup();
+                        enableRecv();
+                    }
                 }
             }
         }

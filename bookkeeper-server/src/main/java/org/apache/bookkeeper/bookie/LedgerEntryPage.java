@@ -27,12 +27,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.util.ZeroBuffer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This is a page in the LedgerCache. It holds the locations
  * (entrylogfile, offset) for entry ids.
  */
 public class LedgerEntryPage {
+
+    static final Logger LOG = LoggerFactory.getLogger(LedgerEntryPage.class);
+
     private final static int indexEntrySize = 8;
     private final int pageSize;
     private final int entriesPerPage;
@@ -141,9 +146,20 @@ public class LedgerEntryPage {
     public void readPage(FileInfo fi) throws IOException {
         checkPage();
         page.clear();
-        while(page.remaining() != 0) {
-            if (fi.read(page, getFirstEntryPosition()) <= 0) {
-                throw new IOException("Short page read of ledger " + getLedger() + " tried to get " + page.capacity() + " from position " + getFirstEntryPosition() + " still need " + page.remaining());
+        try {
+            fi.read(page, getFirstEntryPosition(), true);
+        } catch (ShortReadException sre) {
+            throw new ShortReadException("Short page read of ledger " + getLedger()
+                    + " tried to get " + page.capacity() + " from position "
+                    + getFirstEntryPosition() + " still need " + page.remaining(), sre);
+        }
+        // make sure we don't include partial index entry
+        if (page.remaining() != 0) {
+            LOG.info("Short page read of ledger {} : tried to read {} bytes from position {}, but only {} bytes read.",
+                     new Object[] { getLedger(), page.capacity(), getFirstEntryPosition(), page.position() });
+            if (page.position() % indexEntrySize != 0) {
+                int partialIndexEntryStart = page.position() - page.position() % indexEntrySize;
+                page.putLong(partialIndexEntryStart, 0L);
             }
         }
         last = getLastEntryIndex();

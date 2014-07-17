@@ -21,6 +21,7 @@
 
 package org.apache.bookkeeper.bookie;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.RemovalListener;
@@ -293,7 +294,8 @@ public class IndexPersistenceMgr {
         removeFileInfo(ledgerId);
     }
 
-    private File findIndexFile(long ledgerId) throws IOException {
+    @VisibleForTesting
+    File findIndexFile(long ledgerId) throws IOException {
         String ledgerName = LedgerCacheImpl.getLedgerName(ledgerId);
         for(File d: ledgerDirsManager.getAllLedgerDirs()) {
             File lf = new File(d, ledgerName);
@@ -632,7 +634,14 @@ public class IndexPersistenceMgr {
                 if (position < 0) {
                     position = 0;
                 }
-                fi.read(bb, position);
+                // we read the last page from file size minus page size, so it should not encounter short read
+                // exception. if it does, it is an unexpected situation, then throw the exception and fail it immediately.
+                try {
+                    fi.read(bb, position, false);
+                } catch (ShortReadException sre) {
+                    // throw a more meaningful exception with ledger id
+                    throw new ShortReadException("Short read on ledger " + ledgerId + " : ", sre);
+                }
                 bb.flip();
                 long startingEntryId = position/LedgerEntryPage.getIndexEntrySize();
                 for(int i = entriesPerPage-1; i >= 0; i--) {
