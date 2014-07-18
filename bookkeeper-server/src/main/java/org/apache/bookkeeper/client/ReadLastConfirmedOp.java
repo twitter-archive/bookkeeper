@@ -80,7 +80,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
 
     private void submitCallback(int rc) {
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
-        if (BKException.Code.OK == rc) {
+        if (BKException.Code.OK != rc) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
                     .registerFailedEvent(latencyMicros);
         } else {

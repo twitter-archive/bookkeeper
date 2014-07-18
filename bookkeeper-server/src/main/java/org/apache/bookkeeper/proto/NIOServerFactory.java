@@ -529,8 +529,7 @@ public class NIOServerFactory extends Thread {
                 sock.close();
                 // XXX The next line doesn't seem to be needed, but some posts
                 // to forums suggest that it is needed. Keep in mind if errors
-                // in
-                // this section arise.
+                // in this section arise.
                 // factory.selector.wakeup();
             } catch (IOException e) {
                 LOG.error("FIXMSG", e);
@@ -587,6 +586,9 @@ public class NIOServerFactory extends Thread {
                 sendBuffers(bb);
                 outstandingRequests--;
             }
+
+            // acquire these monitors in a specific order to avoid deadlock with 
+            // factory during shutdown
             synchronized (NIOServerFactory.this) {
                 synchronized (this) {
                     // check throttling
