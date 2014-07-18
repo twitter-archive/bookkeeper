@@ -26,6 +26,7 @@ import java.util.Set;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.net.NetworkTopology;
+import org.apache.bookkeeper.util.Shell;
 import org.apache.bookkeeper.util.StaticDNSResolver;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
@@ -88,7 +89,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         super.tearDown();
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNotReorderReadIfInDefaultRack() throws Exception {
         repp.uninitalize();
         updateMyRack(NetworkTopology.DEFAULT_RACK);
@@ -101,7 +102,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(writeSet, reorderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNodeInSameRegion() throws Exception {
         repp.uninitalize();
         updateMyRack("/r1/rack3");
@@ -127,7 +128,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(expectedSet, reoderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNodeNotInSameRegions() throws Exception {
         repp.uninitalize();
         updateMyRack("/r2/rack1");
@@ -141,7 +142,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(writeSet, reoderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNodeDown() throws Exception {
         repp.uninitalize();
         updateMyRack("/r1/rack1");
@@ -170,7 +171,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(expectedSet, reoderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNodeReadOnly() throws Exception {
         repp.uninitalize();
         updateMyRack("/r1/rack1");
@@ -192,18 +193,16 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
         List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
         List<Integer> expectedSet = new ArrayList<Integer>();
-        expectedSet.add(0);
         expectedSet.add(3);
         expectedSet.add(1);
         expectedSet.add(2);
+        expectedSet.add(0);
         LOG.info("reorder set : {}", reoderSet);
         assertFalse(reoderSet == writeSet);
         assertEquals(expectedSet, reoderSet);
     }
 
-
-
-    @Test
+    @Test(timeout = 60000)
     public void testTwoNodesDown() throws Exception {
         repp.uninitalize();
         updateMyRack("/r1/rack1");
@@ -233,7 +232,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(expectedSet, reoderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReplaceBookieWithEnoughBookiesInSameRegion() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -256,7 +255,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertEquals(addr3, replacedBookie);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReplaceBookieWithEnoughBookiesInDifferentRegion() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -283,7 +282,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         assertTrue(addr3.equals(replacedBookie) || addr4.equals(replacedBookie));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReplaceBookieWithNotEnoughBookies() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -314,7 +313,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithSingleRegion() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -342,7 +341,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithMultipleRegions() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -373,7 +372,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithEnoughRegions() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -410,6 +409,211 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             assertEquals(4, getNumCoveredRegionsInWriteQuorum(ensemble2, 2));
         } catch (BKNotEnoughBookiesException bnebe) {
             fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+    }
+
+    private void prepareNetworkTopologyForReorderTests(String myRegion) throws Exception {
+        repp.uninitalize();
+        updateMyRack("/" + myRegion);
+
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.9", 3181);
+        InetSocketAddress addr9 = new InetSocketAddress("127.0.0.10", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), "/region1/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region1/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region2/r1");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostAddress(), "/region2/r2");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostAddress(), "/region2/r3");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostAddress(), "/region3/r1");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostAddress(), "/region3/r2");
+        StaticDNSResolver.addNodeToRack(addr9.getAddress().getHostAddress(), "/region3/r3");
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+    }
+
+    @Test(timeout = 60000)
+    public void testBasicReorderReadSequenceWithLocalRegion() throws Exception {
+        basicReorderReadSequenceWithLocalRegionTest("region2", false);
+    }
+
+    @Test(timeout = 60000)
+    public void testBasicReorderReadLACSequenceWithLocalRegion() throws Exception {
+        basicReorderReadSequenceWithLocalRegionTest("region2", true);
+    }
+
+    private void basicReorderReadSequenceWithLocalRegionTest(String myRegion, boolean isReadLAC) throws Exception {
+        prepareNetworkTopologyForReorderTests(myRegion);
+
+        ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(9, 9, new HashSet<InetSocketAddress>());
+        assertEquals(9, getNumCoveredRegionsInWriteQuorum(ensemble, 9));
+
+        DistributionSchedule ds = new RoundRobinDistributionSchedule(9, 9, 9);
+
+        LOG.info("My region is {}, ensemble : {}", repp.myRegion, ensemble);
+
+        int ensembleSize = ensemble.size();
+        for (int i = 0; i < ensembleSize; i++) {
+            List<Integer> writeSet = ds.getWriteSet(i);
+            List<Integer> readSet;
+            if (isReadLAC) {
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+            } else {
+                readSet = repp.reorderReadSequence(ensemble, writeSet);
+            }
+
+            LOG.info("Reorder {} => {}.", writeSet, readSet);
+
+            // first few nodes less than REMOTE_NODE_IN_REORDER_SEQUENCE should be local region
+            int k = 0;
+            for (; k < RegionAwareEnsemblePlacementPolicy.REMOTE_NODE_IN_REORDER_SEQUENCE; k++) {
+                InetSocketAddress address = ensemble.get(readSet.get(k));
+                assertEquals(myRegion, StaticDNSResolver.getRegion(address.getAddress().getHostAddress()));
+            }
+            InetSocketAddress remoteAddress = ensemble.get(readSet.get(k));
+            assertFalse(myRegion.equals(StaticDNSResolver.getRegion(remoteAddress.getAddress().getHostAddress())));
+            k++;
+            InetSocketAddress localAddress = ensemble.get(readSet.get(k));
+            assertEquals(myRegion, StaticDNSResolver.getRegion(localAddress.getAddress().getHostAddress()));
+            k++;
+            for (; k < ensembleSize; k++) {
+                InetSocketAddress address = ensemble.get(readSet.get(k));
+                assertFalse(myRegion.equals(StaticDNSResolver.getRegion(address.getAddress().getHostAddress())));
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testBasicReorderReadSequenceWithRemoteRegion() throws Exception {
+        basicReorderReadSequenceWithRemoteRegionTest("region4", false);
+    }
+
+    @Test(timeout = 60000)
+    public void testBasicReorderReadLACSequenceWithRemoteRegion() throws Exception {
+        basicReorderReadSequenceWithRemoteRegionTest("region4", true);
+    }
+
+    private void basicReorderReadSequenceWithRemoteRegionTest(String myRegion, boolean isReadLAC) throws Exception {
+        prepareNetworkTopologyForReorderTests(myRegion);
+
+        ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(9, 9, new HashSet<InetSocketAddress>());
+        assertEquals(9, getNumCoveredRegionsInWriteQuorum(ensemble, 9));
+
+        DistributionSchedule ds = new RoundRobinDistributionSchedule(9, 9, 9);
+
+        LOG.info("My region is {}, ensemble : {}", repp.myRegion, ensemble);
+
+        int ensembleSize = ensemble.size();
+        for (int i = 0; i < ensembleSize; i++) {
+            List<Integer> writeSet = ds.getWriteSet(i);
+            List<Integer> readSet;
+
+            if (isReadLAC) {
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+            } else {
+                readSet = repp.reorderReadSequence(ensemble, writeSet);
+            }
+
+            assertEquals(writeSet, readSet);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testReorderReadSequenceWithUnavailableOrReadOnlyBookies() throws Exception {
+        reorderReadSequenceWithUnavailableOrReadOnlyBookiesTest(false);
+    }
+
+    @Test(timeout = 60000)
+    public void testReorderReadLACSequenceWithUnavailableOrReadOnlyBookies() throws Exception {
+        reorderReadSequenceWithUnavailableOrReadOnlyBookiesTest(true);
+    }
+
+    static Set<InetSocketAddress> getBookiesForRegion(ArrayList<InetSocketAddress> ensemble, String region) {
+        Set<InetSocketAddress> regionBookies = new HashSet<InetSocketAddress>();
+        for (InetSocketAddress address : ensemble) {
+            String r = StaticDNSResolver.getRegion(address.getAddress().getHostAddress());
+            if (r.equals(region)) {
+                regionBookies.add(address);
+            }
+        }
+        return regionBookies;
+    }
+
+    static void appendBookieIndexByRegion(ArrayList<InetSocketAddress> ensemble,
+                                          List<Integer> writeSet,
+                                          String region,
+                                          List<Integer> finalSet) {
+        for (int bi : writeSet) {
+            String r = StaticDNSResolver.getRegion(ensemble.get(bi).getAddress().getHostAddress());
+            if (r.equals(region)) {
+                finalSet.add(bi);
+            }
+        }
+    }
+
+    private void reorderReadSequenceWithUnavailableOrReadOnlyBookiesTest(boolean isReadLAC) throws Exception {
+        String myRegion = "region4";
+        String unavailableRegion = "region1";
+        String writeRegion = "region2";
+        String readOnlyRegion = "region3";
+
+        prepareNetworkTopologyForReorderTests(myRegion);
+
+        ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(9, 9, new HashSet<InetSocketAddress>());
+        assertEquals(9, getNumCoveredRegionsInWriteQuorum(ensemble, 9));
+
+        DistributionSchedule ds = new RoundRobinDistributionSchedule(9, 9, 9);
+
+        LOG.info("My region is {}, ensemble : {}", repp.myRegion, ensemble);
+
+        Set<InetSocketAddress> readOnlyBookies = getBookiesForRegion(ensemble, readOnlyRegion);
+        Set<InetSocketAddress> writeBookies = getBookiesForRegion(ensemble, writeRegion);
+
+        repp.onClusterChanged(writeBookies, readOnlyBookies);
+
+        LOG.info("Writable Bookies {}, ReadOnly Bookies {}.", repp.knownBookies.keySet(), repp.readOnlyBookies);
+
+        int ensembleSize = ensemble.size();
+        for (int i = 0; i < ensembleSize; i++) {
+            List<Integer> writeSet = ds.getWriteSet(i);
+            List<Integer> readSet;
+            if (isReadLAC) {
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+            } else {
+                readSet = repp.reorderReadSequence(ensemble, writeSet);
+            }
+
+            LOG.info("Reorder {} => {}.", writeSet, readSet);
+
+            List<Integer> expectedReadSet = new ArrayList<Integer>();
+            // writable bookies
+            appendBookieIndexByRegion(ensemble, writeSet, writeRegion, expectedReadSet);
+            // readonly bookies
+            appendBookieIndexByRegion(ensemble, writeSet, readOnlyRegion, expectedReadSet);
+            // unavailable bookies
+            appendBookieIndexByRegion(ensemble, writeSet, unavailableRegion, expectedReadSet);
+
+            assertEquals(expectedReadSet, readSet);
         }
     }
 

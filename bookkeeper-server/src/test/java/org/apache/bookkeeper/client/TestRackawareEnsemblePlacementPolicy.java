@@ -90,7 +90,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         StaticDNSResolver.addNodeToRack("localhost", rack);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNodeDown() throws Exception {
         repp.uninitalize();
         updateMyRack(NetworkTopology.DEFAULT_RACK);
@@ -118,7 +118,98 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         assertEquals(expectedSet, reoderSet);
     }
 
-    @Test
+    @Test(timeout = 60000)
+    public void testNodeReadOnly() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        Set<InetSocketAddress> ro = new HashSet<InetSocketAddress>();
+        ro.add(addr1);
+        repp.onClusterChanged(addrs, ro);
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(1);
+        expectedSet.add(2);
+        expectedSet.add(3);
+        expectedSet.add(0);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+    @Test(timeout = 60000)
+    public void testTwoNodesDown() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        addrs.remove(addr2);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(2);
+        expectedSet.add(3);
+        expectedSet.add(0);
+        expectedSet.add(1);
+        LOG.info("reorder set : {}", reoderSet);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+    @Test(timeout = 60000)
+    public void testNodeDownAndReadOnly() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r1/rack1");
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        repp.initialize(conf);
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        addrs.remove(addr1);
+        addrs.remove(addr2);
+        Set<InetSocketAddress> roAddrs = new HashSet<InetSocketAddress>();
+        roAddrs.add(addr2);
+        repp.onClusterChanged(addrs, roAddrs);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> expectedSet = new ArrayList<Integer>();
+        expectedSet.add(2);
+        expectedSet.add(3);
+        expectedSet.add(1);
+        expectedSet.add(0);
+        assertFalse(reoderSet == writeSet);
+        assertEquals(expectedSet, reoderSet);
+    }
+
+    @Test(timeout = 60000)
     public void testReplaceBookieWithEnoughBookiesInSameRack() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -141,7 +232,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         assertEquals(addr3, replacedBookie);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReplaceBookieWithEnoughBookiesInDifferentRack() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -168,7 +259,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         assertTrue(addr3.equals(replacedBookie) || addr4.equals(replacedBookie));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testReplaceBookieWithNotEnoughBookies() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -199,7 +290,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithSingleRack() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.6", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.7", 3181);
@@ -222,7 +313,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithMultipleRacks() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.1", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.2", 3181);
@@ -252,7 +343,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testNewEnsembleWithEnoughRacks() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -295,7 +386,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
     /**
      * Test for BOOKKEEPER-633
      */
-    @Test
+    @Test(timeout = 60000)
     public void testRemoveBookieFromCluster() {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);

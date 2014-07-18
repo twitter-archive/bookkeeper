@@ -397,16 +397,24 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     @Override
     public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
         List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
+        List<Integer> readOnlyList = new ArrayList<Integer>(writeSet.size());
         List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
         for (Integer idx : writeSet) {
             InetSocketAddress address = ensemble.get(idx);
-            if (null == knownBookies.get(address) &&
-                ((null == readOnlyBookies) || !readOnlyBookies.contains(address))) {
-                unAvailableList.add(idx);
+            if (null == knownBookies.get(address)) {
+                // there isn't too much differences between readonly bookies from unavailable bookies. since there
+                // is no write requests to them, so we shouldn't try reading from readonly bookie in prior to writable
+                // bookies.
+                if ((null == readOnlyBookies) || !readOnlyBookies.contains(address)) {
+                    unAvailableList.add(idx);
+                } else {
+                    readOnlyList.add(idx);
+                }
             } else {
                 finalList.add(idx);
             }
         }
+        finalList.addAll(readOnlyList);
         finalList.addAll(unAvailableList);
         return finalList;
     }
