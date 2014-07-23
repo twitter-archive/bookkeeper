@@ -23,6 +23,7 @@ package org.apache.bookkeeper.client;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.LedgerMetadataListener;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
@@ -30,11 +31,13 @@ import org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.zookeeper.AsyncCallback.VoidCallback;
+import org.jboss.netty.buffer.ChannelBuffer;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.Enumeration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +45,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
 
@@ -328,6 +334,74 @@ public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
 
         recoverLh.close();
         newBk.close();
+    }
+
+    @Test(timeout = 60000)
+    public void testRecoveryOnEntryGap() throws Exception {
+        byte[] passwd = "recovery-on-entry-gap".getBytes(UTF_8);
+        LedgerHandle lh = bkc.createLedger(1, 1, 1, DigestType.CRC32, passwd);
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(("recovery-on-entry-gap-" + i).getBytes(UTF_8));
+        }
+
+        // simulate ledger writer failure on concurrent writes causing gaps
+
+        long entryId = 14;
+        long lac = 8;
+        byte[] data = "recovery-on-entry-gap-gap".getBytes(UTF_8);
+        ChannelBuffer toSend =
+                lh.macManager.computeDigestAndPackageForSending(
+                        entryId, lac, lh.getLength() + 100, data, 0, data.length);
+        final CountDownLatch addLatch = new CountDownLatch(1);
+        final AtomicBoolean addSuccess = new AtomicBoolean(false);
+        LOG.info("Add entry {} with lac = {}", entryId, lac);
+        lh.bk.bookieClient.addEntry(lh.metadata.currentEnsemble.get(0), lh.getId(), lh.ledgerKey, entryId, toSend,
+            new BookkeeperInternalCallbacks.WriteCallback() {
+                @Override
+                public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+                    addSuccess.set(BKException.Code.OK == rc);
+                    addLatch.countDown();
+                }
+            }, 0, BookieProtocol.FLAG_NONE);
+        addLatch.await();
+        assertTrue("add entry 14 should succeed", addSuccess.get());
+
+        ClientConfiguration newConf = new ClientConfiguration();
+        newConf.addConfiguration(baseClientConf);
+        newConf.setEnableParallelRecoveryRead(true);
+        newConf.setRecoveryReadBatchSize(10);
+
+        BookKeeper newBk = new BookKeeper(newConf);
+
+        final LedgerHandle recoverLh =
+                newBk.openLedgerNoRecovery(lh.getId(), DigestType.CRC32, passwd);
+
+        assertEquals("wrong lac found", 8L, recoverLh.getLastAddConfirmed());
+
+        final CountDownLatch recoverLatch = new CountDownLatch(1);
+        final AtomicLong newLac = new AtomicLong(-1);
+        final AtomicBoolean isMetadataClosed = new AtomicBoolean(false);
+        final AtomicInteger numSuccessCalls = new AtomicInteger(0);
+        final AtomicInteger numFailureCalls = new AtomicInteger(0);
+        recoverLh.recover(new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                if (BKException.Code.OK == rc) {
+                    newLac.set(recoverLh.getLastAddConfirmed());
+                    isMetadataClosed.set(recoverLh.getLedgerMetadata().isClosed());
+                    numSuccessCalls.incrementAndGet();
+                } else {
+                    numFailureCalls.incrementAndGet();
+                }
+                recoverLatch.countDown();
+            }
+        });
+        recoverLatch.await();
+        assertEquals("wrong lac found", 9L, newLac.get());
+        assertTrue("metadata isn't closed after recovery", isMetadataClosed.get());
+        Thread.sleep(5000);
+        assertEquals("recovery callback should be triggered only once", 1, numSuccessCalls.get());
+        assertEquals("recovery callback should be triggered only once", 0, numFailureCalls.get());
     }
 
 }

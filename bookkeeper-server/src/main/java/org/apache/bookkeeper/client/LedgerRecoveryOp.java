@@ -215,9 +215,16 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
         }
 
         // otherwise, some other error, we can't handle
-        LOG.error("Failure {} while reading entries: ({} - {}), ledger: {} while recovering ledger",
-                new Object[] { BKException.getMessage(rc), startEntryToRead, endEntryToRead, lh.getId() });
-        submitCallback(rc);
+        if (BKException.Code.OK != rc && callbackDone.compareAndSet(false, true)) {
+            LOG.error("Failure {} while reading entries: ({} - {}), ledger: {} while recovering ledger",
+                      new Object[] { BKException.getMessage(rc), startEntryToRead, endEntryToRead, lh.getId() });
+            submitCallback(rc);
+        } else if (BKException.Code.OK == rc) {
+            // we are here is because we successfully read an entry but readDone was already set to true.
+            // this would happen on recovery a ledger than has gaps in the tail.
+            LOG.warn("Successfully read entry {} for ledger {}, but readDone is already {}",
+                     new Object[] { entry.getEntryId(), lh.getId(), readDone.get() });
+        }
         return;
     }
 
