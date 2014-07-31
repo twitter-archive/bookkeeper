@@ -54,9 +54,12 @@ public class IndexInMemPageMgr {
 
         Map<EntryKey, LedgerEntryPage> lruCleanPageMap;
 
+        ConcurrentLinkedQueue<LedgerEntryPage> listOfFreePages;
+
         public InMemPageCollection() {
             pages = new ConcurrentHashMap<Long, ConcurrentMap<Long,LedgerEntryPage>>();
             lruCleanPageMap = Collections.synchronizedMap(new LinkedHashMap<EntryKey, LedgerEntryPage>(16, 0.75f, true));
+            listOfFreePages = new ConcurrentLinkedQueue<LedgerEntryPage>();
         }
 
         /**
@@ -138,7 +141,7 @@ public class IndexInMemPageMgr {
          *          Ledger id
          * @returns number of pages removed
          */
-        private int removeEntriesForALedger(long ledgerId) {
+        private void removeEntriesForALedger(long ledgerId) {
             // remove pages first to avoid page flushed when deleting file info
             ConcurrentMap<Long, LedgerEntryPage> lPages = pages.remove(ledgerId);
             if (null != lPages) {
@@ -146,10 +149,21 @@ public class IndexInMemPageMgr {
                     synchronized(lruCleanPageMap) {
                         lruCleanPageMap.remove(new EntryKey(ledgerId, entryId));
                     }
+
+                    LedgerEntryPage lep = lPages.get(entryId);
+                    // Cannot imagine under what circumstances we would have a null entry here
+                    // Just being safe
+                    if (null != lep) {
+                        if (lep.inUse()) {
+                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                                BookkeeperServerStatsLogger.BookkeeperServerCounter.INDEX_INMEM_ILLEGAL_STATE_DELETE)
+                                .inc();
+                        }
+                        listOfFreePages.add(lep);
+                    }
                 }
-                return lPages.size();
+
             }
-            return 0;
         }
 
         /**
@@ -230,15 +244,20 @@ public class IndexInMemPageMgr {
          * @returns LedgerEntryPage if present
          */
         LedgerEntryPage grabCleanPage(long ledgerId, long firstEntry) {
-            LedgerEntryPage lep = null;
+            LedgerEntryPage lep = listOfFreePages.poll();
+            if (null != lep) {
+                lep.resetPage();
+                lep.setLedgerAndFirstEntry(ledgerId, firstEntry);
+                lep.usePage();
+                return lep;
+            }
             while (lruCleanPageMap.size() > 0) {
                 lep = null;
                 synchronized(lruCleanPageMap) {
                     Iterator<Map.Entry<EntryKey,LedgerEntryPage>> iterator = lruCleanPageMap.entrySet().iterator();
 
                     Map.Entry<EntryKey,LedgerEntryPage> entry = null;
-                    while (iterator.hasNext())
-                    {
+                    while (iterator.hasNext()) {
                         entry = iterator.next();
                         iterator.remove();
                         if (entry.getValue().isClean() &&
@@ -280,6 +299,15 @@ public class IndexInMemPageMgr {
                 }
             }
             return lep;
+        }
+
+        public void addToListOfFreePages(LedgerEntryPage lep) {
+            if ((null == lep) || lep.inUse()) {
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                    BookkeeperServerStatsLogger.BookkeeperServerCounter.INDEX_INMEM_ILLEGAL_STATE_RESET)
+                    .inc();
+            }
+            listOfFreePages.add(lep);
         }
 
         @Override
@@ -389,32 +417,30 @@ public class IndexInMemPageMgr {
             // before we put it into table otherwise we would put
             // an empty page in it
             indexPersistenceManager.updatePage(lep);
-            LedgerEntryPage oldLep;
-            if (lep != (oldLep = pageMapAndList.putPage(lep))) {
-                lep.releasePage();
-                // Decrement the page count because we couldn't put this lep in the page cache.
-                pageCount.decrementAndGet();
-                // Increment the use count of the old lep because this is unexpected
-                oldLep.usePage();
-                lep = oldLep;
-            }
         } catch (IOException ie) {
             // if we grab a clean page, but failed to update the page
-            // we are exhausting the count of ledger entry pages.
-            // since this page will be never used, so we need to decrement
-            // page count of ledger cache.
-            lep.releasePage();
-            pageCount.decrementAndGet();
+            // we should put this page in the free page list so that it
+            // can be reassigned to the next grabPage request
+            lep.releasePageNoCallback();
+            pageMapAndList.addToListOfFreePages(lep);
             throw ie;
+        }
+        LedgerEntryPage oldLep;
+        if (lep != (oldLep = pageMapAndList.putPage(lep))) {
+            // if we grab a clean page, but failed to put it in the cache
+            // we should put this page in the free page list so that it
+            // can be reassigned to the next grabPage request
+            lep.releasePageNoCallback();
+            pageMapAndList.addToListOfFreePages(lep);
+            // Increment the use count of the old lep because this is unexpected
+            oldLep.usePage();
+            lep = oldLep;
         }
         return lep;
     }
 
     public void removePagesForLedger(long ledgerId) {
-        int removedPageCount = pageMapAndList.removeEntriesForALedger(ledgerId);
-        if (pageCount.addAndGet(-removedPageCount) < 0) {
-            throw new RuntimeException("Page count of ledger cache has been decremented to be less than zero.");
-        }
+        pageMapAndList.removeEntriesForALedger(ledgerId);
         ledgersToFlush.remove(ledgerId);
     }
 
@@ -436,6 +462,8 @@ public class IndexInMemPageMgr {
             }
 
             if (canAllocate) {
+                LOG.trace("Allocated a clean page for ledger {}, entry {}.",
+                    ledger, entry);
                 LedgerEntryPage lep = new LedgerEntryPage(pageSize, entriesPerPage, pageMapAndList);
                 lep.setLedgerAndFirstEntry(ledger, entry);
                 lep.usePage();
