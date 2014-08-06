@@ -763,7 +763,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return flag to enable/disable per host stats
      */
     public boolean getEnablePerHostStats() {
-        return getBoolean(ENABLE_PER_HOST_STATS, true);
+        return getBoolean(ENABLE_PER_HOST_STATS, false);
     }
 
     /**
