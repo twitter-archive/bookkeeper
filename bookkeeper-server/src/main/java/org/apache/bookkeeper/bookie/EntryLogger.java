@@ -343,6 +343,9 @@ public class EntryLogger {
      * Creates a new log file
      */
     void createNewLog() throws IOException {
+        // first tried to create a new log channel. add current log channel to ToFlush list only when
+        // there is a new log channel. it would prevent that a log channel is referenced by both
+        // *logChannel* and *ToFlush* list.
         if (null != logChannel) {
             if (null == logChannelsToFlush) {
                 logChannelsToFlush = new LinkedList<BufferedLogChannel>();
@@ -350,14 +353,17 @@ public class EntryLogger {
             // flush the internal buffer back to filesystem but not sync disk
             // so the readers could access the data from filesystem.
             logChannel.flush(false);
+            BufferedLogChannel newLogChannel = entryLoggerAllocator.createNewLog();
             logChannelsToFlush.add(logChannel);
             LOG.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
                     logChannel.getLogId(), logChannelsToFlush);
             if (null != listener) {
                 listener.onRotateEntryLog();
             }
+            logChannel = newLogChannel;
+        } else {
+            logChannel = entryLoggerAllocator.createNewLog();
         }
-        logChannel = entryLoggerAllocator.createNewLog();
     }
 
     /**
