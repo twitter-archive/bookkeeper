@@ -24,7 +24,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.google.common.base.Optional;
+
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.Shell;
 import org.apache.bookkeeper.util.StaticDNSResolver;
@@ -80,7 +83,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             writeSet.add(i);
         }
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
     }
 
     @Override
@@ -95,7 +98,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         List<Integer> reorderSet = repp.reorderReadSequence(ensemble, writeSet);
         assertFalse(reorderSet == writeSet);
@@ -108,7 +111,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack3");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -134,7 +137,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r2/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
         LOG.info("reorder set : {}", reoderSet);
@@ -148,7 +151,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -177,7 +180,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -208,7 +211,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -417,7 +420,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/" + myRegion);
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);

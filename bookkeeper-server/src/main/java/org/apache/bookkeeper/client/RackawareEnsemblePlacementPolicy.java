@@ -42,6 +42,7 @@ import org.apache.commons.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -84,7 +85,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected ImmutableSet<InetSocketAddress> readOnlyBookies = null;
 
 
-    public RackawareEnsemblePlacementPolicy() {
+    RackawareEnsemblePlacementPolicy() {
         topology = new NetworkTopology();
         knownBookies = new HashMap<InetSocketAddress, BookieNode>();
 
@@ -101,8 +102,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
      * @param dnsResolver the object used to resolve addresses to their network address
      * @return initialized ensemble placement policy
      */
-    @Override
-    public RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
+    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
         this.dnsResolver = dnsResolver;
         BookieNode bn;
         try {
@@ -119,19 +119,22 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public RackawareEnsemblePlacementPolicy initialize(Configuration conf) {
-        String dnsResolverName = conf.getString(REPP_DNS_RESOLVER_CLASS, ScriptBasedMapping.class.getName());
+    public RackawareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
         DNSToSwitchMapping dnsResolver;
-        try {
-            dnsResolver = ReflectionUtils.newInstance(dnsResolverName, DNSToSwitchMapping.class);
-            if (dnsResolver instanceof Configurable) {
-                ((Configurable) dnsResolver).setConf(conf);
+        if (optionalDnsResolver.isPresent()) {
+            dnsResolver = optionalDnsResolver.get();
+        } else {
+            String dnsResolverName = conf.getString(REPP_DNS_RESOLVER_CLASS, ScriptBasedMapping.class.getName());
+            try {
+                dnsResolver = ReflectionUtils.newInstance(dnsResolverName, DNSToSwitchMapping.class);
+                if (dnsResolver instanceof Configurable) {
+                    ((Configurable) dnsResolver).setConf(conf);
+                }
+            } catch (RuntimeException re) {
+                LOG.info("Failed to initialize DNS Resolver {}, used default subnet resolver.", dnsResolverName, re);
+                dnsResolver = new DefaultResolver();
             }
-        } catch (RuntimeException re) {
-            LOG.info("Failed to initialize DNS Resolver {}, used default subnet resolver.", dnsResolverName, re);
-            dnsResolver = new DefaultResolver();
         }
-
         return initialize(dnsResolver);
     }
 

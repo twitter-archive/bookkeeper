@@ -26,9 +26,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.google.common.base.Optional;
+
 import junit.framework.TestCase;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.StaticDNSResolver;
 import org.apache.commons.configuration.CompositeConfiguration;
@@ -74,7 +77,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         }
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
     }
 
     @Override
@@ -96,7 +99,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -124,7 +127,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -155,7 +158,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -185,7 +188,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();

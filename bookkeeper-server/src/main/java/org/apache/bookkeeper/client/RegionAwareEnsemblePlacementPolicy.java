@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
@@ -49,7 +50,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
 
-    public RegionAwareEnsemblePlacementPolicy() {
+    RegionAwareEnsemblePlacementPolicy() {
         super();
         perRegionPlacement = new HashMap<String, RackawareEnsemblePlacementPolicy>();
         address2Region = new ConcurrentHashMap<InetSocketAddress, String>();
@@ -128,15 +129,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf) {
-        super.initialize(conf);
-        myRegion = getLocalRegion(localNode);
-        return this;
-    }
-
-    @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
-        super.initialize(dnsResolver);
+    public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
+        super.initialize(conf, optionalDnsResolver);
         myRegion = getLocalRegion(localNode);
         return this;
     }

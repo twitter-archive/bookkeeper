@@ -25,6 +25,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.google.common.base.Optional;
+
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.commons.configuration.Configuration;
@@ -107,12 +109,7 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
      * @return initialized ensemble placement policy
      */
     @Override
-    public EnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
-        return this;
-    }
-
-    @Override
-    public EnsemblePlacementPolicy initialize(Configuration conf) {
+    public EnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
         return this;
     }
 
@@ -120,5 +117,4 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     public void uninitalize() {
         // do nothing
     }
-
 }
