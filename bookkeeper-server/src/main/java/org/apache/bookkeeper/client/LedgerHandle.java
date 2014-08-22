@@ -35,12 +35,14 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.TimedGenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
@@ -1184,6 +1186,11 @@ public class LedgerHandle {
     }
 
     void recover(GenericCallback<Void> finalCb) {
+        recover(finalCb, null);
+    }
+
+    void recover(GenericCallback<Void> finalCb,
+                 @VisibleForTesting BookkeeperInternalCallbacks.ReadEntryListener listener) {
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
                 this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
 
@@ -1219,6 +1226,7 @@ public class LedgerHandle {
                         .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                         .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
                         .setCouldClose(true)
+                        .setEntryListener(listener)
                         .initiate();
             return;
         }
@@ -1226,7 +1234,7 @@ public class LedgerHandle {
         final LedgerRecoveryOp recoveryOp = new LedgerRecoveryOp(LedgerHandle.this, cb)
                 .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                 .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                .setCouldClose(false);
+                .setCouldClose(false).setEntryListener(listener);
         // Issue the recovery op & update ledger config in parallel.
         recoveryOp.initiate();
         writeLedgerConfig(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
