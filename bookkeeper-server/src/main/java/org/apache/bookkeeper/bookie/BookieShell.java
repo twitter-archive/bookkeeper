@@ -481,8 +481,39 @@ public class BookieShell implements Tool {
                 String idString = name.split("\\.")[0];
                 logId = Long.parseLong(idString, 16);
             }
-            // scan entry log
-            scanEntryLog(logId, printMsg);
+            Long ledgerId = null;
+            Long entryId = null;
+            Long position = null;
+            if (leftArgs.length >= 4) {
+                try {
+                    ledgerId = Long.parseLong(leftArgs[1]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid ledger id : " + leftArgs[1]);
+                    printUsage();
+                    return -1;
+                }
+                try {
+                    entryId = Long.parseLong(leftArgs[2]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid entry id : " + leftArgs[2]);
+                    printUsage();
+                    return -1;
+                }
+                try {
+                    position = Long.parseLong(leftArgs[3]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid position : " + leftArgs[3]);
+                    printUsage();
+                    return -1;
+                }
+            }
+            if (null == position) {
+                // scan entry log
+                scanEntryLog(logId, printMsg);
+            } else {
+                System.out.println("lid=" + ledgerId + ", eid=" + entryId + ", pos=" + position);
+                readEntry(ledgerId, entryId, position, printMsg);
+            }
             return 0;
         }
 
@@ -493,7 +524,7 @@ public class BookieShell implements Tool {
 
         @Override
         String getUsage() {
-            return "readlog [-m] <entry_log_id | entry_log_file_name>";
+            return "readlog [-m] <entry_log_id | entry_log_file_name> [ledgerId entryId position]";
         }
 
         @Override
@@ -626,7 +657,7 @@ public class BookieShell implements Tool {
         journalDirectory = Bookie.getCurrentDirectory(bkConf.getJournalDir());
         ledgerDirectories = Bookie.getCurrentDirectories(bkConf.getLedgerDirs());
         File[] idxDirs = bkConf.getIndexDirs();
-        indexDirectories = null != idxDirs ? idxDirs : ledgerDirectories;
+        indexDirectories = null != idxDirs ? Bookie.getCurrentDirectories(idxDirs) : ledgerDirectories;
         formatter = EntryFormatter.newEntryFormatter(bkConf, ENTRY_FORMATTER_CLASS);
         LOG.info("Using entry formatter " + formatter.getClass().getName());
         pageSize = bkConf.getPageSize();
@@ -754,6 +785,11 @@ public class BookieShell implements Tool {
         entryLogger.scanEntryLog(logId, scanner);
     }
 
+    protected byte[] readEntry(long ledgerId, long entryId, long position) throws IOException {
+        initEntryLogger();
+        return entryLogger.readEntry(ledgerId, entryId, position);
+    }
+
     private synchronized Journal getJournal() throws IOException {
         if (null == journal) {
             journal = new Journal(bkConf, new LedgerDirsManager(bkConf, bkConf.getLedgerDirs()));
@@ -830,7 +866,7 @@ public class BookieShell implements Tool {
                     } else {
                         long entryLogId = offset >> 32L;
                         long pos = offset & 0xffffffffL;
-                        System.out.println("entry " + curEntry + "\t:\t(log:" + entryLogId + ", pos: " + pos + ")");
+                        System.out.println("entry " + curEntry + "\t:\t(log:" + entryLogId + ", pos: " + pos + ", location: " + offset + ")");
                     }
                     ++curEntry;
                 }
@@ -846,6 +882,13 @@ public class BookieShell implements Tool {
                                  + ", the index file may be corrupted or last index page is not fully flushed yet : " + ie.getMessage());
             }
         }
+    }
+
+    protected void readEntry(long ledgerId, long entryId, long position, boolean printMsg) throws Exception {
+        System.out.println("Entry(lid=" + ledgerId + ", eid=" + entryId + "), logId=" + (position >> 32));
+        byte[] data = readEntry(ledgerId, entryId, position);
+        ByteBuffer entryBuf = ByteBuffer.wrap(data);
+        formatEntry(position & 0xffffffffL, entryBuf, printMsg);
     }
 
     /**
@@ -929,8 +972,9 @@ public class BookieShell implements Tool {
         }
         // process a data entry
         long lastAddConfirmed = recBuff.getLong();
+        long length = recBuff.getLong();
         System.out.println("Type:           DATA");
-        System.out.println("LastConfirmed:  " + lastAddConfirmed);
+        System.out.println("LastConfirmed:  " + lastAddConfirmed + ", Length: " + length);
         if (!printMsg) {
             System.out.println();
             return;
