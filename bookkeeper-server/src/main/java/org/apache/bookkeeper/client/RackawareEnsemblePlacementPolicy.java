@@ -353,9 +353,10 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             }
             BookieNode bn = (BookieNode) n;
             // got a good candidate
-            ensemble.addBookie(bn);
-            // add the candidate to exclude set
-            excludeBookies.add(bn);
+            if (ensemble.addBookie(bn)) {
+                // add the candidate to exclude set
+                excludeBookies.add(bn);
+            }
             return bn;
         }
         throw new BKNotEnoughBookiesException();
@@ -382,10 +383,12 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             if (excludeBookies.contains(bookie)) {
                 continue;
             }
-            ensemble.addBookie(bookie);
-            excludeBookies.add(bookie);
-            newBookies.add(bookie);
-            --numBookies;
+            if (ensemble.addBookie(bookie)) {
+                excludeBookies.add(bookie);
+                newBookies.add(bookie);
+                --numBookies;
+            }
+
             if (numBookies == 0) {
                 return newBookies;
             }

@@ -286,6 +286,33 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     }
 
     @Test(timeout = 60000)
+    public void testNewEnsembleBookieWithNotEnoughBookies() throws Exception {
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), NetworkTopology.DEFAULT_RACK);
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region2/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region3/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region4/r4");
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        try {
+            ArrayList<InetSocketAddress> list = repp.newEnsemble(5, 5, new HashSet<InetSocketAddress>());
+            LOG.info("Ensemble : {}", list);
+            fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+        } catch (BKNotEnoughBookiesException bnebe) {
+            // should throw not enou
+        }
+    }
+
+    @Test(timeout = 60000)
     public void testReplaceBookieWithNotEnoughBookies() throws Exception {
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -367,8 +394,12 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             int numCovered = getNumCoveredRegionsInWriteQuorum(ensemble, 2);
             assertTrue(numCovered >= 1);
             assertTrue(numCovered < 3);
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+        try {
             ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, new HashSet<InetSocketAddress>());
-            numCovered = getNumCoveredRegionsInWriteQuorum(ensemble2, 2);
+            int numCovered = getNumCoveredRegionsInWriteQuorum(ensemble2, 2);
             assertTrue(numCovered >= 1 && numCovered < 3);
         } catch (BKNotEnoughBookiesException bnebe) {
             fail("Should not get not enough bookies exception even there is only one rack.");

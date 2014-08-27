@@ -26,12 +26,15 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
     protected static interface Ensemble {
 
         /**
-         * Append the new bookie node to the ensemble.
+         * Append the new bookie node to the ensemble only if the ensemble doesnt
+         * already contain the same bookie
          *
          * @param node
          *          new candidate bookie node.
+         * @return
+         *          true if the node was added
          */
-        public void addBookie(BookieNode node);
+        public boolean addBookie(BookieNode node);
 
         /**
          * @return list of addresses representing the ensemble
@@ -56,8 +59,9 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         static final ArrayList<InetSocketAddress> EMPTY_LIST = new ArrayList<InetSocketAddress>(0);
 
         @Override
-        public void addBookie(BookieNode node) {
+        public boolean addBookie(BookieNode node) {
             // do nothing
+            return true;
         }
 
         @Override
@@ -158,6 +162,12 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             if (ensemble != this) {
                 return false;
             }
+
+            // An ensemble cannot contain the same node twice
+            if (chosenNodes.contains(candidate)) {
+                return false;
+            }
+
             // candidate position
             int candidatePos = chosenNodes.size();
             int startPos = candidatePos - writeQuorumSize + 1;
@@ -174,7 +184,12 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         }
 
         @Override
-        public void addBookie(BookieNode node) {
+        public boolean addBookie(BookieNode node) {
+            // An ensemble cannot contain the same node twice
+            if (chosenNodes.contains(node)) {
+                return false;
+            }
+
             int candidatePos = chosenNodes.size();
             int startPos = candidatePos - writeQuorumSize + 1;
             for (int i = startPos; i <= candidatePos; i++) {
@@ -185,9 +200,8 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 quorums[idx].addBookie(node);
             }
             chosenNodes.add(node);
-            if (null != parentEnsemble) {
-                parentEnsemble.addBookie(node);
-            }
+
+            return ((null == parentEnsemble) || parentEnsemble.addBookie(node));
         }
 
         @Override

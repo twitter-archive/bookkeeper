@@ -168,7 +168,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // accommodated are placed on other regions
             // Within each region try and follow rack aware placement
             Set<String> regions = new HashSet<String>(perRegionPlacement.keySet());
-            while (remainingEnsemble > 0) {
+            int remainingEnsembleBeforeIteration;
+            do {
+                remainingEnsembleBeforeIteration = remainingEnsemble;
                 Set<String> regionsToExclude = new HashSet<String>();
                 for (String region: regions) {
                     RackawareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
@@ -198,7 +200,12 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                     }
                 }
                 regions.removeAll(regionsToExclude);
-            }
+
+                if (regions.isEmpty()) {
+                    break;
+                }
+            } while ((remainingEnsemble > 0) && (remainingEnsemble < remainingEnsembleBeforeIteration));
+
             ArrayList<InetSocketAddress> bookieList = ensemble.toList();
             if (ensembleSize != bookieList.size()) {
                 LOG.error("Not enough {} bookies are available to form an ensemble : {}.",
