@@ -19,6 +19,7 @@ package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -54,7 +55,6 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected String myRegion = null;
     protected int minRegionsForDurability = MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT;
     protected boolean enableValidation = true;
-
 
     RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -108,7 +108,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             knownBookies.put(addr, node);
             String region = getLocalRegion(node);
             if (null == perRegionPlacement.get(region)) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom));
             }
 
             Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
@@ -313,6 +313,13 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 } else {
                     remoteList.add(idx);
                 }
+            }
+
+            if (reorderReadsRandom) {
+                Collections.shuffle(localList);
+                Collections.shuffle(remoteList);
+                Collections.shuffle(readOnlyList);
+                Collections.shuffle(unAvailableList);
             }
 
             // Insert a node from the remote region at the specified location so we

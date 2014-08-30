@@ -56,6 +56,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     static final Logger LOG = LoggerFactory.getLogger(RackawareEnsemblePlacementPolicy.class);
 
     public static final String REPP_DNS_RESOLVER_CLASS = "reppDnsResolverClass";
+    public static final String REPP_RANDOM_READ_REORDERING = "ensembleRandomReadReordering";
+
     static final int RACKNAME_DISTANCE_FROM_LEAVES = 1;
 
     static class DefaultResolver implements DNSToSwitchMapping {
@@ -83,6 +85,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected BookieNode localNode;
     protected final ReentrantReadWriteLock rwLock;
     protected ImmutableSet<InetSocketAddress> readOnlyBookies = null;
+    protected boolean reorderReadsRandom = false;
 
 
     RackawareEnsemblePlacementPolicy() {
@@ -102,7 +105,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
      * @param dnsResolver the object used to resolve addresses to their network address
      * @return initialized ensemble placement policy
      */
-    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver) {
+    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver, boolean reorderReadsRandom) {
+        this.reorderReadsRandom = reorderReadsRandom;
         this.dnsResolver = dnsResolver;
         BookieNode bn;
         try {
@@ -135,7 +139,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                 dnsResolver = new DefaultResolver();
             }
         }
-        return initialize(dnsResolver);
+        return initialize(dnsResolver, conf.getBoolean(REPP_RANDOM_READ_REORDERING, false));
     }
 
     @Override
@@ -420,6 +424,13 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                 finalList.add(idx);
             }
         }
+
+        if (reorderReadsRandom) {
+            Collections.shuffle(finalList);
+            Collections.shuffle(readOnlyList);
+            Collections.shuffle(unAvailableList);
+        }
+
         finalList.addAll(readOnlyList);
         finalList.addAll(unAvailableList);
         return finalList;
