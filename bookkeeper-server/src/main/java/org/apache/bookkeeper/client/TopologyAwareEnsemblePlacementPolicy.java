@@ -40,6 +40,14 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
          * @return list of addresses representing the ensemble
          */
         public ArrayList<InetSocketAddress> toList();
+
+        /**
+         * Validates if an ensemble is valid
+         *
+         * @return true if the ensemble is valid; false otherwise
+         */
+        public boolean validate();
+
     }
 
     protected static class TruePredicate implements Predicate {
@@ -67,6 +75,16 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         @Override
         public ArrayList<InetSocketAddress> toList() {
             return EMPTY_LIST;
+        }
+
+        /**
+         * Validates if an ensemble is valid
+         *
+         * @return true if the ensemble is valid; false otherwise
+         */
+        @Override
+        public boolean validate() {
+            return true;
         }
 
     }
@@ -124,13 +142,14 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
 
             void addBookie(BookieNode candidate) {
                 ++seenBookies;
-                racksOrRegions.add(candidate.getNetworkLocation());
+                racksOrRegions.add(candidate.getNetworkLocation(distanceFromLeaves));
             }
         }
 
         final int distanceFromLeaves;
         final int ensembleSize;
         final int writeQuorumSize;
+        final int minRacksOrRegionsInEnsemble;
         final ArrayList<BookieNode> chosenNodes;
         private final RackQuorumCoverageSet[] quorums;
         final RRTopologyAwareCoverageEnsemble parentEnsemble;
@@ -142,19 +161,25 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.chosenNodes = (ArrayList<BookieNode>)that.chosenNodes.clone();
             this.quorums = that.quorums.clone();
             this.parentEnsemble = that.parentEnsemble;
+            this.minRacksOrRegionsInEnsemble = that.minRacksOrRegionsInEnsemble;
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves) {
-            this(ensembleSize, writeQuorumSize, distanceFromLeaves, null);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, int minRacksOrRegionsInEnsemble) {
+            this(ensembleSize, writeQuorumSize, distanceFromLeaves, null, minRacksOrRegionsInEnsemble);
         }
 
         protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble) {
+            this(ensembleSize, writeQuorumSize, distanceFromLeaves, parentEnsemble, 0);
+        }
+
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, int minRacksOrRegionsInEnsemble) {
             this.ensembleSize = ensembleSize;
             this.writeQuorumSize = writeQuorumSize;
             this.distanceFromLeaves = distanceFromLeaves;
             this.chosenNodes = new ArrayList<BookieNode>(ensembleSize);
             this.quorums = new RackQuorumCoverageSet[ensembleSize];
             this.parentEnsemble = parentEnsemble;
+            this.minRacksOrRegionsInEnsemble = minRacksOrRegionsInEnsemble;
         }
 
         @Override
@@ -213,13 +238,31 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             return addresses;
         }
 
+        /**
+         * Validates if an ensemble is valid
+         *
+         * @return true if the ensemble is valid; false otherwise
+         */
+        @Override
+        public boolean validate() {
+            HashSet<InetSocketAddress> addresses = new HashSet<InetSocketAddress>(ensembleSize);
+            HashSet<String> racksOrRegions = new HashSet<String>();
+            for (BookieNode bn : chosenNodes) {
+                if (addresses.contains(bn.getAddr())) {
+                    return false;
+                }
+                addresses.add(bn.getAddr());
+                racksOrRegions.add(bn.getNetworkLocation(distanceFromLeaves));
+            }
 
+            return ((minRacksOrRegionsInEnsemble == 0) ||
+                    (racksOrRegions.size() >= minRacksOrRegionsInEnsemble));
+        }
 
         @Override
         public String toString() {
             return chosenNodes.toString();
         }
-
     }
 
     @Override

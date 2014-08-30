@@ -42,6 +42,9 @@ import org.slf4j.LoggerFactory;
 public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlacementPolicy {
     static final Logger LOG = LoggerFactory.getLogger(RegionAwareEnsemblePlacementPolicy.class);
 
+    public static final String REPP_MINIMUM_REGIONS_FOR_DURABILITY = "reppMinimumRegionsForDurability";
+    public static final String REPP_ENABLE_VALIDATION = "reppEnableValidation";
+    static final int MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT = 2;
     static final int REGIONID_DISTANCE_FROM_LEAVES = 2;
     static final String UNKNOWN_REGION = "UnknownRegion";
     static final int REMOTE_NODE_IN_REORDER_SEQUENCE = 2;
@@ -49,6 +52,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
+    protected int minRegionsForDurability = MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT;
+    protected boolean enableValidation = true;
+
 
     RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -132,6 +138,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
         super.initialize(conf, optionalDnsResolver);
         myRegion = getLocalRegion(localNode);
+        minRegionsForDurability = conf.getInt(REPP_MINIMUM_REGIONS_FOR_DURABILITY, MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT);
+        enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
         return this;
     }
 
@@ -141,7 +149,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         rwLock.readLock().lock();
         try {
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
-            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, REGIONID_DISTANCE_FROM_LEAVES);
+            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, REGIONID_DISTANCE_FROM_LEAVES, minRegionsForDurability);
             int numRegions = perRegionPlacement.keySet().size();
             // If we were unable to get region information
             if (numRegions < 1) {
@@ -178,6 +186,10 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                     boolean success = false;
                     while(targetEnsembleSize > 0) {
                         int targetWriteQuorum = Math.max(1, Math.min(remainingWriteQuorum, Math.round(1.0f * writeQuorumSize * targetEnsembleSize / ensembleSize)));
+
+                        // Temp ensemble will be merged back into the ensemble only if we are able to successfully allocate
+                        // the target number of bookies in this region; if we fail because we dont have enough bookies; then we
+                        // retry the process with a smaller target
                         RRTopologyAwareCoverageEnsemble tempEnsemble = new RRTopologyAwareCoverageEnsemble(ensemble);
                         try {
                             policyWithinRegion.newEnsembleInternal(targetEnsembleSize, targetWriteQuorum, excludeBookies, tempEnsemble);
@@ -212,6 +224,13 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                           ensembleSize, bookieList);
                 throw new BKException.BKNotEnoughBookiesException();
             }
+
+            if(enableValidation && !ensemble.validate()) {
+                LOG.error("Not enough {} bookies are available to form a valid ensemble : {}.",
+                    ensembleSize, bookieList);
+                throw new BKException.BKNotEnoughBookiesException();
+            }
+
             return ensemble.toList();
         } finally {
             rwLock.readLock().unlock();
