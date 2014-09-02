@@ -1186,11 +1186,22 @@ public class LedgerHandle {
     }
 
     void recover(GenericCallback<Void> finalCb) {
-        recover(finalCb, null);
+        recover(finalCb, null, false);
     }
 
+    /**
+     * Recover the ledger.
+     *
+     * @param finalCb
+     *          callback after recovery is done.
+     * @param listener
+     *          read entry listener on recovery reads.
+     * @param forceRecovery
+     *          force the recovery procedure even the ledger metadata shows the ledger is closed.
+     */
     void recover(GenericCallback<Void> finalCb,
-                 @VisibleForTesting BookkeeperInternalCallbacks.ReadEntryListener listener) {
+                 final @VisibleForTesting BookkeeperInternalCallbacks.ReadEntryListener listener,
+                 final boolean forceRecovery) {
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
                 this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
 
@@ -1199,9 +1210,16 @@ public class LedgerHandle {
 
         synchronized (this) {
             if (metadata.isClosed()) {
-                lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
-                length = metadata.getLength();
-                wasClosed = true;
+                if (forceRecovery) {
+                    wasClosed = false;
+                    // mark the ledger back to in recovery state, so it would proceed ledger recovery again.
+                    wasInRecovery = false;
+                    metadata.markLedgerInRecovery();
+                } else {
+                    lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
+                    length = metadata.getLength();
+                    wasClosed = true;
+                }
             } else {
                 wasClosed = false;
                 if (metadata.isInRecovery()) {
@@ -1250,7 +1268,7 @@ public class LedgerHandle {
                                 cb.operationComplete(rc, null);
                             } else {
                                 metadata = newMeta;
-                                recover(cb);
+                                recover(cb, listener, forceRecovery);
                             }
                         }
                         @Override

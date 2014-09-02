@@ -602,7 +602,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
                 recoverRc.set(rc);
                 recoverLatch.countDown();
             }
-        }, recoverListener);
+        }, recoverListener, false);
         recoverLatch.await();
         assertEquals("Recovery should fail due to one bookie isn't available",
                      BKException.Code.ReadException, recoverRc.get());

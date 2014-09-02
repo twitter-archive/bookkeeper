@@ -50,6 +50,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     final DigestType digestType;
     boolean doRecovery = true;
     boolean administrativeOpen = false;
+    boolean forceRecovery = false;
     long startTime;
 
     /**
@@ -81,6 +82,18 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         this.passwd = bk.getConf().getBookieRecoveryPasswd();
         this.digestType = bk.getConf().getBookieRecoveryDigestType();
         this.administrativeOpen = true;
+    }
+
+    /**
+     * Force recover ledger even ledger is already closed.
+     *
+     * @param enabled
+     *          force recover a ledger event it is already closed if the flag is set to true.
+     * @return ledger open operation.
+     */
+    public LedgerOpenOp forceRecovery(boolean enabled) {
+        this.forceRecovery = enabled;
+        return this;
     }
 
     /**
@@ -153,7 +166,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
             return;
         }
 
-        if (metadata.isClosed()) {
+        if (metadata.isClosed() && !forceRecovery) {
             // Ledger was closed properly
             openComplete(BKException.Code.OK, lh);
             return;
@@ -175,7 +188,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 public String toString() {
                     return String.format("Recover(%d)", ledgerId);
                 }
-            });
+            }, null, forceRecovery);
         } else {
             lh.asyncReadLastConfirmed(new ReadLastConfirmedCallback() {
                 @Override

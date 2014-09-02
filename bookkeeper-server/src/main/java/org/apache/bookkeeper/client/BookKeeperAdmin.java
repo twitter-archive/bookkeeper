@@ -174,7 +174,12 @@ public class BookKeeperAdmin {
      * @see BookKeeper#asyncOpenLedger
      */
     public void asyncOpenLedger(final long lId, final OpenCallback cb, final Object ctx) {
-        new LedgerOpenOp(bkc, lId, cb, ctx).initiate();
+        asyncOpenLedger(lId, false, cb, ctx);
+    }
+
+    public void asyncOpenLedger(final long lId, final boolean forceRecovery,
+                                final OpenCallback cb, final Object ctx) {
+        new LedgerOpenOp(bkc, lId, cb, ctx).forceRecovery(forceRecovery).initiate();
     }
 
     /**
@@ -188,9 +193,14 @@ public class BookKeeperAdmin {
      */
     public LedgerHandle openLedger(final long lId) throws InterruptedException,
             BKException {
+        return openLedger(lId, false);
+    }
+
+    public LedgerHandle openLedger(final long lId, final boolean forceRecovery) throws InterruptedException,
+            BKException {
         SyncCounter counter = new SyncCounter();
         counter.inc();
-        new LedgerOpenOp(bkc, lId, new SyncOpenCallback(), counter).initiate();
+        new LedgerOpenOp(bkc, lId, new SyncOpenCallback(), counter).forceRecovery(forceRecovery).initiate();
         /*
          * Wait
          */
