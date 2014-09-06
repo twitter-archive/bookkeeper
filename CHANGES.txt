@@ -178,6 +178,28 @@ Trunk (unreleased changes)
 
         BOOKKEEPER-745: Fix for false reports of ledger unreplication during rolling restarts. (ivank)
 
+        BOOKKEEPER-746: 5 new shell commands. List ledgers, list metadata, list underreplicated, show auditor and simpletest (ivank)
+
+        BOOKKEEPER-774: Flaky test org.apache.bookkeeper.test.ReadOnlyBookieTest.testBookieShouldTurnWritableFromReadOnly (sijie)
+
+        BOOKKEEPER-704: reconnectable zookeeper client wrapper (sijie via ivank)
+
+        BOOKKEEPER-630: Add tag to o.a.b.net.* to indict which release of hadoop they came from, move DNS to o.a.b.net.* and indent (sijie via ivank)
+
+	BOOKKEEPER-780: Findbug issue in trunk (ivank via fpj)
+
+        BOOKKEEPER-777: Flake in LedgerCloseTest (ivank via fpj)
+
+        BOOKKEEPER-718: AuditorLedgerCheckerTest is flakey (ivank via sijie)
+
+      bookkeeper-benchmark:
+
+        BOOKKEEPER-768: fix typo 'seconds' to milliseconds in benchmark output (jialin via sijie)
+
+      bookkeeper-stats-providers:
+
+        BOOKKEEPER-779: jmx reporter for codahale metrics provider (ivank via sijie)
+
       hedwig-server:
 
         BOOKKEEPER-601: readahead cache size isn't updated correctly (sijie via fpj)

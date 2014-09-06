@@ -70,9 +70,11 @@ public class BookKeeperAdmin {
 
     // ZK client instance
     private ZooKeeper zk;
+    private final boolean ownsZK;
 
     // BookKeeper client instance
     private BookKeeper bkc;
+    private final boolean ownsBK;
 
     // LedgerFragmentReplicator instance
     private LedgerFragmentReplicator lfr;
@@ -125,8 +127,12 @@ public class BookKeeperAdmin {
                 .sessionTimeoutMs(conf.getZkTimeout())
                 .requestRateLimit(conf.getZkRequestRateLimit())
                 .build();
+        ownsZK = true;
+
         // Create the BookKeeper client instance
         bkc = new BookKeeper(conf, zk);
+        ownsBK = true;
+
         this.lfr = new LedgerFragmentReplicator(bkc);
     }
 
@@ -139,7 +145,9 @@ public class BookKeeperAdmin {
      */
     public BookKeeperAdmin(final BookKeeper bkc) {
         this.bkc = bkc;
+        ownsBK = false;
         this.zk = bkc.zk;
+        ownsZK = false;
         this.lfr = new LedgerFragmentReplicator(bkc);
     }
 
@@ -155,8 +163,12 @@ public class BookKeeperAdmin {
      *             class uses.
      */
     public void close() throws InterruptedException, BKException {
-        bkc.close();
-        zk.close();
+        if (ownsBK) {
+            bkc.close();
+        }
+        if (ownsZK) {
+            zk.close();
+        }
     }
 
     /**
