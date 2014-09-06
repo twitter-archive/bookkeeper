@@ -36,6 +36,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.commons.lang.StringUtils;
 import org.apache.zookeeper.CreateMode;
@@ -51,6 +54,8 @@ import static com.google.common.base.Charsets.UTF_8;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.replication.ReplicationStats.ELECTION_ATTEMPTS;
 
 /**
  * Performing auditor election using Apache ZooKeeper. Using ZooKeeper as a
@@ -85,6 +90,8 @@ public class AuditorElector {
     Auditor auditor;
     private AtomicBoolean running = new AtomicBoolean(false);
 
+    // Expose Stats
+    private final Counter electionAttempts;
 
     /**
      * AuditorElector for performing the auditor election
@@ -100,9 +107,29 @@ public class AuditorElector {
      */
     public AuditorElector(final String bookieId, ServerConfiguration conf,
                           ZooKeeper zkc) throws UnavailableException {
+        this(bookieId, conf, zkc, NullStatsLogger.INSTANCE);
+    }
+
+    /**
+     * AuditorElector for performing the auditor election
+     *
+     * @param bookieId
+     *            - bookie identifier, comprises HostAddress:Port
+     * @param conf
+     *            - configuration
+     * @param zkc
+     *            - ZK instance
+     * @param statsLogger
+     *            - stats logger
+     * @throws UnavailableException
+     *             throws unavailable exception while initializing the elector
+     */
+    public AuditorElector(final String bookieId, ServerConfiguration conf,
+                          ZooKeeper zkc, StatsLogger statsLogger) throws UnavailableException {
         this.bookieId = bookieId;
         this.conf = conf;
         this.zkc = zkc;
+        this.electionAttempts = statsLogger.getCounter(ELECTION_ATTEMPTS);
         basePath = conf.getZkLedgersRootPath() + '/'
                 + BookKeeperConstants.UNDER_REPLICATION_NODE;
         electionPath = basePath + '/' + ELECTION_ZNODE;
@@ -253,6 +280,7 @@ public class AuditorElector {
                                 // Again going to election.
                                 submitElectionTask();
                             }
+                            electionAttempts.inc();
                         }
                     } catch (KeeperException e) {
                         LOG.error("Exception while performing auditor election", e);

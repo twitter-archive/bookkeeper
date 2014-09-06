@@ -37,6 +37,8 @@ import org.apache.bookkeeper.replication.ReplicationException.UnavailableExcepti
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
@@ -49,6 +51,9 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
+import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_WORKER_SCOPE;
 
 /**
  * Class to start/stop the AutoRecovery daemons Auditor and ReplicationWorker
@@ -67,6 +72,12 @@ public class AutoRecoveryMain {
 
     public AutoRecoveryMain(ServerConfiguration conf) throws IOException,
             InterruptedException, KeeperException, UnavailableException,
+            CompatibilityException {
+        this(conf, NullStatsLogger.INSTANCE);
+    }
+
+    public AutoRecoveryMain(ServerConfiguration conf, StatsLogger statsLogger)
+            throws IOException, InterruptedException, KeeperException, UnavailableException,
             CompatibilityException {
         this.conf = conf;
         Set<Watcher> watchers = new HashSet<Watcher>();
@@ -92,9 +103,10 @@ public class AutoRecoveryMain {
                 new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime,
                                                        Integer.MAX_VALUE));
         auditorElector = new AuditorElector(
-                StringUtils.addrToString(Bookie.getBookieAddress(conf)), conf, zk);
+                StringUtils.addrToString(Bookie.getBookieAddress(conf)), conf,
+                zk, statsLogger.scope(AUDITOR_SCOPE));
         replicationWorker = new ReplicationWorker(zk, conf,
-                Bookie.getBookieAddress(conf));
+                Bookie.getBookieAddress(conf), statsLogger.scope(REPLICATION_WORKER_SCOPE));
         deathWatcher = new AutoRecoveryDeathWatcher(this);
     }
 
