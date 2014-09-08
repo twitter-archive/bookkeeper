@@ -278,9 +278,14 @@ public class IndexPersistenceMgr {
         FileInfo fi = null;
         try {
             fi = getFileInfo(ledgerId, null);
+
+            // Don't force flush. There's no need since we're deleting the ledger 
+            // anyway, and recreating the file at this point, although safe, will 
+            // force the garbage collector to do more work later.
             fi.close(false);
             fi.delete();
         } finally {
+            
             // should release use count
             // otherwise the file channel would not be closed.
             if (null != fi) {
@@ -329,9 +334,9 @@ public class IndexPersistenceMgr {
         try {
             ConcurrentMap<Long, FileInfo> fileInfos = fileInfoCache.asMap();
             for (Map.Entry<Long, FileInfo> entry : fileInfos.entrySet()) {
-                // we don't need to force a ledger index to be created, we just need to close
-                // those opened file channels
-                // the ledger index creation would be handle by SyncThread and Eviction only.
+                // Don't force create the file. We may have many dirty ledgers and file create/flush
+                // can be quite expensive as a result. We can use this optimization in this case 
+                // because metadata will be recovered from the journal when we restart anyway. 
                 entry.getValue().close(false);
             }
         } finally {

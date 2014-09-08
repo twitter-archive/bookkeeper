@@ -178,4 +178,69 @@ public class IndexPersistenceMgrTest {
         assertEquals("write", new String(newMgr.getFileInfo(lid, null).getMasterKey(), UTF_8));
         newMgr.close();
     }
+
+    IndexPersistenceMgr getPersistenceManager(int cacheSize) throws Exception {
+        
+        ServerConfiguration localConf = new ServerConfiguration();
+        localConf.addConfiguration(this.conf);
+        localConf.setOpenFileLimit(cacheSize);
+
+        return new IndexPersistenceMgr(
+            localConf.getPageSize(), localConf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
+            localConf, activeLedgerManager, ledgerDirsManager);   
+    }
+
+    void fillCache(IndexPersistenceMgr indexPersistenceMgr, int numEntries) throws Exception {
+        for (long i = 0; i < numEntries; i++) {
+            indexPersistenceMgr.getFileInfo(i, masterKey);
+        }
+    }
+
+    final long lid = 1L;
+    final byte[] masterKey = "write".getBytes();
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoEvictPreExistingFile() throws Exception {
+
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(10);
+            
+            // get file info and make sure the underlying file exists
+            FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            fi.checkOpen(true);
+            fi.setFenced();
+
+            // force evict by filling up cache  
+            fillCache(indexPersistenceMgr, 20);
+
+            // now reload the file info from disk, state should have been flushed 
+            fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(true, fi.isFenced());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoEvictNewFile() throws Exception {
+
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(10);
+            
+            // get file info, but don't persist metadata right away
+            FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            fi.setFenced();
+            fillCache(indexPersistenceMgr, 20);
+            fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(true, fi.isFenced());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
 }
