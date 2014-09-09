@@ -24,15 +24,12 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Queue;
-import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -62,7 +59,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     Queue<LedgerEntryRequest> seq;
-    Set<InetSocketAddress> heardFromHosts;
+    BitSet heardFromHostsBitSet;
     ReadCallback cb;
     Object ctx;
     LedgerHandle lh;
@@ -102,6 +99,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         /**
          * Complete the read request from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that respond the read
          * @param buffer
@@ -109,12 +108,12 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * @return return true if we managed to complete the entry;
          *         otherwise return false if the read entry is not complete or it is already completed before
          */
-        boolean complete(InetSocketAddress host, final ChannelBuffer buffer) {
+        boolean complete(int bookieIndex, InetSocketAddress host, final ChannelBuffer buffer) {
             ChannelBufferInputStream is;
             try {
                 is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
             } catch (BKDigestMatchException e) {
-                logErrorAndReattemptRead(host, "Mac mismatch", BKException.Code.DigestMatchException);
+                logErrorAndReattemptRead(bookieIndex, host, "Mac mismatch", BKException.Code.DigestMatchException);
                 return false;
             }
 
@@ -153,6 +152,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         /**
          * Log error <i>errMsg</i> and reattempt read from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that just respond
          * @param errMsg
@@ -160,7 +161,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * @param rc
          *          read result code
          */
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
             if (BKException.Code.OK == firstError ||
                 BKException.Code.NoSuchEntryException == firstError ||
                 BKException.Code.NoSuchLedgerExistsException == firstError) {
@@ -187,11 +188,11 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * Send to next replica speculatively, if required and possible.
          * This returns the host we may have sent to for unit testing.
          *
-         * @param heardFromHosts
+         * @param heardFromHostsBitSet
          *      the set of hosts that we already received responses.
          * @return host we sent to if we sent. null otherwise.
          */
-        abstract InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts);
+        abstract InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet);
 
         /**
          * Whether the read request completed.
@@ -218,10 +219,10 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
         // Speculative read
         void scheduleSpeculativeReadIfNecessary() {
-            if (!isComplete() && null != maybeSendSpeculativeRead(heardFromHosts)) {
+            if (!isComplete() && null != maybeSendSpeculativeRead(heardFromHostsBitSet)) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Send speculative read for {}. Hosts heard are {}.",
-                              this, heardFromHosts);
+                    LOG.debug("Send speculative read for {}. Hosts heard are {}, ensemble is {}.",
+                              new Object[] { this, heardFromHostsBitSet, ensemble });
                 }
                 if (speculativeReadTimeout > 0) {
                     speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
@@ -245,7 +246,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             for (int bookieIndex : writeSet) {
                 InetSocketAddress to = ensemble.get(bookieIndex);
                 try {
-                    sendReadTo(to, this);
+                    sendReadTo(bookieIndex, to, this);
                 } catch (InterruptedException ie) {
                     LOG.error("Interrupted reading entry {} : ", this, ie);
                     Thread.currentThread().interrupt();
@@ -256,8 +257,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
             --numPendings;
             // if received all responses or this entry doesn't meet quorum write, complete the request.
             if (numMissedEntryReads > maxMissedReadsAllowed || numPendings == 0) {
@@ -271,7 +272,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         @Override
-        InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet) {
             // no speculative read
             return null;
         }
@@ -295,11 +296,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             return nextReplicaIndexToReadFrom;
         }
 
-        private int getReplicaIndex(InetSocketAddress host) {
-            int bookieIndex = ensemble.indexOf(host);
-            if (bookieIndex == -1) {
-                return NOT_FOUND;
-            }
+        private int getReplicaIndex(int bookieIndex) {
             return writeSet.indexOf(bookieIndex);
         }
 
@@ -309,17 +306,6 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             for (int i = 0; i < sentReplicas.length(); i++) {
                 if (sentReplicas.get(i)) {
                     b.set(writeSet.get(i));
-                }
-            }
-            return b;
-        }
-
-        private BitSet getHeardFromBitSet(Set<InetSocketAddress> heardFromHosts) {
-            BitSet b = new BitSet(ensemble.size());
-            for (InetSocketAddress i : heardFromHosts) {
-                int index = ensemble.indexOf(i);
-                if (index != -1) {
-                    b.set(index);
                 }
             }
             return b;
@@ -335,13 +321,12 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
          * @return host we sent to if we sent. null otherwise.
          */
         @Override
-        synchronized InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        synchronized InetSocketAddress maybeSendSpeculativeRead(BitSet heardFrom) {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getWriteQuorumSize()) {
                 return null;
             }
 
             BitSet sentTo = getSentToBitSet();
-            BitSet heardFrom = getHeardFromBitSet(heardFromHosts);
             sentTo.and(heardFrom);
 
             // only send another read, if we have had no response at all (even for other entries)
@@ -382,7 +367,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
             try {
                 InetSocketAddress to = ensemble.get(bookieIndex);
-                sendReadTo(to, this);
+                sendReadTo(bookieIndex, to, this);
                 sentReplicas.set(replica);
                 return to;
             } catch (InterruptedException ie) {
@@ -394,10 +379,10 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
 
-            int replica = getReplicaIndex(host);
+            int replica = getReplicaIndex(bookieIndex);
             if (replica == NOT_FOUND) {
                 LOG.error("Received error from a host which is not in the ensemble {} {}.", host, ensemble);
                 return;
@@ -410,8 +395,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         @Override
-        boolean complete(InetSocketAddress host, ChannelBuffer buffer) {
-            boolean completed = super.complete(host, buffer);
+        boolean complete(int bookieIndex, InetSocketAddress host, ChannelBuffer buffer) {
+            boolean completed = super.complete(bookieIndex, host, buffer);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
                         .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
@@ -444,7 +429,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
                 - getLedgerMetadata().getAckQuorumSize();
         speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadTimeout();
         maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadTimeout();
-        heardFromHosts = new HashSet<InetSocketAddress>();
+        heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
     }
 
     protected LedgerMetadata getLedgerMetadata() {
@@ -510,11 +495,13 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     }
 
     private static class ReadContext implements ReadEntryCallbackCtx {
+        final int bookieIndex;
         final InetSocketAddress to;
         final LedgerEntryRequest entry;
         long lac = LedgerHandle.INVALID_ENTRY_ID;
 
-        ReadContext(InetSocketAddress to, LedgerEntryRequest entry) {
+        ReadContext(int bookieIndex, InetSocketAddress to, LedgerEntryRequest entry) {
+            this.bookieIndex = bookieIndex;
             this.to = to;
             this.entry = entry;
         }
@@ -530,11 +517,11 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
     }
 
-    void sendReadTo(InetSocketAddress to, LedgerEntryRequest entry) throws InterruptedException {
+    void sendReadTo(int bookieIndex, InetSocketAddress to, LedgerEntryRequest entry) throws InterruptedException {
         lh.throttler.acquire();
 
         lh.bk.bookieClient.readEntry(to, lh.ledgerId, entry.entryId,
-                                     this, new ReadContext(to, entry));
+                                     this, new ReadContext(bookieIndex, to, entry));
     }
 
     @Override
@@ -543,13 +530,13 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         final LedgerEntryRequest entry = rctx.entry;
 
         if (rc != BKException.Code.OK) {
-            entry.logErrorAndReattemptRead(rctx.to, "Error: " + BKException.getMessage(rc), rc);
+            entry.logErrorAndReattemptRead(rctx.bookieIndex, rctx.to, "Error: " + BKException.getMessage(rc), rc);
             return;
         }
 
-        heardFromHosts.add(rctx.to);
+        heardFromHostsBitSet.set(rctx.bookieIndex, true);
 
-        if (entry.complete(rctx.to, buffer)) {
+        if (entry.complete(rctx.bookieIndex, rctx.to, buffer)) {
             if (enablePiggybackLAC) {
                 lh.updateLastConfirmed(rctx.getLastAddConfirmed(), 0L);
             }

@@ -3,9 +3,7 @@ package org.apache.bookkeeper.client;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -29,8 +27,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
     final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     ReadLACAndEntryRequest request;
-    final Set<InetSocketAddress> heardFromHosts;
-    final Set<InetSocketAddress> emptyResponsesFromHosts;
+    final BitSet heardFromHostsBitSet;
+    final BitSet emptyResponsesFromHostsBitSet;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     final AtomicBoolean requestComplete = new AtomicBoolean(false);
@@ -77,6 +75,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         /**
          * Complete the read request from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that respond the read
          * @param buffer
@@ -84,12 +84,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @return return true if we managed to complete the entry;
          *         otherwise return false if the read entry is not complete or it is already completed before
          */
-        boolean complete(InetSocketAddress host, final ChannelBuffer buffer, long entryId) {
+        boolean complete(int bookieIndex, InetSocketAddress host, final ChannelBuffer buffer, long entryId) {
             ChannelBufferInputStream is;
             try {
                 is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
             } catch (BKException.BKDigestMatchException e) {
-                logErrorAndReattemptRead(host, "Mac mismatch", BKException.Code.DigestMatchException);
+                logErrorAndReattemptRead(bookieIndex, host, "Mac mismatch", BKException.Code.DigestMatchException);
                 return false;
             }
 
@@ -141,10 +141,11 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             }
         }
 
-
         /**
          * Log error <i>errMsg</i> and reattempt read from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that just respond
          * @param errMsg
@@ -152,7 +153,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @param rc
          *          read result code
          */
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
             translateAndSetFirstError(rc);
 
             if (BKException.Code.NoSuchEntryException == rc ||
@@ -170,11 +171,11 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * Send to next replica speculatively, if required and possible.
          * This returns the host we may have sent to for unit testing.
          *
-         * @param heardFromHosts
+         * @param heardFromHostsBitSet
          *      the set of hosts that we already received responses.
          * @return host we sent to if we sent. null otherwise.
          */
-        abstract InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts);
+        abstract InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet);
 
         /**
          * Whether the read request completed.
@@ -214,7 +215,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             for (int bookieIndex : orderedEnsemble) {
                 InetSocketAddress to = ensemble.get(bookieIndex);
                 try {
-                    sendReadTo(to, this);
+                    sendReadTo(bookieIndex, to, this);
                 } catch (InterruptedException ie) {
                     LOG.error("Interrupted reading entry {} : ", this, ie);
                     Thread.currentThread().interrupt();
@@ -225,8 +226,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
             --numPendings;
             // if received all responses or this entry doesn't meet quorum write, complete the request.
             if (numMissedEntryReads > maxMissedReadsAllowed || numPendings == 0) {
@@ -240,7 +241,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet) {
             // no speculative read
             return null;
         }
@@ -266,11 +267,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             return nextReplicaIndexToReadFrom;
         }
 
-        private int getReplicaIndex(InetSocketAddress host) {
-            int bookieIndex = ensemble.indexOf(host);
-            if (bookieIndex == -1) {
-                return NOT_FOUND;
-            }
+        private int getReplicaIndex(int bookieIndex) {
             return orderedEnsemble.indexOf(bookieIndex);
         }
 
@@ -280,17 +277,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             for (int i = 0; i < sentReplicas.length(); i++) {
                 if (sentReplicas.get(i)) {
                     b.set(orderedEnsemble.get(i));
-                }
-            }
-            return b;
-        }
-
-        private BitSet getHeardFromBitSet(Set<InetSocketAddress> heardFromHosts) {
-            BitSet b = new BitSet(ensemble.size());
-            for (InetSocketAddress i : heardFromHosts) {
-                int index = ensemble.indexOf(i);
-                if (index != -1) {
-                    b.set(index);
                 }
             }
             return b;
@@ -306,13 +292,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @return host we sent to if we sent. null otherwise.
          */
         @Override
-        synchronized InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        synchronized InetSocketAddress maybeSendSpeculativeRead(BitSet heardFrom) {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 return null;
             }
 
             BitSet sentTo = getSentToBitSet();
-            BitSet heardFrom = getHeardFromBitSet(heardFromHosts);
             sentTo.and(heardFrom);
 
             // only send another read, if we have had no response at all (even for other entries)
@@ -351,7 +336,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
 
             try {
                 InetSocketAddress to = ensemble.get(bookieIndex);
-                sendReadTo(to, this);
+                sendReadTo(bookieIndex, to, this);
                 sentReplicas.set(replica);
                 return to;
             } catch (InterruptedException ie) {
@@ -363,10 +348,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
 
-            int replica = getReplicaIndex(host);
+            int replica = getReplicaIndex(bookieIndex);
             if (replica == NOT_FOUND) {
                 LOG.error("Received error from a host which is not in the ensemble {} {}.", host, ensemble);
                 return;
@@ -384,8 +369,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        boolean complete(InetSocketAddress host, ChannelBuffer buffer, long entryId) {
-            boolean completed = super.complete(host, buffer, entryId);
+        boolean complete(int bookieIndex, InetSocketAddress host, ChannelBuffer buffer, long entryId) {
+            boolean completed = super.complete(bookieIndex, host, buffer, entryId);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
                         .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
@@ -420,8 +405,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             - getLedgerMetadata().getAckQuorumSize();
         speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadLACTimeout();
         maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadLACTimeout();
-        heardFromHosts = new HashSet<InetSocketAddress>();
-        emptyResponsesFromHosts = new HashSet<InetSocketAddress>();
+        heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
+        emptyResponsesFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
     }
 
     protected LedgerMetadata getLedgerMetadata() {
@@ -439,10 +424,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
     @Override
     public void safeRun() {
         if (!requestComplete.get() && !request.isComplete()) {
-            if (null != request.maybeSendSpeculativeRead(heardFromHosts)) {
+            if (null != request.maybeSendSpeculativeRead(heardFromHostsBitSet)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
-                        new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHosts });
+                        new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHostsBitSet });
                 }
                 if (speculativeReadTimeout > 0) {
                     speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
@@ -481,7 +466,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         request.read();
     }
 
-    void sendReadTo(InetSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
+    void sendReadTo(int bookieIndex, InetSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
         long previousLAC = lastAddConfirmed;
         if (LOG.isDebugEnabled()) {
             LOG.debug("Calling Read LAC and Entry with {} and long polling interval {} on Bookie {} - Parallel {}", new Object[] {previousLAC, timeOutInMillis, to, parallelRead});
@@ -492,7 +477,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             previousLAC,
             timeOutInMillis,
             true,
-            this, new ReadLastConfirmedAndEntryContext(to));
+            this, new ReadLastConfirmedAndEntryContext(bookieIndex, to));
         this.numResponsesPending++;
     }
 
@@ -504,10 +489,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
     }
 
     private static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
+        final int bookieIndex;
         final InetSocketAddress bookie;
         long lac = LedgerHandle.INVALID_ENTRY_ID;
 
-        ReadLastConfirmedAndEntryContext(InetSocketAddress bookie) {
+        ReadLastConfirmedAndEntryContext(int bookieIndex, InetSocketAddress bookie) {
+            this.bookieIndex = bookieIndex;
             this.bookie = bookie;
         }
 
@@ -564,19 +551,19 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             hasValidResponse = true;
 
             if (entryId != BookieProtocol.LAST_ADD_CONFIRMED) {
-                if (request.complete(bookie, buffer, entryId)) {
+                if (request.complete(rCtx.bookieIndex, bookie, buffer, entryId)) {
                     // callback immediately
                     submitCallback(BKException.Code.OK, lastAddConfirmed, request);
                     requestComplete.set(true);
-                    heardFromHosts.add(bookie);
+                    heardFromHostsBitSet.set(rCtx.bookieIndex, true);
                 }
             } else {
                 LOG.debug("Empty Response {}, {}", ledgerId, lastAddConfirmed);
-                emptyResponsesFromHosts.add(bookie);
-                if (emptyResponsesFromHosts.size() >= numEmptyResponsesAllowed) {
+                emptyResponsesFromHostsBitSet.set(rCtx.bookieIndex, true);
+                if (emptyResponsesFromHostsBitSet.cardinality() >= numEmptyResponsesAllowed) {
                     completeRequest();
                 } else {
-                    request.logErrorAndReattemptRead(bookie, "Empty Response", rc);
+                    request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Empty Response", rc);
                 }
                 return;
             }
@@ -584,7 +571,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             submitCallback(rc, lastAddConfirmed, null);
             requestComplete.set(true);
         } else {
-            request.logErrorAndReattemptRead(bookie, "Error: " + BKException.getMessage(rc), rc);
+            request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Error: " + BKException.getMessage(rc), rc);
             return;
         }
 
