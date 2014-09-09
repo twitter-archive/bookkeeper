@@ -345,6 +345,9 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testNewEnsembleWithSingleRegion() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -373,6 +376,9 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testNewEnsembleWithMultipleRegions() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -445,6 +451,77 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             fail("Should not get not enough bookies exception even there is only one rack.");
         }
     }
+
+    @Test(timeout = 60000)
+    public void testNewEnsembleWithThreeRegions() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.9", 3181);
+        InetSocketAddress addr9 = new InetSocketAddress("127.0.0.10", 3181);
+        InetSocketAddress addr10 = new InetSocketAddress("127.0.0.11", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), "/region2/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region2/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region3/r4");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostAddress(), "/region1/r11");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostAddress(), "/region1/r12");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostAddress(), "/region2/r13");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostAddress(), "/region3/r14");
+        StaticDNSResolver.addNodeToRack(addr9.getAddress().getHostAddress(), "/region2/r23");
+        StaticDNSResolver.addNodeToRack(addr10.getAddress().getHostAddress(), "/region1/r24");
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        addrs.add(addr10);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        try {
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(5, 5, new HashSet<InetSocketAddress>());
+            assert(ensemble.contains(addr4) || ensemble.contains(addr8));
+            assert(ensemble.size() == 5);
+            assertEquals(3, getNumRegionsInEnsemble(ensemble));
+            ensemble = repp.newEnsemble(6, 6, new HashSet<InetSocketAddress>());
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.size() == 6);
+            assertEquals(3, getNumRegionsInEnsemble(ensemble));
+            ensemble = repp.newEnsemble(7, 7, new HashSet<InetSocketAddress>());
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.size() == 7);
+            assertEquals(3, getNumRegionsInEnsemble(ensemble));
+            ensemble = repp.newEnsemble(8, 8, new HashSet<InetSocketAddress>());
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.size() == 8);
+            assertEquals(3, getNumRegionsInEnsemble(ensemble));
+            ensemble = repp.newEnsemble(9, 9, new HashSet<InetSocketAddress>());
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.size() == 9);
+            assertEquals(3, getNumRegionsInEnsemble(ensemble));
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+    }
+
+
 
     private void prepareNetworkTopologyForReorderTests(String myRegion) throws Exception {
         repp.uninitalize();
@@ -649,6 +726,14 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
             assertEquals(expectedReadSet, readSet);
         }
+    }
+
+    private int getNumRegionsInEnsemble(ArrayList<InetSocketAddress> ensemble) {
+        Set<String> regions = new HashSet<String>();
+        for(InetSocketAddress addr: ensemble) {
+            regions.add(StaticDNSResolver.getRegion(addr.getAddress().getHostAddress()));
+        }
+        return regions.size();
     }
 
     private int getNumCoveredRegionsInWriteQuorum(ArrayList<InetSocketAddress> ensemble, int writeQuorumSize)
