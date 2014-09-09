@@ -149,6 +149,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         final int distanceFromLeaves;
         final int ensembleSize;
         final int writeQuorumSize;
+        final int ackQuorumSize;
         final int minRacksOrRegionsInEnsemble;
         final ArrayList<BookieNode> chosenNodes;
         private final RackQuorumCoverageSet[] quorums;
@@ -158,23 +159,25 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.distanceFromLeaves = that.distanceFromLeaves;
             this.ensembleSize = that.ensembleSize;
             this.writeQuorumSize = that.writeQuorumSize;
+            this.ackQuorumSize = that.ackQuorumSize;
             this.chosenNodes = (ArrayList<BookieNode>)that.chosenNodes.clone();
             this.quorums = that.quorums.clone();
             this.parentEnsemble = that.parentEnsemble;
             this.minRacksOrRegionsInEnsemble = that.minRacksOrRegionsInEnsemble;
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, int minRacksOrRegionsInEnsemble) {
-            this(ensembleSize, writeQuorumSize, distanceFromLeaves, null, minRacksOrRegionsInEnsemble);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, int minRacksOrRegionsInEnsemble) {
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null, minRacksOrRegionsInEnsemble);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble) {
-            this(ensembleSize, writeQuorumSize, distanceFromLeaves, parentEnsemble, 0);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble) {
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, parentEnsemble, 0);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, int minRacksOrRegionsInEnsemble) {
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, int minRacksOrRegionsInEnsemble) {
             this.ensembleSize = ensembleSize;
             this.writeQuorumSize = writeQuorumSize;
+            this.ackQuorumSize = ackQuorumSize;
             this.distanceFromLeaves = distanceFromLeaves;
             this.chosenNodes = new ArrayList<BookieNode>(ensembleSize);
             this.quorums = new RackQuorumCoverageSet[ensembleSize];

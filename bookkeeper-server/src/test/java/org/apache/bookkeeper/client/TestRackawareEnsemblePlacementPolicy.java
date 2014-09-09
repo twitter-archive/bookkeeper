@@ -231,7 +231,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr4);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
         // replace node under r2
-        InetSocketAddress replacedBookie = repp.replaceBookie(addr2, new HashSet<InetSocketAddress>());
+        InetSocketAddress replacedBookie = repp.replaceBookie(1, 1, 1, new HashSet<InetSocketAddress>(), addr2, new HashSet<InetSocketAddress>());
         assertEquals(addr3, replacedBookie);
     }
 
@@ -256,7 +256,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         // replace node under r2
         Set<InetSocketAddress> excludedAddrs = new HashSet<InetSocketAddress>();
         excludedAddrs.add(addr1);
-        InetSocketAddress replacedBookie = repp.replaceBookie(addr2, excludedAddrs);
+        InetSocketAddress replacedBookie = repp.replaceBookie(1, 1, 1, new HashSet<InetSocketAddress>(), addr2, excludedAddrs);
 
         assertFalse(addr1.equals(replacedBookie));
         assertTrue(addr3.equals(replacedBookie) || addr4.equals(replacedBookie));
@@ -286,7 +286,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         excludedAddrs.add(addr3);
         excludedAddrs.add(addr4);
         try {
-            repp.replaceBookie(addr2, excludedAddrs);
+            repp.replaceBookie(1, 1, 1, new HashSet<InetSocketAddress>(), addr2, excludedAddrs);
             fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
         } catch (BKNotEnoughBookiesException bnebe) {
             // should throw not enou
@@ -307,9 +307,9 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr4);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
         try {
-            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(3, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(3, 2, 2, new HashSet<InetSocketAddress>());
             assertEquals(0, getNumCoveredWriteQuorums(ensemble, 2));
-            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, 2, new HashSet<InetSocketAddress>());
             assertEquals(0, getNumCoveredWriteQuorums(ensemble2, 2));
         } catch (BKNotEnoughBookiesException bnebe) {
             fail("Should not get not enough bookies exception even there is only one rack.");
@@ -335,10 +335,10 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr4);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
         try {
-            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(3, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(3, 2, 2, new HashSet<InetSocketAddress>());
             int numCovered = getNumCoveredWriteQuorums(ensemble, 2);
             assertTrue(numCovered >= 1 && numCovered < 3);
-            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, 2, new HashSet<InetSocketAddress>());
             numCovered = getNumCoveredWriteQuorums(ensemble2, 2);
             assertTrue(numCovered >= 1 && numCovered < 3);
         } catch (BKNotEnoughBookiesException bnebe) {
@@ -377,9 +377,9 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr8);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
         try {
-            ArrayList<InetSocketAddress> ensemble1 = repp.newEnsemble(3, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble1 = repp.newEnsemble(3, 2, 2, new HashSet<InetSocketAddress>());
             assertEquals(3, getNumCoveredWriteQuorums(ensemble1, 2));
-            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble2 = repp.newEnsemble(4, 2, 2, new HashSet<InetSocketAddress>());
             assertEquals(4, getNumCoveredWriteQuorums(ensemble2, 2));
         } catch (BKNotEnoughBookiesException bnebe) {
             fail("Should not get not enough bookies exception even there is only one rack.");

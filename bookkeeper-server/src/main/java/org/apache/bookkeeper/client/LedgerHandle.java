@@ -933,7 +933,7 @@ public class LedgerHandle {
                     continue;
                 }
                 try {
-                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(newEnsemble, idx);
+                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(metadata.getEnsembleSize(), metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), newEnsemble, idx);
                     newEnsemble.set(idx, newBookie);
                     replacedBookies.add(idx);
                 } catch (BKException.BKNotEnoughBookiesException e) {

@@ -75,7 +75,7 @@ public interface EnsemblePlacementPolicy {
      * @return list of bookies chosen as targets.
      * @throws BKNotEnoughBookiesException if not enough bookies available.
      */
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize,
+    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
             Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException;
 
     /**
@@ -89,8 +89,8 @@ public interface EnsemblePlacementPolicy {
      * @return the bookie chosen as target.
      * @throws BKNotEnoughBookiesException
      */
-    public InetSocketAddress replaceBookie(InetSocketAddress bookieToReplace,
-            Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException;
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
+                                           Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException;
 
     /**
      * Reorder the read sequence of a given write quorum <i>writeSet</i>.

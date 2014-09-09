@@ -21,6 +21,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -235,17 +236,22 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize,
+    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
                                                     Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
         return newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, null);
     }
 
     public ArrayList<InetSocketAddress> newEnsembleInternal(int ensembleSize, int writeQuorumSize,
+                                                            Set<InetSocketAddress> excludeBookies, RRTopologyAwareCoverageEnsemble parentEnsemble) throws BKNotEnoughBookiesException {
+        return newEnsembleInternal(ensembleSize, writeQuorumSize, writeQuorumSize, excludeBookies, parentEnsemble);
+    }
+
+    public ArrayList<InetSocketAddress> newEnsembleInternal(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
             Set<InetSocketAddress> excludeBookies, RRTopologyAwareCoverageEnsemble parentEnsemble) throws BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
-            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, RACKNAME_DISTANCE_FROM_LEAVES, parentEnsemble);
+            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, RACKNAME_DISTANCE_FROM_LEAVES, parentEnsemble);
             BookieNode prevNode = null;
             int numRacks = topology.getNumOfRacks();
             // only one rack, use the random algorithm.
@@ -285,10 +291,11 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public InetSocketAddress replaceBookie(InetSocketAddress bookieToReplace,
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize,  Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
             Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
+            excludeBookies.addAll(currentEnsemble);
             BookieNode bn = knownBookies.get(bookieToReplace);
             if (null == bn) {
                 bn = createBookieNode(bookieToReplace);

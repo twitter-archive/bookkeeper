@@ -41,7 +41,7 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     private Set<InetSocketAddress> knownBookies = new HashSet<InetSocketAddress>();
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int quorumSize,
+    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int quorumSize, int ackQuorumSize,
             Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
         ArrayList<InetSocketAddress> newBookies = new ArrayList<InetSocketAddress>(ensembleSize);
         if (ensembleSize <= 0) {
@@ -66,9 +66,11 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     }
 
     @Override
-    public InetSocketAddress replaceBookie(InetSocketAddress bookieToReplace,
-            Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
-        ArrayList<InetSocketAddress> addresses = newEnsemble(1, 1, excludeBookies);
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble,
+                                           InetSocketAddress bookieToReplace,
+                                           Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
+        excludeBookies.addAll(currentEnsemble);
+        ArrayList<InetSocketAddress> addresses = newEnsemble(1, 1, 1, excludeBookies);
         return addresses.get(0);
     }
 

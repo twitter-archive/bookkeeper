@@ -19,6 +19,7 @@ package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -144,7 +145,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize,
+    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
                                                     Set<InetSocketAddress> excludeBookies) throws BKException.BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
@@ -163,7 +164,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
             // Single region, fall back to RackAwareEnsemblePlacement
             if (numRegions < 2) {
-                RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, REGIONID_DISTANCE_FROM_LEAVES, minRegionsForDurability);
+                RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, REGIONID_DISTANCE_FROM_LEAVES, minRegionsForDurability);
                 return perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
             }
 
@@ -186,7 +187,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             do {
                 LOG.info("RegionAwareEnsemblePlacementPolicy#newEnsemble Iteration {}", iteration++);
                 int numRemainingRegions = numRegions - regionsReachedMaxAllocation.size();
-                ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, REGIONID_DISTANCE_FROM_LEAVES, minRegionsForDurability);
+                ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, REGIONID_DISTANCE_FROM_LEAVES, minRegionsForDurability);
                 remainingEnsembleBeforeIteration = remainingEnsemble;
                 for (String region: regionsWiseAllocation.keySet()) {
                     final Pair<Integer, Integer> currentAllocation = regionsWiseAllocation.get(region);
@@ -269,10 +270,11 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public InetSocketAddress replaceBookie(InetSocketAddress bookieToReplace,
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
                                            Set<InetSocketAddress> excludeBookies) throws BKException.BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
+            excludeBookies.addAll(currentEnsemble);
             BookieNode bn = knownBookies.get(bookieToReplace);
             if (null == bn) {
                 bn = createBookieNode(bookieToReplace);

@@ -205,9 +205,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
      * @return list of bookies for new ensemble.
      * @throws BKNotEnoughBookiesException
      */
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize)
+    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize)
             throws BKNotEnoughBookiesException {
-        return placementPolicy.newEnsemble(ensembleSize, writeQuorumSize, EMPTY_SET);
+        return placementPolicy.newEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, EMPTY_SET);
     }
 
     /**
@@ -216,10 +216,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
      * @return
      * @throws BKNotEnoughBookiesException
      */
-    public InetSocketAddress replaceBookie(List<InetSocketAddress> existingBookies, int bookieIdx)
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, List<InetSocketAddress> existingBookies, int bookieIdx)
             throws BKNotEnoughBookiesException {
         InetSocketAddress addr = existingBookies.get(bookieIdx);
-        return placementPolicy.replaceBookie(addr, new HashSet<InetSocketAddress>(existingBookies));
+        return placementPolicy.replaceBookie(ensembleSize, writeQuormSize, ackQuorumSize, existingBookies, addr, new HashSet<InetSocketAddress>());
     }
 
     /**

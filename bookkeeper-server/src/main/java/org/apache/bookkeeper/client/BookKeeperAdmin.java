@@ -701,12 +701,16 @@ public class BookKeeperAdmin {
                     try {
                         Set<InetSocketAddress> bookiesToExclude = new HashSet<InetSocketAddress>();
                         bookiesToExclude.addAll(bookiesSrc);
-                        bookiesToExclude.addAll(ensemble);
                         for (int bookieIndex = 0; bookieIndex < ensemble.size(); bookieIndex++) {
                             InetSocketAddress bookieInEnsemble = ensemble.get(bookieIndex);
                             if (bookiesSrc.contains(bookieInEnsemble)) {
                                 InetSocketAddress newBookie =
-                                        bkc.getPlacementPolicy().replaceBookie(bookieInEnsemble, bookiesToExclude);
+                                        bkc.getPlacementPolicy().replaceBookie(lh.getLedgerMetadata().getEnsembleSize(),
+                                                            lh.getLedgerMetadata().getWriteQuorumSize(),
+                                                            lh.getLedgerMetadata().getAckQuorumSize(),
+                                                            ensemble,
+                                                            bookieInEnsemble,
+                                                            bookiesToExclude);
                                 newEnsemble.set(bookieIndex, newBookie);
                                 bookieIndexesReplaced.add(bookieIndex);
                                 targetBookieAddresses.add(newBookie);
