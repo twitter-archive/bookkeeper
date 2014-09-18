@@ -35,7 +35,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.zookeeper.server.NIOServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
@@ -82,7 +81,6 @@ public class LocalBookKeeper {
     }
 
     private String zkServer;
-    ZooKeeper zkc;
     static String ZooKeeperDefaultHost = "127.0.0.1";
     static int ZooKeeperDefaultPort = 2181;
     static int zkSessionTimeOut = 5000;
@@ -126,9 +124,10 @@ public class LocalBookKeeper {
         return (new LocalBookKeeper.ConnectedZKServer(zks, serverFactory));
     }
 
-    private void initializeZookeper() throws IOException {
+    private void initializeZookeper() throws IOException, InterruptedException {
         LOG.info("Instantiate ZK Client");
         //initialize the zk client with values
+        ZooKeeperClient zkc = null;
         try {
             zkc = ZooKeeperClient.createConnectedZooKeeperClient(zkServer, zkSessionTimeOut);
             zkc.create("/ledgers", new byte[0], Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
@@ -136,9 +135,12 @@ public class LocalBookKeeper {
             // No need to create an entry for each requested bookie anymore as the
             // BookieServers will register themselves with ZooKeeper on startup.
         } catch (KeeperException e) {
-            LOG.error("Exception while creating znodes", e);
-        } catch (InterruptedException e) {
-            LOG.error("Interrupted while creating znodes", e);
+            LOG.error("Exception while creating ledger paths : ", e);
+            throw new IOException("Error creating ledger paths : ", e);
+        } finally {
+            if (null != zkc) {
+                zkc.close();
+            }
         }
     }
 
