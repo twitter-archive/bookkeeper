@@ -58,7 +58,11 @@ public final class NativeIO {
             initialized = true;
             LOG.info("Loaded bookkeeper native library. Enabled Native IO.");
         } catch (Throwable t) {
-            LOG.info("Unable to load bookkeeper native library. Native methods will be disabled : ", t);
+            try {
+                LOG.info("Unable to load bookkeeper native library. Native methods will be disabled : ", t);
+            } catch (Throwable t0) {
+                LOG.warn("RuntimeException on LOG.info with {} : ", t.getMessage(), t0);
+            }
         }
     }
 
