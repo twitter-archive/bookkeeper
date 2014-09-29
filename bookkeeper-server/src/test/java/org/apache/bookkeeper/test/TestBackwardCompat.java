@@ -22,14 +22,17 @@ package org.apache.bookkeeper.test;
 
 import java.io.File;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Arrays;
 import java.net.InetAddress;
+import java.util.List;
 
+import org.apache.bookkeeper.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.junit.Test;
 import org.junit.Before;
 import org.junit.After;
 import static org.junit.Assert.*;
@@ -54,6 +57,15 @@ public class TestBackwardCompat {
             Thread.sleep(500);
         }
     }
+
+    final List<File> tempDirs = new ArrayList<File>();
+
+    File createTempDir(String prefix, String suffix) throws IOException {
+        File dir = IOUtils.createTempDir(prefix, suffix);
+        tempDirs.add(dir);
+        return dir;
+    }
+
     @Before
     public void startZooKeeperServer() throws Exception {
         zkUtil.startServer();
@@ -360,12 +372,8 @@ public class TestBackwardCompat {
      */
     //@Test
     public void testOldCookieAccessingNewCluster() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
+        File ledgerDir = createTempDir("bookie", "ledger");
 
         int port = PortManager.nextFreePort();
 
@@ -418,12 +426,8 @@ public class TestBackwardCompat {
      */
     //@Test
     public void testCompat400() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
+        File ledgerDir = createTempDir("bookie", "ledger");
 
         int port = PortManager.nextFreePort();
         // start server, upgrade
@@ -506,12 +510,8 @@ public class TestBackwardCompat {
      */
     //@Test
     public void testCompat410() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
+        File ledgerDir = createTempDir("bookie", "ledger");
 
         int port = PortManager.nextFreePort();
         // start server, upgrade

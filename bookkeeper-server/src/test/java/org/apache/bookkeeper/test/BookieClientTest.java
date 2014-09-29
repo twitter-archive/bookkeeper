@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.concurrent.Executors;
 
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.util.IOUtils;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
@@ -58,9 +59,7 @@ public class BookieClientTest extends TestCase {
 
     @Override
     public void setUp() throws Exception {
-        tmpDir = File.createTempFile("bookie", "test");
-        tmpDir.delete();
-        tmpDir.mkdir();
+        tmpDir = IOUtils.createTempDir("bookieclient", "test");
 
         // Since this test does not rely on the BookKeeper client needing to
         // know via ZooKeeper which Bookies are available, okay, so pass in null

@@ -4,6 +4,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -66,12 +67,8 @@ public class IndexPersistenceMgrTest {
 
     @Before
     public void setUp() throws Exception {
-        txnDir = File.createTempFile("index-persistence-mgr", "txn");
-        txnDir.delete();
-        txnDir.mkdir();
-        ledgerDir = File.createTempFile("index-persistence-mgr", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        txnDir = IOUtils.createTempDir("index-persistence-mgr", "txn");
+        ledgerDir = IOUtils.createTempDir("index-persistence-mgr", "ledger");
         // create current dir
         new File(txnDir, Bookie.CURRENT_DIR).mkdir();
         new File(ledgerDir, Bookie.CURRENT_DIR).mkdir();
@@ -180,14 +177,14 @@ public class IndexPersistenceMgrTest {
     }
 
     IndexPersistenceMgr getPersistenceManager(int cacheSize) throws Exception {
-        
+
         ServerConfiguration localConf = new ServerConfiguration();
         localConf.addConfiguration(this.conf);
         localConf.setOpenFileLimit(cacheSize);
 
         return new IndexPersistenceMgr(
             localConf.getPageSize(), localConf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-            localConf, activeLedgerManager, ledgerDirsManager);   
+            localConf, activeLedgerManager, ledgerDirsManager);
     }
 
     void fillCache(IndexPersistenceMgr indexPersistenceMgr, int numEntries) throws Exception {
@@ -205,16 +202,16 @@ public class IndexPersistenceMgrTest {
         IndexPersistenceMgr indexPersistenceMgr = null;
         try {
             indexPersistenceMgr = getPersistenceManager(10);
-            
+
             // get file info and make sure the underlying file exists
             FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
             fi.checkOpen(true);
             fi.setFenced();
 
-            // force evict by filling up cache  
+            // force evict by filling up cache
             fillCache(indexPersistenceMgr, 20);
 
-            // now reload the file info from disk, state should have been flushed 
+            // now reload the file info from disk, state should have been flushed
             fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
             assertEquals(true, fi.isFenced());
         } finally {
@@ -230,7 +227,7 @@ public class IndexPersistenceMgrTest {
         IndexPersistenceMgr indexPersistenceMgr = null;
         try {
             indexPersistenceMgr = getPersistenceManager(10);
-            
+
             // get file info, but don't persist metadata right away
             FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
             fi.setFenced();

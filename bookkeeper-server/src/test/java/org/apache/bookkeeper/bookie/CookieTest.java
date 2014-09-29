@@ -21,52 +21,39 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.test.PortManager;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.test.ZooKeeperUtil;
-import org.apache.bookkeeper.test.PortManager;
-import org.apache.zookeeper.ZooKeeper;
 
 import java.io.File;
 import java.io.IOException;
 
 import org.junit.Test;
-import org.junit.After;
-import org.junit.Before;
-import static org.junit.Assert.*;
 
 import static org.apache.bookkeeper.bookie.UpgradeTest.*;
 
-public class CookieTest {
-    ZooKeeperUtil zkutil;
-    ZooKeeper zkc = null;
+public class CookieTest extends BookKeeperClusterTestCase {
+
     final int bookiePort = PortManager.nextFreePort();
 
-    @Before
-    public void setupZooKeeper() throws Exception {
-        zkutil = new ZooKeeperUtil();
-        zkutil.startServer();
-        zkc = zkutil.getZooKeeperClient();
+    public CookieTest() {
+        super(0);
     }
 
-    @After
-    public void tearDownZooKeeper() throws Exception {
-        zkutil.killServer();
-    }
-
-    private static String newDirectory() throws IOException {
+    private String newDirectory() throws IOException {
         return newDirectory(true);
     }
 
-    private static String newDirectory(boolean createCurDir) throws IOException {
-        File d = File.createTempFile("bookie", "tmpdir");
-        d.delete();
-        d.mkdirs();
+    private String newDirectory(boolean createCurDir) throws IOException {
+        File d = IOUtils.createTempDir("cookie", "tmpdir");
         if (createCurDir) {
             new File(d, "current").mkdirs();
         }
+        tmpDirs.add(d);
         return d.getPath();
     }
 
@@ -76,7 +63,7 @@ public class CookieTest {
     @Test
     public void testCleanStart() throws Exception {
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory(false))
             .setLedgerDirNames(new String[] { newDirectory(false) })
             .setBookiePort(bookiePort);
@@ -104,7 +91,7 @@ public class CookieTest {
         String journalDir = newDirectory();
         String ledgerDir = newDirectory();
         ServerConfiguration conf2 = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir })
             .setBookiePort(bookiePort);
@@ -131,7 +118,7 @@ public class CookieTest {
             newDirectory(), newDirectory(), newDirectory() };
         String journalDir = newDirectory();
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(ledgerDirs)
             .setBookiePort(bookiePort);
@@ -172,7 +159,7 @@ public class CookieTest {
         String ledgerDir0 = newDirectory();
         String journalDir = newDirectory();
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir0 })
             .setBookiePort(bookiePort);
@@ -204,7 +191,7 @@ public class CookieTest {
         String ledgerDir0 = newDirectory();
         String journalDir = newDirectory();
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir0 , newDirectory() })
             .setBookiePort(bookiePort);
@@ -229,7 +216,7 @@ public class CookieTest {
     @Test
     public void testBookiePortChanged() throws Exception {
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
@@ -255,7 +242,7 @@ public class CookieTest {
     @Test
     public void testNewBookieStartingWithAnotherBookiesPort() throws Exception {
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
@@ -264,7 +251,7 @@ public class CookieTest {
         b.shutdown();
 
         conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
+            .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
@@ -282,14 +269,14 @@ public class CookieTest {
     @Test
     public void testVerifyCookieWithFormat() throws Exception {
         ClientConfiguration adminConf = new ClientConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString());
+            .setZkServers(zkUtil.getZooKeeperConnectString());
 
         adminConf.setProperty("bookkeeper.format", true);
         // Format the BK Metadata and generate INSTANCEID
         BookKeeperAdmin.format(adminConf, false, true);
 
         ServerConfiguration bookieConf = new ServerConfiguration()
-                .setZkServers(zkutil.getZooKeeperConnectString())
+                .setZkServers(zkUtil.getZooKeeperConnectString())
                 .setJournalDirName(newDirectory(false))
                 .setLedgerDirNames(new String[] { newDirectory(false) })
                 .setBookiePort(bookiePort);
@@ -319,10 +306,14 @@ public class CookieTest {
      */
     @Test
     public void testV2data() throws Exception {
+        File journalDir = newV2JournalDirectory();
+        tmpDirs.add(journalDir);
+        File ledgerDir = newV2LedgerDirectory();
+        tmpDirs.add(ledgerDir);
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
-            .setJournalDirName(newV2JournalDirectory())
-            .setLedgerDirNames(new String[] { newV2LedgerDirectory() })
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(journalDir.getPath())
+            .setLedgerDirNames(new String[] { ledgerDir.getPath() })
             .setBookiePort(bookiePort);
         try {
             Bookie b = new Bookie(conf);
@@ -339,10 +330,14 @@ public class CookieTest {
      */
     @Test
     public void testV1data() throws Exception {
+        File journalDir = newV1JournalDirectory();
+        tmpDirs.add(journalDir);
+        File ledgerDir = newV1LedgerDirectory();
+        tmpDirs.add(ledgerDir);
         ServerConfiguration conf = new ServerConfiguration()
-            .setZkServers(zkutil.getZooKeeperConnectString())
-            .setJournalDirName(newV1JournalDirectory())
-            .setLedgerDirNames(new String[] { newV1LedgerDirectory() })
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(journalDir.getPath())
+            .setLedgerDirNames(new String[]{ledgerDir.getPath()})
             .setBookiePort(bookiePort);
         try {
             Bookie b = new Bookie(conf);
