@@ -204,7 +204,90 @@ public class EntryLogTest {
         return bb;
     }
 
-    @Test
+    @Test(timeout = 60000)
+    public void testInitializeEntryLogNoWritableDirs() throws Exception {
+        File tmpLedgerDir = createTempDir("initializeEntryLogNoWritableDirs", "ledgers");
+        File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
+        Bookie.checkDirectoryStructure(curLedgerDir);
+
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
+
+        LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        dirsManager.addToFilledDirs(curLedgerDir);
+
+        try {
+            new EntryLogger(conf, dirsManager);
+            fail("Should fail initialize entry logger if there isn't writable dirs");
+        } catch (IOException ioe) {
+            // expected
+        }
+    }
+
+    static class TestEntryLogger extends EntryLogger {
+
+        public TestEntryLogger(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager)
+                throws IOException {
+            super(conf, ledgerDirsManager);
+        }
+
+        @Override
+        protected void setLastLogId(File dir, long logId) throws IOException {
+            throw new IOException("Failed to write log id " + logId + " under dir " + dir);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteLogIdFailure() throws Exception {
+        File tmpLedgerDir = createTempDir("writeLogIdFailure", "ledgers");
+        File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
+        Bookie.checkDirectoryStructure(curLedgerDir);
+
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
+
+        LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        // create logs
+        int numLogs = 3;
+        int numEntries = 10;
+        long[][] positions = new long[2*numLogs][];
+        for (int i = 0; i < numLogs; i++) {
+            positions[i] = new long[numEntries];
+
+            EntryLogger entryLogger = new TestEntryLogger(conf, dirsManager);
+            for (int j = 0; j < numEntries; j++) {
+                positions[i][j] = entryLogger.addEntry(generateEntry(i, j));
+            }
+            entryLogger.flush();
+            entryLogger.shutdown();
+        }
+
+        EntryLogger newLogger = new TestEntryLogger(conf, dirsManager);
+        for (int i = 0; i < numLogs + 1; i++) {
+            File logFile = new File(curLedgerDir, Long.toHexString(i) + ".log");
+            assertTrue(logFile.exists());
+        }
+
+        for (int i=0; i<numLogs; i++) {
+            for (int j=0; j<numEntries; j++) {
+                String expectedValue = "ledger-" + i + "-" + j;
+                byte[] value = newLogger.readEntry(i, j, positions[i][j]);
+                ByteBuffer buf = ByteBuffer.wrap(value);
+                long ledgerId = buf.getLong();
+                long entryId = buf.getLong();
+                byte[] data = new byte[buf.remaining()];
+                buf.get(data);
+                assertEquals(i, ledgerId);
+                assertEquals(j, entryId);
+                assertEquals(expectedValue, new String(data));
+            }
+        }
+
+        File lastId = new File(curLedgerDir, "lastId");
+        assertFalse(lastId.exists());
+    }
+
+    @Test(timeout = 60000)
     public void testMissingLogId() throws Exception {
         File tmpDir = createTempDir("entryLogTest", ".dir");
         File curDir = Bookie.getCurrentDirectory(tmpDir);

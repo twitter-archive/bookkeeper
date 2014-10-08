@@ -417,6 +417,11 @@ public class EntryLogger {
          */
         BufferedLogChannel allocateNewLog() throws IOException {
             List<File> list = ledgerDirsManager.getWritableLedgerDirs();
+
+            if (list.isEmpty()) {
+                throw new IOException("No writable ledger directories to allocate new entry log.");
+            }
+
             Collections.shuffle(list);
             // It would better not to overwrite existing entry log files
             File newLogFile = null;
@@ -440,8 +445,14 @@ public class EntryLogger {
             logChannel.write((ByteBuffer) LOGFILE_HEADER.clear());
 
             for (File f : list) {
-                setLastLogId(f, preallocatedLogId);
+                try {
+                    setLastLogId(f, preallocatedLogId);
+                } catch (IOException ioe) {
+                    LOG.warn("Failed to write lastId {} to directory {} : ",
+                             new Object[] { preallocatedLogId, f, ioe });
+                }
             }
+
             LOG.info("Preallocated entry logger {}.", preallocatedLogId);
             return logChannel;
         }
@@ -481,7 +492,7 @@ public class EntryLogger {
     /**
      * writes the given id to the "lastId" file in the given directory.
      */
-    private void setLastLogId(File dir, long logId) throws IOException {
+    protected void setLastLogId(File dir, long logId) throws IOException {
         FileOutputStream fos;
         fos = new FileOutputStream(new File(dir, "lastId"));
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos, UTF_8));
