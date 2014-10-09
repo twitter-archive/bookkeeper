@@ -141,6 +141,7 @@ public class Bookie extends BookieThread {
     final private String zkBookieRegPath;
     final private String zkBookieReadOnlyPath;
 
+    final private AtomicBoolean zkRegistered = new AtomicBoolean(false);
     final private AtomicBoolean readOnly = new AtomicBoolean(false);
     // executor to manage the state changes for a bookie.
     final ExecutorService stateService = Executors.newSingleThreadExecutor(
@@ -636,7 +637,7 @@ public class Bookie extends BookieThread {
         String myID = getMyId();
         zkBookieRegPath = this.bookieRegistrationPath + myID;
         zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
-        // 1 : up, 0 : readonly
+        // 1 : up, 0 : readonly, -1 : unregistered
         ServerStatsProvider.getStatsLoggerInstance().registerGauge(BookkeeperServerGauge.SERVER_STATUS,
                 new Gauge<Number>() {
                     @Override
@@ -646,7 +647,7 @@ public class Bookie extends BookieThread {
 
                     @Override
                     public Number getSample() {
-                        return readOnly.get() ? 0 : 1;
+                        return zkRegistered.get() ? (readOnly.get() ? 0 : 1) : -1;
                     }
                 });
     }
@@ -990,6 +991,8 @@ public class Bookie extends BookieThread {
             return;
         }
 
+        zkRegistered.set(false);
+
         // ZK ephemeral node for this Bookie.
         try{
             if (!checkRegNodeAndWaitExpired(regPath)) {
@@ -997,6 +1000,7 @@ public class Bookie extends BookieThread {
                 zk.create(regPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
                         CreateMode.EPHEMERAL);
                 LOG.info("Registered myself in ZooKeeper at {}.", regPath);
+                zkRegistered.set(true);
             }
         } catch (KeeperException ke) {
             LOG.error("ZK exception registering ephemeral Znode for Bookie!", ke);
@@ -1168,6 +1172,7 @@ public class Bookie extends BookieThread {
                 // Check for expired connection.
                 if (event.getType().equals(EventType.None) &&
                     event.getState().equals(KeeperState.Expired)) {
+                    zkRegistered.set(false);
                     // schedule a re-register operation
                     registerBookie(false);
                 }

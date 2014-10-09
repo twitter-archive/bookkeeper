@@ -169,7 +169,11 @@ public class ZooKeeperWatcherBase implements Watcher {
     private void notifyEvent(WatchedEvent event) {
         // notify child watchers
         for (Watcher w : childWatchers) {
-            w.process(event);
+            try {
+                w.process(event);
+            } catch (Exception t) {
+                LOG.warn("Encountered unexpected exception from watcher {} : ", w, t);
+            }
         }
     }
 

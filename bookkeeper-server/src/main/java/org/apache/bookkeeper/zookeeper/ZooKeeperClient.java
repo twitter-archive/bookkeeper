@@ -430,6 +430,8 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             connectExecutor.submit(clientCreator);
         } catch (RejectedExecutionException ree) {
             logger.error("ZooKeeper reconnect task is rejected : ", ree);
+        } catch (Exception t) {
+            logger.error("Failed to submit zookeeper reconnect task due to runtime exception : ", t);
         }
     }
 
