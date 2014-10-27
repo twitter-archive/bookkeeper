@@ -23,8 +23,8 @@ package org.apache.bookkeeper.replication;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.test.TestCallbacks;
 
+import java.net.InetSocketAddress;
 import java.util.List;
-import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -41,7 +41,6 @@ import org.apache.zookeeper.ZooKeeper;
 import org.junit.Before;
 import org.junit.After;
 import org.junit.Test;
-import static org.junit.Assert.assertEquals;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +61,6 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
     public AuditorPeriodicBookieCheckTest() {
         super(3);
         baseConf.setPageLimit(1); // to make it easy to push ledger out of cache
-        baseConf.setAllowLoopback(true);
     }
 
     @Before
@@ -71,7 +69,6 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
         super.setUp();
 
         ServerConfiguration conf = new ServerConfiguration(bsConfs.get(0));
-        conf.setAllowLoopback(true);
         conf.setAuditorPeriodicBookieCheckInterval(CHECK_INTERVAL);
         String addr = bs.get(0).getLocalAddress().toString();
 
@@ -104,8 +101,8 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
 
         LedgerHandle lh = bkc.createLedger(3, 3, DigestType.CRC32, "passwd".getBytes());
         LedgerMetadata md = LedgerHandleAdapter.getLedgerMetadata(lh);
-        List<BookieSocketAddress> ensemble = md.getEnsembles().get(0L);
-        ensemble.set(0, new BookieSocketAddress("1.1.1.1", 1000));
+        List<InetSocketAddress> ensemble = md.getEnsembles().get(0L);
+        ensemble.set(0, new InetSocketAddress("1.1.1.1", 1000));
 
         TestCallbacks.GenericCallbackFuture<Void> cb = new TestCallbacks.GenericCallbackFuture<Void>();
         ledgerManager.writeLedgerMetadata(lh.getId(), md, cb);
