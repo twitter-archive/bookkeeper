@@ -81,19 +81,51 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
         }
         entry.rewind();
 
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
-                .add(entry.remaining());
-        return ledgerStorage.addEntry(entry);
+        int dataSize = entry.remaining();
+        boolean success = false;
+        try {
+            long entryId =  ledgerStorage.addEntry(entry);
+            success = true;
+            return entryId;
+        } finally {
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                        BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
+                        .add(dataSize);
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY_BYTES)
+                        .registerSuccessfulEvent(dataSize);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY_BYTES)
+                        .registerFailedEvent(dataSize);
+            }
+        }
     }
 
     @Override
     ByteBuffer readEntry(long entryId) throws IOException {
-        ByteBuffer data = ledgerStorage.getEntry(ledgerId, entryId);
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
-                .add(data.remaining());
-        return data;
+        boolean success = false;
+        int dataSize = 0;
+        try {
+            ByteBuffer data = ledgerStorage.getEntry(ledgerId, entryId);
+            success = true;
+            dataSize = data.remaining();
+            return data;
+        } finally {
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                        BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
+                        .add(dataSize);
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY_BYTES)
+                        .registerSuccessfulEvent(dataSize);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY_BYTES)
+                        .registerFailedEvent(dataSize);
+            }
+        }
     }
 
     @Override

@@ -61,6 +61,7 @@ import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerGauge;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
@@ -1350,14 +1351,28 @@ public class Bookie extends BookieThread {
      */
     public void recoveryAddEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException {
+        long requestNanos = MathUtils.nowInNano();
+        boolean success = false;
         try {
             LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
             synchronized (handle) {
                 addEntryInternal(handle, entry, cb, ctx);
             }
+            success = true;
         } catch (NoWritableLedgerDirException e) {
             transitionToReadOnlyMode();
             throw new IOException(e);
+        } finally {
+            long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_RECOVERY_ADD_ENTRY)
+                        .registerSuccessfulEvent(elapsedMicros);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_RECOVERY_ADD_ENTRY)
+                        .registerFailedEvent(elapsedMicros);
+            }
         }
     }
 
@@ -1367,6 +1382,8 @@ public class Bookie extends BookieThread {
      */
     public void addEntry(ByteBuffer entry, WriteCallback cb, Object ctx, byte[] masterKey)
             throws IOException, BookieException {
+        long requestNanos = MathUtils.nowInNano();
+        boolean success = false;
         try {
             LedgerDescriptor handle = getLedgerForEntry(entry, masterKey);
             synchronized (handle) {
@@ -1376,9 +1393,21 @@ public class Bookie extends BookieThread {
                 }
                 addEntryInternal(handle, entry, cb, ctx);
             }
+            success = true;
         } catch (NoWritableLedgerDirException e) {
             transitionToReadOnlyMode();
             throw new IOException(e);
+        } finally {
+            long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY)
+                        .registerSuccessfulEvent(elapsedMicros);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY)
+                        .registerFailedEvent(elapsedMicros);
+            }
         }
     }
 
@@ -1416,14 +1445,48 @@ public class Bookie extends BookieThread {
 
     public ByteBuffer readEntry(long ledgerId, long entryId)
             throws IOException, NoLedgerException {
-        LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
-        LOG.trace("Reading {}@{}", entryId, ledgerId);
-        return handle.readEntry(entryId);
+        long requestNanos = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
+            LOG.trace("Reading {}@{}", entryId, ledgerId);
+            ByteBuffer data = handle.readEntry(entryId);
+            success = true;
+            return data;
+        } finally {
+            long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY)
+                        .registerSuccessfulEvent(elapsedMicros);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY)
+                        .registerFailedEvent(elapsedMicros);
+            }
+        }
     }
 
     public long readLastAddConfirmed(long ledgerId) throws IOException {
-        LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
-        return handle.getLastAddConfirmed();
+        long requestNanos = MathUtils.nowInNano();
+        boolean success = false;
+        try {
+            LedgerDescriptor handle = handles.getReadOnlyHandle(ledgerId);
+            long lac = handle.getLastAddConfirmed();
+            success = true;
+            return lac;
+        } finally {
+            long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
+            if (success) {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_LAST_CONFIRMED)
+                        .registerSuccessfulEvent(elapsedMicros);
+            } else {
+                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_LAST_CONFIRMED)
+                        .registerFailedEvent(elapsedMicros);
+            }
+        }
     }
 
     public Observable waitForLastAddConfirmedUpdate(long ledgerId, long previoisLAC, Observer observer) throws IOException {
