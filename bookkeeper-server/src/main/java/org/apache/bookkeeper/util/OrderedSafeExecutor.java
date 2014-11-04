@@ -17,6 +17,9 @@
  */
 package org.apache.bookkeeper.util;
 
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
@@ -55,7 +58,7 @@ import org.slf4j.LoggerFactory;
  */
 public class OrderedSafeExecutor {
     final String name;
-    final ThreadPoolExecutor threads[];
+    final ListeningExecutorService threads[];
     final long threadIds[];
     final BlockingQueue<Runnable> queues[];
     final Random rand = new Random();
@@ -146,17 +149,18 @@ public class OrderedSafeExecutor {
             throw new IllegalArgumentException();
         }
         this.name = name;
-        threads = new ThreadPoolExecutor[numThreads];
+        threads = new ListeningExecutorService[numThreads];
         threadIds = new long[numThreads];
         queues = new BlockingQueue[numThreads];
         for (int i = 0; i < numThreads; i++) {
             queues[i] = new LinkedBlockingQueue<Runnable>();
-            threads[i] =  new ThreadPoolExecutor(1, 1,
+            final ThreadPoolExecutor thread =  new ThreadPoolExecutor(1, 1,
                     0L, TimeUnit.MILLISECONDS, queues[i],
                     new ThreadFactoryBuilder()
                         .setNameFormat(name + "-orderedsafeexecutor-" + i + "-%d")
                         .setThreadFactory(threadFactory)
                         .build());
+            threads[i] = MoreExecutors.listeningDecorator(thread);
             final int idx = i;
             try {
                 threads[i].submit(new SafeRunnable() {
@@ -189,7 +193,7 @@ public class OrderedSafeExecutor {
 
                 @Override
                 public Number getSample() {
-                    return threads[idx].getCompletedTaskCount();
+                    return thread.getCompletedTaskCount();
                 }
             });
             statsLogger.registerGauge(String.format("%s-total-tasks-%d", name, i), new Gauge<Number>() {
@@ -200,7 +204,7 @@ public class OrderedSafeExecutor {
 
                 @Override
                 public Number getSample() {
-                    return threads[idx].getTaskCount();
+                    return thread.getTaskCount();
                 }
             });
         }
@@ -209,7 +213,7 @@ public class OrderedSafeExecutor {
         this.traceTaskExecution = traceTaskExecution;
     }
 
-    public ExecutorService chooseThread() {
+    public ListeningExecutorService chooseThread() {
         // skip random # generation in this special case
         if (threads.length == 1) {
             return threads[0];
@@ -219,7 +223,7 @@ public class OrderedSafeExecutor {
 
     }
 
-    public ExecutorService chooseThread(Object orderingKey) {
+    public ListeningExecutorService chooseThread(Object orderingKey) {
         // skip hashcode generation in this special case
         if (threads.length == 1) {
             return threads[0];
@@ -252,6 +256,16 @@ public class OrderedSafeExecutor {
     public void submitOrdered(Object orderingKey, SafeRunnable r) {
         chooseThread(orderingKey).submit(timedRunnable(r));
     }
+
+    /**
+     * schedules a one time action to execute with an ordering guarantee on the key
+     * @param orderingKey
+     * @param r
+     */
+    public <T> ListenableFuture<T> submitOrdered(Object orderingKey, java.util.concurrent.Callable<T> callable) {
+        return chooseThread(orderingKey).submit(callable);
+    }
+
 
     private long getThreadID(Object orderingKey) {
         // skip hashcode generation in this special case

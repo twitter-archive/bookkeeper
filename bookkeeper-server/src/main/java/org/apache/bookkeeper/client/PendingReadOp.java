@@ -28,10 +28,13 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.util.concurrent.ListenableFuture;
 
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
@@ -55,8 +58,6 @@ import org.slf4j.LoggerFactory;
 class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
 
-    int speculativeReadTimeout;
-    final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     Queue<LedgerEntryRequest> seq;
     BitSet heardFromHostsBitSet;
@@ -72,7 +73,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     boolean enablePiggybackLAC = true;
     final AtomicBoolean complete = new AtomicBoolean(false);
 
-    abstract class LedgerEntryRequest extends LedgerEntry {
+    abstract class LedgerEntryRequest extends LedgerEntry implements SpeculativeRequestExectuor {
 
         final AtomicBoolean complete = new AtomicBoolean(false);
 
@@ -217,18 +218,27 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             return String.format("L%d-E%d", ledgerId, entryId);
         }
 
-        // Speculative read
-        void scheduleSpeculativeReadIfNecessary() {
-            if (!isComplete() && null != maybeSendSpeculativeRead(heardFromHostsBitSet)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Send speculative read for {}. Hosts heard are {}, ensemble is {}.",
-                              new Object[] { this, heardFromHostsBitSet, ensemble });
+        /**
+         * Issues a speculative request and indicates if more speculative
+         * requests should be issued
+         *
+         * @return whether more speculative requests should be issued
+         */
+        @Override
+        public ListenableFuture<Boolean> issueSpeculativeRequest() {
+            return lh.bk.mainWorkerPool.submitOrdered(lh.getId(), new Callable<Boolean>() {
+                @Override
+                public Boolean call() throws Exception {
+                    if (!isComplete() && null != maybeSendSpeculativeRead(heardFromHostsBitSet)) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Send speculative read for {}. Hosts heard are {}, ensemble is {}.",
+                                new Object[] { this, heardFromHostsBitSet, ensemble });
+                        }
+                        return true;
+                    }
+                    return false;
                 }
-                if (speculativeReadTimeout > 0) {
-                    speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
-                    scheduleSpeculativeRead(this, speculativeReadTimeout);
-                }
-            }
+            });
         }
     }
 
@@ -427,8 +437,6 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         numPendingEntries = endEntryId - startEntryId + 1;
         maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
                 - getLedgerMetadata().getAckQuorumSize();
-        speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadTimeout();
-        maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadTimeout();
         heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
     }
 
@@ -444,26 +452,6 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
     PendingReadOp enablePiggybackLAC(boolean enabled) {
         this.enablePiggybackLAC = enabled;
         return this;
-    }
-
-    private void scheduleSpeculativeRead(final LedgerEntryRequest r, final int speculativeReadTimeout) {
-        try {
-            scheduler.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    // let the speculative read running this same thread
-                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(), new SafeRunnable() {
-                        @Override
-                        public void safeRun() {
-                            r.scheduleSpeculativeReadIfNecessary();
-                        }
-                    });
-                }
-            }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException re) {
-            LOG.warn("Failed to schedule speculative read for entry ({}, {}), speculativeReadTimeout = {} : ",
-                     new Object[] { lh.getId(), r.getEntryId(), speculativeReadTimeout, re });
-        }
     }
 
     public void initiate() {
@@ -488,8 +476,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         // read the entries.
         for (LedgerEntryRequest entry : seq) {
             entry.read();
-            if (speculativeReadTimeout > 0 && !parallelRead) {
-                scheduleSpeculativeRead(entry, speculativeReadTimeout);
+            if (!parallelRead && lh.bk.getReadSpeculativeRequestPolicy().isPresent()) {
+                lh.bk.getReadSpeculativeRequestPolicy().get().initiateSpeculativeRequest(scheduler, entry);
             }
         }
     }

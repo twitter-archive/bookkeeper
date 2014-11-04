@@ -4,10 +4,13 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.util.concurrent.ListenableFuture;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
@@ -19,12 +22,9 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ReadLastConfirmedAndEntryOp extends SafeRunnable
-        implements BookkeeperInternalCallbacks.ReadEntryCallback {
+public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.ReadEntryCallback, SpeculativeRequestExectuor {
     static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedAndEntryOp.class);
 
-    int speculativeReadTimeout;
-    final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     ReadLACAndEntryRequest request;
     final BitSet heardFromHostsBitSet;
@@ -403,8 +403,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         this.scheduler = scheduler;
         maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
             - getLedgerMetadata().getAckQuorumSize();
-        speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadLACTimeout();
-        maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadLACTimeout();
         heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
         emptyResponsesFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
     }
@@ -422,48 +420,34 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
      * Speculative Read Logic
      */
     @Override
-    public void safeRun() {
-        if (!requestComplete.get() && !request.isComplete()) {
-            if (null != request.maybeSendSpeculativeRead(heardFromHostsBitSet)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
-                        new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHostsBitSet });
+    public ListenableFuture<Boolean> issueSpeculativeRequest() {
+        return lh.bk.mainWorkerPool.submitOrdered(lh.getId(), new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                if (!requestComplete.get() && !request.isComplete() &&
+                    (null != request.maybeSendSpeculativeRead(heardFromHostsBitSet))) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
+                            new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHostsBitSet });
+                    }
+                    return true;
                 }
-                if (speculativeReadTimeout > 0) {
-                    speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
-                    scheduleSpeculativeRead(speculativeReadTimeout);
-                }
+                return false;
             }
-        }
-    }
-
-    private void scheduleSpeculativeRead(final int speculativeReadTimeout) {
-        try {
-            scheduler.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    // let the speculative read running this same thread
-                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
-                        ReadLastConfirmedAndEntryOp.this);
-                }
-            }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException re) {
-            LOG.warn("Failed to schedule speculative readLAC for ledger {} (lac = {}, speculativeReadTimeout = {}) : ",
-                    new Object[] { lh.getId(), lastAddConfirmed, speculativeReadTimeout, re });
-        }
+        });
     }
 
     public void initiate() {
-        if (speculativeReadTimeout > 0 && !parallelRead) {
-            scheduleSpeculativeRead(speculativeReadTimeout);
-        }
-
         if (parallelRead) {
             request = new ParallelReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, lastAddConfirmed + 1);
         } else {
             request = new SequenceReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, lastAddConfirmed + 1);
         }
         request.read();
+
+        if (!parallelRead && lh.bk.getReadLACSpeculativeRequestPolicy().isPresent()) {
+            lh.bk.getReadLACSpeculativeRequestPolicy().get().initiateSpeculativeRequest(scheduler, this);
+        }
     }
 
     void sendReadTo(int bookieIndex, InetSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {

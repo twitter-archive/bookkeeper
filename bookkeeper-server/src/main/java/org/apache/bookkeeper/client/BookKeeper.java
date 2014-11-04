@@ -105,6 +105,9 @@ public class BookKeeper {
 
     final ClientConfiguration conf;
 
+    final Optional<SpeculativeRequestExecutionPolicy> readSpeculativeRequestPolicy;
+    final Optional<SpeculativeRequestExecutionPolicy> readLACSpeculativeRequestPolicy;
+
     // Close State
     boolean closed = false;
     final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
@@ -304,6 +307,24 @@ public class BookKeeper {
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver);
 
+        if (conf.getFirstSpeculativeReadTimeout() > 0) {
+            this.readSpeculativeRequestPolicy =
+                    Optional.of((SpeculativeRequestExecutionPolicy)(new DefaultSpeculativeRequestExecutionPolicy(
+                        conf.getFirstSpeculativeReadTimeout(),
+                        conf.getMaxSpeculativeReadTimeout())));
+        } else {
+            this.readSpeculativeRequestPolicy = Optional.<SpeculativeRequestExecutionPolicy>absent();
+        }
+
+        if (conf.getFirstSpeculativeReadLACTimeout() > 0) {
+            this.readLACSpeculativeRequestPolicy =
+                    Optional.of((SpeculativeRequestExecutionPolicy)(new DefaultSpeculativeRequestExecutionPolicy(
+                        conf.getFirstSpeculativeReadLACTimeout(),
+                        conf.getMaxSpeculativeReadLACTimeout())));
+        } else {
+            this.readLACSpeculativeRequestPolicy = Optional.<SpeculativeRequestExecutionPolicy>absent();
+        }
+
         mainWorkerPool = OrderedSafeExecutor.newBuilder()
                 .name("bkc-worker")
                 .numThreads(conf.getNumWorkerThreads())
@@ -373,6 +394,14 @@ public class BookKeeper {
 
     protected ClientConfiguration getConf() {
         return conf;
+    }
+
+    public Optional<SpeculativeRequestExecutionPolicy> getReadSpeculativeRequestPolicy() {
+        return readSpeculativeRequestPolicy;
+    }
+
+    public Optional<SpeculativeRequestExecutionPolicy> getReadLACSpeculativeRequestPolicy() {
+        return readLACSpeculativeRequestPolicy;
     }
 
     /**
