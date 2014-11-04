@@ -62,8 +62,10 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
     protected final static String FIRST_SPECULATIVE_READ_TIMEOUT = "firstSpeculativeReadTimeout";
     protected final static String MAX_SPECULATIVE_READ_TIMEOUT = "maxSpeculativeReadTimeout";
+    protected final static String SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER = "speculativeReadTimeoutBackoffMultiplier";
     protected final static String FIRST_SPECULATIVE_READ_LAC_TIMEOUT = "firstSpeculativeReadLACTimeout";
     protected final static String MAX_SPECULATIVE_READ_LAC_TIMEOUT = "maxSpeculativeReadLACTimeout";
+    protected final static String SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER = "speculativeReadLACTimeoutBackoffMultiplier";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
     // Add Parameters
@@ -611,6 +613,48 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Multipler to use when determining time between successive speculative read requests
+     *
+     * @return speculative read timeout backoff multiplier.
+     */
+    public int getSpeculativeReadTimeoutBackoffMultiplier() {
+        return getInt(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, 2);
+    }
+
+    /**
+     * Set the multipler to use when determining time between successive speculative read requests
+     *
+     * @param speculativeReadTimeoutBackoffMultiplier
+     *          multipler to use when determining time between successive speculative read requests.
+     * @return client configuration.
+     */
+    public ClientConfiguration setSpeculativeReadTimeoutBackoffMultiplier(int speculativeReadTimeoutBackoffMultiplier) {
+        setProperty(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadTimeoutBackoffMultiplier);
+        return this;
+    }
+
+    /**
+     * Multipler to use when determining time between successive speculative read LAC requests
+     *
+     * @return speculative read LAC timeout backoff multiplier.
+     */
+    public int getSpeculativeReadLACTimeoutBackoffMultiplier() {
+        return getInt(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, 2);
+    }
+
+    /**
+     * Set the multipler to use when determining time between successive speculative read LAC requests
+     *
+     * @param speculativeReadLACTimeoutBackoffMultiplier
+     *          multipler to use when determining time between successive speculative read LAC requests.
+     * @return client configuration.
+     */
+    public ClientConfiguration setSpeculativeReadLACTimeoutBackoffMultiplier(int speculativeReadLACTimeoutBackoffMultiplier) {
+        setProperty(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadLACTimeoutBackoffMultiplier);
+        return this;
+    }
+
+    /**
      * Get the max speculative read timeout.
      *
      * @return max speculative read timeout.
@@ -630,6 +674,7 @@ public class ClientConfiguration extends AbstractConfiguration {
         setProperty(MAX_SPECULATIVE_READ_TIMEOUT, timeout);
         return this;
     }
+
 
     /**
      * Get the period of time after which the first speculative read last add confirmed and entry

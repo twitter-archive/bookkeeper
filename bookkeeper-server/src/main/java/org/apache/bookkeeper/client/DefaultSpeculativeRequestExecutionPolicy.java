@@ -15,10 +15,17 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
     private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
     final int firstSpeculativeRequestTimeout;
     final int maxSpeculativeRequestTimeout;
+    final int backoffMultiplier;
 
-    public DefaultSpeculativeRequestExecutionPolicy(int firstSpeculativeRequestTimeout, int maxSpeculativeRequestTimeout) {
+    public DefaultSpeculativeRequestExecutionPolicy(int firstSpeculativeRequestTimeout, int maxSpeculativeRequestTimeout, int backoffMultiplier) {
         this.firstSpeculativeRequestTimeout = firstSpeculativeRequestTimeout;
         this.maxSpeculativeRequestTimeout = maxSpeculativeRequestTimeout;
+        this.backoffMultiplier = backoffMultiplier;
+
+        // Prevent potential over flow
+        if (maxSpeculativeRequestTimeout > (Integer.MAX_VALUE / backoffMultiplier)) {
+            throw new IllegalArgumentException("Invalid values for maxSpeculativeRequestTimeout and backoffMultiplier");
+        }
     }
 
     /**
@@ -45,7 +52,7 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
                         public void onSuccess(Boolean issueNextRequest) {
                             if (issueNextRequest) {
                                 scheduleSpeculativeRead(scheduler, requestExecutor, Math.min(maxSpeculativeRequestTimeout,
-                                    speculativeRequestTimeout * 2));
+                                    speculativeRequestTimeout * backoffMultiplier));
                             } else {
                                 if(LOG.isTraceEnabled()) {
                                     LOG.trace("Stopped issuing speculative requests for {}, " +

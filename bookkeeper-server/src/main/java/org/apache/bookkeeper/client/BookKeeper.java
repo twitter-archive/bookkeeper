@@ -311,7 +311,8 @@ public class BookKeeper {
             this.readSpeculativeRequestPolicy =
                     Optional.of((SpeculativeRequestExecutionPolicy)(new DefaultSpeculativeRequestExecutionPolicy(
                         conf.getFirstSpeculativeReadTimeout(),
-                        conf.getMaxSpeculativeReadTimeout())));
+                        conf.getMaxSpeculativeReadTimeout(),
+                        conf.getSpeculativeReadTimeoutBackoffMultiplier())));
         } else {
             this.readSpeculativeRequestPolicy = Optional.<SpeculativeRequestExecutionPolicy>absent();
         }
@@ -320,7 +321,8 @@ public class BookKeeper {
             this.readLACSpeculativeRequestPolicy =
                     Optional.of((SpeculativeRequestExecutionPolicy)(new DefaultSpeculativeRequestExecutionPolicy(
                         conf.getFirstSpeculativeReadLACTimeout(),
-                        conf.getMaxSpeculativeReadLACTimeout())));
+                        conf.getMaxSpeculativeReadLACTimeout(),
+                        conf.getSpeculativeReadLACTimeoutBackoffMultiplier())));
         } else {
             this.readLACSpeculativeRequestPolicy = Optional.<SpeculativeRequestExecutionPolicy>absent();
         }
