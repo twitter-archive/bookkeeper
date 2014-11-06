@@ -45,7 +45,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         }
 
         if (bookie.isReadOnly()) {
-            logger.warn("BookieServer is running as readonly mode,"
+            logger.debug("BookieServer is running as readonly mode,"
                     + " so rejecting the request from the client!");
             addResponse.setStatus(StatusCode.EREADONLY);
             return addResponse.build();

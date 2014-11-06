@@ -143,7 +143,7 @@ public class Bookie extends BookieThread {
     final private String zkBookieReadOnlyPath;
 
     final private AtomicBoolean zkRegistered = new AtomicBoolean(false);
-    final private AtomicBoolean readOnly = new AtomicBoolean(false);
+    final protected AtomicBoolean readOnly = new AtomicBoolean(false);
     // executor to manage the state changes for a bookie.
     final ExecutorService stateService = Executors.newSingleThreadExecutor(
             new ThreadFactoryBuilder().setNameFormat("BookieStateService-%d").build());

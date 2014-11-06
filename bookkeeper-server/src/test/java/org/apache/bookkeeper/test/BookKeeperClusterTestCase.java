@@ -39,6 +39,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.proto.ReadOnlyBookieServer;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.KeeperException;
@@ -399,16 +400,33 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     protected BookieServer startBookie(ServerConfiguration conf)
             throws IOException, InterruptedException, KeeperException, BookieException {
-        BookieServer server = new BookieServer(conf);
+        return startBookie(conf, false);
+    }
+
+    protected BookieServer startBookie(ServerConfiguration conf, boolean readOnly)
+        throws IOException, InterruptedException, KeeperException, BookieException {
+        BookieServer server;
+        if (readOnly) {
+            server = new ReadOnlyBookieServer(conf);
+        } else {
+            server = new BookieServer(conf);
+        }
         server.start();
 
         int port = conf.getBookiePort();
-        while(bkc.getZkHandle().exists("/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port, false) == null) {
+        String zkHostPath;
+        if (readOnly) {
+            zkHostPath = "/ledgers/available/" + Bookie.READONLY + "/"
+                    + InetAddress.getLocalHost().getHostAddress() + ":" + port;
+        } else {
+            zkHostPath = "/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port;
+        }
+        while(bkc.getZkHandle().exists(zkHostPath, false) == null) {
             Thread.sleep(500);
         }
 
         bkc.readBookiesBlocking();
-        LOG.info("New bookie on port " + port + " has been created.");
+        LOG.info("New bookie (readonly = {}) on port {} has been created.", readOnly, port);
 
         return server;
     }
