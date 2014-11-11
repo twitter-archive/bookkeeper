@@ -617,8 +617,8 @@ public class ClientConfiguration extends AbstractConfiguration {
      *
      * @return speculative read timeout backoff multiplier.
      */
-    public int getSpeculativeReadTimeoutBackoffMultiplier() {
-        return getInt(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, 2);
+    public float getSpeculativeReadTimeoutBackoffMultiplier() {
+        return getFloat(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, 2.0f);
     }
 
     /**
@@ -628,7 +628,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      *          multipler to use when determining time between successive speculative read requests.
      * @return client configuration.
      */
-    public ClientConfiguration setSpeculativeReadTimeoutBackoffMultiplier(int speculativeReadTimeoutBackoffMultiplier) {
+    public ClientConfiguration setSpeculativeReadTimeoutBackoffMultiplier(float speculativeReadTimeoutBackoffMultiplier) {
         setProperty(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadTimeoutBackoffMultiplier);
         return this;
     }
@@ -638,8 +638,8 @@ public class ClientConfiguration extends AbstractConfiguration {
      *
      * @return speculative read LAC timeout backoff multiplier.
      */
-    public int getSpeculativeReadLACTimeoutBackoffMultiplier() {
-        return getInt(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, 2);
+    public float getSpeculativeReadLACTimeoutBackoffMultiplier() {
+        return getFloat(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, 2.0f);
     }
 
     /**
@@ -649,7 +649,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      *          multipler to use when determining time between successive speculative read LAC requests.
      * @return client configuration.
      */
-    public ClientConfiguration setSpeculativeReadLACTimeoutBackoffMultiplier(int speculativeReadLACTimeoutBackoffMultiplier) {
+    public ClientConfiguration setSpeculativeReadLACTimeoutBackoffMultiplier(float speculativeReadLACTimeoutBackoffMultiplier) {
         setProperty(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadLACTimeoutBackoffMultiplier);
         return this;
     }

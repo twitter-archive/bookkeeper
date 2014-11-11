@@ -15,15 +15,19 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
     private static final Logger LOG = LoggerFactory.getLogger(PendingReadOp.class);
     final int firstSpeculativeRequestTimeout;
     final int maxSpeculativeRequestTimeout;
-    final int backoffMultiplier;
+    final float backoffMultiplier;
 
-    public DefaultSpeculativeRequestExecutionPolicy(int firstSpeculativeRequestTimeout, int maxSpeculativeRequestTimeout, int backoffMultiplier) {
+    public DefaultSpeculativeRequestExecutionPolicy(int firstSpeculativeRequestTimeout, int maxSpeculativeRequestTimeout, float backoffMultiplier) {
         this.firstSpeculativeRequestTimeout = firstSpeculativeRequestTimeout;
         this.maxSpeculativeRequestTimeout = maxSpeculativeRequestTimeout;
         this.backoffMultiplier = backoffMultiplier;
 
+        if (backoffMultiplier <= 0) {
+            throw new IllegalArgumentException("Invalid value provided for backoffMultiplier");
+        }
+
         // Prevent potential over flow
-        if (maxSpeculativeRequestTimeout > (Integer.MAX_VALUE / backoffMultiplier)) {
+        if (Math.round((double)maxSpeculativeRequestTimeout * (double)backoffMultiplier) > Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Invalid values for maxSpeculativeRequestTimeout and backoffMultiplier");
         }
     }
@@ -41,7 +45,7 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
 
     private void scheduleSpeculativeRead(final ScheduledExecutorService scheduler,
                                          final SpeculativeRequestExectuor requestExecutor,
-                                         final long speculativeRequestTimeout) {
+                                         final int speculativeRequestTimeout) {
         try {
             scheduler.schedule(new Runnable() {
                 @Override
@@ -52,7 +56,7 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
                         public void onSuccess(Boolean issueNextRequest) {
                             if (issueNextRequest) {
                                 scheduleSpeculativeRead(scheduler, requestExecutor, Math.min(maxSpeculativeRequestTimeout,
-                                    speculativeRequestTimeout * backoffMultiplier));
+                                    Math.round((float)speculativeRequestTimeout * backoffMultiplier)));
                             } else {
                                 if(LOG.isTraceEnabled()) {
                                     LOG.trace("Stopped issuing speculative requests for {}, " +
