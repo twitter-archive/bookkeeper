@@ -63,9 +63,9 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
 
     }
 
-    protected static class EnsembleForReplacement implements Ensemble {
+    protected static class EnsembleForReplacementWithNoConstraints implements Ensemble {
 
-        public static final EnsembleForReplacement instance = new EnsembleForReplacement();
+        public static final EnsembleForReplacementWithNoConstraints instance = new EnsembleForReplacementWithNoConstraints();
         static final ArrayList<InetSocketAddress> EMPTY_LIST = new ArrayList<InetSocketAddress>(0);
 
         @Override

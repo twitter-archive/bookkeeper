@@ -27,6 +27,7 @@ import com.google.common.base.Optional;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.configuration.Configuration;
 
 /**
@@ -38,11 +39,10 @@ public interface EnsemblePlacementPolicy {
     /**
      * Initialize the policy.
      *
-     * @param dnsResolver the object used to resolve addresses to their network address
      *
-     * @return initialized ensemble placement policy
+     * @param statsLogger
      */
-    public EnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver);
+    public EnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger);
 
     /**
      * Uninitialize the policy
@@ -89,7 +89,7 @@ public interface EnsemblePlacementPolicy {
      * @return the bookie chosen as target.
      * @throws BKNotEnoughBookiesException
      */
-    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
                                            Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException;
 
     /**

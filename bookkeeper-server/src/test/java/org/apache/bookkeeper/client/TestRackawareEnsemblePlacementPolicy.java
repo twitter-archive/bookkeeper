@@ -77,7 +77,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         }
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
     }
 
     @Override
@@ -99,7 +99,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -127,7 +127,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -158,7 +158,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -188,7 +188,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();

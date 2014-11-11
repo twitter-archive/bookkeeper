@@ -38,6 +38,8 @@ import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.net.ScriptBasedMapping;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.Configuration;
 import org.slf4j.Logger;
@@ -87,7 +89,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected final ReentrantReadWriteLock rwLock;
     protected ImmutableSet<InetSocketAddress> readOnlyBookies = null;
     protected boolean reorderReadsRandom = false;
-    private boolean enforceDurability = false;
+    protected boolean enforceDurability = false;
+    protected StatsLogger statsLogger = null;
 
     RackawareEnsemblePlacementPolicy() {
         this(false);
@@ -112,7 +115,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
      * @param dnsResolver the object used to resolve addresses to their network address
      * @return initialized ensemble placement policy
      */
-    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver, boolean reorderReadsRandom) {
+    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver, boolean reorderReadsRandom, StatsLogger statsLogger) {
+        this.statsLogger = statsLogger;
         this.reorderReadsRandom = reorderReadsRandom;
         this.dnsResolver = dnsResolver;
         BookieNode bn;
@@ -130,7 +134,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public RackawareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
+    public RackawareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
         DNSToSwitchMapping dnsResolver;
         if (optionalDnsResolver.isPresent()) {
             dnsResolver = optionalDnsResolver.get();
@@ -146,7 +150,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                 dnsResolver = new DefaultResolver();
             }
         }
-        return initialize(dnsResolver, conf.getBoolean(REPP_RANDOM_READ_REORDERING, false));
+        return initialize(dnsResolver, conf.getBoolean(REPP_RANDOM_READ_REORDERING, false), statsLogger);
     }
 
     @Override
@@ -298,7 +302,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize,  Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize,  Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
             Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
@@ -317,7 +321,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             }
             // pick a candidate from same rack to replace
             BookieNode candidate = selectFromRack(bn.getNetworkLocation(), excludeNodes,
-                    TruePredicate.instance, EnsembleForReplacement.instance);
+                    TruePredicate.instance, EnsembleForReplacementWithNoConstraints.instance);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Bookie {} is chosen to replace bookie {}.", candidate, bn);
             }

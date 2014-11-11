@@ -33,7 +33,6 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     final AtomicBoolean requestComplete = new AtomicBoolean(false);
-    Optional<Long> lacUpdateTimestamp = Optional.absent();
 
     final long requestTimeNano;
     private final LedgerHandle lh;

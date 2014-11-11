@@ -305,7 +305,7 @@ public class BookKeeper {
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         // initialize the ensemble placement
-        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver);
+        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver, statsLogger.scope("bookkeeper_client"));
 
         if (conf.getFirstSpeculativeReadTimeout() > 0) {
             this.readSpeculativeRequestPolicy =
@@ -344,11 +344,11 @@ public class BookKeeper {
                                               statsLogger);
     }
 
-    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(DNSToSwitchMapping dnsResolver)
+    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(DNSToSwitchMapping dnsResolver, StatsLogger statsLogger)
         throws IOException {
         try {
             Class<? extends EnsemblePlacementPolicy> policyCls = conf.getEnsemblePlacementPolicy();
-            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver));
+            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), statsLogger);
         } catch (ConfigurationException e) {
             throw new IOException("Failed to initialize ensemble placement policy : ", e);
         }

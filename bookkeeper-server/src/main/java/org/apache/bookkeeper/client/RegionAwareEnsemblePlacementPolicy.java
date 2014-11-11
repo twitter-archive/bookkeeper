@@ -36,6 +36,8 @@ import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
+import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
@@ -46,7 +48,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
     public static final String REPP_REGIONS_TO_WRITE = "reppRegionsToWrite";
     public static final String REPP_MINIMUM_REGIONS_FOR_DURABILITY = "reppMinimumRegionsForDurability";
+    public static final String REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE = "reppEnableDurabilityEnforcementInReplace";
     public static final String REPP_ENABLE_VALIDATION = "reppEnableValidation";
+    public static final String REGION_AWARE_ANOMALOUS_ENSEMBLE = "region_aware_anomalous_ensemble";
     static final int MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT = 2;
     static final int REGIONID_DISTANCE_FROM_LEAVES = 2;
     static final String UNKNOWN_REGION = "UnknownRegion";
@@ -57,6 +61,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected String myRegion = null;
     protected int minRegionsForDurability = 0;
     protected boolean enableValidation = true;
+    protected boolean enforceDurabilityInReplace = false;
 
     RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -110,7 +115,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             knownBookies.put(addr, node);
             String region = getLocalRegion(node);
             if (null == perRegionPlacement.get(region)) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom, statsLogger));
             }
 
             Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
@@ -137,8 +142,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver) {
-        super.initialize(conf, optionalDnsResolver);
+    public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
+        super.initialize(conf, optionalDnsResolver, statsLogger);
         myRegion = getLocalRegion(localNode);
         enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
 
@@ -151,10 +156,13 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // R1;R2;...
             String[] regions = regionsString.split(";");
             for (String region: regions) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true).initialize(dnsResolver, this.reorderReadsRandom));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true).initialize(dnsResolver, this.reorderReadsRandom, statsLogger));
             }
             minRegionsForDurability = conf.getInt(REPP_MINIMUM_REGIONS_FOR_DURABILITY, MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT);
-
+            if (minRegionsForDurability > 0) {
+                enforceDurability = true;
+                enforceDurabilityInReplace = conf.getBoolean(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
+            }
             if (regions.length < minRegionsForDurability) {
                 throw new IllegalArgumentException("Regions provided are insufficient to meet the durability constraints");
             }
@@ -173,6 +181,16 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             throw new IllegalArgumentException("write quorum (" + writeQuorumSize + ") cannot exceed ensemble size (" + ensembleSize + ")");
         } else if (writeQuorumSize < ackQuorumSize) {
             throw new IllegalArgumentException("ack quorum (" + ackQuorumSize + ") cannot exceed write quorum size (" + writeQuorumSize + ")");
+        } else if (minRegionsForDurability > 0) {
+            // We must survive the failure of numRegions - minRegionsForDurability. When these
+            // regions have failed we would spread the replicas over the remaining
+            // minRegionsForDurability regions; we have to make sure that the ack quorum is large
+            // enough such that there is a configuration for spreading the replicas across
+            // minRegionsForDurability - 1 regions
+            if (ackQuorumSize <= (writeQuorumSize - (writeQuorumSize / minRegionsForDurability))) {
+                throw new IllegalArgumentException("ack quorum (" + ackQuorumSize + ") " +
+                    "violates the requirement to satisfy durability constraints when running in degraded mode");
+            }
         }
 
         rwLock.readLock().lock();
@@ -182,7 +200,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // If we were unable to get region information
             if (numRegions < 1) {
                 List<BookieNode> bns = selectRandom(ensembleSize, excludeNodes, TruePredicate.instance,
-                    EnsembleForReplacement.instance);
+                    EnsembleForReplacementWithNoConstraints.instance);
                 ArrayList<InetSocketAddress> addrs = new ArrayList<InetSocketAddress>(ensembleSize);
                 for (BookieNode bn : bns) {
                     addrs.add(bn.getAddr());
@@ -273,6 +291,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
                     if (regionsReachedMaxAllocation.contains(region)) {
                         if (currentAllocation.getLeft() > 0) {
+                            LOG.info("Allocating {} bookies in region {} : ensemble {} exclude {}",
+                                new Object[]{currentAllocation.getLeft(), region, excludeBookies, ensemble});
                             policyWithinRegion.newEnsembleInternal(currentAllocation.getLeft(),
                                 currentAllocation.getRight(),
                                 excludeBookies,
@@ -308,28 +328,57 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuormSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
+    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble, InetSocketAddress bookieToReplace,
                                            Set<InetSocketAddress> excludeBookies) throws BKException.BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
-            excludeBookies.addAll(currentEnsemble);
-            BookieNode bn = knownBookies.get(bookieToReplace);
-            if (null == bn) {
-                bn = createBookieNode(bookieToReplace);
+            boolean enforceDurability = enforceDurabilityInReplace;
+            Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
+            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize,
+                writeQuorumSize,
+                ackQuorumSize,
+                REGIONID_DISTANCE_FROM_LEAVES,
+                minRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
+                minRegionsForDurability);
+
+            BookieNode bookieNodeToReplace = knownBookies.get(bookieToReplace);
+            if (null == bookieNodeToReplace) {
+                bookieNodeToReplace = createBookieNode(bookieToReplace);
+            }
+            excludeNodes.add(bookieNodeToReplace);
+
+            for(InetSocketAddress bookieAddress: currentEnsemble) {
+                if (bookieAddress.equals(bookieToReplace)) {
+                    continue;
+                }
+
+                BookieNode bn = knownBookies.get(bookieAddress);
+                if (null == bn) {
+                    bn = createBookieNode(bookieAddress);
+                }
+
+                excludeNodes.add(bn);
+
+                if (!ensemble.apply(bn, ensemble)) {
+                    LOG.warn("Anomalous ensemble detected");
+                    if (null != statsLogger) {
+                        statsLogger.getCounter(REGION_AWARE_ANOMALOUS_ENSEMBLE).inc();
+                    }
+                    enforceDurability = false;
+                }
+
+                ensemble.addBookie(bn);
             }
 
-            Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
-            // add the bookie to replace in exclude set
-            excludeNodes.add(bn);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Try to choose a new bookie to replace {}, excluding {}.", bookieToReplace,
                     excludeNodes);
             }
             // pick a candidate from same rack to replace
-            BookieNode candidate = replaceFromRack(bn, excludeNodes,
-                TruePredicate.instance, EnsembleForReplacement.instance);
+            BookieNode candidate = replaceFromRack(bookieNodeToReplace, excludeNodes,
+                ensemble, enforceDurability);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("Bookie {} is chosen to replace bookie {}.", candidate, bn);
+                LOG.debug("Bookie {} is chosen to replace bookie {}.", candidate, bookieNodeToReplace);
             }
             return candidate.getAddr();
         } finally {
@@ -337,15 +386,19 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         }
     }
 
-    protected BookieNode replaceFromRack(BookieNode bn, Set<Node> excludeBookies, Predicate predicate,
-                                         Ensemble ensemble) throws BKException.BKNotEnoughBookiesException {
+    protected BookieNode replaceFromRack(BookieNode bn, Set<Node> excludeBookies,
+                                         Predicate predicate, boolean enforceDurability)
+        throws BKException.BKNotEnoughBookiesException {
         String region = getLocalRegion(bn);
         RackawareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(region);
         if (null != regionPolicy) {
             try {
-                // select one from local rack => it falls back to selecting a node from the region if
-                // the rack does not have an available node
-                return regionPolicy.selectFromRack(bn.getNetworkLocation(), excludeBookies, predicate, ensemble);
+                // select one from local rack => it falls back to selecting a node from the region
+                // if the rack does not have an available node, selecting from the same region
+                // should not violate durability constraints so we can simply not have to check
+                // for that.
+                return regionPolicy.selectFromRack(bn.getNetworkLocation(), excludeBookies,
+                    TruePredicate.instance, EnsembleForReplacementWithNoConstraints.instance);
             } catch (BKException.BKNotEnoughBookiesException e) {
                 LOG.warn("Failed to choose a bookie from {} : "
                     + "excluded {}, fallback to choose bookie randomly from the cluster.",
@@ -353,8 +406,12 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             }
         }
 
-        // randomly choose one from whole cluster, ignore the provided predicate.
-        return selectRandom(1, excludeBookies, predicate, ensemble).get(0);
+        // randomly choose one from whole cluster, ignore the provided predicate if we are not
+        // enforcing durability.
+        return selectRandom(1,
+                excludeBookies,
+                enforceDurability ? predicate: TruePredicate.instance,
+                EnsembleForReplacementWithNoConstraints.instance).get(0);
     }
 
     @Override
