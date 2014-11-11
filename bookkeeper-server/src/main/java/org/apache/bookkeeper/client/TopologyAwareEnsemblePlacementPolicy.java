@@ -2,8 +2,10 @@ package org.apache.bookkeeper.client;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.bookkeeper.net.NodeBase;
@@ -129,30 +131,137 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
      */
     protected static class RRTopologyAwareCoverageEnsemble implements Predicate, Ensemble {
 
-        protected class RackQuorumCoverageSet {
-            Set<String> racksOrRegions = new HashSet<String>();
+        protected interface CoverageSet extends Cloneable {
+            boolean apply(BookieNode candidate);
+            void addBookie(BookieNode candidate);
+            public CoverageSet clone();
+        }
+
+        protected class RackQuorumCoverageSet implements CoverageSet {
+            HashSet<String> racksOrRegionsInQuorum = new HashSet<String>();
             int seenBookies = 0;
 
-            boolean apply(BookieNode candidate) {
+            @Override
+            public boolean apply(BookieNode candidate) {
+                // If we don't have sufficient members in the write quorum; then we cant enforce
+                // rack/region diversity
+                if (writeQuorumSize < 2) {
+                    return true;
+                }
+
                 if (seenBookies + 1 == writeQuorumSize) {
-                    return racksOrRegions.size() > (racksOrRegions.contains(candidate.getNetworkLocation(distanceFromLeaves)) ? 1 : 0);
+                    return racksOrRegionsInQuorum.size() > (racksOrRegionsInQuorum.contains(candidate.getNetworkLocation(distanceFromLeaves)) ? 1 : 0);
                 }
                 return true;
             }
 
-            void addBookie(BookieNode candidate) {
+            @Override
+            public void addBookie(BookieNode candidate) {
                 ++seenBookies;
-                racksOrRegions.add(candidate.getNetworkLocation(distanceFromLeaves));
+                racksOrRegionsInQuorum.add(candidate.getNetworkLocation(distanceFromLeaves));
+            }
+
+            @Override
+            public RackQuorumCoverageSet clone() {
+                RackQuorumCoverageSet ret = new RackQuorumCoverageSet();
+                ret.racksOrRegionsInQuorum = (HashSet<String>)this.racksOrRegionsInQuorum.clone();
+                ret.seenBookies = this.seenBookies;
+                return ret;
             }
         }
+
+        protected class RackOrRegionDurabilityCoverageSet implements CoverageSet {
+            HashMap<String, Integer> allocationToRacksOrRegions = new HashMap<String, Integer>();
+
+            RackOrRegionDurabilityCoverageSet() {
+                for (String rackOrRegion: racksOrRegions) {
+                    allocationToRacksOrRegions.put(rackOrRegion, 0);
+                }
+            }
+
+            @Override
+            public RackOrRegionDurabilityCoverageSet clone() {
+                RackOrRegionDurabilityCoverageSet ret = new RackOrRegionDurabilityCoverageSet();
+                ret.allocationToRacksOrRegions = (HashMap<String, Integer>)this.allocationToRacksOrRegions.clone();
+                return ret;
+            }
+
+            private boolean checkSumOfSubsetWithinLimit(final Set<String> includedRacksOrRegions,
+                            final Set<String> remainingRacksOrRegions,
+                            int subsetSize,
+                            int maxAllowedSum) {
+                if (remainingRacksOrRegions.isEmpty() || (subsetSize <= 0)) {
+                    if (maxAllowedSum < 0) {
+                        LOG.trace("CHECK FAILED: RacksOrRegions Included {} Remaining {}, subsetSize {}, maxAllowedSum {}", new Object[]{
+                            includedRacksOrRegions, remainingRacksOrRegions, subsetSize, maxAllowedSum
+                        });
+                    }
+                    return (maxAllowedSum >= 0);
+                }
+
+                for(String rackOrRegion: remainingRacksOrRegions) {
+                    if (allocationToRacksOrRegions.get(rackOrRegion) > maxAllowedSum) {
+                        LOG.trace("CHECK FAILED: RacksOrRegions Included {} Candidate {}, subsetSize {}, maxAllowedSum {}", new Object[]{
+                            includedRacksOrRegions, rackOrRegion, subsetSize, maxAllowedSum
+                        });
+                        return false;
+                    } else {
+                        Set<String> remainingElements = new HashSet<String>(remainingRacksOrRegions);
+                        Set<String> includedElements = new HashSet<String>(includedRacksOrRegions);
+                        includedElements.add(rackOrRegion);
+                        remainingElements.remove(rackOrRegion);
+                        if (!checkSumOfSubsetWithinLimit(includedElements,
+                            remainingElements,
+                            subsetSize - 1,
+                            maxAllowedSum - allocationToRacksOrRegions.get(rackOrRegion))) {
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+
+            @Override
+            public boolean apply(BookieNode candidate) {
+                String candidateRackOrRegion = candidate.getNetworkLocation(distanceFromLeaves);
+                candidateRackOrRegion = candidateRackOrRegion.startsWith(NodeBase.PATH_SEPARATOR_STR) ? candidateRackOrRegion.substring(1) : candidateRackOrRegion;
+                final Set<String> remainingRacksOrRegions = new HashSet<String>(racksOrRegions);
+                remainingRacksOrRegions.remove(candidateRackOrRegion);
+                final Set<String> includedRacksOrRegions = new HashSet<String>();
+                includedRacksOrRegions.add(candidateRackOrRegion);
+
+                // If minRacksOrRegionsForDurability are required for durability; we must ensure that
+                // no subset of (minRacksOrRegionsForDurability - 1) regions have ackQuorumSize
+                // We are only modifying candidateRackOrRegion if we accept this bookie, so lets only
+                // find sets that contain this candidateRackOrRegion
+                int inclusiveLimit = (ackQuorumSize - 1) - (allocationToRacksOrRegions.get(candidateRackOrRegion) + 1);
+                return checkSumOfSubsetWithinLimit(includedRacksOrRegions,
+                        remainingRacksOrRegions, minRacksOrRegionsForDurability - 2, inclusiveLimit);
+            }
+
+            @Override
+            public void addBookie(BookieNode candidate) {
+                String candidateRackOrRegion = candidate.getNetworkLocation(distanceFromLeaves);
+                candidateRackOrRegion = candidateRackOrRegion.startsWith(NodeBase.PATH_SEPARATOR_STR) ? candidateRackOrRegion.substring(1) : candidateRackOrRegion;
+                int oldCount = 0;
+                if (null != allocationToRacksOrRegions.get(candidateRackOrRegion)) {
+                    oldCount = allocationToRacksOrRegions.get(candidateRackOrRegion);
+                }
+                allocationToRacksOrRegions.put(candidateRackOrRegion, oldCount + 1);
+            }
+        }
+
+
 
         final int distanceFromLeaves;
         final int ensembleSize;
         final int writeQuorumSize;
         final int ackQuorumSize;
-        final int minRacksOrRegionsInEnsemble;
+        final int minRacksOrRegionsForDurability;
         final ArrayList<BookieNode> chosenNodes;
-        private final RackQuorumCoverageSet[] quorums;
+        final Set<String> racksOrRegions;
+        private final CoverageSet[] quorums;
         final RRTopologyAwareCoverageEnsemble parentEnsemble;
 
         protected RRTopologyAwareCoverageEnsemble(RRTopologyAwareCoverageEnsemble that) {
@@ -161,28 +270,45 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.writeQuorumSize = that.writeQuorumSize;
             this.ackQuorumSize = that.ackQuorumSize;
             this.chosenNodes = (ArrayList<BookieNode>)that.chosenNodes.clone();
-            this.quorums = that.quorums.clone();
+            this.quorums = new CoverageSet[that.quorums.length];
+            for (int i = 0; i < that.quorums.length; i++) {
+                if (null != that.quorums[i]) {
+                    this.quorums[i] = that.quorums[i].clone();
+                } else {
+                    this.quorums[i] = null;
+                }
+            }
             this.parentEnsemble = that.parentEnsemble;
-            this.minRacksOrRegionsInEnsemble = that.minRacksOrRegionsInEnsemble;
+            if (null != that.racksOrRegions) {
+                this.racksOrRegions = new HashSet<String>(that.racksOrRegions);
+            } else {
+                this.racksOrRegions = null;
+            }
+            this.minRacksOrRegionsForDurability = that.minRacksOrRegionsForDurability;
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, int minRacksOrRegionsInEnsemble) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null, minRacksOrRegionsInEnsemble);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, Set<String> racksOrRegions, int minRacksOrRegionsForDurability) {
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null, racksOrRegions, minRacksOrRegionsForDurability);
         }
 
         protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, parentEnsemble, 0);
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, parentEnsemble, null, 0);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, int minRacksOrRegionsInEnsemble) {
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, Set<String> racksOrRegions, int minRacksOrRegionsForDurability) {
             this.ensembleSize = ensembleSize;
             this.writeQuorumSize = writeQuorumSize;
             this.ackQuorumSize = ackQuorumSize;
             this.distanceFromLeaves = distanceFromLeaves;
             this.chosenNodes = new ArrayList<BookieNode>(ensembleSize);
-            this.quorums = new RackQuorumCoverageSet[ensembleSize];
+            if (minRacksOrRegionsForDurability > 0) {
+                this.quorums = new RackOrRegionDurabilityCoverageSet[ensembleSize];
+            } else {
+                this.quorums = new RackQuorumCoverageSet[ensembleSize];
+            }
             this.parentEnsemble = parentEnsemble;
-            this.minRacksOrRegionsInEnsemble = minRacksOrRegionsInEnsemble;
+            this.racksOrRegions = racksOrRegions;
+            this.minRacksOrRegionsForDurability = minRacksOrRegionsForDurability;
         }
 
         @Override
@@ -197,17 +323,31 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             }
 
             // candidate position
-            int candidatePos = chosenNodes.size();
-            int startPos = candidatePos - writeQuorumSize + 1;
-            for (int i = startPos; i <= candidatePos; i++) {
-                int idx = (i + ensembleSize) % ensembleSize;
-                if (null == quorums[idx]) {
-                    quorums[idx] = new RackQuorumCoverageSet();
+            if ((ensembleSize == writeQuorumSize) && (minRacksOrRegionsForDurability > 0)) {
+                if (null == quorums[0]) {
+                    quorums[0] = new RackOrRegionDurabilityCoverageSet();
                 }
-                if (!quorums[idx].apply(candidate)) {
+                if (!quorums[0].apply(candidate)) {
                     return false;
                 }
+            } else {
+                int candidatePos = chosenNodes.size();
+                int startPos = candidatePos - writeQuorumSize + 1;
+                for (int i = startPos; i <= candidatePos; i++) {
+                    int idx = (i + ensembleSize) % ensembleSize;
+                    if (null == quorums[idx]) {
+                        if (minRacksOrRegionsForDurability > 0) {
+                            quorums[idx] = new RackOrRegionDurabilityCoverageSet();
+                        } else {
+                            quorums[idx] = new RackQuorumCoverageSet();
+                        }
+                    }
+                    if (!quorums[idx].apply(candidate)) {
+                        return false;
+                    }
+                }
             }
+
             return ((null == parentEnsemble) || parentEnsemble.apply(candidate, parentEnsemble));
         }
 
@@ -218,14 +358,25 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 return false;
             }
 
-            int candidatePos = chosenNodes.size();
-            int startPos = candidatePos - writeQuorumSize + 1;
-            for (int i = startPos; i <= candidatePos; i++) {
-                int idx = (i + ensembleSize) % ensembleSize;
-                if (null == quorums[idx]) {
-                    quorums[idx] = new RackQuorumCoverageSet();
+            if ((ensembleSize == writeQuorumSize) && (minRacksOrRegionsForDurability > 0)) {
+                if (null == quorums[0]) {
+                    quorums[0] = new RackOrRegionDurabilityCoverageSet();
                 }
-                quorums[idx].addBookie(node);
+                quorums[0].addBookie(node);
+            } else {
+                int candidatePos = chosenNodes.size();
+                int startPos = candidatePos - writeQuorumSize + 1;
+                for (int i = startPos; i <= candidatePos; i++) {
+                    int idx = (i + ensembleSize) % ensembleSize;
+                    if (null == quorums[idx]) {
+                        if (minRacksOrRegionsForDurability > 0) {
+                            quorums[idx] = new RackOrRegionDurabilityCoverageSet();
+                        } else {
+                            quorums[idx] = new RackQuorumCoverageSet();
+                        }
+                    }
+                    quorums[idx].addBookie(node);
+                }
             }
             chosenNodes.add(node);
 
@@ -258,8 +409,8 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 racksOrRegions.add(bn.getNetworkLocation(distanceFromLeaves));
             }
 
-            return ((minRacksOrRegionsInEnsemble == 0) ||
-                    (racksOrRegions.size() >= minRacksOrRegionsInEnsemble));
+            return ((minRacksOrRegionsForDurability == 0) ||
+                    (racksOrRegions.size() >= minRacksOrRegionsForDurability));
         }
 
         @Override

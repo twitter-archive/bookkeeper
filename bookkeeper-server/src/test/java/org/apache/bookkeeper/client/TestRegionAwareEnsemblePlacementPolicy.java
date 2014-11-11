@@ -40,6 +40,9 @@ import org.slf4j.LoggerFactory;
 import junit.framework.TestCase;
 
 import static org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy.REPP_DNS_RESOLVER_CLASS;
+import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_ENABLE_VALIDATION;
+import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_MINIMUM_REGIONS_FOR_DURABILITY;
+import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_REGIONS_TO_WRITE;
 
 public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
@@ -492,11 +495,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr10);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
         try {
-            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(5, 5, 3, new HashSet<InetSocketAddress>());
-            assert(ensemble.contains(addr4) || ensemble.contains(addr8));
-            assert(ensemble.size() == 5);
-            assertEquals(3, getNumRegionsInEnsemble(ensemble));
-            ensemble = repp.newEnsemble(6, 6, 4, new HashSet<InetSocketAddress>());
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(6, 6, 4, new HashSet<InetSocketAddress>());
             assert(ensemble.contains(addr4));
             assert(ensemble.contains(addr8));
             assert(ensemble.size() == 6);
@@ -521,7 +520,138 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         }
     }
 
+    @Test(timeout = 60000)
+    public void testNewEnsembleWithFiveRegions() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3;region4;region5");
+        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 5);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.1.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.1.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.1.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.1.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.1.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.1.0.9", 3181);
+        InetSocketAddress addr9 = new InetSocketAddress("127.1.0.10", 3181);
+        InetSocketAddress addr10 = new InetSocketAddress("127.1.0.11", 3181);
+        InetSocketAddress addr11 = new InetSocketAddress("127.1.0.12", 3181);
+        InetSocketAddress addr12 = new InetSocketAddress("127.1.0.13", 3181);
+        InetSocketAddress addr13 = new InetSocketAddress("127.1.0.14", 3181);
+        InetSocketAddress addr14 = new InetSocketAddress("127.1.0.15", 3181);
+        InetSocketAddress addr15 = new InetSocketAddress("127.1.0.16", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), "/region1/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region1/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region2/r4");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostAddress(), "/region2/r11");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostAddress(), "/region2/r12");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostAddress(), "/region3/r13");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostAddress(), "/region3/r14");
+        StaticDNSResolver.addNodeToRack(addr9.getAddress().getHostAddress(), "/region3/r23");
+        StaticDNSResolver.addNodeToRack(addr10.getAddress().getHostAddress(), "/region4/r24");
+        StaticDNSResolver.addNodeToRack(addr11.getAddress().getHostAddress(), "/region4/r31");
+        StaticDNSResolver.addNodeToRack(addr12.getAddress().getHostAddress(), "/region4/r32");
+        StaticDNSResolver.addNodeToRack(addr13.getAddress().getHostAddress(), "/region5/r33");
+        StaticDNSResolver.addNodeToRack(addr14.getAddress().getHostAddress(), "/region5/r34");
+        StaticDNSResolver.addNodeToRack(addr15.getAddress().getHostAddress(), "/region5/r35");
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        addrs.add(addr10);
+        addrs.add(addr11);
+        addrs.add(addr12);
+        addrs.add(addr13);
+        addrs.add(addr14);
+        addrs.add(addr15);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
+        try {
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(10, 10, 10, new HashSet<InetSocketAddress>());
+            assert(ensemble.size() == 10);
+            assertEquals(5, getNumRegionsInEnsemble(ensemble));
+        } catch (BKNotEnoughBookiesException bnebe) {
+            LOG.error("BKNotEnoughBookiesException", bnebe);
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+
+        try{
+            Set<InetSocketAddress> excludedAddrs = new HashSet<InetSocketAddress>();
+            excludedAddrs.add(addr10);
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(10, 10, 10, excludedAddrs);
+            assert(ensemble.contains(addr11) && ensemble.contains(addr12));
+            assert(ensemble.size() == 10);
+            assertEquals(5, getNumRegionsInEnsemble(ensemble));
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testNewEnsembleFailWithFiveRegions() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3;region4;region5");
+        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 5);
+        conf.setProperty(REPP_ENABLE_VALIDATION, false);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent());
+        InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.0.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.9", 3181);
+        InetSocketAddress addr9 = new InetSocketAddress("127.0.0.10", 3181);
+        InetSocketAddress addr10 = new InetSocketAddress("127.0.0.11", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), "/region1/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region2/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region2/r4");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostAddress(), "/region3/r11");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostAddress(), "/region3/r12");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostAddress(), "/region4/r13");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostAddress(), "/region4/r14");
+        StaticDNSResolver.addNodeToRack(addr9.getAddress().getHostAddress(), "/region5/r23");
+        StaticDNSResolver.addNodeToRack(addr10.getAddress().getHostAddress(), "/region5/r24");
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        addrs.add(addr10);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        Set<InetSocketAddress> excludedAddrs = new HashSet<InetSocketAddress>();
+        excludedAddrs.add(addr10);
+        excludedAddrs.add(addr9);
+        try {
+            ArrayList<InetSocketAddress> list = repp.newEnsemble(5, 5, 5, excludedAddrs);
+            LOG.info("Ensemble : {}", list);
+            fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+        } catch (BKNotEnoughBookiesException bnebe) {
+            // should throw not enou
+        }
+    }
 
     private void prepareNetworkTopologyForReorderTests(String myRegion) throws Exception {
         repp.uninitalize();

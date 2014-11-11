@@ -87,9 +87,15 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected final ReentrantReadWriteLock rwLock;
     protected ImmutableSet<InetSocketAddress> readOnlyBookies = null;
     protected boolean reorderReadsRandom = false;
-
+    private boolean enforceDurability = false;
 
     RackawareEnsemblePlacementPolicy() {
+        this(false);
+    }
+
+
+    RackawareEnsemblePlacementPolicy(boolean enforceDurability) {
+        this.enforceDurability = enforceDurability;
         topology = new NetworkTopology();
         knownBookies = new HashMap<InetSocketAddress, BookieNode>();
 
@@ -256,7 +262,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             int numRacks = topology.getNumOfRacks();
             // only one rack, use the random algorithm.
             if (numRacks < 2) {
-                List<BookieNode> bns = selectRandom(ensembleSize, excludeNodes,
+                List<BookieNode> bns = selectRandom(ensembleSize, excludeNodes, TruePredicate.instance,
                         ensemble);
                 ArrayList<InetSocketAddress> addrs = new ArrayList<InetSocketAddress>(ensembleSize);
                 for (BookieNode bn : bns) {
@@ -268,7 +274,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             for (int i = 0; i < ensembleSize; i++) {
                 String curRack;
                 if (null == prevNode) {
-                    if (null == localNode) {
+                    if ((null == localNode) ||
+                            localNode.getNetworkLocation().equals(NetworkTopology.DEFAULT_RACK)) {
                         curRack = NodeBase.ROOT;
                     } else {
                         curRack = localNode.getNetworkLocation();
@@ -330,7 +337,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                      + "excluded {}, fallback to choose bookie randomly from the cluster.",
                      networkLoc, excludeBookies);
             // randomly choose one from whole cluster, ignore the provided predicate.
-            return selectRandom(1, excludeBookies, ensemble).get(0);
+            return selectRandom(1, excludeBookies, predicate, ensemble).get(0);
         }
     }
 
@@ -385,7 +392,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
      * @return the bookie node chosen.
      * @throws BKNotEnoughBookiesException
      */
-    protected List<BookieNode> selectRandom(int numBookies, Set<Node> excludeBookies, Ensemble ensemble)
+    protected List<BookieNode> selectRandom(int numBookies, Set<Node> excludeBookies, Predicate predicate, Ensemble ensemble)
             throws BKNotEnoughBookiesException {
         List<BookieNode> allBookies = new ArrayList<BookieNode>(knownBookies.values());
         Collections.shuffle(allBookies);
@@ -394,6 +401,14 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             if (excludeBookies.contains(bookie)) {
                 continue;
             }
+
+            // When durability is being enforced; we must not violate the
+            // predicate even when selecting a random bookie; as durability
+            // guarantee is not best effort; correctness is implied by it
+            if (enforceDurability && !predicate.apply(bookie, ensemble)) {
+                continue;
+            }
+
             if (ensemble.addBookie(bookie)) {
                 excludeBookies.add(bookie);
                 newBookies.add(bookie);
