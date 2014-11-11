@@ -19,6 +19,7 @@ package org.apache.bookkeeper.proto;
 
 import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.ReadLastConfirmedAndEntryOp;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
@@ -835,6 +836,17 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         if (response.hasMaxLAC() && (rc.ctx instanceof ReadEntryCallbackCtx)) {
             ((ReadEntryCallbackCtx) rc.ctx).setLastAddConfirmed(response.getMaxLAC());
         }
+
+        if (response.hasLacUpdateTimestamp()) {
+            long elapsedMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis() - response.getLacUpdateTimestamp());
+            statsLogger.getOpStatsLogger(PCBookieClientOp.READ_LONG_POLL_RESPONSE)
+                .registerSuccessfulEvent(elapsedMicros);
+
+            if (rc.ctx instanceof ReadLastConfirmedAndEntryOp.ReadLastConfirmedAndEntryContext) {
+                ((ReadLastConfirmedAndEntryOp.ReadLastConfirmedAndEntryContext) rc.ctx).setLacUpdateTimestamp(response.getLacUpdateTimestamp());
+            }
+        }
+
         rc.cb.readEntryComplete(rcToRet, ledgerId, entryId, buffer.slice(), rc.ctx);
     }
 

@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -32,6 +33,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     final AtomicBoolean requestComplete = new AtomicBoolean(false);
+    Optional<Long> lacUpdateTimestamp = Optional.absent();
 
     final long requestTimeNano;
     private final LedgerHandle lh;
@@ -472,10 +474,11 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry);
     }
 
-    private static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
+    public static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
         final int bookieIndex;
         final InetSocketAddress bookie;
         long lac = LedgerHandle.INVALID_ENTRY_ID;
+        Optional<Long> lacUpdateTimestamp = Optional.absent();
 
         ReadLastConfirmedAndEntryContext(int bookieIndex, InetSocketAddress bookie) {
             this.bookieIndex = bookieIndex;
@@ -491,6 +494,16 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         public long getLastAddConfirmed() {
             return lac;
         }
+
+        public Optional<Long> getLacUpdateTimestamp() {
+            return lacUpdateTimestamp;
+        }
+
+        public void setLacUpdateTimestamp(long lacUpdateTimestamp) {
+            this.lacUpdateTimestamp = Optional.of(lacUpdateTimestamp);
+        }
+
+
     }
 
     private void submitCallback(int rc, long lastAddConfirmed, LedgerEntry entry) {
@@ -537,6 +550,13 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
             if (entryId != BookieProtocol.LAST_ADD_CONFIRMED) {
                 if (request.complete(rCtx.bookieIndex, bookie, buffer, entryId)) {
                     // callback immediately
+                    if (rCtx.getLacUpdateTimestamp().isPresent()) {
+                        long elapsedMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis() - rCtx.getLacUpdateTimestamp().get());
+                        lh.getStatsLogger().getOpStatsLogger(
+                            BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_RESPONSE)
+                            .registerSuccessfulEvent(elapsedMicros);
+                    }
+
                     submitCallback(BKException.Code.OK, lastAddConfirmed, request);
                     requestComplete.set(true);
                     heardFromHostsBitSet.set(rCtx.bookieIndex, true);

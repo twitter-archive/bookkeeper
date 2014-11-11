@@ -1,10 +1,12 @@
 package org.apache.bookkeeper.proto;
 
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.ByteString;
 
+import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
@@ -42,6 +44,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
     private Timeout expirationTimerTask = null;
     private Future<?> deferredTask = null;
     private SettableFuture<Boolean> fenceResult = null;
+    private Optional<Long> lastAddConfirmedUpdateTime = Optional.<Long>absent();
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessorV3.class);
 
     public ReadEntryProcessorV3(Request request,
@@ -139,6 +142,9 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
                         readLACPiggyBack = true;
                         entryId = previousLAC + 1;
                         readResponse.setMaxLAC(knownLAC);
+                        if (lastAddConfirmedUpdateTime.isPresent()) {
+                            readResponse.setLacUpdateTimestamp(lastAddConfirmedUpdateTime.get());
+                        }
                         if (logger.isDebugEnabled()) {
                             logger.debug("ReadLAC Piggy Back reading entry:{} from ledger: {}", entryId, ledgerId);
                         }
@@ -335,10 +341,15 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
 
     @Override
     public void update(Observable observable, Object o) {
-        Long newLAC = (Long)o;
-        if (newLAC > previousLAC) {
+
+        LastAddConfirmedUpdateNotification newLACNotification = (LastAddConfirmedUpdateNotification)o;
+        if (newLACNotification.lastAddConfirmed > previousLAC) {
+            if (newLACNotification.lastAddConfirmed != Long.MAX_VALUE &&
+                !lastAddConfirmedUpdateTime.isPresent()) {
+                lastAddConfirmedUpdateTime = Optional.of(newLACNotification.timestamp);
+            }
             if (logger.isTraceEnabled()) {
-                logger.trace("Last Add Confirmed Advanced to {} for request {}", newLAC, request);
+                logger.trace("Last Add Confirmed Advanced to {} for request {}", newLACNotification.lastAddConfirmed, request);
             }
             scheduleDeferredRead(observable, false);
         }

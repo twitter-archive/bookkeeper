@@ -108,7 +108,9 @@ class FileInfo extends Observable {
             lacToReturn = this.lac;
         }
         LOG.trace("Updating LAC {} , {}", lacToReturn, lac);
-        notifyObservers(lacToReturn);
+
+
+        notifyObservers(new LastAddConfirmedUpdateNotification(lacToReturn));
         return lacToReturn;
     }
 
@@ -240,7 +242,7 @@ class FileInfo extends Observable {
                 returnVal = true;
             }
         }
-        notifyObservers(Long.MAX_VALUE);
+        notifyObservers(new LastAddConfirmedUpdateNotification(Long.MAX_VALUE));
         return returnVal;
     }
 
@@ -332,7 +334,7 @@ class FileInfo extends Observable {
                 fc.close();
             }
         }
-        notifyObservers(Long.MAX_VALUE);
+        notifyObservers(new LastAddConfirmedUpdateNotification(Long.MAX_VALUE));
     }
 
     synchronized public long write(ByteBuffer[] buffs, long position) throws IOException {
