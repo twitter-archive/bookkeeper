@@ -665,6 +665,11 @@ public class EntryLogger {
         if (entrySize > MB) {
             LOG.error("Sanity check failed for entry size of " + entrySize + " at location " + pos + " in " + entryLogId);
         }
+        if (entrySize < 0) {
+            throw new Bookie.NoEntryException("Negative entry size found for " + ledgerId + "@"
+                                              + entryId + " in " + entryLogId + "@"
+                                              + pos + " : " + entrySize, ledgerId, entryId);
+        }
         byte data[] = new byte[entrySize];
         ByteBuffer buff = ByteBuffer.wrap(data);
         int rc = readFromLogChannel(entryLogId, fc, buff, pos);
@@ -776,6 +781,10 @@ public class EntryLogger {
             if (entrySize > MB) {
                 LOG.warn("Found large size entry of " + entrySize + " at location " + pos + " in "
                         + entryLogId);
+            }
+            if (entrySize < 0) {
+                throw new ShortReadException("Invalid entry size found for entry from entryLog " + entryLogId
+                                    + "@" + pos + " : " + entrySize);
             }
             sizeBuff.clear();
             // try to read ledger id first
