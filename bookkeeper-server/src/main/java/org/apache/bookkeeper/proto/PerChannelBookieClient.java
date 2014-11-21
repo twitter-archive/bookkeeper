@@ -839,6 +839,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         if (response.hasLacUpdateTimestamp()) {
             long elapsedMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis() - response.getLacUpdateTimestamp());
+            elapsedMicros = Math.max(0, elapsedMicros);
             statsLogger.getOpStatsLogger(PCBookieClientOp.READ_LONG_POLL_RESPONSE)
                 .registerSuccessfulEvent(elapsedMicros);
 

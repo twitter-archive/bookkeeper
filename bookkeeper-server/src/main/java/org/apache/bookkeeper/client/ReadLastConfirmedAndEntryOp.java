@@ -551,6 +551,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                     // callback immediately
                     if (rCtx.getLacUpdateTimestamp().isPresent()) {
                         long elapsedMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis() - rCtx.getLacUpdateTimestamp().get());
+                        elapsedMicros = Math.max(elapsedMicros, 0);
                         lh.getStatsLogger().getOpStatsLogger(
                             BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_RESPONSE)
                             .registerSuccessfulEvent(elapsedMicros);
