@@ -80,11 +80,11 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         boolean readLACPiggyBack = false;
         try {
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
-                logger.warn("Ledger fence request received for ledger:" + ledgerId + " from address:" + srcConn.getPeerName());
-                // TODO: Move this to a different request which definitely has the master key.
+                logger.info("Ledger fence request received for ledger:{} from address:{}",
+                        ledgerId, srcConn.getPeerName());
                 if (!readRequest.hasMasterKey()) {
-                    logger.error("Fence ledger request received without master key for ledger:" + ledgerId +
-                            " from address:" + srcConn.getRemoteAddress());
+                    logger.error("Fence ledger request received without master key for ledger:{} from address:{}",
+                            ledgerId, srcConn.getRemoteAddress());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 } else {
                     byte[] masterKey = readRequest.getMasterKey().toByteArray();
@@ -106,7 +106,9 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
                     lastPhaseStartTimeNanos = MathUtils.nowInNano();
 
                     if (readRequest.hasTimeOut()) {
-                        logger.trace("Waiting For LAC Update {}: Timeout {}", previousLAC, readRequest.getTimeOut());
+                        if (logger.isTraceEnabled()) {
+                            logger.trace("Waiting For LAC Update {}: Timeout {}", previousLAC, readRequest.getTimeOut());
+                        }
                         synchronized (this) {
                             expirationTimerTask = requestTimer.newTimeout(new TimerTask() {
                                 @Override
@@ -123,7 +125,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             } else {
                 if (logger.isTraceEnabled()) {
                     logger.trace("previousLAC: {} fenceResult: {} hasPreviousLAC: {}",
-                        new Object[]{previousLAC, fenceResult, readRequest.hasPreviousLAC()});
+                        new Object[]{ previousLAC, fenceResult, readRequest.hasPreviousLAC() });
                 }
             }
 
@@ -132,7 +134,8 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
                 if(!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
                     // This is not a valid request - client bug?
-                    logger.error("Incorrect read request, entry piggyback requested incorrectly for ledgerId {} entryId {}", ledgerId, entryId);
+                    logger.error("Incorrect read request, entry piggyback requested incorrectly for ledgerId {} entryId {}",
+                            ledgerId, entryId);
                     status = StatusCode.EBADREQ;
                     shouldReadEntry = false;
                 } else {
@@ -149,6 +152,10 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
                             logger.debug("ReadLAC Piggy Back reading entry:{} from ledger: {}", entryId, ledgerId);
                         }
                     } else {
+                        if (knownLAC < previousLAC) {
+                            logger.warn("Found smaller lac when piggy back reading lac and entry from ledger {} :" +
+                                    " previous lac = {}, known lac = {}", new Object[] { ledgerId, previousLAC, knownLAC });
+                        }
                         status = StatusCode.EOK;
                         shouldReadEntry = false;
                     }
@@ -167,7 +174,8 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
 
                             @Override
                             public void onFailure(Throwable t) {
-                                logger.error("Fence request for ledgerId "+ readRequest.getLedgerId() + " entryId " + readRequest.getEntryId() + " encountered exception", t);
+                                logger.error("Fence request for ledgerId {} entryId {} encountered exception",
+                                        new Object[] { readRequest.getLedgerId(), readRequest.getEntryId(), t });
                                 sendFenceResponse(readResponse, entryBody, false);
                             }
                         }, fenceThreadPool);
@@ -205,8 +213,11 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             }
         } catch (Bookie.NoLedgerException e) {
             status = StatusCode.ENOLEDGER;
-            logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
+                logger.info("No ledger found reading entry {} when fencing ledger {}", entryId, ledgerId);
+            } else {
+                logger.info("No ledger found while reading entry: {} from ledger: {}", entryId, ledgerId);
+            }
         } catch (Bookie.NoEntryException e) {
             // piggy back is best effort and this request can fail genuinely because of striping
             // entries across the ensemble
@@ -218,17 +229,19 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             } else {
                 status = StatusCode.ENOENTRY;
             }
-            if (logger.isDebugEnabled()) {
-                logger.debug("No entry found while reading entry:" + entryId + " from ledger:" +
-                        ledgerId);
+
+            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
+                logger.info("No entry found while piggyback reading entry {} from ledger {} : previous lac = {}",
+                        new Object[] { entryId, ledgerId, previousLAC });
+            } else if (logger.isDebugEnabled()) {
+                logger.debug("No entry found while reading entry: {} from ledger: {}", entryId, ledgerId);
             }
         } catch (IOException e) {
             status = StatusCode.EIO;
-            logger.error("IOException while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            logger.error("IOException while reading entry: {} from ledger: {}", entryId, ledgerId);
         } catch (BookieException e) {
-            logger.error("Unauthorized access to ledger:" + ledgerId + " while reading entry:" + entryId + " in request " +
-                    "from address:" + srcConn.getPeerName());
+            logger.error("Unauthorized access to ledger: {} while reading entry: {} in request from address: ",
+                    new Object[] { ledgerId, entryId, srcConn.getPeerName() });
             status = StatusCode.EUA;
         }
 

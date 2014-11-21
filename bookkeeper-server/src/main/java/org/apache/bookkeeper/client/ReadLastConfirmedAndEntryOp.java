@@ -563,9 +563,18 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
             } else {
                 LOG.debug("Empty Response {}, {}", ledgerId, lastAddConfirmed);
                 emptyResponsesFromHostsBitSet.set(rCtx.bookieIndex, true);
-                if (emptyResponsesFromHostsBitSet.cardinality() >= numEmptyResponsesAllowed) {
+                if (lastAddConfirmed > prevLastAddConfirmed ||
+                        emptyResponsesFromHostsBitSet.cardinality() >= numEmptyResponsesAllowed) {
+                    LOG.info("Completed readLACAndEntry(lid = {}, previousLAC = {}) with empty response from" +
+                            " bookie {} @ {} : lac = {}.",
+                            new Object[] { ledgerId, prevLastAddConfirmed, rCtx.bookieIndex,
+                                    rCtx.bookie, lastAddConfirmed });
                     completeRequest();
                 } else {
+                    LOG.info("Received empty response for readLACAndEntry(lid = {}, previousLAC = {}) from" +
+                            " bookie {} @ {}, reattempting reading next bookie : lac = {}",
+                            new Object[] { ledgerId, prevLastAddConfirmed, rCtx.bookieIndex,
+                                    rCtx.bookie, lastAddConfirmed });
                     request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Empty Response", rc);
                 }
                 return;
