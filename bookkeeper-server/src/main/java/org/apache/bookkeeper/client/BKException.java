@@ -94,6 +94,8 @@ public abstract class BKException extends Exception {
             return new BKClientClosedException();
         case Code.IllegalOpException:
             return new BKIllegalOpException();
+        case Code.AddEntryQuorumTimeoutException:
+            return new BKAddEntryQuorumTimeoutException();
         default:
             return new BKUnexpectedConditionException();
         }
@@ -124,6 +126,7 @@ public abstract class BKException extends Exception {
         int MetadataVersionException = -17;
         int MetaStoreException = -18;
         int ClientClosedException = -19;
+        int AddEntryQuorumTimeoutException = -20;
 
         int IllegalOpException = -100;
         int LedgerFencedException = -101;
@@ -200,6 +203,8 @@ public abstract class BKException extends Exception {
             return "BookKeeper client is closed";
         case Code.IllegalOpException:
             return "Invalid operation";
+        case Code.AddEntryQuorumTimeoutException:
+            return "Add entry quorum wait timed out";
         default:
             return "Unexpected condition";
         }
@@ -244,6 +249,12 @@ public abstract class BKException extends Exception {
     public static class BKIllegalOpException extends BKException {
         public BKIllegalOpException() {
             super(Code.IllegalOpException);
+        }
+    }
+
+    public static class BKAddEntryQuorumTimeoutException extends BKException {
+        public BKAddEntryQuorumTimeoutException() {
+            super(Code.AddEntryQuorumTimeoutException);
         }
     }
 

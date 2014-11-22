@@ -26,9 +26,14 @@ import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This represents a pending add operation. When it has got success from all
@@ -39,7 +44,7 @@ import org.slf4j.LoggerFactory;
  *
  *
  */
-class PendingAddOp implements WriteCallback {
+class PendingAddOp implements WriteCallback, TimerTask {
     final static Logger LOG = LoggerFactory.getLogger(PendingAddOp.class);
 
     ChannelBuffer toSend;
@@ -55,14 +60,21 @@ class PendingAddOp implements WriteCallback {
     boolean isRecoveryAdd = false;
     long requestTimeNanos;
 
+    final int timeoutSec;
+    final boolean delayEnsembleChange;
+
+    Timeout timeout;
+
     PendingAddOp(LedgerHandle lh, AddCallback cb, Object ctx) {
         this.lh = lh;
         this.cb = cb;
         this.ctx = ctx;
         this.entryId = LedgerHandle.INVALID_ENTRY_ID;
 
-        ackSet = lh.distributionSchedule.getAckSet();
+        this.ackSet = lh.distributionSchedule.getAckSet();
 
+        this.timeoutSec = lh.bk.getConf().getAddEntryQuorumTimeout();
+        this.delayEnsembleChange = lh.bk.getConf().getDelayEnsembleChange();
     }
 
     /**
@@ -83,6 +95,31 @@ class PendingAddOp implements WriteCallback {
 
         lh.bk.bookieClient.addEntry(lh.metadata.currentEnsemble.get(bookieIndex), lh.ledgerId, lh.ledgerKey, entryId, toSend,
                 this, bookieIndex, flags);
+    }
+
+    @Override
+    public void run(Timeout timeout) {
+        timeoutQuorumWait();
+    }
+
+    void timeoutQuorumWait() {
+        try {
+            lh.bk.mainWorkerPool.submit(new SafeRunnable() {
+                @Override
+                public void safeRun() {
+                    if (completed) {
+                        return;
+                    }
+                    lh.handleUnrecoverableErrorDuringAdd(BKException.Code.AddEntryQuorumTimeoutException);
+                }
+                @Override
+                public String toString() {
+                    return String.format("AddEntryQuorumTimeout(lid=%d, eid=%d)", lh.ledgerId, entryId);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.warn("Timeout add entry quorum wait failed {} entry: {}", lh.ledgerId, entryId);
+        }
     }
 
     void unsetSuccessAndSendWriteRequest(int bookieIndex) {
@@ -108,7 +145,8 @@ class PendingAddOp implements WriteCallback {
     }
 
     void initiate(ChannelBuffer toSend, int entryLength) {
-        requestTimeNanos = MathUtils.nowInNano();
+        this.timeout = lh.bk.bookieClient.scheduleTimeout(this, timeoutSec, TimeUnit.SECONDS);
+        this.requestTimeNanos = MathUtils.nowInNano();
         this.toSend = toSend;
         this.entryLength = entryLength;
         for (int bookieIndex : lh.distributionSchedule.getWriteSet(entryId)) {
@@ -153,7 +191,7 @@ class PendingAddOp implements WriteCallback {
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         default:
-            if (lh.bk.getConf().getDelayEnsembleChange()) {
+            if (delayEnsembleChange) {
                 if (ackSet.failBookieAndCheck(bookieIndex, addr)) {
                     Map<Integer, InetSocketAddress> failedBookies = ackSet.getFailedBookies();
                     LOG.warn("Failed to write entry ({}, {}) to bookies {}, handling failures.",
@@ -187,6 +225,9 @@ class PendingAddOp implements WriteCallback {
     }
 
     void submitCallback(final int rc) {
+        if (null != timeout) {
+            timeout.cancel();
+        }
         if (rc != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));

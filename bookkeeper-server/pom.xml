@@ -246,7 +246,7 @@
         </executions>
         <configuration>
           <dateFormat>MM/dd/yyyy HH:mm:ss z</dateFormat>
-          <verbose>true</verbose>
+          <verbose>false</verbose>
           <dotGitDirectory>${project.basedir}/.git</dotGitDirectory>
           <generateGitPropertiesFilename>src/main/resources/git.properties</generateGitPropertiesFilename>
           <generateGitPropertiesFile>true</generateGitPropertiesFile>

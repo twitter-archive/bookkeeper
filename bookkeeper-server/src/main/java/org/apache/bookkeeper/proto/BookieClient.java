@@ -37,6 +37,8 @@ import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.jboss.netty.util.HashedWheelTimer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -334,6 +336,10 @@ public class BookieClient implements PerChannelBookieClientFactory {
 
     public boolean isClosed() {
         return closed;
+    }
+
+    public Timeout scheduleTimeout(TimerTask task, long timeoutSec, TimeUnit timeUnit) {
+        return requestTimer.newTimeout(task, timeoutSec, timeUnit);
     }
 
     public void close() {
