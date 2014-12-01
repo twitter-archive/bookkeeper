@@ -107,7 +107,7 @@ public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase impleme
         SyncObj syncObj3 = new SyncObj();
 
         lh.addEntry(data);
-        sleepBookie(curEns.get(0), 5);
+        sleepBookie(curEns.get(0), 5).await();
         lh.asyncAddEntry(data, this, syncObj1);
         lh.asyncAddEntry(data, this, syncObj2);
         lh.asyncAddEntry(data, this, syncObj3);
