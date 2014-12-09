@@ -79,9 +79,10 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
                 return ImmutableMap.copyOf(failureMap);
             }
 
-            public void removeBookie(int bookie) {
+            public boolean removeBookieAndCheck(int bookie) {
                 ackSet.remove(bookie);
                 failureMap.remove(bookie);
+                return ackSet.size() >= ackQuorumSize;
             }
         };
     }

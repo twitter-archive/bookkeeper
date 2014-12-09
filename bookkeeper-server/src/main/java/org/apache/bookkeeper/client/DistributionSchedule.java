@@ -73,7 +73,7 @@ interface DistributionSchedule {
          * Invalidate a previous bookie response.
          * Used for reissuing write requests.
          */
-        public void removeBookie(int bookie);
+        public boolean removeBookieAndCheck(int bookie);
     }
 
     /**

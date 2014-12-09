@@ -138,8 +138,10 @@ class PendingAddOp implements WriteCallback, TimerTask {
         // if we had already heard a success from this array index, need to
         // increment our number of responses that are pending, since we are
         // going to unset this success
-        ackSet.removeBookie(bookieIndex);
-        completed = false;
+        if (!ackSet.removeBookieAndCheck(bookieIndex)) {
+            // unset completed if this results in loss of ack quorum
+            completed = false;
+        }
 
         sendWriteRequest(bookieIndex);
     }
@@ -158,17 +160,23 @@ class PendingAddOp implements WriteCallback, TimerTask {
     public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
         int bookieIndex = (Integer) ctx;
 
-        if (completed) {
-            // I am already finished, ignore incoming responses.
-            // otherwise, we might hit the following error handling logic, which might cause bad things.
-            return;
-        }
-
         if (!lh.metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
             // ensemble has already changed, failure of this addr is immaterial
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Write did not succeed: " + ledgerId + ", " + entryId + ". But we have already fixed it.");
             }
+            return;
+        }
+
+        // must record all acks, even if complete (completion can be undone by an ensemble change)
+        boolean ackQuorum = false;
+        if (BKException.Code.OK == rc) {
+            ackQuorum = ackSet.completeBookieAndCheck(bookieIndex);
+        }
+
+        if (completed) {
+            // I am already finished, ignore incoming responses.
+            // otherwise, we might hit the following error handling logic, which might cause bad things.
             return;
         }
 
@@ -213,7 +221,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
             return;
         }
 
-        if (ackSet.completeBookieAndCheck(bookieIndex) && !completed) {
+        if (ackQuorum && !completed) {
             completed = true;
 
             // do some quick checks to see if some adds may have finished. All
