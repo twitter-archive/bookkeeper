@@ -743,21 +743,72 @@ public class LedgerHandle {
         new ReadLastConfirmedLongPollOp(this, innercb, getLastAddConfirmed(), timeOutInMillis).initiate();
     }
 
+    @Deprecated
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
         asyncReadLastConfirmedAndEntry(timeOutInMillis, false, cb, ctx);
     }
 
+    @Deprecated
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final boolean parallel, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
+        asyncReadLastConfirmedAndEntry(getLastAddConfirmed() + 1, timeOutInMillis, parallel, cb, ctx);
+    }
+
+    /**
+     * Asynchronous read next entry and the latest last add confirmed.
+     * If the next entryId is less than known last add confirmed, the call will read next entry directly.
+     * If the next entryId is ahead of known last add confirmed, the call will issue a long poll read
+     * to wait for the next entry <i>entryId</i>.
+     *
+     * The callback will return the latest last add confirmed and next entry if it is available within timeout period <i>timeOutInMillis</i>.
+     *
+     * @param entryId
+     *          next entry id to read
+     * @param timeOutInMillis
+     *          timeout period to wait for the entry id to be available (for long poll only)
+     * @param parallel
+     *          whether to issue the long poll reads in parallel
+     * @param cb
+     *          callback to return the result
+     * @param ctx
+     *          callback context
+     */
+    public void asyncReadLastConfirmedAndEntry(final long entryId,
+                                               final long timeOutInMillis,
+                                               final boolean parallel,
+                                               final AsyncCallback.ReadLastConfirmedAndEntryCallback cb,
+                                               final Object ctx) {
         boolean isClosed;
-        long lastEntryId;
+        long lac;
         synchronized (this) {
             isClosed = metadata.isClosed();
-            lastEntryId = metadata.getLastEntryId();
+            lac = metadata.getLastEntryId();
         }
         if (isClosed) {
-            cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, lastEntryId, null, ctx);
+            if (entryId > lac) {
+                cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, lac, null, ctx);
+                return;
+            }
+        } else {
+            lac = getLastAddConfirmed();
+        }
+        if (entryId <= lac) {
+            asyncReadEntries(entryId, entryId, new ReadCallback() {
+                @Override
+                public void readComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq, Object ctx) {
+                    if (BKException.Code.OK == rc) {
+                        if (seq.hasMoreElements()) {
+                            cb.readLastConfirmedAndEntryComplete(rc, getLastAddConfirmed(), seq.nextElement(), ctx);
+                        } else {
+                            cb.readLastConfirmedAndEntryComplete(rc, getLastAddConfirmed(), null, ctx);
+                        }
+                    } else {
+                        cb.readLastConfirmedAndEntryComplete(rc, INVALID_ENTRY_ID, null, ctx);
+                    }
+                }
+            }, ctx);
             return;
         }
+        // wait for entry <i>entryId</i>
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
             AtomicBoolean completed = new AtomicBoolean(false);
             @Override
@@ -773,7 +824,7 @@ public class LedgerHandle {
                 }
             }
         };
-        new ReadLastConfirmedAndEntryOp(this, innercb, getLastAddConfirmed(), timeOutInMillis, bk.scheduler).parallelRead(parallel).initiate();
+        new ReadLastConfirmedAndEntryOp(this, innercb, entryId - 1, timeOutInMillis, bk.scheduler).parallelRead(parallel).initiate();
     }
 
     /**

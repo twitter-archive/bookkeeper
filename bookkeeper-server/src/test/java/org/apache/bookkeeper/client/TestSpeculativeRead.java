@@ -407,8 +407,8 @@ public class TestSpeculativeRead extends BaseTestCase {
             // read last confirmed
             LatchCallback nospeccb = new LatchCallback();
             LatchCallback speccb = new LatchCallback();
-            lnospec.asyncReadLastConfirmedAndEntry(10000, nospeccb, null);
-            lspec.asyncReadLastConfirmedAndEntry(10000, speccb, null);
+            lnospec.asyncReadLastConfirmedAndEntry(lnospec.getLastAddConfirmed() + 1, 10000, false, nospeccb, null);
+            lspec.asyncReadLastConfirmedAndEntry(lnospec.getLastAddConfirmed() + 1, 10000, false, speccb, null);
             speccb.expectSuccess(2 * timeOut);
             nospeccb.expectTimeout(2 * timeOut);
         } finally {

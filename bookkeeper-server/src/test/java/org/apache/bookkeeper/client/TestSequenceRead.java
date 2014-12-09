@@ -86,7 +86,7 @@ public class TestSequenceRead extends BookKeeperClusterTestCase {
             assertEquals(LedgerHandle.INVALID_ENTRY_ID, readLh.getLastAddConfirmed());
             final CountDownLatch doneLatch = new CountDownLatch(1);
             final AtomicInteger rcHolder = new AtomicInteger(-1234);
-            lh.asyncReadLastConfirmedAndEntry(100, false, new AsyncCallback.ReadLastConfirmedAndEntryCallback() {
+            readLh.asyncReadLastConfirmedAndEntry(0L, 100, false, new AsyncCallback.ReadLastConfirmedAndEntryCallback() {
                 @Override
                 public void readLastConfirmedAndEntryComplete(int rc, long lastConfirmed, LedgerEntry entry, Object ctx) {
                     rcHolder.set(rc);
@@ -95,8 +95,10 @@ public class TestSequenceRead extends BookKeeperClusterTestCase {
             }, null);
             doneLatch.await();
             assertEquals(BKException.Code.NoSuchLedgerExistsException, rcHolder.get());
+            readLh.close();
         } finally {
             newBkc.close();
         }
+        lh.close();
     }
 }
