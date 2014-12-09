@@ -20,17 +20,22 @@
  */
 package org.apache.bookkeeper.client;
 
+import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.LedgerMetadataListener;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.zookeeper.AsyncCallback.VoidCallback;
+import org.apache.zookeeper.KeeperException;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -38,10 +43,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.util.Enumeration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -270,14 +277,6 @@ public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
             }
         });
 
-        while ((numEntries - 1) != recoverLh.getLastAddPushed()) {
-            Thread.sleep(1000);
-        }
-
-        assertEquals(numEntries - 1, recoverLh.getLastAddPushed());
-        assertEquals(ledgerLenth, recoverLh.getLength());
-        assertFalse(recoverLh.getLedgerMetadata().isClosed());
-
         // clear the metadata latch
         tlm.setLatch(null);
 
@@ -402,6 +401,210 @@ public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
         Thread.sleep(5000);
         assertEquals("recovery callback should be triggered only once", 1, numSuccessCalls.get());
         assertEquals("recovery callback should be triggered only once", 0, numFailureCalls.get());
+    }
+
+    static class DelayResponseBookie extends Bookie {
+
+        static final class WriteCallbackEntry {
+
+            private final WriteCallback cb;
+            private final int rc;
+            private final long ledgerId;
+            private final long entryId;
+            private final InetSocketAddress addr;
+            private final Object ctx;
+
+            WriteCallbackEntry(WriteCallback cb,
+                               int rc, long ledgerId, long entryId,
+                               InetSocketAddress addr, Object ctx) {
+                this.cb = cb;
+                this.rc = rc;
+                this.ledgerId = ledgerId;
+                this.entryId = entryId;
+                this.addr = addr;
+                this.ctx = ctx;
+            }
+
+            public void callback() {
+                cb.writeComplete(rc, ledgerId, entryId, addr, ctx);
+            }
+        }
+
+        private final AtomicBoolean delayAddResponse = new AtomicBoolean(false);
+        private final AtomicBoolean delayReadResponse = new AtomicBoolean(false);
+        private final AtomicLong delayReadOnEntry = new AtomicLong(-1234L);
+        private volatile CountDownLatch delayReadLatch = null;
+        private final LinkedBlockingQueue<WriteCallbackEntry> delayQueue =
+                new LinkedBlockingQueue<WriteCallbackEntry>();
+
+        public DelayResponseBookie(ServerConfiguration conf)
+                throws IOException, KeeperException, InterruptedException, BookieException {
+            super(conf);
+        }
+
+        @Override
+        public void addEntry(ByteBuffer entry, final WriteCallback cb, Object ctx, byte[] masterKey)
+                throws IOException, BookieException {
+            super.addEntry(entry, new WriteCallback() {
+                @Override
+                public void writeComplete(int rc, long ledgerId, long entryId,
+                                          InetSocketAddress addr, Object ctx) {
+                    if (delayAddResponse.get()) {
+                        delayQueue.add(new WriteCallbackEntry(cb, rc, ledgerId, entryId, addr, ctx));
+                    } else {
+                        cb.writeComplete(rc, ledgerId, entryId, addr, ctx);
+                    }
+                }
+            }, ctx, masterKey);
+        }
+
+        @Override
+        public ByteBuffer readEntry(long ledgerId, long entryId) throws IOException, NoLedgerException {
+            LOG.info("ReadEntry {} - {}", ledgerId, entryId);
+            if (delayReadResponse.get() && delayReadOnEntry.get() == entryId) {
+                CountDownLatch latch = delayReadLatch;
+                if (null != latch) {
+                    try {
+                        latch.await();
+                    } catch (InterruptedException e) {
+                        // no-op
+                    }
+                }
+            }
+            return super.readEntry(ledgerId, entryId);
+        }
+
+        void delayAdd(boolean delayed) {
+            this.delayAddResponse.set(delayed);
+        }
+
+        void delayRead(boolean delayed, long entryId, CountDownLatch delayReadLatch) {
+            this.delayReadResponse.set(delayed);
+            this.delayReadOnEntry.set(entryId);
+            this.delayReadLatch = delayReadLatch;
+        }
+
+    }
+
+    @Test(timeout = 60000)
+    public void testRecoveryWhenClosingLedgerHandle() throws Exception {
+        byte[] passwd = "recovery-when-closing-ledger-handle".getBytes(UTF_8);
+
+        ClientConfiguration newConf = new ClientConfiguration();
+        newConf.addConfiguration(baseClientConf);
+        newConf.setEnableParallelRecoveryRead(true);
+        newConf.setRecoveryReadBatchSize(1);
+        newConf.setAddEntryTimeout(9999999);
+        newConf.setReadEntryTimeout(9999999);
+
+        final BookKeeper newBk0 = new BookKeeper(newConf);
+        final LedgerHandle lh0 = newBk0.createLedger(1, 1, 1, digestType, passwd);
+
+        final BookKeeper newBk1 = new BookKeeper(newConf);
+        final LedgerHandle lh1 = newBk1.openLedgerNoRecovery(lh0.getId(), digestType, passwd);
+        final TestLedgerManager tlm1 = (TestLedgerManager) newBk1.getUnderlyingLedgerManager();
+
+        final BookKeeper readBk = new BookKeeper(newConf);
+        final LedgerHandle readLh = readBk.openLedgerNoRecovery(lh0.getId(), digestType, passwd);
+
+        LOG.info("Create ledger {}", lh0.getId());
+
+        // 0) place the bookie with a fake bookie
+        InetSocketAddress address = lh0.getLedgerMetadata().currentEnsemble.get(0);
+        ServerConfiguration conf = killBookie(address);
+        conf.setSortedLedgerStorageEnabled(false);
+        DelayResponseBookie fakeBookie = new DelayResponseBookie(conf);
+        bs.add(startBookie(conf, fakeBookie));
+        bsConfs.add(conf);
+
+        // 1) bk0 write two entries
+        lh0.addEntry("entry-0".getBytes(UTF_8));
+        lh0.addEntry("entry-1".getBytes(UTF_8));
+
+        // 2) readBk read last add confirmed
+        long lac = readLh.readLastConfirmed();
+        assertEquals(0L, lac);
+        lac = lh1.readLastConfirmed();
+        assertEquals(0L, lac);
+
+        final CountDownLatch addLatch = new CountDownLatch(3);
+        final AtomicInteger numAddFailures = new AtomicInteger(0);
+        // 3) bk0 write more entries in parallel
+        fakeBookie.delayAdd(true);
+        for (int i = 2; i < 5; i++) {
+            lh0.asyncAddEntry(("entry-" + i).getBytes(UTF_8), new AsyncCallback.AddCallback() {
+                @Override
+                public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
+                    if (BKException.Code.OK != rc) {
+                        numAddFailures.incrementAndGet();
+                    }
+                    addLatch.countDown();
+                }
+            }, null);
+        }
+        while (fakeBookie.delayQueue.size() < 3) {
+            // wait until all add requests are queued
+            Thread.sleep(100);
+        }
+
+        // 4) lac moved to 1L
+        lac = readLh.readLastConfirmed();
+        assertEquals(1L, lac);
+        lac = lh1.readLastConfirmed();
+        assertEquals(1L, lac);
+
+        // 5) bk1 is doing recovery, but the metadata update is delayed
+        final CountDownLatch readLatch = new CountDownLatch(1);
+        fakeBookie.delayAdd(false);
+        fakeBookie.delayRead(true, 3L, readLatch);
+        final CountDownLatch metadataLatch = new CountDownLatch(1);
+        tlm1.setLatch(metadataLatch);
+        final CountDownLatch recoverLatch = new CountDownLatch(1);
+        final AtomicBoolean recoverSuccess = new AtomicBoolean(false);
+        lh1.recover(new GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                LOG.info("Recovering ledger {} completed : {}", lh1.getId(), rc);
+                recoverSuccess.set(BKException.Code.OK == rc);
+                recoverLatch.countDown();
+            }
+        });
+        Thread.sleep(2000);
+        readLatch.countDown();
+
+        // we don't expected lac being updated before we successfully marked the ledger in recovery
+        lac = readLh.readLastConfirmed();
+        assertEquals(1L, lac);
+
+        // 6) bk0 closes ledger before bk1 marks in recovery
+        lh0.close();
+        assertEquals(1L, lh0.getLastAddConfirmed());
+
+        // 7) bk1 proceed recovery and succeed
+        metadataLatch.countDown();
+        recoverLatch.await();
+        assertTrue(recoverSuccess.get());
+        assertEquals(1L, lh1.getLastAddConfirmed());
+
+        // 8) make sure we won't see lac advanced during ledger is closed by bk0 and recovered by bk1
+        final AtomicLong lacHolder = new AtomicLong(-1234L);
+        final AtomicInteger rcHolder = new AtomicInteger(-1234);
+        final CountDownLatch doneLatch = new CountDownLatch(1);
+        new ReadLastConfirmedOp(readLh, new ReadLastConfirmedOp.LastConfirmedDataCallback() {
+            @Override
+            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
+                rcHolder.set(rc);
+                lacHolder.set(data.lastAddConfirmed);
+                doneLatch.countDown();
+            }
+        }).initiate();
+        doneLatch.await();
+        assertEquals(BKException.Code.OK, rcHolder.get());
+        assertEquals(1L, lacHolder.get());
+
+        newBk0.close();
+        newBk1.close();
+        readBk.close();
     }
 
 }

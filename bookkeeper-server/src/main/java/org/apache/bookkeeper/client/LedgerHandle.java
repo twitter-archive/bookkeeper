@@ -1294,7 +1294,6 @@ public class LedgerHandle {
             new LedgerRecoveryOp(LedgerHandle.this, cb)
                         .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                         .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                        .setCouldClose(true)
                         .setEntryListener(listener)
                         .initiate();
             return;
@@ -1303,14 +1302,12 @@ public class LedgerHandle {
         final LedgerRecoveryOp recoveryOp = new LedgerRecoveryOp(LedgerHandle.this, cb)
                 .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                 .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                .setCouldClose(false).setEntryListener(listener);
+                .setEntryListener(listener);
         // Issue the recovery op & update ledger config in parallel.
-        recoveryOp.initiate();
         writeLedgerConfig(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
             @Override
             public void safeOperationComplete(final int rc, Void result) {
                 if (rc == BKException.Code.MetadataVersionException) {
-                    recoveryOp.cancel();
                     rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(bk.mainWorkerPool,
                                                                                   ledgerId) {
                         @Override
@@ -1328,9 +1325,11 @@ public class LedgerHandle {
                         }
                     });
                 } else if (rc == BKException.Code.OK) {
-                    recoveryOp.notifyClose();
+                    // we only could issue recovery operation after we successfully update the ledger state to in recovery
+                    // otherwise, it couldn't prevent us advancing last confirmed while the other writer is closing the ledger,
+                    // which will cause inconsistent last add confirmed on bookies & zookeeper metadata.
+                    recoveryOp.initiate();
                 } else {
-                    recoveryOp.cancel();
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
                 }

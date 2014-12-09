@@ -481,7 +481,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
                 success.set(BKException.Code.OK == rc);
                 recoverLatch.countDown();
             }
-        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize()).setCouldClose(true);
+        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize());
         recoveryOp.initiate();
         recoverLatch.await(10, TimeUnit.SECONDS);
         assertTrue(success.get());
