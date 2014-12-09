@@ -44,7 +44,7 @@ import org.slf4j.LoggerFactory;
  * This is the garbage collector thread that runs in the background to
  * remove any entry log files that no longer contains any active ledger.
  */
-public class GarbageCollectorThread extends Thread {
+public class GarbageCollectorThread extends BookieCriticalThread {
     private static final Logger LOG = LoggerFactory.getLogger(GarbageCollectorThread.class);
 
     private static final int SECOND = 1000;

@@ -94,6 +94,32 @@ Trunk (unreleased changes)
 
       BOOKKEEPER-592: allow application to recommend ledger data locality (sijie via ivank)
 
+      BOOKKEEPER-627: LedgerDirsMonitor is missing thread name (rakesh via fpj)
+
+      BOOKKEEPER-618: Better resolution of bookie address (ivank via fpj)
+
+      BOOKKEEPER-610: Make SyncThread use an executor (ivank via sijie)
+
+      BOOKKEEPER-640: Log improvement - add shutdown/exit log message for the bookie services (rakesh via sijie)
+
+      BOOKKEEPER-666: Naming threads of ExecutorService (rakesh via sijie)
+
+      BOOKKEEPER-645: Bookkeeper shell command to get a list of readonly bookies (rakesh via sijie)
+
+      BOOKKEEPER-658: ledger cache refactor (Robin Dhamankar via sijie)
+
+      BOOKKEEPER-657: Journal Improvement (Robin Dhamankar via sijie)
+
+      BOOKKEEPER-664: Compaction increases latency on journal writes (ivank via sijie)
+
+      BOOKKEEPER-602: we should have request timeouts rather than channel timeout in PerChannelBookieClient (Aniruddha, ivank via sijie)
+
+      BOOKKEEPER-698: Bookie client closure is not considering timeoutExecutor (rakesh via sijie)
+
+      BOOKKEEPER-699: Codahale metrics implementation of stats API (ivank via sijie)
+
+      BOOKKEEPER-701: Improve exception handling of Bookkeeper threads (rakesh via sijie)
+
     NEW FEATURE:
 
       BOOKKEEPER-562: Ability to tell if a ledger is closed or not (fpj)

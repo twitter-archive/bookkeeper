@@ -93,7 +93,7 @@ import com.google.common.util.concurrent.SettableFuture;
  * Implements a bookie.
  *
  */
-public class Bookie extends BookieThread {
+public class Bookie extends BookieCriticalThread {
     public static final String INSTANCEID = "INSTANCEID";
     public static final String READONLY = "readonly";
 
@@ -303,7 +303,7 @@ public class Bookie extends BookieThread {
      * </p>
      */
     @VisibleForTesting
-    public class SyncThread extends BookieThread implements CheckpointProgress {
+    public class SyncThread extends BookieCriticalThread implements CheckpointProgress {
         volatile boolean running = true;
         // flag to ensure sync thread will not be interrupted during flush
         final AtomicBoolean flushing = new AtomicBoolean(false);

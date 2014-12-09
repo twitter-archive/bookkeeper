@@ -22,6 +22,7 @@ package org.apache.bookkeeper.proto;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -219,7 +220,7 @@ public class BookieServer {
     /**
      * A thread to watch whether bookie & nioserver is still alive
      */
-    class DeathWatcher extends Thread {
+    private class DeathWatcher extends BookieCriticalThread {
 
         final int watchInterval;
 

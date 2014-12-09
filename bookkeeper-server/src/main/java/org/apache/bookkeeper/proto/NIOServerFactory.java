@@ -36,6 +36,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
@@ -53,7 +54,7 @@ import com.google.common.annotations.VisibleForTesting;
  * per client, but only one thread doing the communication.
  * TODO: Change this to use netty
  */
-public class NIOServerFactory extends Thread {
+public class NIOServerFactory extends BookieCriticalThread {
 
     private static final Logger LOG = LoggerFactory.getLogger(NIOServerFactory.class);
 
@@ -587,7 +588,7 @@ public class NIOServerFactory extends Thread {
                 outstandingRequests--;
             }
 
-            // acquire these monitors in a specific order to avoid deadlock with 
+            // acquire these monitors in a specific order to avoid deadlock with
             // factory during shutdown
             synchronized (NIOServerFactory.this) {
                 synchronized (this) {

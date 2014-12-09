@@ -53,7 +53,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Provide journal related management.
  */
-class Journal extends BookieThread {
+class Journal extends BookieCriticalThread {
 
     static Logger LOG = LoggerFactory.getLogger(Journal.class);
 
@@ -415,7 +415,7 @@ class Journal extends BookieThread {
      * ForceWriteThread is a background thread which makes the journal durable periodically
      *
      */
-    private class ForceWriteThread extends BookieThread {
+    private class ForceWriteThread extends BookieCriticalThread {
         volatile boolean running = true;
         // This holds the queue entries that should be notified after a
         // successful force write

@@ -8,21 +8,35 @@ import org.slf4j.LoggerFactory;
 * Any common handing that we require for all bookie threads
 * should be implemented here
 */
-public class BookieThread extends Thread {
+public class BookieThread extends Thread implements
+        Thread.UncaughtExceptionHandler {
 
-    private static class BookieUncaughtExceptionHandler implements Thread.UncaughtExceptionHandler {
-        static Logger logger = LoggerFactory.getLogger(BookieUncaughtExceptionHandler.class);
+    private static final Logger LOG = LoggerFactory
+            .getLogger(BookieThread.class);
 
-        @Override
-        public void uncaughtException(Thread t, Throwable e) {
-            logger.error("Uncaught exception in thread " + t.getName(), e);
-            Runtime.getRuntime().exit(1);
-        }
-
+    @Override
+    public void uncaughtException(Thread t, Throwable e) {
+        handleException(t, e);
     }
 
-    public BookieThread (String name) {
+    public BookieThread(String name) {
         super(name);
-        setUncaughtExceptionHandler(new BookieUncaughtExceptionHandler());
+        setUncaughtExceptionHandler(this);
+    }
+
+    public BookieThread(Runnable thread, String name) {
+        super(thread, name);
+        setUncaughtExceptionHandler(this);
+    }
+
+    /**
+     * Handles uncaught exception occurred in thread
+     */
+    protected void handleException(Thread t, Throwable e) {
+        LOG.error("Uncaught exception in thread {}", t.getName(), e);
+        if (e instanceof VirtualMachineError) {
+            // if any virtual machine error, shutdown the bookie immediately
+            Runtime.getRuntime().exit(ExitCode.BOOKIE_EXCEPTION);
+        }
     }
 }
