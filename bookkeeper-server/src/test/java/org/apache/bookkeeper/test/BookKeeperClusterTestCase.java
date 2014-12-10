@@ -56,6 +56,8 @@ import org.junit.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * A class runs several bookie servers for testing.
  */
@@ -445,7 +447,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         int port = conf.getBookiePort();
         String zkHostPath;
         if (readOnly) {
-            zkHostPath = "/ledgers/available/" + Bookie.READONLY + "/"
+            zkHostPath = "/ledgers/available/" + READONLY + "/"
                     + InetAddress.getLocalHost().getHostAddress() + ":" + port;
         } else {
             zkHostPath = "/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port;

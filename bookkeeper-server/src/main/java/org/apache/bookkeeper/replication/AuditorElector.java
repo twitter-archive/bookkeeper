@@ -29,9 +29,13 @@ import java.io.IOException;
 
 import org.apache.bookkeeper.proto.DataFormats.AuditorVoteFormat;
 import com.google.common.annotations.VisibleForTesting;
+
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -337,6 +341,11 @@ public class AuditorElector {
             }
             submitShutdownTask();
             executor.shutdown();
+        }
+
+        while (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+            LOG.warn("Executor not shutting down, interrupting");
+            executor.shutdownNow();
         }
 
         if (auditor != null) {

@@ -388,7 +388,7 @@ public class Auditor implements BookiesListener {
             } catch (BKException bke) {
                 LOG.error("Error closing lh", bke);
                 if (rc == BKException.Code.OK) {
-                    rc = BKException.Code.ZKException;
+                    rc = BKException.Code.ReplicationException;
                 }
             } catch (InterruptedException ie) {
                 LOG.error("Interrupted publishing suspected ledger", ie);
@@ -399,7 +399,7 @@ public class Auditor implements BookiesListener {
             } catch (BKAuditException bkae) {
                 LOG.error("Auditor exception publishing suspected ledger", bkae);
                 if (rc == BKException.Code.OK) {
-                    rc = BKException.Code.ZKException;
+                    rc = BKException.Code.ReplicationException;
                 }
             }
 

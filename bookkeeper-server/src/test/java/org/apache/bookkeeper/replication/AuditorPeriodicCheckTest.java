@@ -114,6 +114,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
      * test that the periodic checking will detect corruptions in
      * the bookie entry log
      */
+    /**
     @Test(timeout=30000)
     public void testEntryLogCorruption() throws Exception {
         LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bsConfs.get(0), zkc);
@@ -138,7 +139,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
                     return name.endsWith(".log");
                 }
             });
-        ByteBuffer junk = ByteBuffer.allocate(1024*1024);
+        ByteBuffer junk = ByteBuffer.allocate(1024 * 1024);
         for (File f : entryLogs) {
             FileOutputStream out = new FileOutputStream(f);
             out.getChannel().write(junk);
@@ -158,6 +159,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
         assertEquals("Ledger should be under replicated", ledgerId, underReplicatedLedger);
         underReplicationManager.close();
     }
+    **/
 
     /**
      * test that the period checker will detect corruptions in
@@ -210,7 +212,8 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
     /**
      * Test that the period checker will not run when auto replication has been disabled
      */
-    @Test(timeout=60000)
+    /**
+    @Test(timeout=30000)
     public void testPeriodicCheckWhenDisabled() throws Exception {
         LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bsConfs.get(0), zkc);
         final LedgerUnderreplicationManager underReplicationManager = mFactory.newLedgerUnderreplicationManager();
@@ -291,6 +294,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
         assertTrue("All should be underreplicated",
                 numUnderreplicated <= numLedgers && numUnderreplicated > 0);
     }
+    **/
 
     /**
      * Test that the period check will succeed if a ledger is deleted midway

@@ -27,6 +27,8 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.replication.AutoRecoveryMain;
+import org.apache.bookkeeper.replication.ReplicationException;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.stats.StatsProvider;
@@ -46,6 +48,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
+
+import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
 /**
  * Implements the server-side part of the BookKeeper protocol.
@@ -67,6 +71,8 @@ public class BookieServer {
     final BKStats bkStats = BKStats.getInstance();
     final boolean isStatsEnabled;
     protected BookieServerBean jmxBkServerBean;
+    AutoRecoveryMain autoRecoveryMain = null;
+    private boolean isAutoRecoveryDaemonEnabled;
 
     public BookieServer(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
@@ -75,6 +81,16 @@ public class BookieServer {
         isStatsEnabled = conf.isStatisticsEnabled();
 
         this.bookie = newBookie(conf);
+        isAutoRecoveryDaemonEnabled = conf.isAutoRecoveryDaemonEnabled();
+        if (isAutoRecoveryDaemonEnabled) {
+            try {
+                this.autoRecoveryMain = new AutoRecoveryMain(conf, statsProvider.getStatsLogger(REPLICATION_SCOPE));
+            } catch (ReplicationException.UnavailableException e) {
+                throw new IOException("Failed to create auto recovery daemon : ", e);
+            } catch (ReplicationException.CompatibilityException e) {
+                throw new IOException("Failed to create auto recovery daemon : ", e);
+            }
+        }
     }
 
     protected Bookie newBookie(ServerConfiguration conf)
@@ -83,12 +99,19 @@ public class BookieServer {
     }
 
     public void start() throws IOException {
-        bookie.start();
+        this.bookie.start();
 
         // fail fast, when bookie startup is not successful
         if (!this.bookie.isRunning()) {
             exitCode = bookie.getExitCode();
             return;
+        }
+        if (isAutoRecoveryDaemonEnabled && this.autoRecoveryMain != null) {
+            try {
+                this.autoRecoveryMain.start();
+            } catch (ReplicationException.UnavailableException e) {
+                throw new IOException("Failed to start auto recovery daemon : ", e);
+            }
         }
 
         // start the nio server only after bookie is started, as the nio server only could
@@ -199,6 +222,16 @@ public class BookieServer {
     }
 
     /**
+     * Whether auto-recovery service running with Bookie?
+     *
+     * @return true if auto-recovery service is running, otherwise return false
+     */
+    public boolean isAutoRecoveryRunning() {
+        return this.autoRecoveryMain != null
+                && this.autoRecoveryMain.isAutoRecoveryRunning();
+    }
+
+    /**
      * Whether nio server is running?
      *
      * @return true if nio server is running, otherwise return false
@@ -241,7 +274,12 @@ public class BookieServer {
                     shutdown();
                     break;
                 }
+                if (isAutoRecoveryDaemonEnabled && !isAutoRecoveryRunning()) {
+                    LOG.error("Autorecovery daemon has stopped. Please check the logs");
+                    isAutoRecoveryDaemonEnabled = false; // to avoid spamming the logs
+                }
             }
+            LOG.info("BookieDeathWatcher exited loop!");
         }
     }
 
@@ -249,6 +287,8 @@ public class BookieServer {
     static {
         bkOpts.addOption("c", "conf", true, "Configuration for Bookie Server");
         bkOpts.addOption("r", "readonly", false, "Running Bookie Server in ReadOnly mode");
+        bkOpts.addOption("withAutoRecovery", false,
+                "Start Autorecovery service Bookie server");
         bkOpts.addOption("h", "help", false, "Print help message");
     }
 
@@ -296,6 +336,10 @@ public class BookieServer {
                 String confFile = cmdLine.getOptionValue("c");
                 loadConfFile(conf, confFile);
                 return Pair.of(conf, cmdLine);
+            }
+
+            if (cmdLine.hasOption("withAutoRecovery")) {
+                conf.setAutoRecoveryDaemonEnabled(true);
             }
 
             if (leftArgs.length < 4) {

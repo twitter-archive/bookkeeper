@@ -69,6 +69,7 @@ public class AutoRecoveryMain {
     private AutoRecoveryDeathWatcher deathWatcher;
     private int exitCode;
     private volatile boolean shuttingDown = false;
+    private volatile boolean running = false;
 
     public AutoRecoveryMain(ServerConfiguration conf) throws IOException,
             InterruptedException, KeeperException, UnavailableException,
@@ -92,7 +93,7 @@ public class AutoRecoveryMain {
                 // Check for expired connection.
                 if (event.getState().equals(Watcher.Event.KeeperState.Expired)) {
                     LOG.error("ZK client connection to the ZK server has expired!");
-                    shutdown(ExitCode.ZK_EXPIRED);
+                    triggerShutdown(ExitCode.ZK_EXPIRED);
                 }
             }
         });
@@ -117,6 +118,7 @@ public class AutoRecoveryMain {
         auditorElector.start();
         replicationWorker.start();
         deathWatcher.start();
+        running = true;
     }
 
     /*
@@ -124,6 +126,17 @@ public class AutoRecoveryMain {
      */
     public void join() throws InterruptedException {
         deathWatcher.join();
+    }
+
+    private void triggerShutdown(final int exitCode) {
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                shutdown(exitCode);
+            }
+        }, "Shutdown-AutoRecoveryMain-Thread");
+        t.setDaemon(true);
+        t.start();
     }
 
     /*
@@ -137,18 +150,24 @@ public class AutoRecoveryMain {
         if (shuttingDown) {
             return;
         }
+        LOG.info("Shutting down AutoRecovery");
         shuttingDown = true;
+        running = false;
         this.exitCode = exitCode;
         try {
             deathWatcher.interrupt();
             deathWatcher.join();
-
-            auditorElector.shutdown();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.warn("Interrupted shutting down auto recovery", e);
         }
 
+        try {
+            auditorElector.shutdown();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auditor elector", e);
+        }
         replicationWorker.shutdown();
         try {
             zk.close();
@@ -165,6 +184,11 @@ public class AutoRecoveryMain {
     @VisibleForTesting
     public Auditor getAuditor() {
         return auditorElector.getAuditor();
+    }
+
+    /** Is auto-recovery service running? */
+    public boolean isAutoRecoveryRunning() {
+        return running;
     }
 
     /*
@@ -192,7 +216,7 @@ public class AutoRecoveryMain {
                 // If any one service not running, then shutdown peer.
                 if (!autoRecoveryMain.auditorElector.isRunning()
                     || !autoRecoveryMain.replicationWorker.isRunning()) {
-                    autoRecoveryMain.shutdown();
+                    autoRecoveryMain.shutdown(ExitCode.SERVER_EXCEPTION);
                     break;
                 }
             }
