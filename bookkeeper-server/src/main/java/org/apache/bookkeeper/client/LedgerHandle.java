@@ -613,7 +613,7 @@ public class LedgerHandle {
         if (wasClosed) {
             // make sure the callback is triggered in main worker pool
             try {
-                bk.mainWorkerPool.submit(new SafeRunnable() {
+                bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
                     @Override
                     public void safeRun() {
                         LOG.warn("Attempt to add to closed ledger: {}", ledgerId);
@@ -633,7 +633,7 @@ public class LedgerHandle {
         }
 
         try {
-            bk.mainWorkerPool.submit(new SafeRunnable() {
+            bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     ChannelBuffer toSend = macManager.computeDigestAndPackageForSending(

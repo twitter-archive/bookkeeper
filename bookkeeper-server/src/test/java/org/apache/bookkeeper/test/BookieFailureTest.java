@@ -35,6 +35,7 @@ import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +50,7 @@ import org.junit.Test;
  *
  */
 
-public class BookieFailureTest extends MultiLedgerManagerMultiDigestTestCase
+public class BookieFailureTest extends BookKeeperClusterTestCase
     implements AddCallback, ReadCallback {
 
     // Depending on the taste, select the amount of logging
@@ -84,9 +85,10 @@ public class BookieFailureTest extends MultiLedgerManagerMultiDigestTestCase
         }
     }
 
-    public BookieFailureTest(String ledgerManagerFactory, DigestType digestType) {
+    public BookieFailureTest() {
         super(4);
-        this.digestType = digestType;
+        this.digestType = DigestType.CRC32;
+        String ledgerManagerFactory = HierarchicalLedgerManagerFactory.class.getName();
         // set ledger manager
         baseConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
         baseClientConf.setLedgerManagerFactoryClassName(ledgerManagerFactory);
@@ -364,7 +366,7 @@ public class BookieFailureTest extends MultiLedgerManagerMultiDigestTestCase
      * the future.addlistener() in PerChannelBookieClient after the connection
      * establishment. Now the future.addlistener() will notify back in the same
      * thread and simultaneously invoke the pendingOp.operationComplete() event.
-     * 
+     *
      * BOOKKEEPER-326
      */
     @Test

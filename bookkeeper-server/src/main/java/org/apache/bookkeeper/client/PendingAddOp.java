@@ -104,7 +104,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
 
     void timeoutQuorumWait() {
         try {
-            lh.bk.mainWorkerPool.submit(new SafeRunnable() {
+            lh.bk.mainWorkerPool.submitOrdered(lh.ledgerId, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     if (completed) {
@@ -175,6 +175,21 @@ class PendingAddOp implements WriteCallback, TimerTask {
         }
 
         if (completed) {
+            // even the add operation is completed, but because we don't reset completed flag back to false when
+            // #unsetSuccessAndSendWriteRequest doesn't break ack quorum constraint. we still have current pending
+            // add op is completed but never callback. so do a check here to complete again.
+            //
+            // E.g. entry x is going to complete.
+            //
+            // 1) entry x + k hits a failure. lh.handleBookieFailure increases blockAddCompletions to 1, for ensemble change
+            // 2) entry x receives all responses, sets completed to true but fails to send success callback because
+            //    blockAddCompletions is 1
+            // 3) ensemble change completed. lh unset success starting from x to x+k, but since the unset doesn't break ackSet
+            //    constraint. #removeBookieAndCheck doesn't set completed back to false.
+            // 4) so when the retry request on new bookie completes, it finds the pending op is already completed.
+            //    we have to trigger #sendAddSuccessCallbacks
+            //
+            sendAddSuccessCallbacks();
             // I am already finished, ignore incoming responses.
             // otherwise, we might hit the following error handling logic, which might cause bad things.
             return;
@@ -224,11 +239,14 @@ class PendingAddOp implements WriteCallback, TimerTask {
         if (ackQuorum && !completed) {
             completed = true;
 
-            // do some quick checks to see if some adds may have finished. All
-            // this will be checked under locks again
-            if (lh.pendingAddOps.peek() == this) {
-                lh.sendAddSuccessCallbacks();
-            }
+            sendAddSuccessCallbacks();
+        }
+    }
+
+    void sendAddSuccessCallbacks() {
+        // TODO: we probably could remove this conditional check to provide faster callback
+        if (lh.pendingAddOps.peek() == this) {
+            lh.sendAddSuccessCallbacks();
         }
     }
 
