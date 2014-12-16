@@ -89,6 +89,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
     // Boolean to trigger a forced GC.
     final AtomicBoolean forceGarbageCollection = new AtomicBoolean(false);
+    volatile boolean suspendMajorCompaction = false;
+    volatile boolean suspendMinorCompaction = false;
 
     /**
      * A scanner wrapper to check whether a ledger is alive in an entry log file
@@ -184,7 +186,23 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         lastMinorCompactionTime = lastMajorCompactionTime = MathUtils.now();
     }
 
-    public synchronized void enableForceGC() {
+    public synchronized void enableForceGC(boolean suspendMajorCompaction, boolean suspendMinorCompaction) {
+        this.suspendMajorCompaction = suspendMajorCompaction;
+        this.suspendMinorCompaction = suspendMinorCompaction;
+        if (enableMajorCompaction) {
+            if (suspendMajorCompaction) {
+                LOG.info("Suspend Major Compaction.");
+            } else {
+                LOG.info("Resume Major Compaction.");
+            }
+        }
+        if (enableMinorCompaction) {
+            if (suspendMinorCompaction) {
+                LOG.info("Suspend Minor Compaction.");
+            } else {
+                LOG.info("Resume Minor Compaction.");
+            }
+        }
         if (forceGarbageCollection.compareAndSet(false, true)) {
             LOG.info("Forced garbage collection triggered by thread: " + Thread.currentThread().getName());
             notify();
@@ -192,6 +210,14 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     }
 
     public void disableForceGC() {
+        suspendMajorCompaction = false;
+        suspendMinorCompaction = false;
+        if (enableMajorCompaction) {
+            LOG.info("Resume major compaction");
+        }
+        if (enableMinorCompaction) {
+            LOG.info("Resume minor compaction");
+        }
         if (forceGarbageCollection.compareAndSet(true, false)) {
             LOG.info("{} disabled force garbage collection since bookie has enough space now.", Thread
                     .currentThread().getName());
@@ -208,6 +234,14 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         // Extract all of the ledger ID's that comprise all of the entry logs
         // (except for the current new one which is still being written to).
         entryLogMetaMap = extractMetaAndGCEntryLogs(entryLogMetaMap);
+
+        // if it isn't running, break to not access zookeeper
+        if (!running) {
+            return;
+        }
+
+        // gc inactive/deleted ledgers again, just in case ledgers are deleted during scanning entry logs
+        doGcLedgers();
 
         // gc entry logs
         doGcEntryLogs();
@@ -229,34 +263,46 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 LOG.info("Garbage collector thread forced to perform GC before expiry of wait time.");
             }
 
-            gc();
+            try {
+                gc();
 
-            long curTime = MathUtils.now();
-            if (force || (enableMajorCompaction &&
-                curTime - lastMajorCompactionTime > majorCompactionInterval)) {
-                // enter major compaction
-                ServerStatsProvider.getStatsLoggerInstance()
-                        .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MAJOR_COMP)
-                        .inc();
-                LOG.info("Enter major compaction");
-                doCompactEntryLogs(majorCompactionThreshold);
-                lastMajorCompactionTime = MathUtils.now();
-                // also move minor compaction time
-                lastMinorCompactionTime = lastMajorCompactionTime;
-                continue;
-            }
+                if (!running) {
+                    break;
+                }
 
-            if (force || (enableMinorCompaction &&
-                curTime - lastMinorCompactionTime > minorCompactionInterval)) {
-                // enter minor compaction
-                ServerStatsProvider.getStatsLoggerInstance()
-                        .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MINOR_COMP)
-                        .inc();
-                LOG.info("Enter minor compaction");
-                doCompactEntryLogs(minorCompactionThreshold);
-                lastMinorCompactionTime = MathUtils.now();
+                long curTime = MathUtils.now();
+
+                // do minor compaction only when minor compaction is enabled and not suspended
+                if (enableMinorCompaction && !suspendMinorCompaction &&
+                        (force || curTime - lastMinorCompactionTime > minorCompactionInterval)) {
+                    // enter minor compaction
+                    ServerStatsProvider.getStatsLoggerInstance()
+                            .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MINOR_COMP)
+                            .inc();
+                    LOG.info("Enter minor compaction");
+                    doCompactEntryLogs(minorCompactionThreshold);
+                    lastMinorCompactionTime = MathUtils.now();
+                }
+
+                if (!running) {
+                    break;
+                }
+
+                if (enableMajorCompaction && !suspendMajorCompaction &&
+                        (force || curTime - lastMajorCompactionTime > majorCompactionInterval)) {
+                    // enter major compaction
+                    ServerStatsProvider.getStatsLoggerInstance()
+                            .getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_MAJOR_COMP)
+                            .inc();
+                    LOG.info("Enter major compaction");
+                    doCompactEntryLogs(majorCompactionThreshold);
+                    lastMajorCompactionTime = MathUtils.now();
+                    // also move minor compaction time
+                    lastMinorCompactionTime = lastMajorCompactionTime;
+                }
+            } finally {
+                forceGarbageCollection.set(false);
             }
-            forceGarbageCollection.set(false);
         }
     }
 
@@ -383,6 +429,9 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             // if setting compacting flag succeed, means gcThread is not compacting now
             // it is safe to interrupt itself now
             this.interrupt();
+            LOG.info("Interrupt gc thread.");
+        } else {
+            LOG.info("Failed to set compacting flag to true, skipping interrupting gc thread.");
         }
         this.join();
     }

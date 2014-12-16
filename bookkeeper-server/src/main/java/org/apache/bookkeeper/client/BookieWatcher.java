@@ -147,6 +147,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     public void processResult(int rc, String path, Object ctx, List<String> children) {
 
         if (rc != KeeperException.Code.OK.intValue()) {
+            if (bk.closed) {
+                return;
+            }
             //logger.error("Error while reading bookies", KeeperException.create(Code.get(rc), path));
             // try the read after a second again
             try {

@@ -109,7 +109,7 @@ public class BookKeeper {
     final Optional<SpeculativeRequestExecutionPolicy> readLACSpeculativeRequestPolicy;
 
     // Close State
-    boolean closed = false;
+    volatile boolean closed = false;
     final ReentrantReadWriteLock closeLock = new ReentrantReadWriteLock();
 
     public static Builder newBuilder() {

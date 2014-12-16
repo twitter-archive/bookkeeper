@@ -89,17 +89,23 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
 
             @Override
             public void diskAlmostFull(File disk) {
-                gcThread.enableForceGC();
+                // when the disk space reaches the warn threshold, trigger force gc
+                // and enable minor compaction but disable major compaction
+                gcThread.enableForceGC(true, false);
             }
 
             @Override
             public void diskFull(File disk) {
-                gcThread.enableForceGC();
+                // when the disk space reaches the critical threshold, trigger force gc
+                // but disable all compaction
+                gcThread.enableForceGC(true, true);
             }
 
             @Override
             public void allDisksFull() {
-                gcThread.enableForceGC();
+                // when all the disk space reach the critical threshold, trigger force gc
+                // but disable compaction
+                gcThread.enableForceGC(true, true);
             }
 
             @Override
@@ -115,8 +121,8 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
 
             @Override
             public void diskJustWritable(File disk) {
-                // if a disk is just writable, we still need force gc.
-                gcThread.enableForceGC();
+                // if a disk is just writable, disable major compaction, enable minor compaction
+                gcThread.enableForceGC(true, false);
             }
         };
     }

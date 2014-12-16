@@ -189,13 +189,28 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         storage.start();
         long startTime = MathUtils.now();
         Thread.sleep(2000);
-        storage.gcThread.enableForceGC();
-        Thread.sleep(1000);
+        storage.gcThread.enableForceGC(false, false);
+        // wait until current gc cycle is done
+        while (storage.gcThread.forceGarbageCollection.get()) {
+            Thread.sleep(100);
+        }
         // Minor and Major compaction times should be larger than when we started
         // this test.
         assertTrue("Minor or major compaction did not trigger even on forcing.",
                 storage.gcThread.lastMajorCompactionTime > startTime &&
                 storage.gcThread.lastMinorCompactionTime > startTime);
+        // disable compaction
+        long lastMajorCompactionTime = storage.gcThread.lastMajorCompactionTime;
+        long lastMinorCompactionTime = storage.gcThread.lastMinorCompactionTime;
+        storage.gcThread.enableForceGC(true, true);
+        // wait until current gc cycle is done
+        while (storage.gcThread.forceGarbageCollection.get()) {
+            Thread.sleep(100);
+        }
+        assertEquals("Major compaction shouldn't be triggered",
+                lastMajorCompactionTime, storage.gcThread.lastMajorCompactionTime);
+        assertEquals("Minor compaction shouldn't be triggered",
+                lastMinorCompactionTime, storage.gcThread.lastMinorCompactionTime);
     }
 
     @Test
