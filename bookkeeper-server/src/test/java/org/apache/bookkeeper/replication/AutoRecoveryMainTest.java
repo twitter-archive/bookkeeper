@@ -76,7 +76,7 @@ public class AutoRecoveryMainTest extends BookKeeperClusterTestCase {
      * Test that, if an autorecovery looses its ZK connection/session
      * it will shutdown.
      */
-    /*8
+    /**
     @Test(timeout = 60000)
     public void testAutoRecoverySessionLoss() throws Exception {
         AutoRecoveryMain main1 = new AutoRecoveryMain(bsConfs.get(0));

@@ -22,8 +22,7 @@ package org.apache.bookkeeper.replication;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.List;
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,7 +40,6 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.BookiesListener;
 import org.apache.bookkeeper.client.LedgerChecker;
 import org.apache.bookkeeper.client.LedgerFragment;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -55,11 +53,9 @@ import org.apache.bookkeeper.replication.ReplicationException.CompatibilityExcep
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
-import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,16 +71,16 @@ import com.google.common.util.concurrent.SettableFuture;
  * re-replication activities by keeping all the corresponding ledgers of the
  * failed bookie as underreplicated znode in zk.
  */
-public class Auditor implements BookiesListener {
+public class Auditor {
     private static final Logger LOG = LoggerFactory.getLogger(Auditor.class);
     private final ServerConfiguration conf;
     private BookKeeper bkc;
     private BookKeeperAdmin admin;
+    private BookieManager bookieManager;
     private BookieLedgerIndexer bookieLedgerIndexer;
     private LedgerManager ledgerManager;
     private LedgerUnderreplicationManager ledgerUnderreplicationManager;
     private final ScheduledExecutorService executor;
-    private List<String> knownBookies = new ArrayList<String>();
     private final String bookieIdentifier;
 
     public Auditor(final String bookieIdentifier, ServerConfiguration conf,
@@ -117,6 +113,7 @@ public class Auditor implements BookiesListener {
 
             this.bkc = new BookKeeper(new ClientConfiguration(conf), zkc);
             this.admin = new BookKeeperAdmin(bkc);
+            this.bookieManager = new BookieManager(conf, this.admin);
         } catch (CompatibilityException ce) {
             throw new UnavailableException(
                     "CompatibilityException while initializing Auditor", ce);
@@ -160,22 +157,11 @@ public class Auditor implements BookiesListener {
                     try {
                         waitIfLedgerReplicationDisabled();
 
-                        List<String> availableBookies = getAvailableBookies();
-
-                        // casting to String, as knownBookies and availableBookies
-                        // contains only String values
-                        // find new bookies(if any) and update the known bookie list
-                        Collection<String> newBookies = CollectionUtils.subtract(
-                                availableBookies, knownBookies);
-                        knownBookies.addAll(newBookies);
-
                         // find lost bookies(if any)
-                        Collection<String> lostBookies = CollectionUtils.subtract(
-                                knownBookies, availableBookies);
+                        Collection<String> lostBookies =
+                                bookieManager.getAvailableAndStaleBookies().getRight();
 
                         if (lostBookies.size() > 0) {
-                            knownBookies.removeAll(lostBookies);
-
                             auditBookies();
                         }
                     } catch (BKException bke) {
@@ -200,6 +186,14 @@ public class Auditor implements BookiesListener {
         // available bookies determining the bookie failures.
         synchronized (this) {
             if (executor.isShutdown()) {
+                return;
+            }
+
+            try {
+                bookieManager.start();
+            } catch (BKException bke) {
+                LOG.error("Couldn't get bookie list, exiting", bke);
+                submitShutdownTask();
                 return;
             }
 
@@ -235,15 +229,9 @@ public class Auditor implements BookiesListener {
                                           +"running periodic check", ue);
                             }
                         }
-                    }, interval, interval, TimeUnit.SECONDS);
+                    }, 0, interval, TimeUnit.SECONDS);
             } else {
                 LOG.info("Periodic checking disabled");
-            }
-            try {
-                knownBookies = getAvailableBookies();
-            } catch (BKException bke) {
-                LOG.error("Couldn't get bookie list, exiting", bke);
-                submitShutdownTask();
             }
 
             long bookieCheckInterval = conf.getAuditorPeriodicBookieCheckInterval();
@@ -262,31 +250,18 @@ public class Auditor implements BookiesListener {
             InterruptedException {
         ReplicationEnableCb cb = new ReplicationEnableCb();
         if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
+            LOG.info("Ledger Auto Rereplication is disabled. Wait...");
             ledgerUnderreplicationManager.notifyLedgerReplicationEnabled(cb);
             cb.await();
         }
-    }
-
-    private List<String> getAvailableBookies() throws BKException {
-        // Get the available bookies, also watch for further changes
-        // Watching on only available bookies is sufficient, as changes in readonly bookies also changes in available
-        // bookies
-        admin.notifyBookiesChanged(this);
-        Collection<InetSocketAddress> availableBkAddresses = admin.getAvailableBookies();
-        Collection<InetSocketAddress> readOnlyBkAddresses = admin.getReadOnlyBookies();
-        availableBkAddresses.addAll(readOnlyBkAddresses);
-
-        List<String> availableBookies = new ArrayList<String>();
-        for (InetSocketAddress addr : availableBkAddresses) {
-            availableBookies.add(StringUtils.addrToString(addr));
-        }
-        return availableBookies;
     }
 
     @SuppressWarnings("unchecked")
     private void auditBookies()
             throws BKAuditException, KeeperException,
             InterruptedException, BKException {
+        LOG.info("Auditing bookies.");
+
         try {
             waitIfLedgerReplicationDisabled();
         } catch (UnavailableException ue) {
@@ -299,6 +274,7 @@ public class Auditor implements BookiesListener {
         Map<String, Set<Long>> ledgerDetails = generateBookie2LedgersIndex();
         try {
             if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
+                // TODO: discard this run will introduce more traffic to zookeeper, we should just wait.
                 // has been disabled while we were generating the index
                 // discard this run, and schedule a new one
                 executor.submit(BOOKIE_CHECK);
@@ -310,14 +286,20 @@ public class Auditor implements BookiesListener {
             return;
         }
 
-        List<String> availableBookies = getAvailableBookies();
         // find lost bookies
-        Set<String> knownBookies = ledgerDetails.keySet();
-        Collection<String> lostBookies = CollectionUtils.subtract(knownBookies,
-                availableBookies);
+        Pair<Set<String>, Set<String>> availableAndStaleBookies =
+                bookieManager.getAvailableAndStaleBookies();
+        Set<String> lostBookies = new HashSet<String>();
 
-        if (lostBookies.size() > 0)
+        lostBookies.addAll(availableAndStaleBookies.getRight());
+        lostBookies.addAll(Sets.difference(ledgerDetails.keySet(), availableAndStaleBookies.getLeft()));
+
+        if (lostBookies.size() > 0) {
+            LOG.info("Lost bookies : {}", lostBookies);
             handleLostBookies(lostBookies, ledgerDetails);
+        } else {
+            LOG.info("No bookie is suspected to be lost.");
+        }
     }
 
     private Map<String, Set<Long>> generateBookie2LedgersIndex()
@@ -343,11 +325,11 @@ public class Auditor implements BookiesListener {
         if (null == ledgers || ledgers.size() == 0) {
             // there is no ledgers available for this bookie and just
             // ignoring the bookie failures
-            LOG.info("There is no ledgers for the failed bookie: " + bookieIP);
+            LOG.info("There is no ledgers for the failed bookie: {}", bookieIP);
             return;
         }
-        LOG.info("Following ledgers: " + ledgers + " of bookie: " + bookieIP
-                + " are identified as underreplicated");
+        LOG.info("Following ledgers: {} of bookie: {} are identified as underreplicated",
+                ledgers, bookieIP);
         for (Long ledgerId : ledgers) {
             try {
                 ledgerUnderreplicationManager.markLedgerUnderreplicated(
@@ -430,6 +412,7 @@ public class Auditor implements BookiesListener {
                 public void process(final Long ledgerId,
                                     final AsyncCallback.VoidCallback callback) {
                     try {
+                        // TODO: blocking call in asynchronous path?? it doesn't trigger callback??
                         if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
                             LOG.info("Ledger rereplication has been disabled, aborting periodic check");
                             processDone.countDown();
@@ -462,6 +445,8 @@ public class Auditor implements BookiesListener {
                         callback.processResult(BKException.Code.InterruptedException, null, null);
                         return;
                     } finally {
+                        // TODO: potentially bad behavior since we shouldn't close ledger before all asynchronous check finished.
+                        //       but it is correct right now, since lh.close() is a no-op in ReadOnlyLedgerHandle
                         if (lh != null) {
                             try {
                                 lh.close();
@@ -499,11 +484,6 @@ public class Auditor implements BookiesListener {
             client.close();
             newzk.close();
         }
-    }
-
-    @Override
-    public void availableBookiesChanged() {
-        submitAuditTask();
     }
 
     /**

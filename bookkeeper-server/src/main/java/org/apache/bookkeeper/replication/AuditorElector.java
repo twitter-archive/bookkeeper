@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.BookKeeperConstants;
@@ -59,6 +60,7 @@ import static com.google.common.base.Charsets.UTF_8;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_STATUS;
 import static org.apache.bookkeeper.replication.ReplicationStats.ELECTION_ATTEMPTS;
 
 /**
@@ -133,7 +135,6 @@ public class AuditorElector {
         this.bookieId = bookieId;
         this.conf = conf;
         this.zkc = zkc;
-        this.electionAttempts = statsLogger.getCounter(ELECTION_ATTEMPTS);
         basePath = conf.getZkLedgersRootPath() + '/'
                 + BookKeeperConstants.UNDER_REPLICATION_NODE;
         electionPath = basePath + '/' + ELECTION_ZNODE;
@@ -144,6 +145,20 @@ public class AuditorElector {
                     return new Thread(r, "AuditorElector-"+bookieId);
                 }
             });
+
+        // Expose stats
+        this.electionAttempts = statsLogger.getCounter(ELECTION_ATTEMPTS);
+        statsLogger.registerGauge(AUDITOR_STATUS, new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return auditor != null ? 1 : 0;
+            }
+        });
     }
 
     private void createMyVote() throws KeeperException, InterruptedException {
@@ -195,6 +210,7 @@ public class AuditorElector {
     private class ElectionWatcher implements Watcher {
         @Override
         public void process(WatchedEvent event) {
+            // TODO: we should handle session expire better rather than just shutdown
             if (event.getState() == KeeperState.Expired) {
                 LOG.error("Lost ZK connection, shutting down");
                 submitShutdownTask();
@@ -240,7 +256,6 @@ public class AuditorElector {
      */
     @VisibleForTesting
     void submitElectionTask() {
-
         Runnable r = new Runnable() {
                 public void run() {
                     if (!running.get()) {
@@ -270,6 +285,8 @@ public class AuditorElector {
 
                             zkc.setData(getVotePath(""),
                                         TextFormat.printToString(builder.build()).getBytes(UTF_8), -1);
+
+                            LOG.info("I become auditor: vote = {}.", bookieId, myVote);
                             auditor = new Auditor(bookieId, conf, zkc);
                             auditor.start();
                         } else {
@@ -280,9 +297,14 @@ public class AuditorElector {
                             int prevNodeIndex = myIndex - 1;
                             if (null == zkc.exists(getVotePath(PATH_SEPARATOR)
                                                    + children.get(prevNodeIndex), electionWatcher)) {
+                                LOG.info("Predecessor just disappeared, try re-electing : my vote = {}, votes = {}.",
+                                         myVote, children);
                                 // While adding, the previous znode doesn't exists.
                                 // Again going to election.
                                 submitElectionTask();
+                            } else {
+                                LOG.info("I'm not auditor, watching for auditor election : my vote = {}, votes = {}.",
+                                         myVote, children);
                             }
                             electionAttempts.inc();
                         }
@@ -299,6 +321,7 @@ public class AuditorElector {
                     }
                 }
             };
+        LOG.info("Submit auditor election task.");
         executor.submit(r);
     }
 

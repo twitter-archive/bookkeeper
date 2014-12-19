@@ -70,6 +70,7 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
 
         ServerConfiguration conf = new ServerConfiguration(bsConfs.get(0));
         conf.setAuditorPeriodicBookieCheckInterval(CHECK_INTERVAL);
+        conf.setAuditorStaleBookieInterval(CHECK_INTERVAL);
         String addr = bs.get(0).getLocalAddress().toString();
 
         ZooKeeperWatcherBase w = new ZooKeeperWatcherBase(10000);
@@ -98,7 +99,6 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
         LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bsConfs.get(0), zkc);
         LedgerManager ledgerManager = mFactory.newLedgerManager();
         final LedgerUnderreplicationManager underReplicationManager = mFactory.newLedgerUnderreplicationManager();
-        final int numLedgers = 1;
 
         LedgerHandle lh = bkc.createLedger(3, 3, DigestType.CRC32, "passwd".getBytes());
         LedgerMetadata md = LedgerHandleAdapter.getLedgerMetadata(lh);
@@ -110,7 +110,7 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
         cb.get();
 
         long underReplicatedLedger = -1;
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 100; i++) {
             underReplicatedLedger = underReplicationManager.pollLedgerToRereplicate();
             if (underReplicatedLedger != -1) {
                 break;

@@ -45,6 +45,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
@@ -172,6 +173,37 @@ public class BookKeeperAdmin {
     }
 
     /**
+     * Get all the bookies registered under cookies path.
+     *
+     * @return the registered bookie list.
+     */
+    public Collection<InetSocketAddress> getRegisteredBookies()
+            throws BKException {
+        String cookiePath = bkc.getConf().getZkLedgersRootPath() + "/"
+                + BookKeeperConstants.COOKIE_NODE;
+        try {
+            List<String> children = zk.getChildren(cookiePath, false);
+            List<InetSocketAddress> bookies = new ArrayList<InetSocketAddress>(children.size());
+            for (String child : children) {
+                try {
+                    bookies.add(StringUtils.parseAddr(child));
+                } catch (IOException ioe) {
+                    LOG.error("Error parsing bookie address {} : ", child, ioe);
+                    throw new BKException.ZKException();
+                }
+            }
+            return bookies;
+        } catch (KeeperException ke) {
+            LOG.error("Failed to get registered bookie list : ", ke);
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            LOG.error("Interrupted reading registered bookie list", ie);
+            throw new BKException.BKInterruptedException();
+        }
+    }
+
+    /**
      * Get a list of the available bookies.
      *
      * @return a collection of bookie addresses
@@ -186,20 +218,18 @@ public class BookKeeperAdmin {
      *
      * @return a collection of bookie addresses
      */
-    public Collection<InetSocketAddress> getReadOnlyBookies() {
+    public Collection<InetSocketAddress> getReadOnlyBookies()
+            throws BKException {
         return bkc.bookieWatcher.getReadOnlyBookies();
     }
 
     /**
-     * Notify when the available list of bookies changes.
-     * This is a one-shot notification. To receive subsequent notifications
-     * the listener must be registered again.
+     * Register a bookies listener to receive notifications about bookies changes.
      *
      * @param listener the listener to notify
      */
-    public void notifyBookiesChanged(final BookiesListener listener)
-            throws BKException {
-        bkc.bookieWatcher.notifyBookiesChanged(listener);
+    public void registerBookiesListener(final BookiesListener listener) {
+        bkc.bookieWatcher.registerBookiesListener(listener);
     }
 
     /**
@@ -569,8 +599,8 @@ public class BookKeeperAdmin {
             }
         };
         bkc.getLedgerManager().asyncProcessLedgers(
-            ledgerProcessor, new RecoverCallbackWrapper(cb),
-            context, BKException.Code.OK, BKException.Code.LedgerRecoveryException);
+                ledgerProcessor, new RecoverCallbackWrapper(cb),
+                context, BKException.Code.OK, BKException.Code.LedgerRecoveryException);
     }
 
     /**

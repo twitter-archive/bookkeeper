@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerMetadata;
@@ -66,6 +67,11 @@ public class BookieLedgerIndexer {
             = new ConcurrentHashMap<String, Set<Long>>();
         final CountDownLatch ledgerCollectorLatch = new CountDownLatch(1);
 
+        LOG.info("Generating bookie to ledger index ...");
+
+        final AtomicInteger numLedgers = new AtomicInteger(0);
+
+        // TODO: avoid reading ledger metadata for closed ledger
         Processor<Long> ledgerProcessor = new Processor<Long>() {
             @Override
             public void process(final Long ledgerId,
@@ -75,7 +81,6 @@ public class BookieLedgerIndexer {
                     public void operationComplete(final int rc,
                             LedgerMetadata ledgerMetadata) {
                         if (rc == BKException.Code.OK) {
-                            StringBuilder bookieAddr;
                             for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : ledgerMetadata
                                     .getEnsembles().entrySet()) {
                                 for (InetSocketAddress bookie : ensemble
@@ -89,6 +94,11 @@ public class BookieLedgerIndexer {
                             LOG.warn("Unable to read the ledger:" + ledgerId
                                     + " information");
                         }
+
+                        if (numLedgers.incrementAndGet() % 2000 == 0) {
+                            LOG.info("indexed {} ledgers.", numLedgers.get());
+                        }
+
                         iterCallback.processResult(rc, null, null);
                     }
                 };
@@ -102,6 +112,8 @@ public class BookieLedgerIndexer {
 
                     @Override
                     public void processResult(int rc, String s, Object obj) {
+                        LOG.info("Indexer completed indexing {} ledgers : rc = {}", numLedgers.get(),
+                                BKException.getMessage(rc));
                         resultCode.add(rc);
                         ledgerCollectorLatch.countDown();
                     }

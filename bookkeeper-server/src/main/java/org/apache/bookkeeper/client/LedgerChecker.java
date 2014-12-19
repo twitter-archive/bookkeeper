@@ -102,6 +102,7 @@ public class LedgerChecker {
             bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
                     .getLedgerId(), firstStored, manycb, null);
         } else {
+            // TODO: make sure it works with deplayEnsembleChange
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(2,
                     fragment, cb);
             bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment

@@ -26,6 +26,7 @@ public interface ReplicationStats {
 
     public final static String AUDITOR_SCOPE = "auditor";
     public final static String ELECTION_ATTEMPTS = "election_attempts";
+    public final static String AUDITOR_STATUS = "auditor_status";
 
     public final static String REPLICATION_WORKER_SCOPE = "replication_worker";
     public final static String REREPLICATE_OP = "rereplicate";

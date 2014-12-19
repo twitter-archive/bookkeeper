@@ -342,6 +342,10 @@ public class BookieServer {
                 conf.setAutoRecoveryDaemonEnabled(true);
             }
 
+            if (cmdLine.hasOption("withAutoRecovery")) {
+                conf.setAutoRecoveryDaemonEnabled(true);
+            }
+
             if (leftArgs.length < 4) {
                 throw new IllegalArgumentException();
             }

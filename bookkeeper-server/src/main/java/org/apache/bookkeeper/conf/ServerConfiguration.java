@@ -81,6 +81,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
     protected final static String AUDITOR_PERIODIC_CHECK_INTERVAL = "auditorPeriodicCheckInterval";
     protected final static String AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL = "auditorPeriodicBookieCheckInterval";
+    protected final static String AUDITOR_STALE_BOOKIE_INTERVAL = "auditorStaleBookieInterval";
     protected final static String AUTO_RECOVERY_DAEMON_ENABLED = "autoRecoveryDaemonEnabled";
 
     // Worker Thread parameters.
@@ -1234,6 +1235,32 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public long getAuditorPeriodicBookieCheckInterval() {
         return getLong(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, 84600);
+    }
+
+    /**
+     * Default time interval for auditor marking a bookie as "stale", i.e. if the bookie has not
+     * registered itself to zookeeper for more than this time interval, the bookie will be marked
+     * and treated as lost bookie by default. The stale interval cannot be too small since otherwise
+     * this may cause too frequent (unnecessary) re-replications.
+     *
+     * @param interval
+     *          time interval for auditor marking a bookie as "stale", in seconds
+     * @return server configuration
+     */
+    public ServerConfiguration setAuditorStaleBookieInterval(long interval) {
+        setProperty(AUDITOR_STALE_BOOKIE_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get default time interval for auditor marking a bookie as "stale" to re-replicate.
+     *
+     * @see #setAuditorStaleBookieInterval(long)
+     *
+     * @return time interval for auditor marking a bookie as "stale", in seconds
+     */
+    public long getAuditorStaleBookieInterval() {
+        return getLong(AUDITOR_STALE_BOOKIE_INTERVAL, 1800);
     }
 
     /**

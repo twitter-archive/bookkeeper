@@ -25,12 +25,12 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.util.BookKeeperConstants;
@@ -69,8 +69,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     final BookKeeper bk;
     final ScheduledExecutorService scheduler;
     final EnsemblePlacementPolicy placementPolicy;
+    final CopyOnWriteArraySet<BookiesListener> listeners =
+            new CopyOnWriteArraySet<BookiesListener>();
 
-    SafeRunnable reReadTask = new SafeRunnable() {
+    private final SafeRunnable reReadTask = new SafeRunnable() {
         @Override
         public void safeRun() {
             readBookies();
@@ -90,28 +92,12 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         readOnlyBookieWatcher = new ReadOnlyBookieWatcher(conf, bk);
     }
 
-    void notifyBookiesChanged(final BookiesListener listener) throws BKException {
-        try {
-            bk.getZkHandle().getChildren(this.bookieRegistrationPath,
-                    new Watcher() {
-                        public void process(WatchedEvent event) {
-                            // listen children changed event from ZooKeeper
-                            if (event.getType() == EventType.NodeChildrenChanged) {
-                                listener.availableBookiesChanged();
-                            }
-                        }
-                    });
-        } catch (KeeperException ke) {
-            logger.error("Error registering watcher with zookeeper", ke);
-            throw new BKException.ZKException();
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted registering watcher with zookeeper", ie);
-            throw new BKException.BKInterruptedException();
-        }
+    void registerBookiesListener(final BookiesListener listener) {
+        listeners.add(listener);
+        readOnlyBookieWatcher.registerBookiesListener(listener);
     }
 
-    public Collection<InetSocketAddress> getBookies() throws BKException {
+    Collection<InetSocketAddress> getBookies() throws BKException {
         try {
             List<String> children = bk.getZkHandle().getChildren(this.bookieRegistrationPath, false);
             children.remove(BookKeeperConstants.READONLY);
@@ -126,15 +112,25 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         }
     }
 
-    Collection<InetSocketAddress> getReadOnlyBookies() {
+    Collection<InetSocketAddress> getReadOnlyBookies() throws BKException {
+        try {
+            readOnlyBookieWatcher.readROBookiesBlocking();
+        } catch (KeeperException ke) {
+            logger.error("Failed to get readonly bookie list : ", ke);
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted reading bookie list : ", ie);
+            throw new BKException.BKInterruptedException();
+        }
         return new HashSet<InetSocketAddress>(readOnlyBookieWatcher.getReadOnlyBookies());
     }
 
-    public void readBookies() {
+    private void readBookies() {
         readBookies(this);
     }
 
-    public void readBookies(ChildrenCallback callback) {
+    private void readBookies(ChildrenCallback callback) {
         bk.getZkHandle().getChildren(this.bookieRegistrationPath, this, callback, null);
     }
 
@@ -169,6 +165,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         synchronized (this) {
             Set<InetSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
             placementPolicy.onClusterChanged(newBookieAddrs, readonlyBookies);
+        }
+
+        for (BookiesListener listener : listeners) {
+            listener.availableBookiesChanged(newBookieAddrs);
         }
 
         // we don't need to close clients here, because:
@@ -234,7 +234,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     }
 
     /**
-     * Wrapper over the {@link #getAdditionalBookies(Set, int)} method when there is no exclusion list (or exisiting bookies)
+     * Wrapper over the {@link org.apache.bookkeeper.client.EnsemblePlacementPolicy#newEnsemble(int, int, int,
+     * java.util.Set)} * method when there is no exclusion list (or exisiting bookies)
+     *
      * @param ensembleSize
      *          Ensemble Size
      * @param writeQuorumSize
@@ -248,7 +250,8 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     }
 
     /**
-     * Wrapper over the {@link #getAdditionalBookies(Set, int)} method when you just need 1 extra bookie
+     * Wrapper over the {@link org.apache.bookkeeper.client.EnsemblePlacementPolicy#replaceBookie(int, int, int,
+     * java.util.Collection, java.net.InetSocketAddress, java.util.Set)} method when you just need 1 extra bookie
      * @param existingBookies
      * @return
      * @throws BKNotEnoughBookiesException
@@ -270,6 +273,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         private final BookKeeper bk;
         private final String readOnlyBookieRegPath;
 
+        final CopyOnWriteArraySet<BookiesListener> listeners =
+                new CopyOnWriteArraySet<BookiesListener>();
+
         public ReadOnlyBookieWatcher(ClientConfiguration conf, BookKeeper bk) throws KeeperException,
                 InterruptedException {
             this.bk = bk;
@@ -282,6 +288,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
                     // this node is just now created by someone.
                 }
             }
+        }
+
+        void registerBookiesListener(final BookiesListener listener) {
+            listeners.add(listener);
         }
 
         @Override
@@ -331,6 +341,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
             HashSet<InetSocketAddress> newReadOnlyBookies = convertToBookieAddresses(children);
             readOnlyBookies = newReadOnlyBookies;
+
+            for (BookiesListener listener : listeners) {
+                listener.readOnlyBookiesChanged(newReadOnlyBookies);
+            }
         }
 
         // returns the readonly bookies

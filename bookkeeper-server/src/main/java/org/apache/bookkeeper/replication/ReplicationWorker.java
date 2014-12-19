@@ -171,6 +171,7 @@ public class ReplicationWorker implements Runnable {
                 return;
             }
         }
+        LOG.info("ReplicationWorker exited loop!");
     }
 
     /**
@@ -396,6 +397,7 @@ public class ReplicationWorker implements Runnable {
             }
             workerRunning = false;
         }
+        LOG.info("Shutting down ReplicationWorker");
         this.pendingReplicationTimer.cancel();
         try {
             this.workerThread.interrupt();

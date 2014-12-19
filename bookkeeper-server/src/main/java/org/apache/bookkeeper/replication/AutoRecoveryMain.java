@@ -34,6 +34,8 @@ import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
@@ -53,6 +55,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
+import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_SCOPE;
 import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_WORKER_SCOPE;
 
 /**
@@ -298,14 +301,20 @@ public class AutoRecoveryMain {
             System.exit(ExitCode.INVALID_CONF);
         }
 
+        Stats.loadStatsProvider(conf);
+        final StatsProvider statsProvider = Stats.get();
+        statsProvider.start(conf);
         try {
-            final AutoRecoveryMain autoRecoveryMain = new AutoRecoveryMain(conf);
+            final AutoRecoveryMain autoRecoveryMain =
+                    new AutoRecoveryMain(conf, statsProvider.getStatsLogger(REPLICATION_SCOPE));
             autoRecoveryMain.start();
             Runtime.getRuntime().addShutdownHook(new Thread() {
                 @Override
                 public void run() {
                     autoRecoveryMain.shutdown();
                     LOG.info("Shutdown AutoRecoveryMain successfully");
+                    statsProvider.stop();
+                    LOG.info("Shutdown Stats Provider successfully");
                 }
             });
             LOG.info("Register shutdown hook successfully");

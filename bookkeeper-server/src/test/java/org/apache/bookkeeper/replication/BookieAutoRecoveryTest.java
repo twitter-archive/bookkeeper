@@ -75,6 +75,9 @@ public class BookieAutoRecoveryTest extends BookKeeperClusterTestCase {
         baseConf.setLedgerManagerFactoryClassName(
                 "org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory");
         baseConf.setOpenLedgerRereplicationGracePeriod(openLedgerRereplicationGracePeriod);
+        baseConf.setAuditorStaleBookieInterval(1);
+        baseConf.setAuditorPeriodicBookieCheckInterval(2);
+        baseConf.setAuditorPeriodicCheckInterval(2);
         baseClientConf.setLedgerManagerFactoryClassName(
                 "org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory");
         this.digestType = DigestType.MAC;

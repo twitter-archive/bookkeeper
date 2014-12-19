@@ -38,12 +38,13 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 
+import org.apache.bookkeeper.meta.HierarchicalLedgerManagerFactory;
 import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.proto.DataFormats.UnderreplicatedLedgerFormat;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
-import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.WatchedEvent;
@@ -57,7 +58,7 @@ import org.slf4j.LoggerFactory;
  * Tests publishing of under replicated ledgers by the Auditor bookie node when
  * corresponding bookies identifes as not running
  */
-public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
+public class AuditorLedgerCheckerTest extends BookKeeperClusterTestCase {
 
     // Depending on the taste, select the amount of logging
     // by decommenting one of the two lines below
@@ -79,15 +80,17 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
 
     private List<Long> ledgerList;
 
-    public AuditorLedgerCheckerTest(String ledgerManagerFactoryClass)
+    public AuditorLedgerCheckerTest()
             throws IOException, KeeperException, InterruptedException,
             CompatibilityException {
         super(3);
-        LOG.info("Running test case using ledger manager : "
-                + ledgerManagerFactoryClass);
+        String ledgerManagerFactoryClass = HierarchicalLedgerManagerFactory.class.getName();
         this.digestType = DigestType.CRC32;
         // set ledger manager name
         baseConf.setLedgerManagerFactoryClassName(ledgerManagerFactoryClass);
+        baseConf.setAuditorStaleBookieInterval(1);
+        baseConf.setAuditorPeriodicCheckInterval(1);
+        baseConf.setAuditorPeriodicBookieCheckInterval(1);
         baseClientConf
                 .setLedgerManagerFactoryClassName(ledgerManagerFactoryClass);
     }
@@ -133,7 +136,7 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
     public void testSimpleLedger() throws Exception {
         LedgerHandle lh1 = createAndAddEntriesToLedger();
         Long ledgerId = lh1.getId();
-        LOG.debug("Created ledger : " + ledgerId);
+        LOG.info("Created ledger : {}", ledgerId);
         ledgerList.add(ledgerId);
         lh1.close();
 
@@ -142,10 +145,11 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
 
         int bkShutdownIndex = bs.size() - 1;
         String shutdownBookie = shutdownBookie(bkShutdownIndex);
+        LOG.info("Shutdown bookie {}.", shutdownBookie);
 
         // grace period for publishing the bk-ledger
-        LOG.debug("Waiting for ledgers to be marked as under replicated");
-        underReplicaLatch.await(5, TimeUnit.SECONDS);
+        LOG.info("Waiting for ledgers to be marked as under replicated");
+        underReplicaLatch.await();
         Map<Long, String> urLedgerData = getUrLedgerData(urLedgerList);
         assertEquals("Missed identifying under replicated ledgers", 1,
                 urLedgerList.size());
@@ -306,6 +310,7 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
             Watcher urLedgerWatcher = new ChildWatcher(underReplicaLatch);
             String znode = ZkLedgerUnderreplicationManager.getUrLedgerZnode(UNDERREPLICATED_PATH,
                                                                             ledgerId);
+            LOG.info("Registered watcher on path {}", znode);
             zkc.exists(znode, urLedgerWatcher);
         }
         return underReplicaLatch;
@@ -336,7 +341,7 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
             InterruptedException {
         int numEntriesToWrite = 100;
         // Create a ledger
-        LedgerHandle lh = bkc.createLedger(digestType, ledgerPassword);
+        LedgerHandle lh = bkc.createLedger(3, 3, 2, digestType, ledgerPassword);
         LOG.info("Ledger ID: " + lh.getId());
         addEntry(numEntriesToWrite, lh);
         return lh;
@@ -373,15 +378,12 @@ public class AuditorLedgerCheckerTest extends MultiLedgerManagerTestCase {
 
         @Override
         public void process(WatchedEvent event) {
-            LOG.info("Received notification for the ledger path : "
-                    + event.getPath());
+            LOG.info("Received notification for the ledger path : {}", event);
             for (Long ledgerId : ledgerList) {
-                if (event.getPath().contains(ledgerId + "")) {
-                    urLedgerList.add(Long.valueOf(ledgerId));
+                if (event.getPath().contains(String.format("urL%010d", ledgerId))) {
+                    urLedgerList.add(ledgerId);
                 }
             }
-            LOG.debug("Count down and waiting for next notification");
-            // count down and waiting for next notification
             underReplicaLatch.countDown();
         }
     }
