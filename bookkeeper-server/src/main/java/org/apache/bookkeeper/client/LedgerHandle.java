@@ -378,8 +378,8 @@ public class LedgerHandle {
                                 @Override
                                 public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
                                     if (newrc != BKException.Code.OK) {
-                                        LOG.error("Error reading new metadata from ledger " + ledgerId
-                                                  + " when closing, code=" + newrc);
+                                        LOG.error("Error reading new metadata from ledger {} when closing, code={}",
+                                                ledgerId, newrc);
                                         cb.closeComplete(rc, LedgerHandle.this, ctx);
                                     } else {
                                         metadata.setState(prevState);
@@ -401,7 +401,7 @@ public class LedgerHandle {
                                         } else {
                                             metadata.setLength(length);
                                             metadata.close(getLastAddConfirmed());
-                                            LOG.warn("Conditional update ledger metadata for ledger " + ledgerId + " failed.");
+                                            LOG.warn("Conditional update ledger metadata for ledger {} failed.", ledgerId);
                                             cb.closeComplete(rc, LedgerHandle.this, ctx);
                                         }
                                     }
@@ -412,7 +412,7 @@ public class LedgerHandle {
                                 }
                             });
                         } else if (rc != BKException.Code.OK) {
-                            LOG.error("Error update ledger metadata for ledger " + ledgerId + " : " + rc);
+                            LOG.error("Error update ledger metadata for ledger {} : {}", ledgerId, rc);
                             cb.closeComplete(rc, LedgerHandle.this, ctx);
                         } else {
                             cb.closeComplete(BKException.Code.OK, LedgerHandle.this, ctx);
@@ -1052,8 +1052,7 @@ public class LedgerHandle {
                 }
                 writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
             } catch (BKException.BKNotEnoughBookiesException e) {
-                LOG.error("Could not get additional bookie to "
-                          + "remake ensemble, closing ledger: " + ledgerId);
+                LOG.error("Could not get additional bookie to remake ensemble, closing ledger: {}", ledgerId);
                 handleUnrecoverableErrorDuringAdd(e.getCode());
                 return;
             }
@@ -1385,7 +1384,7 @@ public class LedgerHandle {
         @Override
         public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
             if (rc != BKException.Code.OK) {
-                LOG.warn("Close failed: " + BKException.getMessage(rc));
+                LOG.warn("Close failed: {}", rc);
             }
             // noop
         }

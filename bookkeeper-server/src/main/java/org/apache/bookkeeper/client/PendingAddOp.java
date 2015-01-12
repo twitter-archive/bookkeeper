@@ -210,7 +210,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         case BKException.Code.UnauthorizedAccessException:
-            LOG.warn("Unauthorized access exception on write: " + ledgerId + ", " + entryId);
+            LOG.warn("Unauthorized access exception on write: {}, {}", ledgerId, entryId);
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         default:

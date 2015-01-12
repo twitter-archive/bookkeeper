@@ -103,7 +103,8 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             children.remove(BookKeeperConstants.READONLY);
             return convertToBookieAddresses(children);
         } catch (KeeperException ke) {
-            logger.error("Failed to get bookie list : ", ke);
+            logger.error("Encountered zookeeper exception on getting bookie list : code = {}, message = {}",
+                    ke.code(), ke.getMessage());
             throw new BKException.ZKException();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();

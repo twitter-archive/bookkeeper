@@ -309,8 +309,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                 }
 
                 if (rc != KeeperException.Code.OK.intValue()) {
-                    LOG.error("Could not read metadata for ledger: " + ledgerId,
-                              KeeperException.create(KeeperException.Code.get(rc), path));
+                    LOG.error("Could not read metadata for ledger {} : path = {}, rc = {}",
+                            new Object[] { ledgerId, path, KeeperException.Code.get(rc) });
                     readCb.operationComplete(BKException.Code.ZKException, null);
                     return;
                 }
@@ -319,7 +319,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                 try {
                     metadata = LedgerMetadata.parseConfig(data, new ZkVersion(stat.getVersion()));
                 } catch (IOException e) {
-                    LOG.error("Could not parse ledger metadata for ledger: " + ledgerId, e);
+                    LOG.error("Could not parse ledger metadata for ledger {} : {}", ledgerId, e.getMessage());
                     readCb.operationComplete(BKException.Code.ZKException, null);
                     return;
                 }
@@ -349,8 +349,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     metadata.setVersion(zv.setZnodeVersion(stat.getVersion()));
                     cb.operationComplete(BKException.Code.OK, null);
                 } else {
-                    LOG.warn("Conditional update ledger " + ledgerId + "'s metadata failed: ",
-                            KeeperException.Code.get(rc));
+                    LOG.warn("Conditional update ledger {}'s metadata failed: rc = {}",
+                            ledgerId, KeeperException.Code.get(rc));
                     cb.operationComplete(BKException.Code.ZKException, null);
                 }
             }
@@ -372,8 +372,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
             public void processResult(int rc, String path, Object ctx) {
                 LOG.debug("Sync node path {} return : {}", path, rc);
                 if (rc != Code.OK.intValue()) {
-                    LOG.error("ZK error syncing the ledgers node when getting children: ", KeeperException
-                            .create(KeeperException.Code.get(rc), path));
+                    LOG.error("ZK error syncing the ledgers node when getting children: path = {}, rc = {}",
+                            path, KeeperException.Code.get(rc));
                     getLedgersCallback.operationComplete(rc, null);
                     return;
                 }
@@ -390,8 +390,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
             @Override
             public void processResult(int rc, String path, Object ctx, List<String> ledgerNodes) {
                 if (rc != Code.OK.intValue()) {
-                    LOG.error("Error polling ZK for the available ledger nodes: ", KeeperException
-                            .create(KeeperException.Code.get(rc), path));
+                    LOG.error("Error polling ZK for the available ledger nodes: path = {}, rc = {}",
+                            path, KeeperException.Code.get(rc));
                     getLedgersCallback.operationComplete(rc, null);
                     return;
                 }
@@ -406,7 +406,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                         // convert the node path to ledger id according to different ledger manager implementation
                         allActiveLedgers.add(getLedgerId(path + "/" + ledgerNode));
                     } catch (IOException ie) {
-                        LOG.warn("Error extracting ledgerId from ZK ledger node: " + ledgerNode, ie);
+                        LOG.warn("Error extracting ledgerId from ZK ledger node {} : {}", ledgerNode, ie.getMessage());
                         // This is a pretty bad error as it indicates a ledger node in ZK
                         // has an incorrect format. For now just continue and consider
                         // this as a non-existent ledger.

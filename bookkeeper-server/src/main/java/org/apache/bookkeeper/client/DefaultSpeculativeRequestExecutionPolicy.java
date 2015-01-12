@@ -36,7 +36,7 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
      * Initialize the speculative request execution policy
      *
      * @param scheduler The scheduler service to issue the speculative request
-     * @param requestExectuor The executor is used to issue the actual speculative requests
+     * @param requestExecutor The executor is used to issue the actual speculative requests
      */
     @Override
     public void initiateSpeculativeRequest(final ScheduledExecutorService scheduler, final SpeculativeRequestExectuor requestExecutor) {

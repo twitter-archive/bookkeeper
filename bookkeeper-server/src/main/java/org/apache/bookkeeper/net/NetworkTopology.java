@@ -588,11 +588,11 @@ public class NetworkTopology {
             netlock.readLock().unlock();
         }
         if (n1 == null) {
-            LOG.warn("The cluster does not contain node: " + NodeBase.getPath(node1));
+            LOG.warn("The cluster does not contain node: {}", NodeBase.getPath(node1));
             return Integer.MAX_VALUE;
         }
         if (n2 == null) {
-            LOG.warn("The cluster does not contain node: " + NodeBase.getPath(node2));
+            LOG.warn("The cluster does not contain node: {}", NodeBase.getPath(node2));
             return Integer.MAX_VALUE;
         }
         return dis + 2;

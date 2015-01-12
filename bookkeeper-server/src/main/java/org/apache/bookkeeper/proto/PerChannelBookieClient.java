@@ -289,6 +289,21 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         int UnknownError = -2;
     }
 
+    private static String getBasicInfoFromRequest(Request request) {
+        StringBuilder sb = new StringBuilder("request(txn=")
+                .append(request.getHeader().getTxnId())
+                .append(", op=")
+                .append(request.getHeader().getOperation());
+        if (request.hasAddRequest()) {
+            sb.append(", add(lid=").append(request.getAddRequest().getLedgerId())
+                    .append(", eid=").append(request.getAddRequest().getEntryId())
+                    .append(")");
+        } else if (request.hasReadRequest()) {
+            sb.append(", ").append(request.getReadRequest());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
 
     /**
      * @param channel
@@ -308,8 +323,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                         if (channelFuture.getCause() instanceof ClosedChannelException) {
                             cb.operationComplete(ChannelRequestCompletionCode.ChannelClosedException, null);
                         } else {
-                            LOG.warn("Writing a request:" + request + " to channel:" + channel + " failed",
-                                 channelFuture.getCause());
+                            LOG.warn("Writing a request: {} to channel {} failed : cause = {}",
+                                    new Object[] { getBasicInfoFromRequest(request), channel,
+                                            channelFuture.getCause().getMessage() });
                             cb.operationComplete(ChannelRequestCompletionCode.UnknownError, null);
                         }
                     } else {
@@ -320,7 +336,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 }
             });
         } catch (Throwable t) {
-            LOG.warn("Writing a request:" + request + " to channel:" + channel + " failed.", t);
+            LOG.warn("Writing a request:{} to channel:{} failed : ",
+                    new Object[] { getBasicInfoFromRequest(request), channel, t });
             cb.operationComplete(-1, null);
         }
     }
@@ -360,9 +377,6 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    if (rc == ChannelRequestCompletionCode.UnknownError) {
-                        LOG.warn("Add entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
-                    }
                     errorOutAddKey(completionKey);
                 } else {
                     // Success
@@ -439,9 +453,6 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    if (rc == ChannelRequestCompletionCode.UnknownError) {
-                        LOG.warn("Read entry operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
-                    }
                     errorOutReadKey(completionKey);
                 } else {
                     // Success
@@ -483,9 +494,6 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
-                    if (rc == ChannelRequestCompletionCode.UnknownError) {
-                        LOG.warn("Read entry and fence operation for ledger:" + ledgerId + " and entry:" + entryId + " failed.");
-                    }
                     errorOutReadKey(completionKey);
                 } else {
                     // Success
@@ -706,8 +714,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
         Throwable t = e.getCause();
         if (t instanceof CorruptedFrameException || t instanceof TooLongFrameException) {
-            LOG.error("Corrupted fram received from bookie: "
-                    + e.getChannel().getRemoteAddress());
+            LOG.error("Corrupted from received from bookie: {}", e.getChannel().getRemoteAddress());
             return;
         }
 
@@ -758,8 +765,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                             handleReadResponse(response.getReadResponse(), completionValue);
                             break;
                         default:
-                            LOG.error("Unexpected response, type:" + type + " received from bookie:" +
-                                    addr + ", ignoring");
+                            LOG.error("Unexpected response, type:{} received from bookie:{}, ignoring",
+                                    type, addr);
                             break;
                     }
                 }
@@ -829,8 +836,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         // error codes.
         Integer rcToRet = statusCodeToExceptionCode(status);
         if (null == rcToRet) {
-            LOG.error("Read entry for ledger:" + ledgerId + ", entry:" + entryId + " failed on bookie:" + addr
-                    + " with code:" + status);
+            LOG.error("Read entry for ledger:{}, entry:{} failed on bookie:{} with code:{}",
+                    new Object[] { ledgerId, entryId, addr, status });
             rcToRet = BKException.Code.ReadException;
         }
         if (response.hasMaxLAC() && (rc.ctx instanceof ReadEntryCallbackCtx)) {
