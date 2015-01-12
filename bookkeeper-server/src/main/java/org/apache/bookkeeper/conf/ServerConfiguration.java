@@ -39,6 +39,7 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     // Gc Parameters
     protected final static String GC_WAIT_TIME = "gcWaitTime";
+    protected final static String GC_INITIAL_WAIT_TIME = "gcInitialWaitTime";
     // Bookie death watch interval
     protected final static String DEATH_WATCH_INTERVAL = "bookieDeathWatchInterval";
     // Ledger Cache Parameters
@@ -183,6 +184,27 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setGcWaitTime(long gcWaitTime) {
         this.setProperty(GC_WAIT_TIME, Long.toString(gcWaitTime));
+        return this;
+    }
+
+    /**
+     * Get initial wait time for kicking in garbage collection.
+     *
+     * @return gc wait time.
+     */
+    public long getGcInitialWaitTime() {
+        return this.getLong(GC_INITIAL_WAIT_TIME, getGcWaitTime());
+    }
+
+    /**
+     * Set initial wait time for kicking in garbage collection.
+     *
+     * @param gcWaitTime
+     *          gc wait time in millis.
+     * @return server configuration
+     */
+    public ServerConfiguration setGcInitialWaitTime(long gcWaitTime) {
+        this.setProperty(GC_INITIAL_WAIT_TIME, gcWaitTime);
         return this;
     }
 

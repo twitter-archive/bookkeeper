@@ -53,6 +53,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     private Map<Long, EntryLogMetadata> entryLogMetaMap = new ConcurrentHashMap<Long, EntryLogMetadata>();
 
     // This is how often we want to run the Garbage Collector Thread (in milliseconds).
+    final long gcInitialWaitTime;
     final long gcWaitTime;
 
     // Compaction parameters
@@ -137,6 +138,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         this.activeLedgerManager = activeLedgerManager;
         this.scanner = scanner;
 
+        this.gcInitialWaitTime = conf.getGcInitialWaitTime();
         this.gcWaitTime = conf.getGcWaitTime();
         // compaction parameters
         minorCompactionThreshold = conf.getMinorCompactionThreshold();
@@ -249,12 +251,15 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
     @Override
     public void run() {
+        long nextGcWaitTime = gcInitialWaitTime;
         while (running) {
             synchronized (this) {
                 try {
-                    wait(gcWaitTime);
+                    wait(nextGcWaitTime);
+                    nextGcWaitTime = gcWaitTime;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    nextGcWaitTime = gcWaitTime;
                     continue;
                 }
             }
