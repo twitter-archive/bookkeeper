@@ -45,6 +45,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -76,8 +77,14 @@ public class EntryLogger {
             super(fc, writeCapacity, readCapacity);
             this.logId = logId;
         }
+
         public long getLogId() {
             return logId;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("EntryLog(logId = %d)", logId);
         }
     }
 
@@ -93,8 +100,9 @@ public class EntryLogger {
     private List<BufferedLogChannel> logChannelsToFlush;
     private volatile BufferedLogChannel logChannel;
     private final EntryLoggerAllocator entryLoggerAllocator;
-    private final EntryLogListener listener;
     private final boolean entryLogPreAllocationEnabled;
+    private final CopyOnWriteArraySet<EntryLogListener> listeners
+            = new CopyOnWriteArraySet<EntryLogListener>();
     /**
      * The 1K block at the head of the entry logger file
      * that contains the fingerprint and (future) meta-data
@@ -158,7 +166,7 @@ public class EntryLogger {
             LedgerDirsManager ledgerDirsManager, EntryLogListener listener)
                     throws IOException {
         this.ledgerDirsManager = ledgerDirsManager;
-        this.listener = listener;
+        addListener(listener);
         // log size limit
         this.logSizeLimit = conf.getEntryLogSizeLimit();
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
@@ -185,6 +193,12 @@ public class EntryLogger {
         this.entryLoggerAllocator = new EntryLoggerAllocator(logId);
         this.serverCfg = conf;
         initialize();
+    }
+
+    void addListener(EntryLogListener listener) {
+        if (null != listener) {
+            listeners.add(listener);
+        }
     }
 
     /**
@@ -358,7 +372,7 @@ public class EntryLogger {
             logChannelsToFlush.add(logChannel);
             LOG.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
                     logChannel.getLogId(), logChannelsToFlush);
-            if (null != listener) {
+            for (EntryLogListener listener : listeners) {
                 listener.onRotateEntryLog();
             }
             logChannel = newLogChannel;
@@ -636,6 +650,10 @@ public class EntryLogger {
         long pos = logChannel.position();
         logChannel.write(entry);
         return (logChannel.getLogId() << 32L) | pos;
+    }
+
+    static long logIdForOffset(long offset) {
+        return offset >> 32L;
     }
 
     synchronized boolean reachEntryLogLimit(long size) {

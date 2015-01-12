@@ -21,12 +21,23 @@ package org.apache.bookkeeper.bookie;
  *
  */
 import java.io.File;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.Enumeration;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.FlatLedgerManager;
+import org.apache.bookkeeper.meta.SnapshotMap;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.TestUtils;
@@ -346,5 +357,199 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         // even entry log files are removed, we still can access entries for ledger1
         // since those entries has been compacted to new entry log
         verifyLedger(lhs[0].getId(), 0, lhs[0].getLastAddConfirmed());
+    }
+
+    /**
+     * Test that compaction doesnt add to index without having persisted
+     * entrylog first. This is needed because compaction doesn't go through the journal.
+     * {@see https://issues.apache.org/jira/browse/BOOKKEEPER-530}
+     * {@see https://issues.apache.org/jira/browse/BOOKKEEPER-664}
+     */
+    @Test(timeout=60000)
+    public void testCompactionSafety() throws Exception {
+        tearDown(); // I dont want the test infrastructure
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        final Set<Long> ledgers = Collections.newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
+        ActiveLedgerManager manager = getActiveLedgerManager(ledgers);
+
+        File tmpDir = createTempDir("compaction", "compactionSafety");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+        conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+
+        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_SIZE + 3 * (4+ENTRY_SIZE));
+        conf.setGcWaitTime(100);
+        conf.setMinorCompactionThreshold(0.7f);
+        conf.setMajorCompactionThreshold(0.0f);
+        conf.setMinorCompactionInterval(1);
+        conf.setMajorCompactionInterval(10);
+        conf.setPageLimit(1);
+
+        CheckpointProgress checkpointProgress = new CheckpointProgress() {
+            AtomicInteger idGen = new AtomicInteger(0);
+            class MyCheckpoint implements CheckPoint {
+
+                int id = idGen.incrementAndGet();
+                @Override
+                public int compareTo(CheckPoint o) {
+                    if (o == CheckPoint.MAX) {
+                        return -1;
+                    }
+                    return id - ((MyCheckpoint)o).id;
+                }
+
+                @Override
+                public void checkpointComplete(boolean compact) throws IOException {
+                }
+            }
+
+            @Override
+            public CheckPoint requestCheckpoint() {
+                return new MyCheckpoint();
+            }
+
+            @Override
+            public void startCheckpoint(CheckPoint checkpoint) {
+
+            }
+        };
+
+        final byte[] KEY = "foobar".getBytes();
+        File log0 = new File(curDir, "0.log");
+        File log1 = new File(curDir, "1.log");
+        LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        assertFalse("Log 0 shouldnt exist", log0.exists());
+        assertFalse("Log 1 shouldnt exist", log1.exists());
+        InterleavedLedgerStorage storage = new InterleavedLedgerStorage(conf, manager,
+                                                                        dirs, dirs, checkpointProgress);
+        ledgers.add(1l);
+        ledgers.add(2l);
+        ledgers.add(3l);
+        storage.setMasterKey(1, KEY);
+        storage.setMasterKey(2, KEY);
+        storage.setMasterKey(3, KEY);
+        LOG.info("Write Ledger 1");
+        storage.addEntry(genEntry(1, 1, ENTRY_SIZE));
+        LOG.info("Write Ledger 2");
+        storage.addEntry(genEntry(2, 1, ENTRY_SIZE));
+        storage.addEntry(genEntry(2, 2, ENTRY_SIZE));
+        LOG.info("Write ledger 3");
+        storage.addEntry(genEntry(3, 2, ENTRY_SIZE));
+        storage.flush();
+        storage.shutdown();
+
+        assertTrue("Log 0 should exist", log0.exists());
+        assertTrue("Log 1 should exist", log1.exists());
+        ledgers.remove(2l);
+        ledgers.remove(3l);
+
+        storage = new InterleavedLedgerStorage(conf, manager, dirs, dirs, checkpointProgress);
+        storage.start();
+        for (int i = 0; i < 10; i++) {
+            if (!log0.exists() && !log1.exists()) {
+                break;
+            }
+            Thread.sleep(1000);
+            storage.entryLogger.flush(); // simulate sync thread
+        }
+        assertFalse("Log shouldnt exist", log0.exists());
+        assertFalse("Log shouldnt exist", log1.exists());
+
+        LOG.info("Write ledger 4");
+        ledgers.add(4l);
+        storage.setMasterKey(4, KEY);
+        storage.addEntry(genEntry(4, 1, ENTRY_SIZE)); // force ledger 1 page to flush
+
+        storage = new InterleavedLedgerStorage(conf, manager, dirs, dirs, checkpointProgress);
+        storage.getEntry(1, 1); // entry should exist
+    }
+
+    private static ActiveLedgerManager getActiveLedgerManager(final Set<Long> remoteLedgers) {
+
+        final SnapshotMap<Long, Long> localLedgers = new SnapshotMap<Long, Long>();
+
+        return new ActiveLedgerManager() {
+            @Override
+            public void addActiveLedger(long ledgerId, boolean active) {
+                LOG.info("ActiveLedgerManager add ledger {}", ledgerId);
+                localLedgers.put(ledgerId, ledgerId);
+            }
+
+            @Override
+            public void removeActiveLedger(long ledgerId) {
+                LOG.info("ActiveLedgerManager remove ledger {}", ledgerId);
+                localLedgers.remove(ledgerId);
+            }
+
+            @Override
+            public boolean containsActiveLedger(long ledgerId) {
+                return localLedgers.containsKey(ledgerId);
+            }
+
+            @Override
+            public void garbageCollectLedgers(GarbageCollector gc) {
+                Map<Long, Long> activeLocalLedgers = localLedgers.snapshot();
+                LOG.info("Garbage collection ledgers : local = {}, remote = {}", activeLocalLedgers, remoteLedgers);
+                for (Long bkLid : activeLocalLedgers.keySet()) {
+                    if (!remoteLedgers.contains(bkLid)) {
+                        activeLocalLedgers.remove(bkLid);
+                        LOG.info("Garbage collecting ledger {}", bkLid);
+                        gc.gc(bkLid);
+                    }
+                }
+            }
+
+            @Override
+            public void close() throws IOException {
+                // no-op
+            }
+        };
+    }
+
+    /**
+     * Test that compaction should execute silently when there is no entry logs
+     * to compact. {@see https://issues.apache.org/jira/browse/BOOKKEEPER-700}
+     */
+    @Test(timeout = 60000)
+    public void testWhenNoLogsToCompact() throws Exception {
+        tearDown(); // I dont want the test infrastructure
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        File tmpDir = createTempDir("bkTest", ".dir");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+        conf.setLedgerDirNames(new String[]{tmpDir.toString()});
+
+        LedgerDirsManager dirs = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        final Set<Long> ledgers = Collections
+                .newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
+        ActiveLedgerManager manager = getActiveLedgerManager(ledgers);
+        CheckpointProgress checkpointSource = new CheckpointProgress() {
+            @Override
+            public CheckPoint requestCheckpoint() {
+                return null;
+            }
+
+            @Override
+            public void startCheckpoint(CheckPoint checkpoint) {
+                // no-op
+            }
+        };
+        InterleavedLedgerStorage storage = new InterleavedLedgerStorage(conf,
+                manager, dirs, dirs, checkpointSource);
+
+        double threshold = 0.1;
+        // shouldn't throw exception
+        storage.gcThread.doCompactEntryLogs(threshold);
+    }
+
+    private ByteBuffer genEntry(long ledger, long entry, int size) {
+        ByteBuffer bb = ByteBuffer.wrap(new byte[size]);
+        bb.putLong(ledger);
+        bb.putLong(entry);
+        while (bb.hasRemaining()) {
+            bb.put((byte)0xFF);
+        }
+        bb.flip();
+        return bb;
     }
 }
