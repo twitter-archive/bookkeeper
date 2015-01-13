@@ -342,7 +342,13 @@ public class LedgerFragmentReplicator {
                 .getEnsembles().get(fragmentStartId);
         for (Map.Entry<InetSocketAddress, InetSocketAddress> entry : oldBookie2NewBookie.entrySet()) {
             int deadBookieIndex = ensemble.indexOf(entry.getKey());
-            ensemble.set(deadBookieIndex, entry.getValue());
+            // update ensemble info might happen after re-read ledger metadata, so the ensemble might already
+            // change. if ensemble is already changed, skip replacing the bookie doesn't exist.
+            if (deadBookieIndex >= 0) {
+                ensemble.set(deadBookieIndex, entry.getValue());
+            } else {
+                LOG.info("Bookie {} doesn't exist in ensemble {} anymore.", entry.getKey(), ensemble);
+            }
         }
         lh.writeLedgerConfig(new UpdateEnsembleCb(ensembleUpdatedCb,
                 fragmentStartId, lh, oldBookie2NewBookie));
