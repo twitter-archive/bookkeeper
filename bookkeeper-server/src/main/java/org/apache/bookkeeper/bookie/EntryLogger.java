@@ -441,7 +441,12 @@ public class EntryLogger {
             // It would better not to overwrite existing entry log files
             File newLogFile = null;
             do {
-                String logFileName = Long.toHexString(++preallocatedLogId) + ".log";
+                if (preallocatedLogId >= Integer.MAX_VALUE) {
+                    preallocatedLogId = 0;
+                } else {
+                    ++preallocatedLogId;
+                }
+                String logFileName = Long.toHexString(preallocatedLogId) + ".log";
                 for (File dir : list) {
                     newLogFile = new File(dir, logFileName);
                     currentDir = dir;
@@ -630,16 +635,17 @@ public class EntryLogger {
     }
 
     synchronized long addEntry(ByteBuffer entry, boolean rollLog) throws IOException {
-        if (rollLog) {
-            // Create new log if logSizeLimit reached or current disk is full
-            boolean createNewLog = shouldCreateNewEntryLog.get();
-            if (createNewLog || reachEntryLogLimit(entry.remaining() + 4)) {
-                createNewLog();
+        int entrySize = entry.remaining() + 4;
+        boolean reachEntryLogLimit =
+                rollLog ? reachEntryLogLimit(entrySize) : reachEntryLogHardLimit(entrySize);
+        // Create new log if logSizeLimit reached or current disk is full
+        boolean createNewLog = shouldCreateNewEntryLog.get();
+        if (createNewLog || reachEntryLogLimit) {
+            createNewLog();
 
-                // Reset the flag
-                if (createNewLog) {
-                    shouldCreateNewEntryLog.set(false);
-                }
+            // Reset the flag
+            if (createNewLog) {
+                shouldCreateNewEntryLog.set(false);
             }
         }
         ByteBuffer buff = ByteBuffer.allocate(4);
@@ -658,6 +664,10 @@ public class EntryLogger {
 
     synchronized boolean reachEntryLogLimit(long size) {
         return logChannel.position() + size > logSizeLimit;
+    }
+
+    synchronized boolean reachEntryLogHardLimit(long size) {
+        return logChannel.position() + size > Integer.MAX_VALUE;
     }
 
     byte[] readEntry(long ledgerId, long entryId, long location) throws IOException, Bookie.NoEntryException {

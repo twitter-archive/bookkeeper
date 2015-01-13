@@ -1022,6 +1022,9 @@ public class ServerConfiguration extends AbstractConfiguration {
         if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
             throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
+        if (getEntryLogSizeLimit() > Integer.MAX_VALUE) {
+            throw new ConfigurationException("Entry log file size should not be larger than " + Integer.MAX_VALUE);
+        }
     }
 
     /**

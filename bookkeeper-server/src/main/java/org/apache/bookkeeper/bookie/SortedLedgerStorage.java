@@ -163,6 +163,9 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
         // so we roll entry log files in SortedLedgerStorage itself.
         // After that, we could make the process writing data to entry logger file not bound with checkpoint.
         // otherwise, it hurts add performance.
+        //
+        // The only exception for the size limitation is if a file grows to be more than 4GB,
+        // we have to force rolling log, which it might cause slight performance effects.
         scheduler.submit(new Runnable() {
             @Override
             public void run() {
