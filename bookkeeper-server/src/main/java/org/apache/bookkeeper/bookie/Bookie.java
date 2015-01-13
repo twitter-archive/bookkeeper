@@ -999,8 +999,8 @@ public class Bookie extends BookieCriticalThread {
                 zk.create(regPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
                         CreateMode.EPHEMERAL);
                 LOG.info("Registered myself in ZooKeeper at {}.", regPath);
-                zkRegistered.set(true);
             }
+            zkRegistered.set(true);
         } catch (KeeperException ke) {
             LOG.error("ZK exception registering ephemeral Znode for Bookie!", ke);
             // Throw an IOException back up. This will cause the Bookie
