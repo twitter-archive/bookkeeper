@@ -1017,7 +1017,13 @@ public class LedgerHandle {
                     continue;
                 }
                 try {
-                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(metadata.getEnsembleSize(), metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), newEnsemble, idx);
+                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(
+                        metadata.getEnsembleSize(),
+                        metadata.getWriteQuorumSize(),
+                        metadata.getAckQuorumSize(),
+                        newEnsemble,
+                        idx,
+                        new HashSet<InetSocketAddress>(failedBookies.values()));
                     newEnsemble.set(idx, newBookie);
                     replacedBookies.add(idx);
                 } catch (BKException.BKNotEnoughBookiesException e) {
@@ -1226,7 +1232,7 @@ public class LedgerHandle {
         private boolean areFailedBookiesReplaced(LedgerMetadata newMeta, EnsembleInfo ensembleInfo) {
             boolean replaced = true;
             for (Map.Entry<Integer, InetSocketAddress> entry : ensembleInfo.failedBookies.entrySet()) {
-                replaced = !newMeta.currentEnsemble.get(entry.getKey()).equals(entry.getValue());
+                replaced &= !newMeta.currentEnsemble.get(entry.getKey()).equals(entry.getValue());
             }
             return replaced;
         }
