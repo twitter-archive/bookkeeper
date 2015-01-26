@@ -261,6 +261,23 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
+     * Set the bookie identified by its socket address to readonly
+     *
+     * @param addr
+     *          Socket Address
+     * @return the configuration of killed bookie
+     * @throws InterruptedException
+     */
+    public void setBookieToReadOnly(InetSocketAddress addr) throws InterruptedException {
+        for (BookieServer server : bs) {
+            if (server.getLocalAddress().equals(addr)) {
+                server.getBookie().doTransitionToReadOnlyMode();
+                break;
+            }
+        }
+    }
+
+    /**
      * Kill a bookie by index. Also, stops the respective auto recovery process
      * for this bookie, if isAutoRecoveryEnabled is true.
      *

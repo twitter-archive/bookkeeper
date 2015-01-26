@@ -215,7 +215,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
             return;
         default:
             if (delayEnsembleChange) {
-                if (ackSet.failBookieAndCheck(bookieIndex, addr)) {
+                if (ackSet.failBookieAndCheck(bookieIndex, addr) || rc == BKException.Code.WriteOnReadOnlyBookieException) {
                     Map<Integer, InetSocketAddress> failedBookies = ackSet.getFailedBookies();
                     LOG.warn("Failed to write entry ({}, {}) to bookies {}, handling failures.",
                              new Object[] { ledgerId, entryId, failedBookies });
