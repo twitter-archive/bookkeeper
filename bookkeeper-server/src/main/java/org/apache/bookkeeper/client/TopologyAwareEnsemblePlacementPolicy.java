@@ -420,13 +420,13 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
         return writeSet;
     }
 
     @Override
-    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
-        List<Integer> retList = new ArrayList<Integer>(reorderReadSequence(ensemble, writeSet));
+    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+        List<Integer> retList = new ArrayList<Integer>(reorderReadSequence(ensemble, writeSet, bookieFailureHistory));
         if (retList.size() < ensemble.size()) {
             for (int i = 0; i < ensemble.size(); i++) {
                 if (!retList.contains(i)) {

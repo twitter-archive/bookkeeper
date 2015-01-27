@@ -38,7 +38,6 @@ import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.net.ScriptBasedMapping;
-import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.Configuration;
@@ -431,12 +430,15 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+        int ensembleSize = ensemble.size();
         List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
+        List<Long> observedFailuresList = new ArrayList<Long>(writeSet.size());
         List<Integer> readOnlyList = new ArrayList<Integer>(writeSet.size());
         List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
         for (Integer idx : writeSet) {
             InetSocketAddress address = ensemble.get(idx);
+            Long lastFailedEntryOnBookie = bookieFailureHistory.get(address);
             if (null == knownBookies.get(address)) {
                 // there isn't too much differences between readonly bookies from unavailable bookies. since there
                 // is no write requests to them, so we shouldn't try reading from readonly bookie in prior to writable
@@ -447,7 +449,11 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                     readOnlyList.add(idx);
                 }
             } else {
-                finalList.add(idx);
+                if ((lastFailedEntryOnBookie == null) || (lastFailedEntryOnBookie < 0)) {
+                    finalList.add(idx);
+                } else {
+                    observedFailuresList.add(lastFailedEntryOnBookie * ensembleSize + idx);
+                }
             }
         }
 
@@ -455,6 +461,12 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
             Collections.shuffle(finalList);
             Collections.shuffle(readOnlyList);
             Collections.shuffle(unAvailableList);
+        }
+
+        Collections.sort(observedFailuresList);
+
+        for(long value: observedFailuresList) {
+            finalList.add((int)(value % ensembleSize));
         }
 
         finalList.addAll(readOnlyList);

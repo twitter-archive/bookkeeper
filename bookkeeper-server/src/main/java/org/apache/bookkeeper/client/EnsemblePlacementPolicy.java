@@ -21,6 +21,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.google.common.base.Optional;
@@ -95,25 +96,35 @@ public interface EnsemblePlacementPolicy {
     /**
      * Reorder the read sequence of a given write quorum <i>writeSet</i>.
      *
-     * @param ensemble
-     *          Ensemble to read entries.
-     * @param writeSet
-     *          Write quorum to read entries.
-     * @return read sequence of bookies
-     */
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble,
-                                             List<Integer> writeSet);
-
-
-    /**
-     * Reorder the read last add confirmed sequence of a given write quorum <i>writeSet</i>.
+     *
+     *
      *
      * @param ensemble
      *          Ensemble to read entries.
      * @param writeSet
      *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
+     * @return read sequence of bookies
+     */
+    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble,
+                                             List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory);
+
+
+    /**
+     * Reorder the read last add confirmed sequence of a given write quorum <i>writeSet</i>.
+     *
+     *
+     *
+     *
+     * @param ensemble
+     *          Ensemble to read entries.
+     * @param writeSet
+     *          Write quorum to read entries.
+     * @param bookieFailureHistory
+     *          Observed failures on the bookies
      * @return read sequence of bookies
      */
     public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble,
-                                             List<Integer> writeSet);
+                                                List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory);
 }

@@ -20,6 +20,7 @@ package org.apache.bookkeeper.client;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -102,7 +103,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         repp = new RegionAwareEnsemblePlacementPolicy();
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
-        List<Integer> reorderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reorderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         assertFalse(reorderSet == writeSet);
         assertEquals(writeSet, reorderSet);
     }
@@ -122,7 +123,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr4);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(0);
         expectedSet.add(3);
@@ -141,7 +142,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         repp = new RegionAwareEnsemblePlacementPolicy();
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         LOG.info("reorder set : {}", reoderSet);
         assertFalse(reoderSet == writeSet);
         assertEquals(writeSet, reoderSet);
@@ -165,7 +166,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.remove(addr1);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(3);
         expectedSet.add(1);
@@ -196,7 +197,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         ro.add(addr1);
         repp.onClusterChanged(addrs, ro);
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(3);
         expectedSet.add(1);
@@ -226,7 +227,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.remove(addr2);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(3);
         expectedSet.add(2);
@@ -801,9 +802,9 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             List<Integer> writeSet = ds.getWriteSet(i);
             List<Integer> readSet;
             if (isReadLAC) {
-                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             } else {
-                readSet = repp.reorderReadSequence(ensemble, writeSet);
+                readSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             }
 
             LOG.info("Reorder {} => {}.", writeSet, readSet);
@@ -853,9 +854,9 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             List<Integer> readSet;
 
             if (isReadLAC) {
-                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             } else {
-                readSet = repp.reorderReadSequence(ensemble, writeSet);
+                readSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             }
 
             assertEquals(writeSet, readSet);
@@ -922,9 +923,9 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             List<Integer> writeSet = ds.getWriteSet(i);
             List<Integer> readSet;
             if (isReadLAC) {
-                readSet = repp.reorderReadLACSequence(ensemble, writeSet);
+                readSet = repp.reorderReadLACSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             } else {
-                readSet = repp.reorderReadSequence(ensemble, writeSet);
+                readSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
             }
 
             LOG.info("Reorder {} => {}.", writeSet, readSet);
@@ -963,6 +964,64 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             numCoveredWriteQuorums += (regions.size() > 1 ? 1 : 0);
         }
         return numCoveredWriteQuorums;
+    }
+
+    @Test(timeout = 60000)
+    public void testNodeWithFailures() throws Exception {
+        repp.uninitalize();
+        updateMyRack("/r2/rack1");
+
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
+
+        InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.0.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.0.0.9", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostName(), "/r2/rack1");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostName(), "/r2/rack2");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostName(), "/r1/rack3");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostName(), "/r2/rack3");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostName(), "/r2/rack4");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostName(), "/r1/rack4");
+        ensemble.add(addr5);
+        ensemble.add(addr6);
+        ensemble.add(addr7);
+        ensemble.add(addr8);
+
+        for (int i = 4; i < 8; i++) {
+            writeSet.add(i);
+        }
+
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        HashMap<InetSocketAddress, Long> bookieFailures = new HashMap<InetSocketAddress, Long>();
+
+        bookieFailures.put(addr1, 20L);
+        bookieFailures.put(addr2, 22L);
+        bookieFailures.put(addr3, 24L);
+        bookieFailures.put(addr4, 25L);
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, bookieFailures);
+        LOG.info("reorder set : {}", reoderSet);
+        assertEquals(ensemble.get(reoderSet.get(0)), addr6);
+        assertEquals(ensemble.get(reoderSet.get(1)), addr7);
+        assertEquals(ensemble.get(reoderSet.get(2)), addr5);
+        assertEquals(ensemble.get(reoderSet.get(3)), addr2);
+        assertEquals(ensemble.get(reoderSet.get(4)), addr3);
+        assertEquals(ensemble.get(reoderSet.get(5)), addr8);
+        assertEquals(ensemble.get(reoderSet.get(6)), addr1);
+        assertEquals(ensemble.get(reoderSet.get(7)), addr4);
     }
 
 }

@@ -22,6 +22,7 @@ import static org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy.REPP
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -110,7 +111,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.remove(addr1);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(1);
         expectedSet.add(2);
@@ -141,7 +142,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         ro.add(addr1);
         repp.onClusterChanged(addrs, ro);
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(1);
         expectedSet.add(2);
@@ -171,7 +172,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         addrs.remove(addr2);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
 
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(2);
         expectedSet.add(3);
@@ -202,7 +203,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         Set<InetSocketAddress> roAddrs = new HashSet<InetSocketAddress>();
         roAddrs.add(addr2);
         repp.onClusterChanged(addrs, roAddrs);
-        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet);
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         List<Integer> expectedSet = new ArrayList<Integer>();
         expectedSet.add(2);
         expectedSet.add(3);
@@ -425,5 +426,33 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
             numCoveredWriteQuorums += (racks.size() > 1 ? 1 : 0);
         }
         return numCoveredWriteQuorums;
+    }
+
+    @Test(timeout = 60000)
+    public void testNodeWithFailures() throws Exception {
+        repp.uninitalize();
+        updateMyRack(NetworkTopology.DEFAULT_RACK);
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
+
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        HashMap<InetSocketAddress, Long> bookieFailures = new HashMap<InetSocketAddress, Long>();
+
+        bookieFailures.put(addr1, 20L);
+        bookieFailures.put(addr2, 22L);
+
+        List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, bookieFailures);
+        LOG.info("reorder set : {}", reoderSet);
+        assertEquals(ensemble.get(reoderSet.get(2)), addr1);
+        assertEquals(ensemble.get(reoderSet.get(3)), addr2);
+        assertEquals(ensemble.get(reoderSet.get(0)), addr3);
+        assertEquals(ensemble.get(reoderSet.get(1)), addr4);
     }
 }

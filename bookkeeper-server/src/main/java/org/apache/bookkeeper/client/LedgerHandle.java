@@ -32,6 +32,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -56,6 +57,9 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.RateLimiter;
 
 /**
@@ -76,6 +80,7 @@ public class LedgerHandle {
     final DistributionSchedule distributionSchedule;
     final AtomicInteger refCount;
     final RateLimiter throttler;
+    final LoadingCache<InetSocketAddress, Long> bookieFailureHistory;
 
     /**
      * Invalid entry id. This value is returned from methods which
@@ -107,8 +112,14 @@ public class LedgerHandle {
 
         macManager = DigestManager.instantiate(ledgerId, password, digestType);
         this.ledgerKey = MacDigestManager.genDigest("ledger", password);
-        distributionSchedule = new RoundRobinDistributionSchedule(
+        this.distributionSchedule = new RoundRobinDistributionSchedule(
                 metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), metadata.getEnsembleSize());
+        this.bookieFailureHistory = CacheBuilder.newBuilder().
+            expireAfterWrite(bk.getConf().getBookieFailureHistoryExpirationMSec(), TimeUnit.MILLISECONDS).build(new CacheLoader<InetSocketAddress, Long>() {
+            public Long load(InetSocketAddress key) {
+                return -1L;
+            }
+        });
     }
 
     public void hintOpen() {
@@ -1243,6 +1254,13 @@ public class LedgerHandle {
     void rereadMetadata(final GenericCallback<LedgerMetadata> cb) {
         bk.getLedgerManager().readLedgerMetadata(ledgerId, cb);
     }
+
+    void registerOperationFailureOnBookie(InetSocketAddress bookie, long entryId) {
+        if (bk.getConf().getEnableBookieFailureTracking()) {
+            bookieFailureHistory.put(bookie, entryId);
+        }
+    }
+
 
     void recover(GenericCallback<Void> finalCb) {
         recover(finalCb, null, false);

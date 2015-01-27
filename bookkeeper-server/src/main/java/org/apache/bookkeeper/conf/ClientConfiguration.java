@@ -89,6 +89,10 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
     protected final static String ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
 
+    // Failure History Settings
+    protected final static String ENABLE_BOOKIE_FAILURE_TRACKING = "enableBookieFailureTracking";
+    protected final static String BOOKIE_FAILURE_HISTORY_EXPIRATION_MS = "bookieFailureHistoryExpirationMSec";
+
     /**
      * Construct a default client-side configuration
      */
@@ -894,4 +898,45 @@ public class ClientConfiguration extends AbstractConfiguration {
         return this;
     }
 
+    /**
+     * Whether to enable bookie failure tracking
+     *
+     * @return flag to enable/disable bookie failure tracking
+     */
+    public boolean getEnableBookieFailureTracking() {
+        return getBoolean(ENABLE_BOOKIE_FAILURE_TRACKING, true);
+    }
+
+    /**
+     * Enable/Disable bookie failure tracking.
+     *
+     * @param enabled
+     *          flag to enable/disable bookie failure tracking
+     * @return client configuration.
+     */
+    public ClientConfiguration setEnableBookieFailureTracking(boolean enabled) {
+        setProperty(ENABLE_BOOKIE_FAILURE_TRACKING, enabled);
+        return this;
+    }
+
+    /**
+     * Get the bookie failure tracking expiration timeout.
+     *
+     * @return bookie failure tracking expiration timeout.
+     */
+    public int getBookieFailureHistoryExpirationMSec() {
+        return getInt(BOOKIE_FAILURE_HISTORY_EXPIRATION_MS, 60000);
+    }
+
+    /**
+     * Set the bookie failure tracking expiration timeout.
+     *
+     * @param timeout
+     *          bookie failure tracking expiration timeout.
+     * @return client configuration.
+     */
+    public ClientConfiguration setBookieFailureHistoryExpirationMSec(int expirationMSec) {
+        setProperty(BOOKIE_FAILURE_HISTORY_EXPIRATION_MS, expirationMSec);
+        return this;
+    }
 }

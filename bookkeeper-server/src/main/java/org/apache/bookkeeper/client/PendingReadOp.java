@@ -29,9 +29,7 @@ import java.util.NoSuchElementException;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.util.concurrent.ListenableFuture;
@@ -42,7 +40,6 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
@@ -89,7 +86,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
 
             this.ensemble = ensemble;
             this.writeSet = lh.bk.placementPolicy.reorderReadSequence(ensemble,
-                    lh.distributionSchedule.getWriteSet(entryId));
+                    lh.distributionSchedule.getWriteSet(entryId), lh.bookieFailureHistory.asMap());
         }
 
         /**
@@ -176,6 +173,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
             }
             if (BKException.Code.NoSuchEntryException == rc ||
                 BKException.Code.NoSuchLedgerExistsException == rc) {
+                lh.registerOperationFailureOnBookie(host, entryId);
                 ++numMissedEntryReads;
             }
 

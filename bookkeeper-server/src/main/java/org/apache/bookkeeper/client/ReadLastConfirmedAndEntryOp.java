@@ -52,14 +52,16 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         int numMissedEntryReads = 0;
 
         final ArrayList<InetSocketAddress> ensemble;
+        final List<Integer> writeSet;
         final List<Integer> orderedEnsemble;
 
         ReadLACAndEntryRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
             super(lId, eId);
 
             this.ensemble = ensemble;
+            this.writeSet = lh.distributionSchedule.getWriteSet(entryId);
             this.orderedEnsemble = lh.bk.placementPolicy.reorderReadLACSequence(ensemble,
-                lh.distributionSchedule.getWriteSet(entryId));
+                writeSet, lh.bookieFailureHistory.asMap());
         }
 
         synchronized int getFirstError() {
@@ -157,6 +159,12 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
 
             if (BKException.Code.NoSuchEntryException == rc ||
                 BKException.Code.NoSuchLedgerExistsException == rc) {
+                // Since we send all long poll requests to every available node, we should only
+                // treat these errors as failures if the node from which we received this is part of
+                // the writeSet
+                if (this.writeSet.contains(bookieIndex)) {
+                    lh.registerOperationFailureOnBookie(host, entryId);
+                }
                 ++numMissedEntryReads;
             }
 
@@ -404,7 +412,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                 - getLedgerMetadata().getAckQuorumSize() + 1;
         this.requestTimeNano = MathUtils.nowInNano();
         this.scheduler = scheduler;
-        maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
+        maxMissedReadsAllowed = getLedgerMetadata().getEnsembleSize()
             - getLedgerMetadata().getAckQuorumSize();
         heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
         emptyResponsesFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());

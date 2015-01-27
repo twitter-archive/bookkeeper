@@ -36,7 +36,6 @@ import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.lang3.tuple.Pair;
@@ -415,18 +414,22 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+    public final List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
         if (UNKNOWN_REGION.equals(myRegion)) {
-            return super.reorderReadSequence(ensemble, writeSet);
+            return super.reorderReadSequence(ensemble, writeSet, bookieFailureHistory);
         } else {
+            int ensembleSize = ensemble.size();
             List<Integer> finalList = new ArrayList<Integer>(writeSet.size());
             List<Integer> localList = new ArrayList<Integer>(writeSet.size());
+            List<Long> localFailures = new ArrayList<Long>(writeSet.size());
             List<Integer> remoteList = new ArrayList<Integer>(writeSet.size());
+            List<Long> remoteFailures = new ArrayList<Long>(writeSet.size());
             List<Integer> readOnlyList = new ArrayList<Integer>(writeSet.size());
             List<Integer> unAvailableList = new ArrayList<Integer>(writeSet.size());
             for (Integer idx : writeSet) {
                 InetSocketAddress address = ensemble.get(idx);
                 String region = getRegion(address);
+                Long lastFailedEntryOnBookie = bookieFailureHistory.get(address);
                 if (null == knownBookies.get(address)) {
                     // there isn't too much differences between readonly bookies from unavailable bookies. since there
                     // is no write requests to them, so we shouldn't try reading from readonly bookie in prior to writable
@@ -437,17 +440,42 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                         readOnlyList.add(idx);
                     }
                 } else if (region.equals(myRegion)) {
-                    localList.add(idx);
+                    if ((lastFailedEntryOnBookie == null) || (lastFailedEntryOnBookie < 0)) {
+                        localList.add(idx);
+                    } else {
+                         localFailures.add(lastFailedEntryOnBookie * ensembleSize + idx);
+                    }
                 } else {
-                    remoteList.add(idx);
+                    if ((lastFailedEntryOnBookie == null) || (lastFailedEntryOnBookie < 0)) {
+                        remoteList.add(idx);
+                    } else {
+                        remoteFailures.add(lastFailedEntryOnBookie * ensembleSize + idx);
+                    }
                 }
             }
+
+            // Given that idx is less than ensemble size the order of the elements in these two lists
+            // is determined by the lastFailedEntryOnBookie
+            Collections.sort(localFailures);
+            Collections.sort(remoteFailures);
 
             if (reorderReadsRandom) {
                 Collections.shuffle(localList);
                 Collections.shuffle(remoteList);
                 Collections.shuffle(readOnlyList);
                 Collections.shuffle(unAvailableList);
+            }
+
+            // nodes within a region are ordered as follows
+            // (Random?) list of nodes that have no history of failure
+            // Nodes with Failure history are ordered in the reverse
+            // order of the most recent entry that generated an error
+            for(long value: localFailures) {
+                localList.add((int)(value % ensembleSize));
+            }
+
+            for(long value: remoteFailures) {
+                remoteList.add((int)(value % ensembleSize));
             }
 
             // Insert a node from the remote region at the specified location so we
@@ -464,6 +492,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 finalList.add(remoteList.remove(0));
             }
 
+            // Add all the local nodes
             finalList.addAll(localList);
             finalList.addAll(remoteList);
             finalList.addAll(readOnlyList);
@@ -473,11 +502,11 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet) {
+    public final List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
         if (UNKNOWN_REGION.equals(myRegion)) {
-            return super.reorderReadLACSequence(ensemble, writeSet);
+            return super.reorderReadLACSequence(ensemble, writeSet, bookieFailureHistory);
         }
-        List<Integer> finalList = reorderReadSequence(ensemble, writeSet);
+        List<Integer> finalList = reorderReadSequence(ensemble, writeSet, bookieFailureHistory);
 
         if (finalList.size() < ensemble.size()) {
             for (int i = 0; i < ensemble.size(); i++) {

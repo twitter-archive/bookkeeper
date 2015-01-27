@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.client;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
@@ -408,6 +409,35 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
         assertEquals(3, lh.getLedgerMetadata().currentEnsemble.size());
         assertFalse(lh.getLedgerMetadata().currentEnsemble.contains(failedBookie));
         assertFalse(lh.getLedgerMetadata().currentEnsemble.contains(readOnlyBookie));
+    }
+
+    @Test(timeout = 60000)
+    public void testMarkBookieFailures() throws Exception {
+        ClientConfiguration confOverride = new ClientConfiguration(baseClientConf);
+        confOverride.setBookieFailureHistoryExpirationMSec(500);
+
+        bkc = new BookKeeperTestClient(confOverride);
+        LedgerHandle lh = bkc.createLedger(3, 3, 2, digestType, testPasswd);
+
+        byte[] data = "foobar".getBytes();
+
+        int numEntries = 10;
+        lh.addEntry(data);
+
+        InetSocketAddress failedBookie = lh.getLedgerMetadata().currentEnsemble.get(0);
+        ServerConfiguration conf0 = killBookie(failedBookie);
+
+        for (int i = 0; i < numEntries; i++) {
+            lh.addEntry(data);
+        }
+
+        bsConfs.add(conf0);
+        bs.add(startBookie(conf0));
+
+        lh.readEntries(1, numEntries);
+        assertFalse(lh.bookieFailureHistory.get(failedBookie) < 0);
+        Thread.sleep(1000);
+        assertTrue(lh.bookieFailureHistory.get(failedBookie) == null || lh.bookieFailureHistory.get(failedBookie) < 0);
     }
 
 }
