@@ -746,36 +746,6 @@ public class LedgerHandle {
         new TryReadLastConfirmedOp(this, innercb, getLastAddConfirmed()).initiate();
     }
 
-    public void asyncReadLastConfirmedLongPoll(final long timeOutInMillis, final ReadLastConfirmedCallback cb, final Object ctx) {
-        boolean isClosed;
-        long lastEntryId;
-        synchronized (this) {
-            isClosed = metadata.isClosed();
-            lastEntryId = metadata.getLastEntryId();
-        }
-        if (isClosed) {
-            cb.readLastConfirmedComplete(BKException.Code.OK, lastEntryId, ctx);
-            return;
-        }
-        ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
-            AtomicBoolean completed = new AtomicBoolean(false);
-            @Override
-            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
-                if (rc == BKException.Code.OK) {
-                    updateLastConfirmed(data.lastAddConfirmed, data.length);
-                    if (completed.compareAndSet(false, true)) {
-                        cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
-                    }
-                } else {
-                    if (completed.compareAndSet(false, true)) {
-                        cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
-                    }
-                }
-            }
-        };
-        new ReadLastConfirmedLongPollOp(this, innercb, getLastAddConfirmed(), timeOutInMillis).initiate();
-    }
-
     @Deprecated
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
         asyncReadLastConfirmedAndEntry(timeOutInMillis, false, cb, ctx);
