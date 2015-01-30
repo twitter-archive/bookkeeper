@@ -332,6 +332,7 @@ public class BookKeeper {
                 .numThreads(conf.getNumWorkerThreads())
                 .statsLogger(statsLogger)
                 .traceTaskExecution(conf.getEnableTaskExecutionStats())
+                .traceTaskWarnTimeMicroSec(conf.getTaskExecutionWarnTimeMicros())
                 .build();
 
 

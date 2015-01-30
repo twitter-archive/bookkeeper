@@ -181,6 +181,10 @@ public class BookieClient implements PerChannelBookieClientFactory {
                 public void safeRun() {
                     cb.writeComplete(rc, ledgerId, entryId, addr, ctx);
                 }
+                @Override
+                public String toString() {
+                    return String.format("CompleteWrite(ledgerId=%d, entryId=%d, addr=%s)", ledgerId, entryId, addr);
+                }
             });
         } catch (RejectedExecutionException ree) {
             cb.writeComplete(getRc(BKException.Code.InterruptedException), ledgerId, entryId, addr, ctx);

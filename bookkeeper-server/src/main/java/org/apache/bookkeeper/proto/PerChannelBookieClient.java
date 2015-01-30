@@ -373,6 +373,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 .setAddRequest(addBuilder)
                 .build();
 
+        final long writeStartNanos = MathUtils.nowInNano();
         writeRequestToChannel(channel, addRequest, new GenericCallback<Void>() {
             @Override
             public void operationComplete(int rc, Void result) {
@@ -387,6 +388,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 }
             }
         });
+        statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_WRITE_DISPATCH)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(writeStartNanos));
     }
 
     public void readEntryWaitForLACUpdate(final long ledgerId, final long entryId, final long previousLAC, final long timeOutInMillis, final boolean piggyBackEntry, ReadEntryCallback cb, Object ctx) {
@@ -752,6 +755,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             }
 
         } else {
+            statsLogger.getOpStatsLogger(PCBookieClientOp.CHANNEL_RESPONSE)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(completionValue.requestTimeNanos));
+
             long orderingKey = completionValue.ledgerId;
             executor.submitOrdered(orderingKey, new SafeRunnable() {
                 @Override
@@ -773,9 +779,9 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
                 @Override
                 public String toString() {
-                    return String.format("HandleResponse(Txn=%d, Type=%s, Entry=(%d, %d))",
-                                         header.getTxnId(), header.getOperation(),
-                                         completionValue.ledgerId, completionValue.entryId);
+                    return String.format("HandleResponse(Txn=%d, Type=%s, Addr=%s, HashCode=%h, Entry=(%d, %d), Status=%s)",
+                                         header.getTxnId(), header.getOperation(), addr, System.identityHashCode(PerChannelBookieClient.this),
+                                         completionValue.ledgerId, completionValue.entryId, response.getStatus());
                 }
             });
         }

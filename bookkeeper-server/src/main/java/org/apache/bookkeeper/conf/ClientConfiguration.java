@@ -88,6 +88,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Stats
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
     protected final static String ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
+    protected final static String TASK_EXECUTION_WARN_TIME_MICROS = "taskExecutionWarnTimeMicros";
 
     // Failure History Settings
     protected final static String ENABLE_BOOKIE_FAILURE_TRACKING = "enableBookieFailureTracking";
@@ -869,6 +870,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setEnableTaskExecutionStats(boolean enabled) {
         setProperty(ENABLE_TASK_EXECUTION_STATS, enabled);
+        return this;
+    }
+
+    /**
+     * Get task execution duration which triggers a warning.
+     *
+     * @return time in microseconds which triggers a warning.
+     */
+    public long getTaskExecutionWarnTimeMicros() {
+        return getLong(TASK_EXECUTION_WARN_TIME_MICROS, TimeUnit.SECONDS.toMicros(1));
+    }
+
+    /**
+     * Set task execution duration which triggers a warning.
+     *
+     * @param warnTime
+     *          time in microseconds which triggers a warning.
+     * @return client configuration.
+     */
+    public ClientConfiguration setTaskExecutionWarnTimeMicros(long warnTime) {
+        setProperty(TASK_EXECUTION_WARN_TIME_MICROS, warnTime);
         return this;
     }
 

@@ -5,7 +5,12 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.stats.OpStatsData;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 class OpStatsLoggerImpl implements OpStatsLogger {
+
+    static final Logger LOG = LoggerFactory.getLogger(OpStatsLoggerImpl.class);
 
     static final double[] PERCENTILES = new double[] {
             0.1, 0.5, 0.9, 0.99, 0.999, 0.9999
@@ -31,14 +36,22 @@ class OpStatsLoggerImpl implements OpStatsLogger {
 
     @Override
     public void registerFailedEvent(long eventLatencyMicros) {
-        failureMetric.add((int) eventLatencyMicros);
-        failureCounter.incr();
+        if (eventLatencyMicros < 0) {
+            LOG.info("{} : tried to register negative failure", scope);
+        } else {
+            failureMetric.add((int) eventLatencyMicros);
+            failureCounter.incr();
+        }
     }
 
     @Override
     public void registerSuccessfulEvent(long eventLatencyMicros) {
-        successMetric.add((int)eventLatencyMicros);
-        successCounter.incr();
+        if (eventLatencyMicros < 0) {
+            LOG.info("{} : tried to register negative success", scope);
+        } else {
+            successMetric.add((int)eventLatencyMicros);
+            successCounter.incr();
+        }
     }
 
     @Override

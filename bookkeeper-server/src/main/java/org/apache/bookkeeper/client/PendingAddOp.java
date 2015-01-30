@@ -103,6 +103,8 @@ class PendingAddOp implements WriteCallback, TimerTask {
     }
 
     void timeoutQuorumWait() {
+        lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.TIMEOUT_ADD_ENTRY)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         try {
             lh.bk.mainWorkerPool.submitOrdered(lh.ledgerId, new SafeRunnable() {
                 @Override

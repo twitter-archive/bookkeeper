@@ -16,6 +16,7 @@ public class BookkeeperClientStatsLogger extends BookkeeperStatsLogger {
         SPECULATIVES_PER_READ, SPECULATIVES_PER_READ_LAC,
         ENSEMBLE_CHANGE, LEDGER_CREATE, LEDGER_OPEN, LEDGER_OPEN_RECOVERY, LEDGER_DELETE, LEDGER_CLOSE,
         LEDGER_RECOVER, LEDGER_RECOVER_READ_ENTRIES, LEDGER_RECOVER_ADD_ENTRIES,
+        TIMEOUT_ADD_ENTRY
     }
 
     public static enum BookkeeperClientCounter {
