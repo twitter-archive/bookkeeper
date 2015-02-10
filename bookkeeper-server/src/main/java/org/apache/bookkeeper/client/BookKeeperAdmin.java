@@ -47,6 +47,7 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
@@ -627,7 +628,7 @@ public class BookKeeperAdmin {
         asyncOpenLedgerNoRecovery(lId, new OpenCallback() {
             @Override
             public void openComplete(int rc, final LedgerHandle lh, Object ctx) {
-                if (rc != Code.OK.intValue()) {
+                if (rc != BKException.Code.OK) {
                     LOG.error("BK error opening ledger: " + lId, BKException.create(rc));
                     finalLedgerIterCb.processResult(rc, null, null);
                     return;
@@ -641,7 +642,7 @@ public class BookKeeperAdmin {
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                     } catch (BKException bke) {
-                        LOG.warn("Error on cloing ledger handle for {}.", lId);
+                        LOG.warn("Error on closing ledger handle for {}.", lId);
                     }
                     finalLedgerIterCb.processResult(BKException.Code.OK, null, null);
                     return;
@@ -667,13 +668,18 @@ public class BookKeeperAdmin {
                         asyncOpenLedger(lId, new OpenCallback() {
                             @Override
                             public void openComplete(int newrc, final LedgerHandle newlh, Object newctx) {
-                                if (newrc != Code.OK.intValue()) {
+                                if (newrc != BKException.Code.OK) {
                                     LOG.error("BK error close ledger: " + lId, BKException.create(newrc));
                                     finalLedgerIterCb.processResult(newrc, null, null);
                                     return;
                                 }
-                                // do recovery
-                                recoverLedger(bookiesSrc, lId, dryrun, skipOpenLedgers, finalLedgerIterCb);
+                                bkc.mainWorkerPool.submit(new SafeRunnable() {
+                                    @Override
+                                    public void safeRun() {
+                                        // do recovery
+                                        recoverLedger(bookiesSrc, lId, dryrun, skipOpenLedgers, finalLedgerIterCb);
+                                    }
+                                });
                             }
                         }, null);
                         return;

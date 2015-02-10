@@ -169,7 +169,7 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
             lh.asyncCloseInternal(new CloseCallback() {
                 @Override
                 public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
-                    if (rc != KeeperException.Code.OK.intValue()) {
+                    if (rc != BKException.Code.OK) {
                         LOG.warn("Close failed: " + BKException.getMessage(rc));
                         submitCallback(BKException.Code.ZKException);
                     } else {

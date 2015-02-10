@@ -534,10 +534,10 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     // succeed and continue
                     processLedgers(ledgersIter, processor, concurrency, finalCb, ctx, successRc, successRc);
                 }
-            }, ctx, successRc, failureRc);
+            }, ctx, successRc, failureRc, scheduler);
         } else {
             // reach the end
-            mcb = new MultiCallback(ledgersToProcess.size(), finalCb, ctx, successRc, failureRc);
+            mcb = new MultiCallback(ledgersToProcess.size(), finalCb, ctx, successRc, failureRc, scheduler);
         }
         for (Long ledger : ledgersToProcess) {
             processor.process(ledger, mcb);
