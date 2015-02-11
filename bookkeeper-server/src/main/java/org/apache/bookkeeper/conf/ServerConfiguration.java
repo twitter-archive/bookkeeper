@@ -25,6 +25,8 @@ import com.google.common.annotations.Beta;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.MAX_LOG_SIZE_LIMIT;
+
 /**
  * Configuration manages server-side settings
  */
@@ -1022,8 +1024,8 @@ public class ServerConfiguration extends AbstractConfiguration {
         if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
             throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
-        if (getEntryLogSizeLimit() > Integer.MAX_VALUE) {
-            throw new ConfigurationException("Entry log file size should not be larger than " + Integer.MAX_VALUE);
+        if (getEntryLogSizeLimit() > MAX_LOG_SIZE_LIMIT) {
+            throw new ConfigurationException("Entry log file size should not be larger than " + MAX_LOG_SIZE_LIMIT);
         }
     }
 

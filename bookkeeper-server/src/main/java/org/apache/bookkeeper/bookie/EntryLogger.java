@@ -60,6 +60,8 @@ import org.apache.bookkeeper.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.MAX_LOG_SIZE_LIMIT;
+
 /**
  * This class manages the writing of the bookkeeper entries. All the new
  * entries are written to a common log. The LedgerCache will have pointers
@@ -93,6 +95,7 @@ public class EntryLogger {
     private final AtomicBoolean shouldCreateNewEntryLog = new AtomicBoolean(false);
 
     private volatile long leastUnflushedLogId;
+    private volatile long curLogId;
     /**
      * The maximum size of a entry logger file.
      */
@@ -168,7 +171,7 @@ public class EntryLogger {
         this.ledgerDirsManager = ledgerDirsManager;
         addListener(listener);
         // log size limit
-        this.logSizeLimit = conf.getEntryLogSizeLimit();
+        this.logSizeLimit = Math.min(conf.getEntryLogSizeLimit(), MAX_LOG_SIZE_LIMIT);
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
 
         // Initialize the entry log header buffer. This cannot be a static object
@@ -293,6 +296,15 @@ public class EntryLogger {
         return leastUnflushedLogId;
     }
 
+    /**
+     * Get current log id.
+     *
+     * @return current log id.
+     */
+    synchronized long getCurLogId() {
+        return curLogId;
+    }
+
     protected void initialize() throws IOException {
         // Register listener for disk full notifications.
         ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
@@ -379,6 +391,7 @@ public class EntryLogger {
         } else {
             logChannel = entryLoggerAllocator.createNewLog();
         }
+        curLogId = logChannel.getLogId();
     }
 
     /**

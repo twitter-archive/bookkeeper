@@ -31,7 +31,7 @@ public class BookKeeperConstants {
     public final static String PASSWD = "passwd";
     public static final String CURRENT_DIR = "current";
     public static final String READONLY = "readonly";
-    
+
     // //////////////////////////
     // ///// Znodes//////////////
     // //////////////////////////
@@ -42,4 +42,11 @@ public class BookKeeperConstants {
     public static final String DEFAULT_ZK_LEDGERS_ROOT_PATH = "/ledgers";
     public static final String LAYOUT_ZNODE = "LAYOUT";
     public static final String INSTANCEID = "INSTANCEID";
+
+    /**
+     * Set the max log size limit to 1GB. It makes extra room for entry log file hit hard limit 2GB.
+     * So we don't need to force roll entry log file when flushing memtable (for performance consideration).
+     */
+    public final static long MAX_LOG_SIZE_LIMIT = 1 * 1024 * 1024 * 1024;
+
 }

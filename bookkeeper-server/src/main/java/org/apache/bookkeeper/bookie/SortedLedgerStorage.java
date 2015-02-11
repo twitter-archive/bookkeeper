@@ -171,8 +171,14 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
             public void run() {
                 try {
                     LOG.info("Started flushing mem table before checkpoint {}.", cp);
+                    long logIdBeforeFlush = entryLogger.getCurLogId();
                     memTable.flush(SortedLedgerStorage.this);
-                    if (entryLogger.reachEntryLogLimit(0)) {
+                    long logIdAfterFlush = entryLogger.getCurLogId();
+                    // in any case that an entry log reach the limit, we rolled the log and start checkpointing.
+                    // if a memory table is flushed spanning over two entry log files, we also roll log. this is
+                    // for performance consideration: since we don't wanna checkpoint a new log file that ledger
+                    // storage is writing to.
+                    if (entryLogger.reachEntryLogLimit(0) || logIdAfterFlush != logIdBeforeFlush) {
                         entryLogger.rollLog();
                         checkpointer.startCheckpoint(cp);
                         LOG.info(
