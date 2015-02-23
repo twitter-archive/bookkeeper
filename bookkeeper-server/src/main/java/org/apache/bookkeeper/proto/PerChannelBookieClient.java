@@ -169,8 +169,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         bootstrap.setOption("tcpNoDelay", conf.getClientTcpNoDelay());
         bootstrap.setOption("keepAlive", true);
         bootstrap.setOption("connectTimeoutMillis", conf.getConnectTimeoutMillis());
-        bootstrap.setOption("child.sendBufferSize", conf.getClientSendBufferSize());
-        bootstrap.setOption("child.receiveBufferSize", conf.getClientReceiveBufferSize());
+        bootstrap.setOption("sendBufferSize", conf.getClientSendBufferSize());
+        bootstrap.setOption("receiveBufferSize", conf.getClientReceiveBufferSize());
         bootstrap.setOption("writeBufferLowWaterMark", conf.getClientWriteBufferLowWaterMark());
         bootstrap.setOption("writeBufferHighWaterMark", conf.getClientWriteBufferHighWaterMark());
 
@@ -306,12 +306,14 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     }
 
     /**
+     * Write to channel, invoking the write call directly.
+     *
      * @param channel
      * @param request
      * @param cb
      */
-    private void writeRequestToChannel(final Channel channel, final Request request,
-                                       final GenericCallback<Void> cb) {
+    private void writeRequestToChannelDirect(final Channel channel, final Request request,
+                                             final GenericCallback<Void> cb) {
         final long writeStartNanos = MathUtils.nowInNano();
         try {
             channel.write(request).addListener(new ChannelFutureListener() {
@@ -339,6 +341,43 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             LOG.warn("Writing a request:{} to channel:{} failed : ",
                     new Object[] { getBasicInfoFromRequest(request), channel, t });
             cb.operationComplete(-1, null);
+        }
+    }
+
+    /**
+     * Write to channel, invoking the write call via the executor.
+     *
+     * @param channel
+     * @param request
+     * @param cb
+     */
+    private void writeRequestToChannelAsync(final Channel channel, final Request request,
+                                            final GenericCallback<Void> cb) {
+        executor.submit(new SafeRunnable() {
+            @Override
+            public void safeRun() {
+                writeRequestToChannelDirect(channel, request, cb);
+            }
+            @Override
+            public String toString() {
+                return String.format("ChannelWrite(Txn=%d, Type=%s, Addr=%s, HashCode=%h, Request=%s)",
+                    request.getHeader().getTxnId(), request.getHeader().getOperation(), addr,
+                    System.identityHashCode(PerChannelBookieClient.this), request);
+            }
+        });
+    }
+
+    /**
+     * @param channel
+     * @param request
+     * @param cb
+     */
+    private void writeRequestToChannel(final Channel channel, final Request request,
+                                       final GenericCallback<Void> cb) {
+        if (conf.getWriteToChannelAsync()) {
+            writeRequestToChannelAsync(channel, request, cb);
+        } else {
+            writeRequestToChannelDirect(channel, request, cb);
         }
     }
 

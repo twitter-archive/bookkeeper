@@ -57,6 +57,7 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String CLIENT_WRITEBUFFER_LOW_WATER_MARK = "clientWriteBufferLowWaterMark";
     protected final static String CLIENT_WRITEBUFFER_HIGH_WATER_MARK = "clientWriteBufferHighWaterMark";
     protected final static String NUM_CHANNELS_PER_BOOKIE = "numChannelsPerBookie";
+    protected final static String WRITE_TO_CHANNEL_ASYNC = "writeRequestToChannelAsync";
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
@@ -329,6 +330,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setNumChannelsPerBookie(int numChannelsPerBookie) {
         setProperty(NUM_CHANNELS_PER_BOOKIE, numChannelsPerBookie);
+        return this;
+    }
+
+    /**
+     * Should write to channel in an executor thread.
+     *
+     * @return whether or not to write to channel in an executor thread.
+     */
+    public boolean getWriteToChannelAsync() {
+        return getBoolean(WRITE_TO_CHANNEL_ASYNC, false);
+    }
+
+    /**
+     * Set flag to write to channel in an executor thread.
+     *
+     * @param writeToChannelAsync
+     *          whether or not to write to channel in an executor thread.
+     * @return client configuration.
+     */
+    public ClientConfiguration setWriteToChannelAsync(boolean writeToChannelAsync) {
+        setProperty(WRITE_TO_CHANNEL_ASYNC, writeToChannelAsync);
         return this;
     }
 

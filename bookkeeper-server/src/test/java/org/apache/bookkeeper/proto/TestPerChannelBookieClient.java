@@ -23,15 +23,22 @@ package org.apache.bookkeeper.proto;
 
 import org.junit.*;
 import java.net.InetSocketAddress;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
+import org.apache.bookkeeper.util.SafeRunnable;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.proto.PerChannelBookieClient.ConnectionState;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 
+import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.jboss.netty.channel.Channel;
@@ -152,6 +159,50 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         checkThread.join();
         assertFalse("state and channel inconsistent", inconsistent.get());
 
+        client.close();
+        channelFactory.releaseExternalResources();
+        executor.shutdown();
+    }
+
+    WriteCallback wrcb = new WriteCallback() {
+        public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+            if (ctx != null) {
+                synchronized (ctx) {
+                    ctx.notifyAll();
+                }
+            }
+        }
+    };
+
+    /**
+     * Just push a write through the async channel write path to ensure this config option is working.
+     */
+    @Test(timeout=60000)
+    public void testAsyncWriteToChannel() throws Exception {
+        ClientSocketChannelFactory channelFactory
+            = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
+                                                Executors.newCachedThreadPool());
+
+        OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
+        final byte[] passwd = new byte[20];
+        Arrays.fill(passwd, (byte) 'a');
+        final Object ctx = new Object();
+        ClientConfiguration conf = new ClientConfiguration();
+        conf.setWriteToChannelAsync(true);
+
+        InetSocketAddress addr = getBookie(0);
+        PerChannelBookieClient client = new PerChannelBookieClient(
+            conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE);
+        client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
+            @Override
+            public void operationComplete(int rc, PerChannelBookieClient client) {
+                ChannelBuffer bb = ChannelBuffers.buffer(128);
+                client.addEntry(1, passwd, 1, bb, wrcb, ctx, BookieProtocol.FLAG_NONE);
+            }
+        });
+        synchronized (ctx) {
+            ctx.wait();
+        }
         client.close();
         channelFactory.releaseExternalResources();
         executor.shutdown();
