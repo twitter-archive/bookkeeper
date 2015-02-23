@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Objects;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
@@ -1228,12 +1229,7 @@ public class LedgerHandle {
                 // If the in-memory data doesn't contains the failed bookie, it means the ensemble change
                 // didn't finish, so try to resolve conflicts with the metadata read from zookeeper and
                 // update ensemble changed metadata again.
-                if (areFailedBookiesReplaced(metadata, ensembleInfo)) {
-                    return updateMetadataIfPossible(newMeta);
-                } else {
-                    LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts is completed without decrementing blockAddCompletions.",
-                            ledgerId, ensembleChangeIdx);
-                }
+                return areFailedBookiesReplaced(metadata, ensembleInfo) && updateMetadataIfPossible(newMeta);
             } else {
                 // We've successfully changed an ensemble
                 bk.getStatsLogger().getCounter(
@@ -1258,8 +1254,10 @@ public class LedgerHandle {
          */
         private boolean areFailedBookiesReplaced(LedgerMetadata newMeta, EnsembleInfo ensembleInfo) {
             boolean replaced = true;
-            for (Map.Entry<Integer, InetSocketAddress> entry : ensembleInfo.failedBookies.entrySet()) {
-                replaced &= !newMeta.currentEnsemble.get(entry.getKey()).equals(entry.getValue());
+            for (Integer replacedBookieIdx : ensembleInfo.replacedBookies) {
+                InetSocketAddress failedBookieAddr = ensembleInfo.failedBookies.get(replacedBookieIdx);
+                InetSocketAddress replacedBookieAddr = newMeta.currentEnsemble.get(replacedBookieIdx);
+                replaced &= !Objects.equal(replacedBookieAddr, failedBookieAddr);
             }
             return replaced;
         }
