@@ -42,6 +42,7 @@ import junit.framework.TestCase;
 import static org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy.REPP_DNS_RESOLVER_CLASS;
 import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_ENABLE_VALIDATION;
 import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_MINIMUM_REGIONS_FOR_DURABILITY;
+import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE;
 import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_REGIONS_TO_WRITE;
 
 public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
@@ -600,10 +601,24 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplace() throws Exception {
+        testEnsembleWithThreeRegionsReplaceInternal(2);
+    }
+
+
+    @Test(timeout = 60000)
+    public void testEnsembleWithThreeRegionsReplaceMinDurabilityOne() throws Exception {
+        testEnsembleWithThreeRegionsReplaceInternal(1);
+    }
+
+    public void testEnsembleWithThreeRegionsReplaceInternal(int minDurability) throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3");
-        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 2);
+        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, minDurability);
+        if (minDurability <= 1) {
+            conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, false);
+        }
+
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
         InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
@@ -675,11 +690,75 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         excludedAddrs.add(replacedBookieExpected);
         try{
             InetSocketAddress replacedBookie = repp.replaceBookie(6, 6, 4, ensemble, bookieToReplace, excludedAddrs);
-            fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+            if (minDurability > 1) {
+                fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+            }
         } catch (BKNotEnoughBookiesException bnebe) {
-            // expected
+            if (minDurability <= 1) {
+                fail("Should not throw BKNotEnoughBookiesException when there is not enough bookies");
+            }
         }
 
+    }
+
+    @Test(timeout = 60000)
+    public void testEnsembleMinDurabilityOne() throws Exception {
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3");
+        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 1);
+        conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, false);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
+        InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
+        InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
+        InetSocketAddress addr3 = new InetSocketAddress("127.1.0.4", 3181);
+        InetSocketAddress addr4 = new InetSocketAddress("127.1.0.5", 3181);
+        InetSocketAddress addr5 = new InetSocketAddress("127.1.0.6", 3181);
+        InetSocketAddress addr6 = new InetSocketAddress("127.1.0.7", 3181);
+        InetSocketAddress addr7 = new InetSocketAddress("127.1.0.8", 3181);
+        InetSocketAddress addr8 = new InetSocketAddress("127.1.0.9", 3181);
+        InetSocketAddress addr9 = new InetSocketAddress("127.1.0.10", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getAddress().getHostAddress(), "/region1/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getAddress().getHostAddress(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getAddress().getHostAddress(), "/region1/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getAddress().getHostAddress(), "/region1/r4");
+        StaticDNSResolver.addNodeToRack(addr5.getAddress().getHostAddress(), "/region1/r11");
+        StaticDNSResolver.addNodeToRack(addr6.getAddress().getHostAddress(), "/region1/r12");
+        StaticDNSResolver.addNodeToRack(addr7.getAddress().getHostAddress(), "/region1/r13");
+        StaticDNSResolver.addNodeToRack(addr8.getAddress().getHostAddress(), "/region1/r14");
+        StaticDNSResolver.addNodeToRack(addr9.getAddress().getHostAddress(), "/region1/r23");
+
+        // Update cluster
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        ArrayList<InetSocketAddress> ensemble;
+        try {
+            ensemble = repp.newEnsemble(6, 6, 4, new HashSet<InetSocketAddress>());
+            assert(ensemble.size() == 6);
+        } catch (BKNotEnoughBookiesException bnebe) {
+            LOG.error("BKNotEnoughBookiesException", bnebe);
+            fail("Should not get not enough bookies exception even there is only one rack.");
+            throw bnebe;
+        }
+
+        Set<InetSocketAddress> excludedAddrs = new HashSet<InetSocketAddress>();
+
+        try{
+            repp.replaceBookie(6, 6, 4, ensemble, addr4, excludedAddrs);
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
     }
 
     @Test(timeout = 60000)

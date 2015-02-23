@@ -224,6 +224,10 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
 
             @Override
             public boolean apply(BookieNode candidate) {
+                if (minRacksOrRegionsForDurability <= 1) {
+                    return true;
+                }
+
                 String candidateRackOrRegion = candidate.getNetworkLocation(distanceFromLeaves);
                 candidateRackOrRegion = candidateRackOrRegion.startsWith(NodeBase.PATH_SEPARATOR_STR) ? candidateRackOrRegion.substring(1) : candidateRackOrRegion;
                 final Set<String> remainingRacksOrRegions = new HashSet<String>(racksOrRegions);
