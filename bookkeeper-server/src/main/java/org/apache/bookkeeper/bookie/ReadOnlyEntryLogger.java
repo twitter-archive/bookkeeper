@@ -52,7 +52,7 @@ public class ReadOnlyEntryLogger extends EntryLogger {
     }
 
     @Override
-    synchronized long addEntry(ByteBuffer entry) throws IOException {
+    synchronized long addEntry(long ledgerId, ByteBuffer entry) throws IOException {
         throw new IOException("Can't add entry to a readonly entry logger.");
     }
 }

@@ -54,6 +54,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.collect.MapMaker;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
@@ -104,6 +105,11 @@ public class EntryLogger {
     private volatile BufferedLogChannel logChannel;
     private final EntryLoggerAllocator entryLoggerAllocator;
     private final boolean entryLogPreAllocationEnabled;
+
+    // Entry Log Metadata Management
+    private volatile EntryLogMetadata currentLogMetadata;
+    private List<EntryLogMetadata> unflushedEntryLogMetadataList;
+    private final EntryLogMetadataManager entryLogMetadataManager;
     private final CopyOnWriteArraySet<EntryLogListener> listeners
             = new CopyOnWriteArraySet<EntryLogListener>();
     /**
@@ -173,6 +179,7 @@ public class EntryLogger {
         // log size limit
         this.logSizeLimit = Math.min(conf.getEntryLogSizeLimit(), MAX_LOG_SIZE_LIMIT);
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
+        this.entryLogMetadataManager = new EntryLogMetadataManager();
 
         // Initialize the entry log header buffer. This cannot be a static object
         // since in our unit tests, we run multiple Bookies and thus EntryLoggers
@@ -286,6 +293,10 @@ public class EntryLogger {
         return logid2channel.get().get(logId);
     }
 
+    public EntryLogMetadataManager getEntryLogMetadataManager() {
+        return entryLogMetadataManager;
+    }
+
     /**
      * Get the least unflushed log id. Garbage collector thread should not process
      * unflushed entry log file.
@@ -377,11 +388,15 @@ public class EntryLogger {
             if (null == logChannelsToFlush) {
                 logChannelsToFlush = new LinkedList<BufferedLogChannel>();
             }
+            if (null == unflushedEntryLogMetadataList) {
+                unflushedEntryLogMetadataList = new LinkedList<EntryLogMetadata>();
+            }
             // flush the internal buffer back to filesystem but not sync disk
             // so the readers could access the data from filesystem.
             logChannel.flush(false);
             BufferedLogChannel newLogChannel = entryLoggerAllocator.createNewLog();
             logChannelsToFlush.add(logChannel);
+            unflushedEntryLogMetadataList.add(currentLogMetadata);
             LOG.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
                     logChannel.getLogId(), logChannelsToFlush);
             for (EntryLogListener listener : listeners) {
@@ -391,6 +406,7 @@ public class EntryLogger {
         } else {
             logChannel = entryLoggerAllocator.createNewLog();
         }
+        currentLogMetadata = new EntryLogMetadata(logChannel.getLogId());
         curLogId = logChannel.getLogId();
     }
 
@@ -608,10 +624,13 @@ public class EntryLogger {
 
     void flushRotatedLogs() throws IOException {
         List<BufferedLogChannel> channels = null;
+        List<EntryLogMetadata> entryLogMetadataList = null;
         long flushedLogId = -1;
         synchronized (this) {
             channels = logChannelsToFlush;
             logChannelsToFlush = null;
+            entryLogMetadataList = unflushedEntryLogMetadataList;
+            unflushedEntryLogMetadataList = null;
         }
         if (null == channels) {
             return;
@@ -626,6 +645,11 @@ public class EntryLogger {
                 flushedLogId = channel.getLogId();
             }
             LOG.info("Synced entry logger {} to disk.", channel.getLogId());
+        }
+        if (null != entryLogMetadataList) {
+            for (EntryLogMetadata metadata : entryLogMetadataList) {
+                entryLogMetadataManager.addEntryLogMetadata(metadata);
+            }
         }
         // move the leastUnflushedLogId ptr
         leastUnflushedLogId = flushedLogId + 1;
@@ -643,11 +667,11 @@ public class EntryLogger {
         }
     }
 
-    long addEntry(ByteBuffer entry) throws IOException {
-        return addEntry(entry, true);
+    long addEntry(long ledgerId, ByteBuffer entry) throws IOException {
+        return addEntry(ledgerId, entry, true);
     }
 
-    synchronized long addEntry(ByteBuffer entry, boolean rollLog) throws IOException {
+    synchronized long addEntry(long ledgerId, ByteBuffer entry, boolean rollLog) throws IOException {
         int entrySize = entry.remaining() + 4;
         boolean reachEntryLogLimit =
                 rollLog ? reachEntryLogLimit(entrySize) : reachEntryLogHardLimit(entrySize);
@@ -666,8 +690,10 @@ public class EntryLogger {
         buff.flip();
         logChannel.write(buff);
 
+        int entryLength = entry.remaining() + 4;
         long pos = logChannel.position();
         logChannel.write(entry);
+        currentLogMetadata.addLedgerSize(ledgerId, entryLength);
         return (logChannel.getLogId() << 32L) | pos;
     }
 

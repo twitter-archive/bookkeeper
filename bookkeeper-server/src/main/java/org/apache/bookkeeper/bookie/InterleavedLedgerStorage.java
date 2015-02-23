@@ -313,7 +313,7 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         /*
          * Log the entry
          */
-        long pos = entryLogger.addEntry(entry, rollLog);
+        long pos = entryLogger.addEntry(ledgerId, entry, rollLog);
 
         /*
          * Set offset of entry id to be the current ledger position

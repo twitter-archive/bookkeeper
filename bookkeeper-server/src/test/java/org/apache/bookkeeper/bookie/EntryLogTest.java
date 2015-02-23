@@ -28,7 +28,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.bookkeeper.bookie.GarbageCollectorThread.EntryLogMetadata;
+import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.GarbageCollectorThread.ExtractionScanner;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
@@ -163,9 +163,9 @@ public class EntryLogTest {
         Bookie bookie = new Bookie(conf);
         // create some entries
         EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
-        logger.addEntry(generateEntry(1, 1));
-        logger.addEntry(generateEntry(3, 1));
-        logger.addEntry(generateEntry(2, 1));
+        logger.addEntry(1L, generateEntry(1, 1));
+        logger.addEntry(3L, generateEntry(3, 1));
+        logger.addEntry(2L, generateEntry(2, 1));
         logger.flush();
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
@@ -256,7 +256,7 @@ public class EntryLogTest {
 
             EntryLogger entryLogger = new TestEntryLogger(conf, dirsManager);
             for (int j = 0; j < numEntries; j++) {
-                positions[i][j] = entryLogger.addEntry(generateEntry(i, j));
+                positions[i][j] = entryLogger.addEntry(i, generateEntry(i, j));
             }
             entryLogger.flush();
             entryLogger.shutdown();
@@ -306,7 +306,7 @@ public class EntryLogTest {
             EntryLogger logger = new EntryLogger(conf,
                     bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(generateEntry(i, j));
+                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
             }
             logger.flush();
         }
@@ -321,7 +321,7 @@ public class EntryLogTest {
             EntryLogger logger = new EntryLogger(conf,
                     bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(generateEntry(i, j));
+                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
             }
             logger.flush();
         }

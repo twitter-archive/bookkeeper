@@ -24,16 +24,16 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.RateLimiter;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
+import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
@@ -50,9 +50,6 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     private static final Logger LOG = LoggerFactory.getLogger(GarbageCollectorThread.class);
     private static final int COMPACTION_MAX_OUTSTANDING_REQUESTS = 1000;
     private static final int SECOND = 1000;
-
-    // Maps entry log files to the set of ledgers that comprise the file and the size usage per ledger
-    private Map<Long, EntryLogMetadata> entryLogMetaMap = new ConcurrentHashMap<Long, EntryLogMetadata>();
 
     // This is how often we want to run the Garbage Collector Thread (in milliseconds).
     final long gcInitialWaitTime;
@@ -141,7 +138,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                         long entryId = entry.getLong();
                         entry.rewind();
 
-                        long newoffset = entryLogger.addEntry(entry);
+                        long newoffset = entryLogger.addEntry(ledgerId, entry);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Compact add entry : lid = {}, eid = {}, offset = {}",
                                     new Object[] { ledgerId, entryId, newoffset });
@@ -318,7 +315,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
         // Extract all of the ledger ID's that comprise all of the entry logs
         // (except for the current new one which is still being written to).
-        entryLogMetaMap = extractMetaAndGCEntryLogs(entryLogMetaMap);
+        extractMetaAndGCEntryLogs(entryLogger.getEntryLogMetadataManager());
 
         // if it isn't running, break to not access zookeeper
         if (!running) {
@@ -416,8 +413,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      */
     private void doGcEntryLogs() {
         // Loop through all of the entry logs and remove the non-active ledgers.
-        for (Long entryLogId : entryLogMetaMap.keySet()) {
-            doGcEntryLog(entryLogId, entryLogMetaMap.get(entryLogId));
+        for (Long entryLogId : entryLogger.getEntryLogMetadataManager().getEntryLogs()) {
+            doGcEntryLog(entryLogId, entryLogger.getEntryLogMetadataManager().getEntryLogMetadata(entryLogId));
         }
     }
 
@@ -463,10 +460,11 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 }
             }
         };
-        List<EntryLogMetadata> logsToCompact = new ArrayList<EntryLogMetadata>(entryLogMetaMap.size());
-        logsToCompact.addAll(entryLogMetaMap.values());
+        Collection<EntryLogMetadata> entryLogMetadatas = entryLogger.getEntryLogMetadataManager().getEntryLogMetadatas();
+        List<EntryLogMetadata> logsToCompact = new ArrayList<EntryLogMetadata>(entryLogMetadatas.size());
+        List<EntryLogMetadata> logsToRemove = new ArrayList<EntryLogMetadata>();
+        logsToCompact.addAll(entryLogMetadatas);
         Collections.sort(logsToCompact, sizeComparator);
-        List<Long> logsToRemove = new ArrayList<Long>();
         for (EntryLogMetadata meta : logsToCompact) {
             if (meta.getUsage() >= threshold) {
                 break;
@@ -475,7 +473,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             try {
                 if (compactEntryLog(meta)) {
                     // schedule entry log to be removed after moving entries
-                    logsToRemove.add(meta.entryLogId);
+                    logsToRemove.add(meta);
                 }
             } catch (LedgerDirsManager.NoWritableLedgerDirException nwlde) {
                 LOG.warn("No writable ledger directory available, aborting compaction", nwlde);
@@ -502,9 +500,9 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
             try {
                 scannerFactory.flush();
-                for (Long logId: logsToRemove) {
-                    LOG.info("Deleting entryLogId {} as it is compacted!", logId);
-                    removeEntryLog(logId);
+                for (EntryLogMetadata metadata: logsToRemove) {
+                    LOG.info("Deleting entryLogId {} as it is compacted!", metadata.entryLogId);
+                    removeEntryLog(metadata.entryLogId);
                 }
             } catch (IOException e) {
                 LOG.info("Exception when flushing cache and removing entry logs", e);
@@ -541,7 +539,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     private void removeEntryLog(long entryLogId) {
         // remove entry log file successfully
         if (entryLogger.removeEntryLog(entryLogId)) {
-            entryLogMetaMap.remove(entryLogId);
+            entryLogger.getEntryLogMetadataManager().removeEntryLogMetadata(entryLogId);
         }
     }
 
@@ -581,65 +579,6 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     }
 
     /**
-     * Records the total size, remaining size and the set of ledgers that comprise a entry log.
-     */
-    static class EntryLogMetadata {
-        long entryLogId;
-        long totalSize;
-        long remainingSize;
-        ConcurrentHashMap<Long, Long> ledgersMap;
-
-        public EntryLogMetadata(long logId) {
-            this.entryLogId = logId;
-
-            totalSize = remainingSize = 0;
-            ledgersMap = new ConcurrentHashMap<Long, Long>();
-        }
-
-        public void addLedgerSize(long ledgerId, long size) {
-            totalSize += size;
-            remainingSize += size;
-            Long ledgerSize = ledgersMap.get(ledgerId);
-            if (null == ledgerSize) {
-                ledgerSize = 0L;
-            }
-            ledgerSize += size;
-            ledgersMap.put(ledgerId, ledgerSize);
-        }
-
-        public void removeLedger(long ledgerId) {
-            Long size = ledgersMap.remove(ledgerId);
-            if (null == size) {
-                return;
-            }
-            remainingSize -= size;
-        }
-
-        public boolean containsLedger(long ledgerId) {
-            return ledgersMap.containsKey(ledgerId);
-        }
-
-        public double getUsage() {
-            if (totalSize == 0L) {
-                return 0.0f;
-            }
-            return (double)remainingSize / totalSize;
-        }
-
-        public boolean isEmpty() {
-            return ledgersMap.isEmpty();
-        }
-
-        @Override
-        public String toString() {
-            StringBuilder sb = new StringBuilder();
-            sb.append("{ totalSize = ").append(totalSize).append(", remainingSize = ")
-              .append(remainingSize).append(", ledgersMap = ").append(ledgersMap).append(" }");
-            return sb.toString();
-        }
-    }
-
-    /**
      * A scanner used to extract entry log meta from entry log files.
      */
     static class ExtractionScanner implements EntryLogScanner {
@@ -664,11 +603,10 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * Method to read in all of the entry logs (those that we haven't done so yet),
      * and find the set of ledger ID's that make up each entry log file.
      *
-     * @param entryLogMetaMap
-     *          Existing EntryLogs to Meta
-     * @throws IOException
+     * @param entryLogMetadataManager
+     *          entry log metadata manager to manage entry log metadata.
      */
-    protected Map<Long, EntryLogMetadata> extractMetaAndGCEntryLogs(Map<Long, EntryLogMetadata> entryLogMetaMap) {
+    protected void extractMetaAndGCEntryLogs(EntryLogMetadataManager entryLogMetadataManager) {
         // Extract it for every entry log except for the current one.
         // Entry Log ID's are just a long value that starts at 0 and increments
         // by 1 when the log fills up and we roll to a new one.
@@ -676,7 +614,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         boolean hasExceptionWhenScan = false;
         for (long entryLogId = scannedLogId; entryLogId < curLogId; entryLogId++) {
             // Comb the current entry log file if it has not already been extracted.
-            if (entryLogMetaMap.containsKey(entryLogId)) {
+            if (entryLogMetadataManager.containsEntryLog(entryLogId)) {
                 continue;
             }
 
@@ -691,7 +629,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             try {
                 // Read through the entry log file and extract the entry log meta
                 EntryLogMetadata entryLogMeta = extractMetaFromEntryLog(entryLogger, entryLogId);
-                entryLogMetaMap.put(entryLogId, entryLogMeta);
+                entryLogMetadataManager.addEntryLogMetadata(entryLogMeta);
                 // GC the log if possible
                 doGcEntryLog(entryLogId, entryLogMeta);
             } catch (IOException e) {
@@ -707,7 +645,6 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 ++scannedLogId;
             }
         }
-        return entryLogMetaMap;
     }
 
     static EntryLogMetadata extractMetaFromEntryLog(EntryLogger entryLogger, long entryLogId)
