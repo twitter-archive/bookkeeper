@@ -89,6 +89,7 @@ public class LedgerHandle {
     final static public long INVALID_ENTRY_ID = BookieProtocol.INVALID_ENTRY_ID;
 
     final AtomicInteger blockAddCompletions = new AtomicInteger(0);
+    final AtomicInteger numEnsembleChanges = new AtomicInteger(0);
     final Queue<PendingAddOp> pendingAddOps = new ConcurrentLinkedQueue<PendingAddOp>();
 
     LedgerHandle(BookKeeper bk, long ledgerId, LedgerMetadata metadata,
@@ -978,7 +979,8 @@ public class LedgerHandle {
 
     }
 
-    EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies)
+    EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies,
+                                         int ensembleChangeIdx)
             throws BKException.BKNotEnoughBookiesException {
         final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
         final long newEnsembleStartEntry = getLastAddConfirmed() + 1;
@@ -988,7 +990,8 @@ public class LedgerHandle {
             for (Map.Entry<Integer, InetSocketAddress> entry : failedBookies.entrySet()) {
                 int idx = entry.getKey();
                 InetSocketAddress addr = entry.getValue();
-                LOG.info("Handling failure of bookie: {} index: {}", addr, idx);
+                LOG.info("[EnsembleChange-L{}-{}] : replacing bookie: {} index: {}",
+                        new Object[] { getId(), ensembleChangeIdx, addr, idx });
                 if (!newEnsemble.get(idx).equals(addr)) {
                     // ensemble has already changed, failure of this addr is immaterial
                     if (LOG.isDebugEnabled()) {
@@ -1016,28 +1019,29 @@ public class LedgerHandle {
                     }
                 }
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Changing ensemble from: {} to: {} for ledger: {} starting at entry: {}," +
-                        " failed bookies: {}, replaced bookies: {}",
-                          new Object[] { metadata.currentEnsemble, newEnsemble, ledgerId,
-                                  (getLastAddConfirmed() + 1), failedBookies, replacedBookies });
-            }
+            LOG.info("[EnsembleChange-L{}-{}] : changing ensemble from: {} to: {} starting at entry: {}," +
+                    " failed bookies: {}, replaced bookies: {}",
+                      new Object[] { ledgerId, ensembleChangeIdx, metadata.currentEnsemble, newEnsemble,
+                              (getLastAddConfirmed() + 1), failedBookies, replacedBookies });
             metadata.addEnsemble(newEnsembleStartEntry, newEnsemble);
         }
         return new EnsembleInfo(newEnsemble, failedBookies, replacedBookies);
     }
 
     void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
-        blockAddCompletions.incrementAndGet();
+        int curBlockAddCompletions = blockAddCompletions.incrementAndGet();
+        int curNumEnsembleChanges = numEnsembleChanges.incrementAndGet();
 
         synchronized (metadata) {
             try {
-                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies, curNumEnsembleChanges);
                 if (ensembleInfo.replacedBookies.isEmpty()) {
                     blockAddCompletions.decrementAndGet();
                     return;
                 }
-                writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+                LOG.info("[EnsembleChange-L{}-{}] : writing new ensemble info = {}, block add completions = {}",
+                        new Object[] { getId(), curNumEnsembleChanges, ensembleInfo, curBlockAddCompletions });
+                writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo, curBlockAddCompletions, curNumEnsembleChanges));
             } catch (BKException.BKNotEnoughBookiesException e) {
                 LOG.error("Could not get additional bookie to remake ensemble, closing ledger: {}", ledgerId);
                 handleUnrecoverableErrorDuringAdd(e.getCode());
@@ -1059,6 +1063,15 @@ public class LedgerHandle {
             this.failedBookies = failedBookies;
             this.replacedBookies = replacedBookies;
         }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Ensemble Info : failed bookies = ").append(failedBookies)
+                    .append(", replaced bookies = ").append(replacedBookies)
+                    .append(", new ensemble = ").append(newEnsemble);
+            return sb.toString();
+        }
     }
 
     /**
@@ -1068,10 +1081,16 @@ public class LedgerHandle {
      */
     private final class ChangeEnsembleCb extends OrderedSafeGenericCallback<Void> {
         private final EnsembleInfo ensembleInfo;
+        private final int curBlockAddCompletions;
+        private final int ensembleChangeIdx;
 
-        ChangeEnsembleCb(EnsembleInfo ensembleInfo) {
+        ChangeEnsembleCb(EnsembleInfo ensembleInfo,
+                         int curBlockAddCompletions,
+                         int ensembleChangeIdx) {
             super(bk.mainWorkerPool, ledgerId);
             this.ensembleInfo = ensembleInfo;
+            this.curBlockAddCompletions = curBlockAddCompletions;
+            this.ensembleChangeIdx = ensembleChangeIdx;
         }
 
         @Override
@@ -1081,17 +1100,23 @@ public class LedgerHandle {
                 // should still consider this as an ensemble change
                 bk.getStatsLogger().getCounter(
                         BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+
+                LOG.info("[EnsembleChange-L{}-{}] : encountered version conflicts, re-read ledger metadata.",
+                        getId(), ensembleChangeIdx);
+
                 rereadMetadata(new ReReadLedgerMetadataCb(rc,
-                                       ensembleInfo));
+                                       ensembleInfo, curBlockAddCompletions, ensembleChangeIdx));
                 return;
             } else if (rc != BKException.Code.OK) {
-                LOG.error(
-                        "Could not persist ledger metadata while changing ensemble to: {}, closing ledger : {}.",
-                        ensembleInfo.newEnsemble, rc);
+                LOG.error("[EnsembleChange-L{}-{}] : could not persist ledger metadata : info = {}, closing ledger : {}.",
+                        new Object[] { getId(), ensembleChangeIdx, ensembleInfo, rc });
                 handleUnrecoverableErrorDuringAdd(rc);
                 return;
             }
-            blockAddCompletions.decrementAndGet();
+            int newBlockAddCompletions = blockAddCompletions.decrementAndGet();
+
+            LOG.info("[EnsembleChange-L{}-{}] : completed ensemble change, block add completion {} => {}",
+                    new Object[] { getId(), ensembleChangeIdx, curBlockAddCompletions, newBlockAddCompletions });
 
             // We've successfully changed an ensemble
             bk.getStatsLogger().getCounter(
@@ -1113,24 +1138,32 @@ public class LedgerHandle {
     private final class ReReadLedgerMetadataCb extends OrderedSafeGenericCallback<LedgerMetadata> {
         private final int rc;
         private final EnsembleInfo ensembleInfo;
+        private final int curBlockAddCompletions;
+        private final int ensembleChangeIdx;
 
-        ReReadLedgerMetadataCb(int rc, EnsembleInfo ensembleInfo) {
+        ReReadLedgerMetadataCb(int rc,
+                               EnsembleInfo ensembleInfo,
+                               int curBlockAddCompletions,
+                               int ensembleChangeIdx) {
             super(bk.mainWorkerPool, ledgerId);
             this.rc = rc;
             this.ensembleInfo = ensembleInfo;
+            this.curBlockAddCompletions = curBlockAddCompletions;
+            this.ensembleChangeIdx = ensembleChangeIdx;
         }
 
         @Override
         public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
             if (newrc != BKException.Code.OK) {
-                LOG.error("Error reading new metadata from ledger "
-                        + "after changing ensemble, code=" + newrc);
+                LOG.error("[EnsembleChange-L{}-{}] : error re-reading metadata to address ensemble change conflicts," +
+                        " code=", new Object[] { ledgerId, ensembleChangeIdx, newrc });
                 handleUnrecoverableErrorDuringAdd(rc);
             } else {
                 if (!resolveConflict(newMeta)) {
-                    LOG.error("Could not resolve ledger metadata conflict while changing ensemble to: {},"
-                            + " old meta data is \n {} \n, new meta data is \n {}, closing ledger",
-                            new Object[] { ensembleInfo.newEnsemble, metadata, newMeta });
+                    LOG.error("[EnsembleChange-L{}-{}] : could not resolve ledger metadata conflict" +
+                            " while changing ensemble to: {}, local meta data is \n {} \n," +
+                            " zk meta data is \n {} \n, closing ledger",
+                            new Object[] { ledgerId, ensembleChangeIdx, ensembleInfo.newEnsemble, metadata, newMeta });
                     handleUnrecoverableErrorDuringAdd(rc);
                 }
             }
@@ -1156,8 +1189,13 @@ public class LedgerHandle {
          * </p>
          */
         private boolean resolveConflict(LedgerMetadata newMeta) {
+            LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts - local metadata = \n {} \n," +
+                    " zk metadata = \n {} \n", new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
             // make sure the ledger isn't closed by other ones.
             if (metadata.getState() != newMeta.getState()) {
+                LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts but state changed," +
+                        " local metadata = \n {} \n, zk metadata = \n {} \n",
+                        new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
                 return false;
             }
 
@@ -1169,6 +1207,9 @@ public class LedgerHandle {
             //           than the metadata changed by recovery.
             int diff = newMeta.getEnsembles().size() - metadata.getEnsembles().size();
             if (0 != diff) {
+                LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts but ensembles have {} differences," +
+                        " local metadata = \n {} \n, zk metadata = \n {} \n",
+                        new Object[] { ledgerId, ensembleChangeIdx, diff, metadata, newMeta });
                 if (-1 == diff) {
                     // Case 1: metadata is changed by other ones (e.g. Recovery)
                     return updateMetadataIfPossible(newMeta);
@@ -1189,14 +1230,19 @@ public class LedgerHandle {
                 // update ensemble changed metadata again.
                 if (areFailedBookiesReplaced(metadata, ensembleInfo)) {
                     return updateMetadataIfPossible(newMeta);
+                } else {
+                    LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts is completed without decrementing blockAddCompletions.",
+                            ledgerId, ensembleChangeIdx);
                 }
             } else {
                 // We've successfully changed an ensemble
                 bk.getStatsLogger().getCounter(
                         BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
-                blockAddCompletions.decrementAndGet();
+                int newBlockAddCompletions = blockAddCompletions.decrementAndGet();
                 unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
+                LOG.info("[EnsembleChange-L{}-{}] : resolved conflicts, block add complectiosn {} => {}.",
+                        new Object[] { ledgerId, ensembleChangeIdx, curBlockAddCompletions, newBlockAddCompletions });
             }
             return true;
         }
@@ -1222,22 +1268,26 @@ public class LedgerHandle {
             // if the local metadata is newer than zookeeper metadata, it means that metadata is updated
             // again when it was trying re-reading the metatada, re-kick the reread again
             if (metadata.isNewerThan(newMeta)) {
+                LOG.info("[EnsembleChange-L{}-{}] : reread metadata because local metadata is newer.",
+                        new Object[] { ledgerId, ensembleChangeIdx });
                 rereadMetadata(this);
                 return true;
             }
             // make sure the metadata doesn't changed by other ones.
             if (metadata.isConflictWith(newMeta)) {
+                LOG.info("[EnsembleChange-L{}-{}] : metadata is conflicted, local metadata = \n {} \n," +
+                        " zk metadata = \n {} \n", new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
                 return false;
             }
-            LOG.info("Resolve ledger metadata conflict while changing ensemble to: {},"
-                    + " old meta data is \n {} \n, new meta data is \n {}.", new Object[] {
-                    ensembleInfo.newEnsemble, metadata, newMeta });
+            LOG.info("[EnsembleChange-L{}-{}] : resolved ledger metadata conflict and writing to zookeeper,"
+                    + " local meta data is \n {} \n, zk meta data is \n {}.",
+                    new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
             // update znode version
             metadata.setVersion(newMeta.getVersion());
             // merge ensemble infos from new meta except last ensemble
             // since they might be modified by recovery tool.
             metadata.mergeEnsembles(newMeta.getEnsembles());
-            writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+            writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo, curBlockAddCompletions, ensembleChangeIdx));
             return true;
         }
 

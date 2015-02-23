@@ -122,7 +122,8 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
         blockAddCompletions.incrementAndGet();
         synchronized (metadata) {
             try {
-                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies,
+                        numEnsembleChanges.incrementAndGet());
                 if (ensembleInfo.replacedBookies.isEmpty()) {
                     blockAddCompletions.decrementAndGet();
                     return;
