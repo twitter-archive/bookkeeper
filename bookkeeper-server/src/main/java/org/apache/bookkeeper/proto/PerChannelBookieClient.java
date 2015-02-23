@@ -373,8 +373,14 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 .setAddRequest(addBuilder)
                 .build();
 
+        final Channel c = channel;
+        if (c == null) {
+            errorOutAddKey(completionKey);
+            return;
+        }
+
         final long writeStartNanos = MathUtils.nowInNano();
-        writeRequestToChannel(channel, addRequest, new GenericCallback<Void>() {
+        writeRequestToChannel(c, addRequest, new GenericCallback<Void>() {
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
@@ -452,6 +458,12 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 .setReadRequest(readBuilder)
                 .build();
 
+        final Channel c = channel;
+        if (c == null) {
+            errorOutReadKey(completionKey);
+            return;
+        }
+
         writeRequestToChannel(channel, readRequest, new GenericCallback<Void>() {
             @Override
             public void operationComplete(int rc, Void result) {
@@ -493,7 +505,13 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                 .setReadRequest(readBuilder)
                 .build();
 
-        writeRequestToChannel(channel, readRequest, new GenericCallback<Void>() {
+        final Channel c = channel;
+        if (c == null) {
+            errorOutReadKey(completionKey);
+            return;
+        }
+
+        writeRequestToChannel(c, readRequest, new GenericCallback<Void>() {
             @Override
             public void operationComplete(int rc, Void result) {
                 if (rc != 0) {
