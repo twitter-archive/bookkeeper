@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.Configurable;
 import org.apache.bookkeeper.net.CachedDNSToSwitchMapping;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
@@ -133,7 +134,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public RackawareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
+    public RackawareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
         DNSToSwitchMapping dnsResolver;
         if (optionalDnsResolver.isPresent()) {
             dnsResolver = optionalDnsResolver.get();

@@ -32,11 +32,10 @@ import com.google.common.base.Optional;
 import junit.framework.TestCase;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.StaticDNSResolver;
-import org.apache.commons.configuration.CompositeConfiguration;
-import org.apache.commons.configuration.Configuration;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +47,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
     RackawareEnsemblePlacementPolicy repp;
     final ArrayList<InetSocketAddress> ensemble = new ArrayList<InetSocketAddress>();
     final List<Integer> writeSet = new ArrayList<Integer>();
-    Configuration conf = new CompositeConfiguration();
+    ClientConfiguration conf = new ClientConfiguration();
     InetSocketAddress addr1, addr2, addr3, addr4;
 
     @Override

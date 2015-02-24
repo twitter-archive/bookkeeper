@@ -28,6 +28,8 @@ import java.util.Set;
 import com.google.common.base.Optional;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.StaticDNSResolver;
@@ -40,17 +42,14 @@ import org.slf4j.LoggerFactory;
 import junit.framework.TestCase;
 
 import static org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy.REPP_DNS_RESOLVER_CLASS;
-import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_ENABLE_VALIDATION;
-import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_MINIMUM_REGIONS_FOR_DURABILITY;
-import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE;
-import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.REPP_REGIONS_TO_WRITE;
+import static org.apache.bookkeeper.client.RegionAwareEnsemblePlacementPolicy.*;
 
 public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     static final Logger LOG = LoggerFactory.getLogger(TestRegionAwareEnsemblePlacementPolicy.class);
 
     RegionAwareEnsemblePlacementPolicy repp;
-    final Configuration conf = new CompositeConfiguration();
+    final ClientConfiguration conf = new ClientConfiguration();
     final ArrayList<InetSocketAddress> ensemble = new ArrayList<InetSocketAddress>();
     final List<Integer> writeSet = new ArrayList<Integer>();
     InetSocketAddress addr1, addr2, addr3, addr4;
@@ -601,22 +600,31 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplace() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(2);
+        testEnsembleWithThreeRegionsReplaceInternal(2, false);
     }
 
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplaceMinDurabilityOne() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(1);
+        testEnsembleWithThreeRegionsReplaceInternal(1, false);
     }
 
-    public void testEnsembleWithThreeRegionsReplaceInternal(int minDurability) throws Exception {
+    @Test(timeout = 60000)
+    public void testEnsembleWithThreeRegionsReplaceDisableDurability() throws Exception {
+        testEnsembleWithThreeRegionsReplaceInternal(1, true);
+    }
+
+    public void testEnsembleWithThreeRegionsReplaceInternal(int minDurability, boolean disableDurability) throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3");
         conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, minDurability);
+        SettableFeature disableDurabilityFeature = new SettableFeature(false);
+        conf.setFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, disableDurabilityFeature);
         if (minDurability <= 1) {
             conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, false);
+        } else {
+            conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
         }
 
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
@@ -652,6 +660,10 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr8);
         addrs.add(addr9);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        if (disableDurability) {
+            disableDurabilityFeature.set(true);
+        }
 
         ArrayList<InetSocketAddress> ensemble;
         try {
@@ -690,11 +702,11 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         excludedAddrs.add(replacedBookieExpected);
         try{
             InetSocketAddress replacedBookie = repp.replaceBookie(6, 6, 4, ensemble, bookieToReplace, excludedAddrs);
-            if (minDurability > 1) {
+            if (minDurability > 1 && !disableDurabilityFeature.isAvailable()) {
                 fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
             }
         } catch (BKNotEnoughBookiesException bnebe) {
-            if (minDurability <= 1) {
+            if (minDurability <= 1 || disableDurabilityFeature.isAvailable()) {
                 fail("Should not throw BKNotEnoughBookiesException when there is not enough bookies");
             }
         }
@@ -703,11 +715,27 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testEnsembleMinDurabilityOne() throws Exception {
+        testEnsembleDurabilityDisabledInternal(1, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testEnsembleDisableDurability() throws Exception {
+        testEnsembleDurabilityDisabledInternal(2, true);
+    }
+
+    public void testEnsembleDurabilityDisabledInternal(int minDurability, boolean disableDurability) throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3");
-        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 1);
-        conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, false);
+        conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, minDurability);
+        SettableFeature disableDurabilityFeature = new SettableFeature(false);
+        conf.setFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, disableDurabilityFeature);
+        if (minDurability <= 1) {
+            conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, false);
+        } else {
+            conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
+        }
+
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null);
         InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
@@ -741,6 +769,10 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         addrs.add(addr8);
         addrs.add(addr9);
         repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+
+        if (disableDurability) {
+            disableDurabilityFeature.set(true);
+        }
 
         ArrayList<InetSocketAddress> ensemble;
         try {

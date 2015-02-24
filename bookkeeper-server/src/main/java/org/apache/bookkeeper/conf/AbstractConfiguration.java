@@ -19,6 +19,7 @@ package org.apache.bookkeeper.conf;
 
 import java.net.URL;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -234,5 +235,17 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
      */
     public int getAsyncProcessLedgersConcurrency() {
         return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 1);
+    }
+
+    public void setFeature(String configProperty, Feature feature) {
+        setProperty(configProperty, feature);
+    }
+
+    public Feature getFeature(String configProperty, Feature defaultValue) {
+        if (null == getProperty(configProperty)) {
+            return defaultValue;
+        } else {
+            return (Feature)getProperty(configProperty);
+        }
     }
 }

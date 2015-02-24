@@ -32,6 +32,9 @@ import java.util.concurrent.ConcurrentMap;
 import com.google.common.base.Optional;
 
 
+import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.Feature;
+import org.apache.bookkeeper.feature.FixedValueFeature;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
@@ -48,6 +51,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public static final String REPP_REGIONS_TO_WRITE = "reppRegionsToWrite";
     public static final String REPP_MINIMUM_REGIONS_FOR_DURABILITY = "reppMinimumRegionsForDurability";
     public static final String REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE = "reppEnableDurabilityEnforcementInReplace";
+    public static final String REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE = "reppDisableDurabilityEnforcementFeature";
     public static final String REPP_ENABLE_VALIDATION = "reppEnableValidation";
     public static final String REGION_AWARE_ANOMALOUS_ENSEMBLE = "region_aware_anomalous_ensemble";
     static final int MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT = 2;
@@ -61,6 +65,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected int minRegionsForDurability = 0;
     protected boolean enableValidation = true;
     protected boolean enforceDurabilityInReplace = false;
+    protected Feature disableDurabilityFeature;
 
     RegionAwareEnsemblePlacementPolicy() {
         super();
@@ -141,7 +146,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(Configuration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
+    public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
         super.initialize(conf, optionalDnsResolver, statsLogger);
         myRegion = getLocalRegion(localNode);
         enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
@@ -166,27 +171,30 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 throw new IllegalArgumentException("Regions provided are insufficient to meet the durability constraints");
             }
         }
-
+        disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, new FixedValueFeature(false));
         return this;
     }
 
     @Override
     public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
                                                     Set<InetSocketAddress> excludeBookies) throws BKException.BKNotEnoughBookiesException {
+
+        int effectiveMinRegionsForDurability = disableDurabilityFeature.isAvailable() ? 1 : minRegionsForDurability;
+
         // All of these conditions indicate bad configuration
-        if (ackQuorumSize < minRegionsForDurability) {
+        if (ackQuorumSize < effectiveMinRegionsForDurability) {
             throw new IllegalArgumentException("Ack Quorum size provided are insufficient to meet the durability constraints");
         } else if (ensembleSize < writeQuorumSize) {
             throw new IllegalArgumentException("write quorum (" + writeQuorumSize + ") cannot exceed ensemble size (" + ensembleSize + ")");
         } else if (writeQuorumSize < ackQuorumSize) {
             throw new IllegalArgumentException("ack quorum (" + ackQuorumSize + ") cannot exceed write quorum size (" + writeQuorumSize + ")");
-        } else if (minRegionsForDurability > 0) {
-            // We must survive the failure of numRegions - minRegionsForDurability. When these
+        } else if (effectiveMinRegionsForDurability > 0) {
+            // We must survive the failure of numRegions - effectiveMinRegionsForDurability. When these
             // regions have failed we would spread the replicas over the remaining
-            // minRegionsForDurability regions; we have to make sure that the ack quorum is large
+            // effectiveMinRegionsForDurability regions; we have to make sure that the ack quorum is large
             // enough such that there is a configuration for spreading the replicas across
-            // minRegionsForDurability - 1 regions
-            if (ackQuorumSize <= (writeQuorumSize - (writeQuorumSize / minRegionsForDurability))) {
+            // effectiveMinRegionsForDurability - 1 regions
+            if (ackQuorumSize <= (writeQuorumSize - (writeQuorumSize / effectiveMinRegionsForDurability))) {
                 throw new IllegalArgumentException("ack quorum (" + ackQuorumSize + ") " +
                     "violates the requirement to satisfy durability constraints when running in degraded mode");
             }
@@ -213,8 +221,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                                                     writeQuorumSize,
                                                                     ackQuorumSize,
                                                                     REGIONID_DISTANCE_FROM_LEAVES,
-                                                                    minRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                                                                    minRegionsForDurability);
+                                                                    effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
+                                                                    effectiveMinRegionsForDurability);
                 return perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
             }
 
@@ -241,8 +249,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                     writeQuorumSize,
                                     ackQuorumSize,
                                     REGIONID_DISTANCE_FROM_LEAVES,
-                                    minRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                                    minRegionsForDurability);
+                                    effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
+                                    effectiveMinRegionsForDurability);
                 remainingEnsembleBeforeIteration = remainingEnsemble;
                 for (String region: regionsWiseAllocation.keySet()) {
                     final Pair<Integer, Integer> currentAllocation = regionsWiseAllocation.get(region);
@@ -331,14 +339,15 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                            Set<InetSocketAddress> excludeBookies) throws BKException.BKNotEnoughBookiesException {
         rwLock.readLock().lock();
         try {
-            boolean enforceDurability = enforceDurabilityInReplace;
+            boolean enforceDurability = enforceDurabilityInReplace && !disableDurabilityFeature.isAvailable();
+            int effectiveMinRegionsForDurability = enforceDurability ? minRegionsForDurability : 1;
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
             RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize,
                 writeQuorumSize,
                 ackQuorumSize,
                 REGIONID_DISTANCE_FROM_LEAVES,
-                minRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                minRegionsForDurability);
+                effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
+                effectiveMinRegionsForDurability);
 
             BookieNode bookieNodeToReplace = knownBookies.get(bookieToReplace);
             if (null == bookieNodeToReplace) {
