@@ -246,10 +246,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
     }
 
     void sendAddSuccessCallbacks() {
-        // TODO: we probably could remove this conditional check to provide faster callback
-        if (lh.pendingAddOps.peek() == this) {
-            lh.sendAddSuccessCallbacks();
-        }
+        lh.sendAddSuccessCallbacks();
     }
 
     void submitCallback(final int rc) {
