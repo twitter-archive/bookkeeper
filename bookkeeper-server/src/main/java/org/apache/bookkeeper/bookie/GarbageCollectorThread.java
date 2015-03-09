@@ -162,18 +162,18 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                     LOG.debug("Skipping entry log flushing, as there is no offsets!");
                     return;
                 }
-                synchronized (flushLock) {
-                    Offset lastOffset = offsets.get(offsets.size() - 1);
-                    long lastOffsetLogId = EntryLogger.logIdForOffset(lastOffset.offset);
-                    while (lastOffsetLogId < entryLogger.getLeastUnflushedLogId() && running) {
+                Offset lastOffset = offsets.get(offsets.size() - 1);
+                long lastOffsetLogId = EntryLogger.logIdForOffset(lastOffset.offset);
+                while (lastOffsetLogId < entryLogger.getLeastUnflushedLogId() && running) {
+                    synchronized (flushLock) {
                         flushLock.wait(1000);
+                    }
 
-                        lastOffset = offsets.get(offsets.size() - 1);
-                        lastOffsetLogId = EntryLogger.logIdForOffset(lastOffset.offset);
-                    }
-                    if (lastOffsetLogId >= entryLogger.getLeastUnflushedLogId() && !running) {
-                        throw new IOException("Shutdown garbage collector thread before compaction flushed");
-                    }
+                    lastOffset = offsets.get(offsets.size() - 1);
+                    lastOffsetLogId = EntryLogger.logIdForOffset(lastOffset.offset);
+                }
+                if (lastOffsetLogId >= entryLogger.getLeastUnflushedLogId() && !running) {
+                    throw new IOException("Shutdown garbage collector thread before compaction flushed");
                 }
 
             } catch (InterruptedException ie) {
