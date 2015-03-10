@@ -39,9 +39,9 @@ import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.net.ScriptBasedMapping;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.ReflectionUtils;
-import org.apache.commons.configuration.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,6 +91,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     protected boolean reorderReadsRandom = false;
     protected boolean enforceDurability = false;
     protected StatsLogger statsLogger = null;
+    protected AlertStatsLogger alertStatsLogger = null;
 
     RackawareEnsemblePlacementPolicy() {
         this(false);
@@ -115,7 +116,8 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
      * @param dnsResolver the object used to resolve addresses to their network address
      * @return initialized ensemble placement policy
      */
-    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver, boolean reorderReadsRandom, StatsLogger statsLogger) {
+    protected RackawareEnsemblePlacementPolicy initialize(DNSToSwitchMapping dnsResolver, boolean reorderReadsRandom, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
+        this.alertStatsLogger = alertStatsLogger;
         this.statsLogger = statsLogger;
         this.reorderReadsRandom = reorderReadsRandom;
         this.dnsResolver = dnsResolver;
@@ -134,7 +136,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
     }
 
     @Override
-    public RackawareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
+    public RackawareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
         DNSToSwitchMapping dnsResolver;
         if (optionalDnsResolver.isPresent()) {
             dnsResolver = optionalDnsResolver.get();
@@ -150,7 +152,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
                 dnsResolver = new DefaultResolver();
             }
         }
-        return initialize(dnsResolver, conf.getBoolean(REPP_RANDOM_READ_REORDERING, false), statsLogger);
+        return initialize(dnsResolver, conf.getBoolean(REPP_RANDOM_READ_REORDERING, false), statsLogger, alertStatsLogger);
     }
 
     @Override
@@ -261,7 +263,7 @@ public class RackawareEnsemblePlacementPolicy extends TopologyAwareEnsemblePlace
         rwLock.readLock().lock();
         try {
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
-            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, RACKNAME_DISTANCE_FROM_LEAVES, parentEnsemble);
+            RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, RACKNAME_DISTANCE_FROM_LEAVES, parentEnsemble, alertStatsLogger);
             BookieNode prevNode = null;
             int numRacks = topology.getNumOfRacks();
             // only one rack, use the random algorithm.

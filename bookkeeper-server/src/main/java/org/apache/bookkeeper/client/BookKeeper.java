@@ -36,6 +36,7 @@ import org.apache.bookkeeper.meta.TimedLedgerManager;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -107,6 +108,7 @@ public class BookKeeper {
 
     final Optional<SpeculativeRequestExecutionPolicy> readSpeculativeRequestPolicy;
     final Optional<SpeculativeRequestExecutionPolicy> readLACSpeculativeRequestPolicy;
+    final AlertStatsLogger alertStatsLogger;
 
     // Close State
     volatile boolean closed = false;
@@ -304,6 +306,7 @@ public class BookKeeper {
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
+        this.alertStatsLogger = new AlertStatsLogger(statsLogger, "bk_alert");
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver, statsLogger.scope("bookkeeper_client"));
 
@@ -349,7 +352,7 @@ public class BookKeeper {
         throws IOException {
         try {
             Class<? extends EnsemblePlacementPolicy> policyCls = conf.getEnsemblePlacementPolicy();
-            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), statsLogger);
+            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), statsLogger, alertStatsLogger);
         } catch (ConfigurationException e) {
             throw new IOException("Failed to initialize ensemble placement policy : ", e);
         }

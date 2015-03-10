@@ -8,7 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.NodeBase;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -200,7 +202,13 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 }
 
                 for(String rackOrRegion: remainingRacksOrRegions) {
-                    if (allocationToRacksOrRegions.get(rackOrRegion) > maxAllowedSum) {
+                    Integer currentAllocation = allocationToRacksOrRegions.get(rackOrRegion);
+                    if (currentAllocation == null) {
+                        allocationToRacksOrRegions.put(rackOrRegion, 0);
+                        currentAllocation = 0;
+                    }
+
+                    if (currentAllocation > maxAllowedSum) {
                         LOG.trace("CHECK FAILED: RacksOrRegions Included {} Candidate {}, subsetSize {}, maxAllowedSum {}", new Object[]{
                             includedRacksOrRegions, rackOrRegion, subsetSize, maxAllowedSum
                         });
@@ -213,7 +221,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                         if (!checkSumOfSubsetWithinLimit(includedElements,
                             remainingElements,
                             subsetSize - 1,
-                            maxAllowedSum - allocationToRacksOrRegions.get(rackOrRegion))) {
+                            maxAllowedSum - currentAllocation)) {
                             return false;
                         }
                     }
@@ -239,7 +247,21 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 // no subset of (minRacksOrRegionsForDurability - 1) regions have ackQuorumSize
                 // We are only modifying candidateRackOrRegion if we accept this bookie, so lets only
                 // find sets that contain this candidateRackOrRegion
-                int inclusiveLimit = (ackQuorumSize - 1) - (allocationToRacksOrRegions.get(candidateRackOrRegion) + 1);
+                Integer currentAllocation = allocationToRacksOrRegions.get(candidateRackOrRegion);
+                if (currentAllocation == null) {
+                    LOG.info("Detected a region that was not initialized {}", candidateRackOrRegion);
+                    if (null != alertStatsLogger) {
+                        if (candidateRackOrRegion.equals(NetworkTopology.DEFAULT_REGION)) {
+                            alertStatsLogger.raise("Failed to resolve network location {}", candidate);
+                        } else if (!racksOrRegions.contains(candidateRackOrRegion)) {
+                            alertStatsLogger.raise("Unknown region detected {}", candidateRackOrRegion);
+                        }
+                    }
+                    allocationToRacksOrRegions.put(candidateRackOrRegion, 0);
+                    currentAllocation = 0;
+                }
+
+                int inclusiveLimit = (ackQuorumSize - 1) - (currentAllocation + 1);
                 return checkSumOfSubsetWithinLimit(includedRacksOrRegions,
                         remainingRacksOrRegions, minRacksOrRegionsForDurability - 2, inclusiveLimit);
             }
@@ -265,6 +287,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         final int minRacksOrRegionsForDurability;
         final ArrayList<BookieNode> chosenNodes;
         final Set<String> racksOrRegions;
+        final AlertStatsLogger alertStatsLogger;
         private final CoverageSet[] quorums;
         final RRTopologyAwareCoverageEnsemble parentEnsemble;
 
@@ -273,6 +296,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.ensembleSize = that.ensembleSize;
             this.writeQuorumSize = that.writeQuorumSize;
             this.ackQuorumSize = that.ackQuorumSize;
+            this.alertStatsLogger = that.alertStatsLogger;
             this.chosenNodes = (ArrayList<BookieNode>)that.chosenNodes.clone();
             this.quorums = new CoverageSet[that.quorums.length];
             for (int i = 0; i < that.quorums.length; i++) {
@@ -291,19 +315,34 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.minRacksOrRegionsForDurability = that.minRacksOrRegionsForDurability;
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, Set<String> racksOrRegions, int minRacksOrRegionsForDurability) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null, racksOrRegions, minRacksOrRegionsForDurability);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
+                                                  int ackQuorumSize, int distanceFromLeaves,
+                                                  Set<String> racksOrRegions,
+                                                  int minRacksOrRegionsForDurability,
+                                                  AlertStatsLogger alertStatsLogger) {
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null,
+                racksOrRegions, minRacksOrRegionsForDurability, alertStatsLogger);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, parentEnsemble, null, 0);
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
+                                                  int ackQuorumSize, int distanceFromLeaves,
+                                                  RRTopologyAwareCoverageEnsemble parentEnsemble,
+                                                  AlertStatsLogger alertStatsLogger) {
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves,
+                parentEnsemble, null, 0, alertStatsLogger);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize, int distanceFromLeaves, RRTopologyAwareCoverageEnsemble parentEnsemble, Set<String> racksOrRegions, int minRacksOrRegionsForDurability) {
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
+                                                  int ackQuorumSize, int distanceFromLeaves,
+                                                  RRTopologyAwareCoverageEnsemble parentEnsemble,
+                                                  Set<String> racksOrRegions,
+                                                  int minRacksOrRegionsForDurability,
+                                                  AlertStatsLogger alertStatsLogger) {
             this.ensembleSize = ensembleSize;
             this.writeQuorumSize = writeQuorumSize;
             this.ackQuorumSize = ackQuorumSize;
             this.distanceFromLeaves = distanceFromLeaves;
+            this.alertStatsLogger = alertStatsLogger;
             this.chosenNodes = new ArrayList<BookieNode>(ensembleSize);
             if (minRacksOrRegionsForDurability > 0) {
                 this.quorums = new RackOrRegionDurabilityCoverageSet[ensembleSize];

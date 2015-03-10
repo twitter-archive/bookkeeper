@@ -39,8 +39,8 @@ import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
 import org.apache.bookkeeper.net.NodeBase;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.configuration.Configuration;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -119,7 +119,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             knownBookies.put(addr, node);
             String region = getLocalRegion(node);
             if (null == perRegionPlacement.get(region)) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom, statsLogger));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom, statsLogger, alertStatsLogger));
             }
 
             Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
@@ -146,8 +146,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger) {
-        super.initialize(conf, optionalDnsResolver, statsLogger);
+    public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
+        super.initialize(conf, optionalDnsResolver, statsLogger, alertStatsLogger);
         myRegion = getLocalRegion(localNode);
         enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
 
@@ -160,7 +160,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // R1;R2;...
             String[] regions = regionsString.split(";");
             for (String region: regions) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true).initialize(dnsResolver, this.reorderReadsRandom, statsLogger));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true).initialize(dnsResolver, this.reorderReadsRandom, statsLogger, alertStatsLogger));
             }
             minRegionsForDurability = conf.getInt(REPP_MINIMUM_REGIONS_FOR_DURABILITY, MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT);
             if (minRegionsForDurability > 0) {
@@ -222,7 +222,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                                                     ackQuorumSize,
                                                                     REGIONID_DISTANCE_FROM_LEAVES,
                                                                     effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                                                                    effectiveMinRegionsForDurability);
+                                                                    effectiveMinRegionsForDurability,
+                                                                    alertStatsLogger);
                 return perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
             }
 
@@ -250,7 +251,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                     ackQuorumSize,
                                     REGIONID_DISTANCE_FROM_LEAVES,
                                     effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                                    effectiveMinRegionsForDurability);
+                                    effectiveMinRegionsForDurability,
+                                    alertStatsLogger);
                 remainingEnsembleBeforeIteration = remainingEnsemble;
                 for (String region: regionsWiseAllocation.keySet()) {
                     final Pair<Integer, Integer> currentAllocation = regionsWiseAllocation.get(region);
@@ -347,7 +349,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 ackQuorumSize,
                 REGIONID_DISTANCE_FROM_LEAVES,
                 effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
-                effectiveMinRegionsForDurability);
+                effectiveMinRegionsForDurability,
+                alertStatsLogger);
 
             BookieNode bookieNodeToReplace = knownBookies.get(bookieToReplace);
             if (null == bookieNodeToReplace) {
