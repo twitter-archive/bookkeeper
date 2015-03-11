@@ -29,6 +29,7 @@ import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.IsClosedCallback;
 import org.apache.bookkeeper.client.BKException.Code;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.meta.CleanupLedgerManager;
@@ -62,6 +63,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * BookKeeper client. We assume there is one single writer to a ledger at any
@@ -102,6 +105,9 @@ public class BookKeeper {
     final boolean ownTimer;
     final FeatureProvider featureProvider;
 
+    // Features
+    final Feature disableEnsembleChangeFeature;
+
     // Ledger manager responsible for how to store ledger meta data
     final LedgerManagerFactory ledgerManagerFactory;
     final LedgerManager ledgerManager;
@@ -128,7 +134,7 @@ public class BookKeeper {
         ClientConfiguration conf = null;
         ZooKeeper zk = null;
         ClientSocketChannelFactory channelFactory = null;
-        StatsLogger statsLogger = null;
+        StatsLogger statsLogger = NullStatsLogger.INSTANCE;
         DNSToSwitchMapping dnsResolver = null;
         HashedWheelTimer requestTimer = null;
         FeatureProvider featureProvider = null;
@@ -329,6 +335,8 @@ public class BookKeeper {
         } else {
             this.featureProvider = featureProvider;
         }
+        // get features
+        this.disableEnsembleChangeFeature = this.featureProvider.getFeature(FEATURE_DISABLE_ENSEMBLE_CHANGE);
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());

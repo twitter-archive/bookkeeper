@@ -1031,6 +1031,14 @@ public class LedgerHandle {
 
     void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
         int curBlockAddCompletions = blockAddCompletions.incrementAndGet();
+
+        if (bk.disableEnsembleChangeFeature.isAvailable()) {
+            blockAddCompletions.decrementAndGet();
+            LOG.debug("Ensemble change is disabled. Retry sending to failed bookies {} for ledger {}.", failedBookies, ledgerId);
+            unsetSuccessAndSendWriteRequest(failedBookies.keySet());
+            return;
+        }
+
         int curNumEnsembleChanges = numEnsembleChanges.incrementAndGet();
 
         synchronized (metadata) {
