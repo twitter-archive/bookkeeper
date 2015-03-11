@@ -26,16 +26,18 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import junit.framework.TestCase;
-
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.StaticDNSResolver;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,6 +51,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
     final List<Integer> writeSet = new ArrayList<Integer>();
     ClientConfiguration conf = new ClientConfiguration();
     InetSocketAddress addr1, addr2, addr3, addr4;
+    HashedWheelTimer timer;
 
     @Override
     protected void setUp() throws Exception {
@@ -76,8 +79,13 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
             writeSet.add(i);
         }
 
+        timer = new HashedWheelTimer(
+                new ThreadFactoryBuilder().setNameFormat("TestTimer-%d").build(),
+                conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
+                conf.getTimeoutTimerNumTicks());
+
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
     }
 
     @Override
@@ -99,7 +107,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -127,7 +135,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -158,7 +166,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -188,7 +196,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -433,7 +441,7 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RackawareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -453,5 +461,38 @@ public class TestRackawareEnsemblePlacementPolicy extends TestCase {
         assertEquals(ensemble.get(reoderSet.get(3)), addr2);
         assertEquals(ensemble.get(reoderSet.get(0)), addr3);
         assertEquals(ensemble.get(reoderSet.get(1)), addr4);
+    }
+
+    @Test(timeout = 60000)
+    public void testPlacementOnStabilizeNetworkTopology() throws Exception {
+        repp.uninitalize();
+        updateMyRack(NetworkTopology.DEFAULT_RACK);
+
+        repp = new RackawareEnsemblePlacementPolicy();
+        ClientConfiguration confLocal = new ClientConfiguration();
+        confLocal.addConfiguration(conf);
+        confLocal.setNetworkTopologyStabilizePeriodSeconds(99999);
+        repp.initialize(confLocal, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
+
+        Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        // addr4 left
+        addrs.remove(addr4);
+        Set<InetSocketAddress> deadBookies = repp.onClusterChanged(addrs, new HashSet<InetSocketAddress>());
+        assertTrue(deadBookies.isEmpty());
+
+        // we will never use addr4 even it is in the stabilized network topology
+        for (int i = 0 ; i < 5; i++) {
+            ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(3, 3, 3, new HashSet<InetSocketAddress>());
+            assertFalse(ensemble.contains(addr4));
+        }
+
+        // we could still use addr4 for urgent allocation if it is just bookie flapping
+        ArrayList<InetSocketAddress> ensemble = repp.newEnsemble(4, 4, 4, new HashSet<InetSocketAddress>());
+        assertTrue(ensemble.contains(addr4));
     }
 }

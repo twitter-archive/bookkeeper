@@ -85,6 +85,7 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // Ensemble Placement Policy
     protected final static String ENSEMBLE_PLACEMENT_POLICY = "ensemblePlacementPolicy";
+    protected final static String NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS = "networkTopologyStabilizePeriodSeconds";
 
     // Stats
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
@@ -808,6 +809,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setEnsemblePlacementPolicy(Class<? extends EnsemblePlacementPolicy> policyClass) {
         setProperty(ENSEMBLE_PLACEMENT_POLICY, policyClass.getName());
+        return this;
+    }
+
+    /**
+     * Get the network topology stabilize period in seconds. if it is zero, this feature is turned off.
+     *
+     * @return network topology stabilize period in seconds.
+     */
+    public int getNetworkTopologyStabilizePeriodSeconds() {
+        return getInt(NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS, 0);
+    }
+
+    /**
+     * Set the network topology stabilize period in seconds.
+     *
+     * @see #getNetworkTopologyStabilizePeriodSeconds()
+     * @param seconds stabilize period in seconds
+     * @return client configuration.
+     */
+    public ClientConfiguration setNetworkTopologyStabilizePeriodSeconds(int seconds) {
+        setProperty(NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS, seconds);
         return this;
     }
 

@@ -24,15 +24,17 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Optional;
-
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.util.StaticDNSResolver;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +53,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     final ArrayList<InetSocketAddress> ensemble = new ArrayList<InetSocketAddress>();
     final List<Integer> writeSet = new ArrayList<Integer>();
     InetSocketAddress addr1, addr2, addr3, addr4;
+    HashedWheelTimer timer;
 
     static void updateMyRack(String rack) throws Exception {
         StaticDNSResolver.addNodeToRack(InetAddress.getLocalHost().getHostAddress(), rack);
@@ -83,8 +86,14 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         for (int i = 0; i < 4; i++) {
             writeSet.add(i);
         }
+
+        timer = new HashedWheelTimer(
+                new ThreadFactoryBuilder().setNameFormat("TestTimer-%d").build(),
+                conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
+                conf.getTimeoutTimerNumTicks());
+
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
     }
 
     @Override
@@ -99,7 +108,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack(NetworkTopology.DEFAULT_RACK);
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         List<Integer> reorderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         assertFalse(reorderSet == writeSet);
@@ -112,7 +121,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack3");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
         addrs.add(addr1);
@@ -138,7 +147,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r2/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         List<Integer> reoderSet = repp.reorderReadSequence(ensemble, writeSet, new HashMap<InetSocketAddress, Long>());
         LOG.info("reorder set : {}", reoderSet);
@@ -152,7 +161,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -181,7 +190,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -212,7 +221,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r1/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         // Update cluster
         Set<InetSocketAddress> addrs = new HashSet<InetSocketAddress>();
@@ -348,7 +357,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     public void testNewEnsembleWithSingleRegion() throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -379,7 +388,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     public void testNewEnsembleWithMultipleRegions() throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -457,7 +466,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     public void testNewEnsembleWithThreeRegions() throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -524,7 +533,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         repp = new RegionAwareEnsemblePlacementPolicy();
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3;region4;region5");
         conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 5);
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.1.0.4", 3181);
@@ -625,7 +634,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
         }
 
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.1.0.4", 3181);
@@ -734,7 +743,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
         }
 
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.1.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.1.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.1.0.4", 3181);
@@ -798,7 +807,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3;region4;region5");
         conf.setProperty(REPP_MINIMUM_REGIONS_FOR_DURABILITY, 5);
         conf.setProperty(REPP_ENABLE_VALIDATION, false);
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
         InetSocketAddress addr3 = new InetSocketAddress("127.0.0.4", 3181);
@@ -851,7 +860,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/" + myRegion);
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         InetSocketAddress addr1 = new InetSocketAddress("127.0.0.2", 3181);
         InetSocketAddress addr2 = new InetSocketAddress("127.0.0.3", 3181);
@@ -1081,7 +1090,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         updateMyRack("/r2/rack1");
 
         repp = new RegionAwareEnsemblePlacementPolicy();
-        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), null, null);
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, null, null);
 
         InetSocketAddress addr5 = new InetSocketAddress("127.0.0.6", 3181);
         InetSocketAddress addr6 = new InetSocketAddress("127.0.0.7", 3181);

@@ -96,6 +96,8 @@ public class BookKeeper {
 
     final OrderedSafeExecutor mainWorkerPool;
     final ScheduledExecutorService scheduler;
+    final HashedWheelTimer requestTimer;
+    final boolean ownTimer;
 
     // Ledger manager responsible for how to store ledger meta data
     final LedgerManagerFactory ledgerManagerFactory;
@@ -303,12 +305,23 @@ public class BookKeeper {
             this.ownChannelFactory = false;
         }
 
+        if (null == requestTimer) {
+            this.requestTimer = new HashedWheelTimer(
+                    new ThreadFactoryBuilder().setNameFormat("BookieClientTimer-%d").build(),
+                    conf.getTimeoutTimerTickDurationMs(), TimeUnit.MILLISECONDS,
+                    conf.getTimeoutTimerNumTicks());
+            this.ownTimer = true;
+        } else {
+            this.requestTimer = requestTimer;
+            this.ownTimer = false;
+        }
+
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         this.alertStatsLogger = new AlertStatsLogger(statsLogger, "bk_alert");
         // initialize the ensemble placement
-        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver, statsLogger.scope("bookkeeper_client"));
+        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver, requestTimer, statsLogger.scope("bookkeeper_client"));
 
         if (conf.getFirstSpeculativeReadTimeout() > 0) {
             this.readSpeculativeRequestPolicy =
@@ -348,11 +361,14 @@ public class BookKeeper {
                                               statsLogger);
     }
 
-    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(DNSToSwitchMapping dnsResolver, StatsLogger statsLogger)
+    private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(
+            DNSToSwitchMapping dnsResolver,
+            HashedWheelTimer timer,
+            StatsLogger statsLogger)
         throws IOException {
         try {
             Class<? extends EnsemblePlacementPolicy> policyCls = conf.getEnsemblePlacementPolicy();
-            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), statsLogger, alertStatsLogger);
+            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), timer, statsLogger, alertStatsLogger);
         } catch (ConfigurationException e) {
             throw new IOException("Failed to initialize ensemble placement policy : ", e);
         }
@@ -883,6 +899,10 @@ public class BookKeeper {
         mainWorkerPool.shutdown();
         if (!mainWorkerPool.awaitTermination(10, TimeUnit.SECONDS)) {
             LOG.warn("The mainWorkerPool did not shutdown cleanly");
+        }
+
+        if (ownTimer) {
+            requestTimer.stop();
         }
 
         if (ownChannelFactory) {

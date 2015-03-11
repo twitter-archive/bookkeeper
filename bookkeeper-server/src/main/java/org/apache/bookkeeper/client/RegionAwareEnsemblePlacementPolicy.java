@@ -42,6 +42,7 @@ import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.lang3.tuple.Pair;
+import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +60,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     static final String UNKNOWN_REGION = "UnknownRegion";
     static final int REMOTE_NODE_IN_REORDER_SEQUENCE = 2;
 
-    protected final Map<String, RackawareEnsemblePlacementPolicy> perRegionPlacement;
+    protected final Map<String, TopologyAwareEnsemblePlacementPolicy> perRegionPlacement;
     protected final ConcurrentMap<InetSocketAddress, String> address2Region;
     protected String myRegion = null;
     protected int minRegionsForDurability = 0;
@@ -69,7 +70,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
     RegionAwareEnsemblePlacementPolicy() {
         super();
-        perRegionPlacement = new HashMap<String, RackawareEnsemblePlacementPolicy>();
+        perRegionPlacement = new HashMap<String, TopologyAwareEnsemblePlacementPolicy>();
         address2Region = new ConcurrentHashMap<InetSocketAddress, String>();
     }
 
@@ -100,16 +101,16 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    protected void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies) {
+    public void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies) {
         super.handleBookiesThatLeft(leftBookies);
 
-        for(RackawareEnsemblePlacementPolicy policy: perRegionPlacement.values()) {
+        for(TopologyAwareEnsemblePlacementPolicy policy: perRegionPlacement.values()) {
             policy.handleBookiesThatLeft(leftBookies);
         }
     }
 
     @Override
-    protected void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies) {
+    public void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies) {
         Map<String, Set<InetSocketAddress>> perRegionClusterChange = new HashMap<String, Set<InetSocketAddress>>();
 
         // node joined
@@ -119,7 +120,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             knownBookies.put(addr, node);
             String region = getLocalRegion(node);
             if (null == perRegionPlacement.get(region)) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy().initialize(dnsResolver, this.reorderReadsRandom, statsLogger, alertStatsLogger));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy()
+                        .initialize(dnsResolver, timer, this.reorderReadsRandom, this.stabilizePeriodSeconds, statsLogger, alertStatsLogger));
             }
 
             Set<InetSocketAddress> regionSet = perRegionClusterChange.get(region);
@@ -146,8 +148,12 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     }
 
     @Override
-    public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
-        super.initialize(conf, optionalDnsResolver, statsLogger, alertStatsLogger);
+    public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf,
+                                                         Optional<DNSToSwitchMapping> optionalDnsResolver,
+                                                         HashedWheelTimer timer,
+                                                         StatsLogger statsLogger,
+                                                         AlertStatsLogger alertStatsLogger) {
+        super.initialize(conf, optionalDnsResolver, timer, statsLogger, alertStatsLogger);
         myRegion = getLocalRegion(localNode);
         enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
 
@@ -160,7 +166,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // R1;R2;...
             String[] regions = regionsString.split(";");
             for (String region: regions) {
-                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true).initialize(dnsResolver, this.reorderReadsRandom, statsLogger, alertStatsLogger));
+                perRegionPlacement.put(region, new RackawareEnsemblePlacementPolicy(true)
+                        .initialize(dnsResolver, timer, this.reorderReadsRandom, this.stabilizePeriodSeconds, statsLogger, alertStatsLogger));
             }
             minRegionsForDurability = conf.getInt(REPP_MINIMUM_REGIONS_FOR_DURABILITY, MINIMUM_REGIONS_FOR_DURABILITY_DEFAULT);
             if (minRegionsForDurability > 0) {
@@ -224,7 +231,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                                                     effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
                                                                     effectiveMinRegionsForDurability,
                                                                     alertStatsLogger);
-                return perRegionPlacement.values().iterator().next().newEnsembleInternal(ensembleSize, writeQuorumSize, excludeBookies, ensemble);
+                TopologyAwareEnsemblePlacementPolicy nextPolicy = perRegionPlacement.values().iterator().next();
+                return nextPolicy.newEnsemble(ensembleSize, writeQuorumSize, writeQuorumSize, excludeBookies, ensemble, ensemble);
             }
 
             int remainingEnsemble = ensembleSize;
@@ -256,7 +264,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 remainingEnsembleBeforeIteration = remainingEnsemble;
                 for (String region: regionsWiseAllocation.keySet()) {
                     final Pair<Integer, Integer> currentAllocation = regionsWiseAllocation.get(region);
-                    RackawareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
+                    TopologyAwareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
                     if (!regionsReachedMaxAllocation.contains(region)) {
                         if (numRemainingRegions <= 0) {
                             LOG.error("Inconsistent State: This should never happen");
@@ -275,7 +283,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                             int newEnsembleSize = currentAllocation.getLeft() + addToEnsembleSize;
                             int newWriteQuorumSize = currentAllocation.getRight() + addToWriteQuorum;
                             try {
-                                policyWithinRegion.newEnsembleInternal(newEnsembleSize, newWriteQuorumSize, excludeBookies, tempEnsemble);
+                                policyWithinRegion.newEnsemble(newEnsembleSize, newWriteQuorumSize, newWriteQuorumSize, excludeBookies, tempEnsemble, tempEnsemble);
                                 ensemble = tempEnsemble;
                                 remainingEnsemble -= addToEnsembleSize;
                                 remainingWriteQuorum -= writeQuorumSize;
@@ -302,10 +310,13 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                         if (currentAllocation.getLeft() > 0) {
                             LOG.info("Allocating {} bookies in region {} : ensemble {} exclude {}",
                                 new Object[]{currentAllocation.getLeft(), region, excludeBookies, ensemble});
-                            policyWithinRegion.newEnsembleInternal(currentAllocation.getLeft(),
-                                currentAllocation.getRight(),
-                                excludeBookies,
-                                ensemble);
+                            policyWithinRegion.newEnsemble(
+                                    currentAllocation.getLeft(),
+                                    currentAllocation.getRight(),
+                                    currentAllocation.getRight(),
+                                    excludeBookies,
+                                    ensemble,
+                                    ensemble);
                             LOG.info("Allocated {} bookies in region {} : {}",
                                 new Object[]{currentAllocation.getLeft(), region, ensemble});
                         }
@@ -378,7 +389,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                     enforceDurability = false;
                 }
 
-                ensemble.addBookie(bn);
+                ensemble.addNode(bn);
             }
 
             if (LOG.isDebugEnabled()) {
@@ -397,19 +408,24 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         }
     }
 
-    protected BookieNode replaceFromRack(BookieNode bn, Set<Node> excludeBookies,
-                                         Predicate predicate, boolean enforceDurability)
+    protected BookieNode replaceFromRack(BookieNode bn,
+                                         Set<Node> excludeBookies,
+                                         Predicate<BookieNode> predicate,
+                                         boolean enforceDurability)
         throws BKException.BKNotEnoughBookiesException {
         String region = getLocalRegion(bn);
-        RackawareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(region);
+        TopologyAwareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(region);
         if (null != regionPolicy) {
             try {
                 // select one from local rack => it falls back to selecting a node from the region
                 // if the rack does not have an available node, selecting from the same region
                 // should not violate durability constraints so we can simply not have to check
                 // for that.
-                return regionPolicy.selectFromRack(bn.getNetworkLocation(), excludeBookies,
-                    TruePredicate.instance, EnsembleForReplacementWithNoConstraints.instance);
+                return regionPolicy.selectFromNetworkLocation(
+                        bn.getNetworkLocation(),
+                        excludeBookies,
+                        TruePredicate.instance,
+                        EnsembleForReplacementWithNoConstraints.instance);
             } catch (BKException.BKNotEnoughBookiesException e) {
                 LOG.warn("Failed to choose a bookie from {} : "
                     + "excluded {}, fallback to choose bookie randomly from the cluster.",

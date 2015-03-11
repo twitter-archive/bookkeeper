@@ -15,46 +15,10 @@ import org.apache.bookkeeper.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
+abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEnsemblePlacementPolicy<TopologyAwareEnsemblePlacementPolicy.BookieNode> {
     static final Logger LOG = LoggerFactory.getLogger(TopologyAwareEnsemblePlacementPolicy.class);
-    /**
-     * Predicate used when choosing an ensemble.
-     */
-    protected static interface Predicate {
-        boolean apply(BookieNode candidate, Ensemble chosenBookies);
-    }
 
-    /**
-     * Ensemble used to hold the result of an ensemble selected for placement.
-     */
-    protected static interface Ensemble {
-
-        /**
-         * Append the new bookie node to the ensemble only if the ensemble doesnt
-         * already contain the same bookie
-         *
-         * @param node
-         *          new candidate bookie node.
-         * @return
-         *          true if the node was added
-         */
-        public boolean addBookie(BookieNode node);
-
-        /**
-         * @return list of addresses representing the ensemble
-         */
-        public ArrayList<InetSocketAddress> toList();
-
-        /**
-         * Validates if an ensemble is valid
-         *
-         * @return true if the ensemble is valid; false otherwise
-         */
-        public boolean validate();
-
-    }
-
-    protected static class TruePredicate implements Predicate {
+    protected static class TruePredicate implements Predicate<BookieNode> {
 
         public static final TruePredicate instance = new TruePredicate();
 
@@ -65,13 +29,13 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
 
     }
 
-    protected static class EnsembleForReplacementWithNoConstraints implements Ensemble {
+    protected static class EnsembleForReplacementWithNoConstraints implements Ensemble<BookieNode> {
 
         public static final EnsembleForReplacementWithNoConstraints instance = new EnsembleForReplacementWithNoConstraints();
         static final ArrayList<InetSocketAddress> EMPTY_LIST = new ArrayList<InetSocketAddress>(0);
 
         @Override
-        public boolean addBookie(BookieNode node) {
+        public boolean addNode(BookieNode node) {
             // do nothing
             return true;
         }
@@ -131,7 +95,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
      * A predicate checking the rack coverage for write quorum in {@link RoundRobinDistributionSchedule},
      * which ensures that a write quorum should be covered by at least two racks.
      */
-    protected static class RRTopologyAwareCoverageEnsemble implements Predicate, Ensemble {
+    protected static class RRTopologyAwareCoverageEnsemble implements Predicate<BookieNode>, Ensemble<BookieNode> {
 
         protected interface CoverageSet extends Cloneable {
             boolean apply(BookieNode candidate);
@@ -289,7 +253,8 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
         final Set<String> racksOrRegions;
         final AlertStatsLogger alertStatsLogger;
         private final CoverageSet[] quorums;
-        final RRTopologyAwareCoverageEnsemble parentEnsemble;
+        final Predicate<BookieNode> parentPredicate;
+        final Ensemble<BookieNode> parentEnsemble;
 
         protected RRTopologyAwareCoverageEnsemble(RRTopologyAwareCoverageEnsemble that) {
             this.distanceFromLeaves = that.distanceFromLeaves;
@@ -306,6 +271,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                     this.quorums[i] = null;
                 }
             }
+            this.parentPredicate = that.parentPredicate;
             this.parentEnsemble = that.parentEnsemble;
             if (null != that.racksOrRegions) {
                 this.racksOrRegions = new HashSet<String>(that.racksOrRegions);
@@ -315,26 +281,34 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             this.minRacksOrRegionsForDurability = that.minRacksOrRegionsForDurability;
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
-                                                  int ackQuorumSize, int distanceFromLeaves,
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize,
+                                                  int writeQuorumSize,
+                                                  int ackQuorumSize,
+                                                  int distanceFromLeaves,
                                                   Set<String> racksOrRegions,
                                                   int minRacksOrRegionsForDurability,
                                                   AlertStatsLogger alertStatsLogger) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null,
-                racksOrRegions, minRacksOrRegionsForDurability, alertStatsLogger);
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, null, null,
+                 racksOrRegions, minRacksOrRegionsForDurability, alertStatsLogger);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
-                                                  int ackQuorumSize, int distanceFromLeaves,
-                                                  RRTopologyAwareCoverageEnsemble parentEnsemble,
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize,
+                                                  int writeQuorumSize,
+                                                  int ackQuorumSize,
+                                                  int distanceFromLeaves,
+                                                  Ensemble<BookieNode> parentEnsemble,
+                                                  Predicate<BookieNode> parentPredicate,
                                                   AlertStatsLogger alertStatsLogger) {
-            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves,
-                parentEnsemble, null, 0, alertStatsLogger);
+            this(ensembleSize, writeQuorumSize, ackQuorumSize, distanceFromLeaves, parentEnsemble, parentPredicate,
+                 null, 0, alertStatsLogger);
         }
 
-        protected RRTopologyAwareCoverageEnsemble(int ensembleSize, int writeQuorumSize,
-                                                  int ackQuorumSize, int distanceFromLeaves,
-                                                  RRTopologyAwareCoverageEnsemble parentEnsemble,
+        protected RRTopologyAwareCoverageEnsemble(int ensembleSize,
+                                                  int writeQuorumSize,
+                                                  int ackQuorumSize,
+                                                  int distanceFromLeaves,
+                                                  Ensemble<BookieNode> parentEnsemble,
+                                                  Predicate<BookieNode> parentPredicate,
                                                   Set<String> racksOrRegions,
                                                   int minRacksOrRegionsForDurability,
                                                   AlertStatsLogger alertStatsLogger) {
@@ -350,12 +324,13 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 this.quorums = new RackQuorumCoverageSet[ensembleSize];
             }
             this.parentEnsemble = parentEnsemble;
+            this.parentPredicate = parentPredicate;
             this.racksOrRegions = racksOrRegions;
             this.minRacksOrRegionsForDurability = minRacksOrRegionsForDurability;
         }
 
         @Override
-        public boolean apply(BookieNode candidate, Ensemble ensemble) {
+        public boolean apply(BookieNode candidate, Ensemble<BookieNode> ensemble) {
             if (ensemble != this) {
                 return false;
             }
@@ -391,11 +366,11 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
                 }
             }
 
-            return ((null == parentEnsemble) || parentEnsemble.apply(candidate, parentEnsemble));
+            return ((null == parentPredicate) || parentPredicate.apply(candidate, parentEnsemble));
         }
 
         @Override
-        public boolean addBookie(BookieNode node) {
+        public boolean addNode(BookieNode node) {
             // An ensemble cannot contain the same node twice
             if (chosenNodes.contains(node)) {
                 return false;
@@ -423,7 +398,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements EnsemblePlacement
             }
             chosenNodes.add(node);
 
-            return ((null == parentEnsemble) || parentEnsemble.addBookie(node));
+            return ((null == parentEnsemble) || parentEnsemble.addNode(node));
         }
 
         @Override

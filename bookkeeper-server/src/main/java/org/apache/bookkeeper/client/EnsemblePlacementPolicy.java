@@ -27,12 +27,11 @@ import java.util.Set;
 import com.google.common.base.Optional;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
-import org.apache.bookkeeper.conf.AbstractConfiguration;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
-import org.apache.commons.configuration.Configuration;
+import org.jboss.netty.util.HashedWheelTimer;
 
 /**
  * Encapsulation of the algorithm that selects a number of bookies from the cluster as an ensemble for storing
@@ -43,11 +42,17 @@ public interface EnsemblePlacementPolicy {
     /**
      * Initialize the policy.
      *
-     *
-     * @param statsLogger
-     * @param alertStatsLogger
+     * @param conf client configuration
+     * @param optionalDnsResolver dns resolver
+     * @param hashedWheelTimer timer
+     * @param statsLogger stats logger
+     * @param alertStatsLogger stats logger for alerts
      */
-    public EnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger);
+    public EnsemblePlacementPolicy initialize(ClientConfiguration conf,
+                                              Optional<DNSToSwitchMapping> optionalDnsResolver,
+                                              HashedWheelTimer hashedWheelTimer,
+                                              StatsLogger statsLogger,
+                                              AlertStatsLogger alertStatsLogger);
 
     /**
      * Uninitialize the policy

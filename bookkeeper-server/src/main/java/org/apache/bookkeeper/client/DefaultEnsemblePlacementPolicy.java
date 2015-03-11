@@ -33,6 +33,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
+import org.jboss.netty.util.HashedWheelTimer;
 
 /**
  * Default Ensemble Placement Policy, which picks bookies randomly
@@ -107,15 +108,12 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
         return retList;
     }
 
-    /**
-     * Initialize the policy.
-     *
-     *
-     * @param statsLogger
-     * @param alertStatsLogger
-     */
     @Override
-    public EnsemblePlacementPolicy initialize(ClientConfiguration conf, Optional<DNSToSwitchMapping> optionalDnsResolver, StatsLogger statsLogger, AlertStatsLogger alertStatsLogger) {
+    public EnsemblePlacementPolicy initialize(ClientConfiguration conf,
+                                              Optional<DNSToSwitchMapping> optionalDnsResolver,
+                                              HashedWheelTimer timer,
+                                              StatsLogger statsLogger,
+                                              AlertStatsLogger alertStatsLogger) {
         return this;
     }
 
