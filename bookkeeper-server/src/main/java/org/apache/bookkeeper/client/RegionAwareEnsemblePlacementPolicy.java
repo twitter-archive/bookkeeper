@@ -34,7 +34,7 @@ import com.google.common.base.Optional;
 
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.Feature;
-import org.apache.bookkeeper.feature.FixedValueFeature;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.Node;
@@ -45,6 +45,8 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlacementPolicy {
     static final Logger LOG = LoggerFactory.getLogger(RegionAwareEnsemblePlacementPolicy.class);
@@ -151,9 +153,10 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public RegionAwareEnsemblePlacementPolicy initialize(ClientConfiguration conf,
                                                          Optional<DNSToSwitchMapping> optionalDnsResolver,
                                                          HashedWheelTimer timer,
+                                                         FeatureProvider featureProvider,
                                                          StatsLogger statsLogger,
                                                          AlertStatsLogger alertStatsLogger) {
-        super.initialize(conf, optionalDnsResolver, timer, statsLogger, alertStatsLogger);
+        super.initialize(conf, optionalDnsResolver, timer, featureProvider, statsLogger, alertStatsLogger);
         myRegion = getLocalRegion(localNode);
         enableValidation = conf.getBoolean(REPP_ENABLE_VALIDATION, true);
 
@@ -178,7 +181,11 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 throw new IllegalArgumentException("Regions provided are insufficient to meet the durability constraints");
             }
         }
-        disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, new FixedValueFeature(false));
+        disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, null);
+        if (null == disableDurabilityFeature) {
+            disableDurabilityFeature =
+                    featureProvider.getFeature(FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT);
+        }
         return this;
     }
 

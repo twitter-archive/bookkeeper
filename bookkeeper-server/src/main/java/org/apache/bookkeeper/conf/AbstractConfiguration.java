@@ -237,10 +237,12 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
         return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 1);
     }
 
+    @Deprecated
     public void setFeature(String configProperty, Feature feature) {
         setProperty(configProperty, feature);
     }
 
+    @Deprecated
     public Feature getFeature(String configProperty, Feature defaultValue) {
         if (null == getProperty(configProperty)) {
             return defaultValue;

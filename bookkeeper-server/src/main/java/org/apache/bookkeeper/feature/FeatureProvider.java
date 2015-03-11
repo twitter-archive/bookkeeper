@@ -11,4 +11,13 @@ public interface FeatureProvider {
      * @return feature instance
      */
     Feature getFeature(String name);
+
+    /**
+     * Provide the feature provider under scope <i>name</i>.
+     *
+     * @param name
+     *          scope name.
+     * @return feature provider under scope <i>name</i>
+     */
+    FeatureProvider scope(String name);
 }

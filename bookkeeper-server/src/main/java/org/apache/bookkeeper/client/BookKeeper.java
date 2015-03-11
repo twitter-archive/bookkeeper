@@ -29,6 +29,8 @@ import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.IsClosedCallback;
 import org.apache.bookkeeper.client.BKException.Code;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.feature.SettableFeatureProvider;
 import org.apache.bookkeeper.meta.CleanupLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -98,6 +100,7 @@ public class BookKeeper {
     final ScheduledExecutorService scheduler;
     final HashedWheelTimer requestTimer;
     final boolean ownTimer;
+    final FeatureProvider featureProvider;
 
     // Ledger manager responsible for how to store ledger meta data
     final LedgerManagerFactory ledgerManagerFactory;
@@ -128,7 +131,7 @@ public class BookKeeper {
         StatsLogger statsLogger = null;
         DNSToSwitchMapping dnsResolver = null;
         HashedWheelTimer requestTimer = null;
-
+        FeatureProvider featureProvider = null;
 
         public Builder config(ClientConfiguration conf) {
             this.conf = conf;
@@ -160,10 +163,14 @@ public class BookKeeper {
             return this;
         }
 
+        public Builder featureProvider(FeatureProvider featureProvider) {
+            this.featureProvider = featureProvider;
+            return this;
+        }
 
         public BookKeeper build() throws IOException, InterruptedException, KeeperException {
             return new BookKeeper(conf, zk, channelFactory,
-                statsLogger, dnsResolver, requestTimer);
+                statsLogger, dnsResolver, requestTimer, featureProvider);
         }
 
     }
@@ -199,12 +206,12 @@ public class BookKeeper {
      */
     public BookKeeper(final ClientConfiguration conf)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, null, null, NullStatsLogger.INSTANCE, null, null);
+        this(conf, null, null, NullStatsLogger.INSTANCE, null, null, null);
     }
 
     public BookKeeper(final ClientConfiguration conf, StatsLogger statsLogger)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, null, null, statsLogger, null, null);
+        this(conf, null, null, statsLogger, null, null, null);
     }
 
     /**
@@ -223,17 +230,17 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, null, NullStatsLogger.INSTANCE, null, null);
+        this(conf, zk, null, NullStatsLogger.INSTANCE, null, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, null, statsLogger, null, null);
+        this(conf, zk, null, statsLogger, null, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, StatsLogger statsLogger, DNSToSwitchMapping dnsToSwitchMapping)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, null, statsLogger, dnsToSwitchMapping, null);
+        this(conf, zk, null, statsLogger, dnsToSwitchMapping, null, null);
     }
 
     /**
@@ -255,24 +262,25 @@ public class BookKeeper {
      */
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory)
             throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, channelFactory, NullStatsLogger.INSTANCE, null, null);
+        this(conf, zk, channelFactory, NullStatsLogger.INSTANCE, null, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
                       StatsLogger statsLogger)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, channelFactory, statsLogger, null, null);
+        this(conf, zk, channelFactory, statsLogger, null, null, null);
     }
 
     public BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
                       StatsLogger statsLogger, DNSToSwitchMapping dnsResolver)
         throws IOException, InterruptedException, KeeperException {
-        this(conf, zk, channelFactory, statsLogger, dnsResolver, null);
+        this(conf, zk, channelFactory, statsLogger, dnsResolver, null, null);
 
     }
 
     private BookKeeper(ClientConfiguration conf, ZooKeeper zk, ClientSocketChannelFactory channelFactory,
-                      StatsLogger statsLogger, DNSToSwitchMapping dnsResolver, HashedWheelTimer requestTimer)
+                      StatsLogger statsLogger, DNSToSwitchMapping dnsResolver, HashedWheelTimer requestTimer,
+                      FeatureProvider featureProvider)
             throws IOException, InterruptedException, KeeperException {
         this.conf = conf;
 
@@ -316,12 +324,22 @@ public class BookKeeper {
             this.ownTimer = false;
         }
 
+        if (null == featureProvider) {
+            this.featureProvider = SettableFeatureProvider.DISABLE_ALL;
+        } else {
+            this.featureProvider = featureProvider;
+        }
+
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
         this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
         this.alertStatsLogger = new AlertStatsLogger(statsLogger, "bk_alert");
         // initialize the ensemble placement
-        this.placementPolicy = initializeEnsemblePlacementPolicy(dnsResolver, requestTimer, statsLogger.scope("bookkeeper_client"));
+        this.placementPolicy = initializeEnsemblePlacementPolicy(
+                dnsResolver,
+                requestTimer,
+                this.featureProvider,
+                statsLogger.scope("bookkeeper_client"));
 
         if (conf.getFirstSpeculativeReadTimeout() > 0) {
             this.readSpeculativeRequestPolicy =
@@ -364,11 +382,13 @@ public class BookKeeper {
     private EnsemblePlacementPolicy initializeEnsemblePlacementPolicy(
             DNSToSwitchMapping dnsResolver,
             HashedWheelTimer timer,
+            FeatureProvider featureProvider,
             StatsLogger statsLogger)
         throws IOException {
         try {
             Class<? extends EnsemblePlacementPolicy> policyCls = conf.getEnsemblePlacementPolicy();
-            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), timer, statsLogger, alertStatsLogger);
+            return ReflectionUtils.newInstance(policyCls).initialize(conf, Optional.fromNullable(dnsResolver), timer,
+                    featureProvider, statsLogger, alertStatsLogger);
         } catch (ConfigurationException e) {
             throw new IOException("Failed to initialize ensemble placement policy : ", e);
         }

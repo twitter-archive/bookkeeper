@@ -28,6 +28,7 @@ import com.google.common.base.Optional;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -45,12 +46,14 @@ public interface EnsemblePlacementPolicy {
      * @param conf client configuration
      * @param optionalDnsResolver dns resolver
      * @param hashedWheelTimer timer
+     * @param featureProvider feature provider
      * @param statsLogger stats logger
      * @param alertStatsLogger stats logger for alerts
      */
     public EnsemblePlacementPolicy initialize(ClientConfiguration conf,
                                               Optional<DNSToSwitchMapping> optionalDnsResolver,
                                               HashedWheelTimer hashedWheelTimer,
+                                              FeatureProvider featureProvider,
                                               StatsLogger statsLogger,
                                               AlertStatsLogger alertStatsLogger);
 
