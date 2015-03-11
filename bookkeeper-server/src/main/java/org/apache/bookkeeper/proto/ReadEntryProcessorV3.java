@@ -153,7 +153,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
                         }
                     } else {
                         if (knownLAC < previousLAC) {
-                            logger.warn("Found smaller lac when piggy back reading lac and entry from ledger {} :" +
+                            logger.debug("Found smaller lac when piggy back reading lac and entry from ledger {} :" +
                                     " previous lac = {}, known lac = {}", new Object[] { ledgerId, previousLAC, knownLAC });
                         }
                         status = StatusCode.EOK;
