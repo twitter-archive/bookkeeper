@@ -51,12 +51,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.MapMaker;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -102,6 +106,7 @@ public class EntryLogger {
      */
     final long logSizeLimit;
     private List<BufferedLogChannel> logChannelsToFlush;
+    private final AtomicInteger numPendingLogFilesToFlush = new AtomicInteger(0);
     private volatile BufferedLogChannel logChannel;
     private final EntryLoggerAllocator entryLoggerAllocator;
     private final boolean entryLogPreAllocationEnabled;
@@ -203,6 +208,21 @@ public class EntryLogger {
         this.entryLoggerAllocator = new EntryLoggerAllocator(logId);
         this.serverCfg = conf;
         initialize();
+
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_ENTRY_LOG_FILES,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return numPendingLogFilesToFlush.get();
+                    }
+                }
+        );
     }
 
     void addListener(EntryLogListener listener) {
@@ -387,6 +407,7 @@ public class EntryLogger {
         if (null != logChannel) {
             if (null == logChannelsToFlush) {
                 logChannelsToFlush = new LinkedList<BufferedLogChannel>();
+                numPendingLogFilesToFlush.set(0);
             }
             if (null == unflushedEntryLogMetadataList) {
                 unflushedEntryLogMetadataList = new LinkedList<EntryLogMetadata>();
@@ -396,6 +417,7 @@ public class EntryLogger {
             logChannel.flush(false);
             BufferedLogChannel newLogChannel = entryLoggerAllocator.createNewLog();
             logChannelsToFlush.add(logChannel);
+            numPendingLogFilesToFlush.incrementAndGet();
             unflushedEntryLogMetadataList.add(currentLogMetadata);
             LOG.info("Flushing entry logger {} back to filesystem, pending for syncing entry loggers : {}.",
                     logChannel.getLogId(), logChannelsToFlush);
@@ -629,6 +651,7 @@ public class EntryLogger {
         synchronized (this) {
             channels = logChannelsToFlush;
             logChannelsToFlush = null;
+            numPendingLogFilesToFlush.set(0);
             entryLogMetadataList = unflushedEntryLogMetadataList;
             unflushedEntryLogMetadataList = null;
         }
