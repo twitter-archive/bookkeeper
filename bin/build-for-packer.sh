@@ -22,17 +22,9 @@ current_branch=$(git rev-parse --abbrev-ref HEAD)
 
 case "${release_type}" in
   netty*)
-    if [[ "${current_branch}" != "NettyReleaseBranch" ]]; then
-      echo "To build netty you need to be on NettyReleaseBranch"
-      exit 1
-    fi
     mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package
     ;;
   ql*)
-    if [[ "${current_branch}" != "QLReleaseBranch" ]]; then
-      echo "To build ql you need to be on QLReleaseBranch"
-      exit 1
-    fi
     mvn -Pnative -Ptwitter-science-provider clean package
     ;;
   *)
