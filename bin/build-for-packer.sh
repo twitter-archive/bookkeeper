@@ -22,16 +22,21 @@ current_branch=$(git rev-parse --abbrev-ref HEAD)
 
 case "${release_type}" in
   netty*)
-    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package
+    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package || {echo "failed to run maven"; exit 1}
     ;;
   ql*)
-    mvn -Pnative -Ptwitter-science-provider clean package
+    mvn -Pnative -Ptwitter-science-provider clean package || {echo "failed to run maven"; exit 1}
     ;;
   *)
     echo "Unknown target"
     exit 1
     ;;
 esac
+
+if [[ "$?" -ne 0 ]]; then
+  echo "error while running mvn. Exiting early."
+  exit 1
+fi
 
 dist="dist"
 mkdir -p "${dist}" "${dist}/conf" "${dist}/target" "${dist}/bin" "${dist}/lib"
