@@ -22,21 +22,16 @@ current_branch=$(git rev-parse --abbrev-ref HEAD)
 
 case "${release_type}" in
   netty*)
-    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package || {echo "failed to run maven"; exit 1}
+    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package || exit 1
     ;;
   ql*)
-    mvn -Pnative -Ptwitter-science-provider clean package || {echo "failed to run maven"; exit 1}
+    mvn -Pnative -Ptwitter-science-provider clean package || exit 1
     ;;
   *)
     echo "Unknown target"
     exit 1
     ;;
 esac
-
-if [[ "$?" -ne 0 ]]; then
-  echo "error while running mvn. Exiting early."
-  exit 1
-fi
 
 dist="dist"
 mkdir -p "${dist}" "${dist}/conf" "${dist}/target" "${dist}/bin" "${dist}/lib"
@@ -49,7 +44,7 @@ echo "#!/bin/bash
 
 java -cp target/*:lib/* org.apache.bookkeeper.bookie.BookieShell -conf ./conf/bk_server.conf $@" > "${dist}/bkshell"
 
-chmod +x bkshell
+chmod +x "${dist}/bkshell"
 
 mkdir -p "${dist}/lib/native"
 
