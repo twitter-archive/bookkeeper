@@ -22,10 +22,10 @@ current_branch=$(git rev-parse --abbrev-ref HEAD)
 
 case "${release_type}" in
   netty*)
-    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package || exit 1
+    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package -DskipTests || exit 1
     ;;
   ql*)
-    mvn -Pnative -Ptwitter-science-provider clean package || exit 1
+    mvn -Pnative -Ptwitter-science-provider clean package -DskipTests || exit 1
     ;;
   *)
     echo "Unknown target"
