@@ -57,6 +57,12 @@ public class CookieTest extends BookKeeperClusterTestCase {
         return d.getPath();
     }
 
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
     /**
      * Test starting bookie with clean state.
      */
@@ -68,7 +74,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { newDirectory(false) })
             .setBookiePort(bookiePort);
         try {
-            Bookie b = new Bookie(conf);
+            Bookie b = newBookie(conf);
         } catch (Exception e) {
             fail("Should not reach here.");
         }
@@ -100,7 +106,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         c2.writeToDirectory(new File(ledgerDir, "current"));
 
         try {
-            Bookie b = new Bookie(conf2);
+            Bookie b = newBookie(conf2);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -123,13 +129,13 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(ledgerDirs)
             .setBookiePort(bookiePort);
 
-        Bookie b = new Bookie(conf); // should work fine
+        Bookie b = newBookie(conf); // should work fine
         b.start();
         b.shutdown();
 
         conf.setLedgerDirNames(new String[] { ledgerDirs[0], ledgerDirs[1] });
         try {
-            Bookie b2 = new Bookie(conf);
+            Bookie b2 = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -137,14 +143,14 @@ public class CookieTest extends BookKeeperClusterTestCase {
 
         conf.setJournalDirName(newDirectory()).setLedgerDirNames(ledgerDirs);
         try {
-            Bookie b2 = new Bookie(conf);
+            Bookie b2 = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
         }
 
         conf.setJournalDirName(journalDir);
-        b = new Bookie(conf);
+        b = newBookie(conf);
         b.start();
         b.shutdown();
     }
@@ -164,20 +170,20 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { ledgerDir0 })
             .setBookiePort(bookiePort);
 
-        Bookie b = new Bookie(conf); // should work fine
+        Bookie b = newBookie(conf); // should work fine
         b.start();
         b.shutdown();
 
         conf.setLedgerDirNames(new String[] { ledgerDir0, newDirectory() });
         try {
-            Bookie b2 = new Bookie(conf);
+            Bookie b2 = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
         }
 
         conf.setLedgerDirNames(new String[] { ledgerDir0 });
-        b = new Bookie(conf);
+        b = newBookie(conf);
         b.start();
         b.shutdown();
     }
@@ -196,13 +202,13 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { ledgerDir0 , newDirectory() })
             .setBookiePort(bookiePort);
 
-        Bookie b = new Bookie(conf); // should work fine
+        Bookie b = newBookie(conf); // should work fine
         b.start();
         b.shutdown();
 
         FileUtils.deleteDirectory(new File(ledgerDir0));
         try {
-            Bookie b2 = new Bookie(conf);
+            Bookie b2 = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -220,13 +226,13 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
-        Bookie b = new Bookie(conf); // should work fine
+        Bookie b = newBookie(conf); // should work fine
         b.start();
         b.shutdown();
 
         conf.setBookiePort(3182);
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -246,7 +252,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
-        Bookie b = new Bookie(conf); // should work fine
+        Bookie b = newBookie(conf); // should work fine
         b.start();
         b.shutdown();
 
@@ -256,7 +262,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
             .setBookiePort(bookiePort);
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -281,12 +287,12 @@ public class CookieTest extends BookKeeperClusterTestCase {
                 .setLedgerDirNames(new String[] { newDirectory(false) })
                 .setBookiePort(bookiePort);
         // Bookie should start successfully for fresh env.
-        new Bookie(bookieConf);
+        newBookie(bookieConf);
 
         // Format metadata one more time.
         BookKeeperAdmin.format(adminConf, false, true);
         try {
-            new Bookie(bookieConf);
+            newBookie(bookieConf);
             fail("Bookie should not start with previous instance id.");
         } catch (BookieException.InvalidCookieException e) {
             assertTrue(
@@ -297,7 +303,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         // Now format the Bookie and restart.
         Bookie.format(bookieConf, false, true);
         // After bookie format bookie should be able to start again.
-        new Bookie(bookieConf);
+        newBookie(bookieConf);
     }
 
     /**
@@ -316,7 +322,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { ledgerDir.getPath() })
             .setBookiePort(bookiePort);
         try {
-            Bookie b = new Bookie(conf);
+            Bookie b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour
@@ -340,7 +346,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[]{ledgerDir.getPath()})
             .setBookiePort(bookiePort);
         try {
-            Bookie b = new Bookie(conf);
+            Bookie b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException ice) {
             // correct behaviour

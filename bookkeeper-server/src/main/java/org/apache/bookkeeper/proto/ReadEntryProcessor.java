@@ -26,53 +26,47 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
+import org.apache.bookkeeper.proto.BookieProtocol.ReadRequest;
+import org.apache.bookkeeper.proto.BookieProtocol.Request;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
+import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class ReadEntryProcessor extends PacketProcessorBase {
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessor.class);
 
-    ReadEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
-        super(packet, srcConn, bookie);
+    ReadEntryProcessor(Request request, Channel channel, Bookie bookie) {
+        super(request, channel, bookie);
     }
 
     @Override
     public void safeRun() {
-        final long startTimeNanos = MathUtils.nowInNano();
-        header = PacketHeader.fromInt(packet.getInt());
-        ledgerId = packet.getLong();
-        entryId = packet.getLong();
-        if (!isVersionCompatible(header)) {
+        if (!isVersionCompatible(request)) {
             sendResponse(BookieProtocol.EBADVERSION,
                          BookkeeperServerOp.READ_ENTRY_REQUEST,
-                         buildResponse(BookieProtocol.EBADVERSION));
+                         ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request));
             return;
         }
-        short flags = header.getFlags();
-        // The response consists of 2 bytebuffers. The first one contains the packet header and meta data
-        // The second contains the actual entry.
-        ByteBuffer[] toSend = new ByteBuffer[2];
+        ReadRequest read = (ReadRequest) request;
         int rc = BookieProtocol.EIO;
+        final long startTimeNanos = MathUtils.nowInNano();
+        ByteBuffer data = null;
         try {
             Future<Boolean> fenceResult = null;
-            if ((flags & BookieProtocol.FLAG_DO_FENCING) == BookieProtocol.FLAG_DO_FENCING) {
-                logger.warn("Ledger fence request received for ledger:" + ledgerId + " from address:" + srcConn.getPeerName());
-                if (header.getVersion() >= 2) {
-                    // Versions below 2 don't allow fencing ledgers.
-                    byte[] masterKey = new byte[BookieProtocol.MASTER_KEY_LENGTH];
-                    packet.get(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
-                    fenceResult = bookie.fenceLedger(ledgerId, masterKey);
+            if (read.isFencingRequest()) {
+                logger.warn("Ledger fence request received for ledger:{} from address:{}",
+                        read.getLedgerId(), channel.getRemoteAddress());
+                if (read.hasMasterKey()) {
+                    fenceResult = bookie.fenceLedger(read.getLedgerId(), read.getMasterKey());
                 } else {
-                    logger.error("Fencing a ledger is not supported by version:" + header.getVersion());
+                    logger.error("Password not provided, Not safe to fence {}", read.getLedgerId());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 }
             }
-            toSend[1] = bookie.readEntry(ledgerId, entryId);
+            data = bookie.readEntry(read.getLedgerId(), read.getEntryId());
             if (null != fenceResult) {
                 // TODO:
                 // currently we don't have readCallback to run in separated read
@@ -87,68 +81,57 @@ class ReadEntryProcessor extends PacketProcessorBase {
                     if (null == fenced || !fenced) {
                         // if failed to fence, fail the read request to make it retry.
                         rc = BookieProtocol.EIO;
-                        toSend[1] = null;
+                        data = null;
                     } else {
                         rc = BookieProtocol.EOK;
                     }
                 } catch (InterruptedException ie) {
-                    logger.error("Interrupting fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", ie);
+                    logger.error("Interrupting fence read entry {} : ", read, ie);
                     rc = BookieProtocol.EIO;
-                    toSend[1] = null;
+                    data = null;
                 } catch (ExecutionException ee) {
-                    logger.error("Failed to fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", ee);
+                    logger.error("Failed to fence read entry {} : ", read, ee);
                     rc = BookieProtocol.EIO;
-                    toSend[1] = null;
+                    data = null;
                 } catch (TimeoutException te) {
-                    logger.error("Timeout to fence read entry (lid:" + ledgerId
-                              + ", eid:" + entryId + ") :", te);
+                    logger.error("Timeout to fence read entry {} : ", read, te);
                     rc = BookieProtocol.EIO;
-                    toSend[1] = null;
+                    data = null;
                 }
             } else {
                 rc = BookieProtocol.EOK;
             }
         } catch (Bookie.NoLedgerException e) {
             rc = BookieProtocol.ENOLEDGER;
-            logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            logger.error("No ledger found while reading {}", read);
         } catch (Bookie.NoEntryException e) {
             rc = BookieProtocol.ENOENTRY;
-            logger.error("No entry found while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            logger.error("No entry found while reading {}", read);
         } catch (IOException e) {
             rc = BookieProtocol.EIO;
-            logger.error("IOException while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            logger.error("IOException while reading {}", read);
         } catch (BookieException e) {
-            logger.error("Unauthorized access to ledger:" + ledgerId + " while reading entry:" + entryId + " in request " +
-                    "from address:" + srcConn.getPeerName());
+            logger.error(
+                    "Unauthorized access to ledger:{} while reading entry:{} in request from address : {}",
+                    new Object[] { read.getLedgerId(), read.getEntryId(), channel.getRemoteAddress() });
             rc = BookieProtocol.EUA;
         }
 
         if (rc == BookieProtocol.EOK) {
+            sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST,
+                         ResponseBuilder.buildReadResponse(data, read));
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                     .READ_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         } else {
+            sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST,
+                         ResponseBuilder.buildErrorResponse(rc, read));
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                     .READ_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         }
-
-        toSend[0] = buildResponse(rc);
-        // If we caught an exception, we still need to fill in the response with the ledger id and entry id.
-        if (null == toSend[1]) {
-            toSend[1] = ByteBuffer.allocate(16);
-            toSend[1].putLong(ledgerId);
-            toSend[1].putLong(entryId);
-            toSend[1].flip();
-        }
-        sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST, toSend);
     }
 
     @Override
     public String toString() {
-        return String.format("ReadEntry(%d, %d)", ledgerId, entryId);
+        return String.format("ReadEntry(%d, %d)", request.getLedgerId(), request.getEntryId());
     }
 }

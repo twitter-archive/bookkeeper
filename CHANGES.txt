@@ -248,6 +248,8 @@ Trunk (unreleased changes)
 
     IMPROVEMENTS:
 
+      BOOKKEEPER-555: Make BookieServer use Netty rather than a custom IO server (ivank)
+
       BOOKKEEPER-526: multiple threads for delivery manager (sijie via ivank)
 
       BOOKKEEPER-544: Modify hedwig server tests to allow client testcases to start/stop them as part of their tests (mridul via ivank)
@@ -602,7 +604,7 @@ Release 4.2.0 - 2013-01-14
 
         BOOKKEEPER-426: Make auditor Vote znode store a protobuf containing the host that voted (ivank)
 
-	BOOKKEEPER-428: Expose command options in bookie scripts to disable/enable auto recovery temporarily (rakesh,ivank via fpj)
+	BOOKKEEPER-428: Expose command options in bookie scripts to disable/enable auto recovery temporarily (ivank via fpj)
 
         BOOKKEEPER-511: BookieShell is very noisy (ivank via sijie)
 

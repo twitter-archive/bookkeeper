@@ -81,7 +81,6 @@ public class BookieZKExpireTest extends BookKeeperClusterTestCase {
             // allow watcher thread to run
             Thread.sleep(3000);
             assertTrue("Bookie should not shutdown on losing zk session", server.isBookieRunning());
-            assertTrue("Nio Server should not shutdown on losing zk session", server.isNioServerRunning());
             assertTrue("Bookie Server should not shutdown on losing zk session", server.isRunning());
             // check the existence of znode
             assertNotNull(zkUtil.getZooKeeperClient()

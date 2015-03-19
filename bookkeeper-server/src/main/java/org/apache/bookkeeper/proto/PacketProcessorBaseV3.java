@@ -7,32 +7,28 @@ import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-
-import java.nio.ByteBuffer;
+import org.jboss.netty.channel.Channel;
 
 abstract class PacketProcessorBaseV3 extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBaseV3.class);
     final Request request;
-    final Cnxn srcConn;
+    final Channel channel;
     final Bookie  bookie;
     protected long enqueueNanos;
 
-    PacketProcessorBaseV3(Request request, Cnxn srcConn, Bookie bookie) {
+    PacketProcessorBaseV3(Request request, Channel channel, Bookie bookie) {
         this.request = request;
-        this.srcConn = srcConn;
+        this.channel = channel;
         this.bookie = bookie;
         this.enqueueNanos = MathUtils.nowInNano();
     }
 
-    protected void sendResponse(StatusCode code, Enum statOp, ByteBuffer...response) {
-        srcConn.sendResponse(response);
+    protected void sendResponse(StatusCode code, Enum statOp, Object response) {
+        channel.write(response);
         if (StatusCode.EOK == code) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
@@ -46,10 +42,6 @@ abstract class PacketProcessorBaseV3 extends SafeRunnable {
         // TODO: Change this to include LOWEST_COMPAT
         // For now we just support version 3
         return this.request.getHeader().getVersion().equals(ProtocolVersion.VERSION_THREE);
-    }
-
-    protected ByteBuffer encodeResponse(Response response) {
-        return ByteBuffer.wrap(response.toByteArray());
     }
 
     /**

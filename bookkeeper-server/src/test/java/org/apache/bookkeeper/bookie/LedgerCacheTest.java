@@ -65,6 +65,12 @@ public class LedgerCacheTest extends TestCase {
 
     private Bookie bookie;
 
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
     @Override
     @Before
     public void setUp() throws Exception {
@@ -77,7 +83,7 @@ public class LedgerCacheTest extends TestCase {
         conf.setZkServers(null);
         conf.setJournalDirName(txnDir.getPath());
         conf.setLedgerDirNames(new String[] { ledgerDir.getPath() });
-        bookie = new Bookie(conf);
+        bookie = newBookie(conf);
 
         ledgerManagerFactory =
             LedgerManagerFactory.newLedgerManagerFactory(conf, null);
@@ -271,7 +277,7 @@ public class LedgerCacheTest extends TestCase {
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] { ledgerDir1.getAbsolutePath(), ledgerDir2.getAbsolutePath() });
 
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         InterleavedLedgerStorage ledgerStorage = ((InterleavedLedgerStorage) bookie.ledgerStorage);
         LedgerCacheImpl ledgerCache = (LedgerCacheImpl) ledgerStorage.ledgerCache;
         // Create ledger index file
@@ -327,7 +333,7 @@ public class LedgerCacheTest extends TestCase {
             .setPageLimit(1)
             .setSortedLedgerStorageEnabled(false);
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.start();
         for (int i = 1; i <= numLedgers; i++) {
             ByteBuffer packet = generateEntry(i, 1);
@@ -339,7 +345,7 @@ public class LedgerCacheTest extends TestCase {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        b = new Bookie(conf);
+        b = newBookie(conf);
         for (int i = 1; i <= numLedgers; i++) {
             try {
                 b.readEntry(i, 1);

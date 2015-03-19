@@ -20,7 +20,12 @@
  */
 package org.apache.bookkeeper.proto;
 
-import com.google.common.annotations.VisibleForTesting;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
+import java.net.UnknownHostException;
+
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.bookie.BookieException;
@@ -43,11 +48,9 @@ import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
-import java.net.UnknownHostException;
+import com.google.common.annotations.VisibleForTesting;
+
+import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
 import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
@@ -59,7 +62,7 @@ public class BookieServer {
     static Logger LOG = LoggerFactory.getLogger(BookieServer.class);
 
     final ServerConfiguration conf;
-    NIOServerFactory nioServerFactory;
+    final BookieNettyServer nettyServer;
     private volatile boolean running = false;
     Bookie bookie;
     DeathWatcher deathWatcher;
@@ -80,7 +83,19 @@ public class BookieServer {
         this.statsProvider = ServerStatsProvider.initialize(conf);
         isStatsEnabled = conf.isStatisticsEnabled();
 
+        // Restart sequence
+        // 1. First instantiate the server factory and bind to the port
+        //    --- if using ephemeral ports this is where a port will be picked and
+        //        used for rest of the startup
+        // 2. Initialise the bookie - using the port that the connection bound to
+        // 3. Set the packet processor in the server (this is only used after the server starts running
+        // 4. Start the bookie - read the journal, replay, recover
+        // 5. Start the server and accept connections
+        //
         this.bookie = newBookie(conf);
+        this.nettyServer = new BookieNettyServer(this.conf, this.bookie);
+        this.bookie.initialize();
+
         isAutoRecoveryDaemonEnabled = conf.isAutoRecoveryDaemonEnabled();
         if (isAutoRecoveryDaemonEnabled) {
             try {
@@ -103,6 +118,7 @@ public class BookieServer {
 
         // fail fast, when bookie startup is not successful
         if (!this.bookie.isRunning()) {
+            LOG.info("Bookie exit code : {}", bookie.getExitCode());
             exitCode = bookie.getExitCode();
             return;
         }
@@ -114,13 +130,7 @@ public class BookieServer {
             }
         }
 
-        // start the nio server only after bookie is started, as the nio server only could
-        // accept requests after then. otherwise, it would cause client sending lots of
-        // request to this bookie but without being processing, which cause high read latency
-        nioServerFactory = new NIOServerFactory(conf,
-                new MultiPacketProcessor(this.conf, this.bookie),
-                Stats.get().getStatsLogger("nio_server"));
-        nioServerFactory.start();
+        this.nettyServer.start();
 
         // Start stats provider.
         statsProvider.start(conf);
@@ -137,7 +147,7 @@ public class BookieServer {
         try {
             return Bookie.getBookieAddress(conf);
         } catch (UnknownHostException uhe) {
-            return nioServerFactory.getLocalAddress();
+            return nettyServer.getLocalAddress();
         }
     }
 
@@ -151,9 +161,7 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void suspendProcessing() {
-        if (null != nioServerFactory) {
-            nioServerFactory.suspendProcessing();
-        }
+        nettyServer.suspendProcessing();
     }
 
     /**
@@ -161,18 +169,14 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void resumeProcessing() {
-        if (null != nioServerFactory) {
-            nioServerFactory.resumeProcessing();
-        }
+        nettyServer.resumeProcessing();
     }
 
     public synchronized void shutdown() {
         if (!running) {
             return;
         }
-        if (null != nioServerFactory) {
-            nioServerFactory.shutdown();
-        }
+        this.nettyServer.shutdown();
 
         // Stop stats exporter.
         statsProvider.stop();
@@ -209,7 +213,7 @@ public class BookieServer {
     }
 
     public boolean isRunning() {
-        return bookie.isRunning() && isNioServerRunning() && running;
+        return bookie.isRunning() && nettyServer.isRunning() && running;
     }
 
     /**
@@ -231,19 +235,8 @@ public class BookieServer {
                 && this.autoRecoveryMain.isAutoRecoveryRunning();
     }
 
-    /**
-     * Whether nio server is running?
-     *
-     * @return true if nio server is running, otherwise return false
-     */
-    public boolean isNioServerRunning() {
-        return null != nioServerFactory && nioServerFactory.isRunning();
-    }
-
     public void join() throws InterruptedException {
-        if (null != nioServerFactory) {
-            nioServerFactory.join();
-        }
+        bookie.join();
     }
 
     public int getExitCode() {
@@ -270,7 +263,7 @@ public class BookieServer {
                 } catch (InterruptedException ie) {
                     // do nothing
                 }
-                if (!isBookieRunning() || !isNioServerRunning()) {
+                if (!isBookieRunning()) {
                     shutdown();
                     break;
                 }
@@ -422,5 +415,4 @@ public class BookieServer {
             System.exit(ExitCode.SERVER_EXCEPTION);
         }
     }
-
 }

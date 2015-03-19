@@ -24,11 +24,13 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.RateLimiter;
@@ -37,7 +39,10 @@ import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,6 +99,9 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     final AtomicBoolean forceGarbageCollection = new AtomicBoolean(false);
     volatile boolean suspendMajorCompaction = false;
     volatile boolean suspendMinorCompaction = false;
+
+    // Stats on EntryLog Usage Distributions
+    final AtomicInteger[] spaceDistributions = new AtomicInteger[11];
 
     private static class Offset {
         final long ledger;
@@ -266,6 +274,47 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                + majorCompactionThreshold + ", interval=" + majorCompactionInterval);
 
         lastMinorCompactionTime = lastMajorCompactionTime = MathUtils.now();
+
+        // Expose Stats
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.GC_LAST_SCANNED_ENTRYLOG_ID,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return scannedLogId;
+                    }
+                });
+        StatsLogger gcStatsLogger = Stats.get().getStatsLogger("gc");
+        for (int i = 0; i < spaceDistributions.length; i++) {
+            final AtomicInteger spaceUsage = new AtomicInteger(0);
+            spaceDistributions[i] = spaceUsage;
+            String name;
+            if (i == 10) {
+                name = BookkeeperServerStatsLogger.BookkeeperServerGauge
+                            .GC_NUM_ENTRYLOG_FILES_SPACE_USAGE.name() + "_100";
+            } else {
+                name = BookkeeperServerStatsLogger.BookkeeperServerGauge
+                            .GC_NUM_ENTRYLOG_FILES_SPACE_USAGE.name() + "_" + (i * 10) + "_" + ((i + 1)  * 10 - 1);
+            }
+            gcStatsLogger.registerGauge(name,
+                    new Gauge<Number>() {
+                        @Override
+                        public Number getDefaultValue() {
+                            return 0;
+                        }
+
+                        @Override
+                        public Number getSample() {
+                            return spaceUsage;
+                        }
+                    });
+        }
+
     }
 
     public synchronized void enableForceGC(boolean suspendMajorCompaction, boolean suspendMinorCompaction) {
@@ -310,9 +359,13 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * gc ledger storage.
      */
     void gc() {
+        LOG.info("Starting garbage collecting ledger storage.");
+
+        LOG.info("Garbage collecting deleted ledgers' index files.");
         // gc inactive/deleted ledgers
         doGcLedgers();
 
+        LOG.info("Scanning entry log files to extract metadata and delete empty entry logs if possible.");
         // Extract all of the ledger ID's that comprise all of the entry logs
         // (except for the current new one which is still being written to).
         extractMetaAndGCEntryLogs(entryLogger.getEntryLogMetadataManager());
@@ -322,9 +375,11 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             return;
         }
 
+        LOG.info("Garbage collecting deleted ledgers' index files again just in case ledgers deleted during scanning.");
         // gc inactive/deleted ledgers again, just in case ledgers are deleted during scanning entry logs
         doGcLedgers();
 
+        LOG.info("Garbage collecting empty entry log files.");
         // gc entry logs
         doGcEntryLogs();
     }
@@ -332,6 +387,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     @Override
     public void run() {
         long nextGcWaitTime = gcInitialWaitTime;
+        int numGcs = 1;
         while (running) {
             synchronized (this) {
                 try {
@@ -385,6 +441,11 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                     // also move minor compaction time
                     lastMinorCompactionTime = lastMajorCompactionTime;
                 }
+
+                LOG.info("Finished {} garbage collection.", numGcs);
+                ++numGcs;
+                ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                        BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_GC).inc();
             } finally {
                 forceGarbageCollection.set(false);
             }
@@ -395,30 +456,45 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * Do garbage collection ledger index files
      */
     private void doGcLedgers() {
+        final AtomicInteger numLedgersDeleted = new AtomicInteger(0);
         activeLedgerManager.garbageCollectLedgers(
         new ActiveLedgerManager.GarbageCollector() {
             @Override
             public void gc(long ledgerId) {
                 try {
                     ledgerCache.deleteLedger(ledgerId);
+                    numLedgersDeleted.incrementAndGet();
+                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                            BookkeeperServerStatsLogger.BookkeeperServerCounter.GC_NUM_LEDGERS_DELETED).inc();
                 } catch (IOException e) {
                     LOG.error("Exception when deleting the ledger index file on the Bookie: ", e);
                 }
             }
         });
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                BookkeeperServerStatsLogger.BookkeeperServerOp.GC_NUM_LEDGERS_DELETED_PER_GC).registerSuccessfulEvent(numLedgersDeleted.get());
     }
 
     /**
      * Garbage collect those entry loggers which are not associated with any active ledgers
      */
     private void doGcEntryLogs() {
+        int[] usageDistributions = new int[11];
+        Arrays.fill(usageDistributions, 0);
         // Loop through all of the entry logs and remove the non-active ledgers.
         for (Long entryLogId : entryLogger.getEntryLogMetadataManager().getEntryLogs()) {
-            doGcEntryLog(entryLogId, entryLogger.getEntryLogMetadataManager().getEntryLogMetadata(entryLogId));
+            EntryLogMetadata metadata = entryLogger.getEntryLogMetadataManager().getEntryLogMetadata(entryLogId);
+            if (!doGcEntryLog(entryLogId, metadata)) {
+                int slot = Math.min(10, (int) (metadata.getUsage() * 100) / 10);
+                usageDistributions[slot]++;
+            }
+        }
+        for (int i = 0; i < spaceDistributions.length; i++) {
+            spaceDistributions[i].set(usageDistributions[i]);
         }
     }
 
-    private void doGcEntryLog(long entryLogId, EntryLogMetadata meta) {
+    private boolean doGcEntryLog(long entryLogId, EntryLogMetadata meta) {
         for (Long entryLogLedger : meta.ledgersMap.keySet()) {
             // Remove the entry log ledger from the set if it isn't active.
             if (!activeLedgerManager.containsActiveLedger(entryLogLedger)) {
@@ -430,6 +506,9 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             // We can remove this entry log file now.
             LOG.info("Deleting entryLogId {} as it has no active ledgers!", entryLogId);
             removeEntryLog(entryLogId);
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -472,6 +551,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             LOG.debug("Compacting entry log {} below threshold {}.", meta.entryLogId, threshold);
             try {
                 if (compactEntryLog(meta)) {
+                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                            BookkeeperServerStatsLogger.BookkeeperServerCounter.GC_NUM_ENTRYLOGS_COMPACTED).inc();
                     // schedule entry log to be removed after moving entries
                     logsToRemove.add(meta);
                 }
@@ -488,6 +569,10 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 return;
             }
         }
+
+        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
+                BookkeeperServerStatsLogger.BookkeeperServerOp.GC_NUM_ENTRYLOGS_DELETED_PER_COMPACTION)
+                .registerSuccessfulEvent(logsToRemove.size());
 
         if (logsToRemove.size() != 0) {
             // Mark compacting flag to make sure it would not be interrupted
@@ -540,6 +625,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         // remove entry log file successfully
         if (entryLogger.removeEntryLog(entryLogId)) {
             entryLogger.getEntryLogMetadataManager().removeEntryLogMetadata(entryLogId);
+            ServerStatsProvider.getStatsLoggerInstance().getCounter(
+                    BookkeeperServerStatsLogger.BookkeeperServerCounter.GC_NUM_ENTRYLOGS_DELETED).inc();
         }
     }
 

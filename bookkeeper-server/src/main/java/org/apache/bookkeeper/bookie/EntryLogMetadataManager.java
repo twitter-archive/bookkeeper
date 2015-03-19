@@ -20,10 +20,15 @@
  */
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+
 import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manage entry log metadata.
@@ -89,8 +94,38 @@ class EntryLogMetadataManager {
         }
     }
 
+    private final AtomicLong totalSize = new AtomicLong(0L);
     private final ConcurrentMap<Long, EntryLogMetadata> entryLogMetadataMap =
             new ConcurrentHashMap<Long, EntryLogMetadata>();
+
+    EntryLogMetadataManager() {
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.GC_TOTAL_SCANNED_BYTES,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return totalSize.get();
+                    }
+                });
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.GC_TOTAL_SCANNED_ENTRYLOG_FILES,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return entryLogMetadataMap.size();
+                    }
+                });
+    }
 
     public Set<Long> getEntryLogs() {
         return entryLogMetadataMap.keySet();
@@ -106,7 +141,11 @@ class EntryLogMetadataManager {
      * @param metadata entry log metadata.
      */
     public void addEntryLogMetadata(EntryLogMetadata metadata) {
-        entryLogMetadataMap.put(metadata.entryLogId, metadata);
+        EntryLogMetadata oldMetadata = entryLogMetadataMap.put(metadata.entryLogId, metadata);
+        if (null != oldMetadata) {
+            totalSize.addAndGet(-oldMetadata.totalSize);
+        }
+        totalSize.addAndGet(metadata.totalSize);
     }
 
     /**
@@ -127,7 +166,10 @@ class EntryLogMetadataManager {
      *          entry log id.
      */
     public void removeEntryLogMetadata(long entryLogId) {
-        entryLogMetadataMap.remove(entryLogId);
+        EntryLogMetadata metadata = entryLogMetadataMap.remove(entryLogId);
+        if (null != metadata) {
+            totalSize.addAndGet(-metadata.totalSize);
+        }
     }
 
     /**

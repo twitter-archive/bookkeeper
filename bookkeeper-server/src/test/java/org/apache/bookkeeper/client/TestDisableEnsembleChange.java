@@ -218,7 +218,10 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
         List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
 
         final CountDownLatch wakeupLatch = new CountDownLatch(1);
-        sleepBookie(curEns.get(2), wakeupLatch);
+        final CountDownLatch suspendLatch = new CountDownLatch(1);
+        sleepBookie(curEns.get(2), wakeupLatch, suspendLatch);
+
+        suspendLatch.await();
 
         final AtomicInteger res = new AtomicInteger(0xdeadbeef);
         final CountDownLatch addLatch = new CountDownLatch(1);

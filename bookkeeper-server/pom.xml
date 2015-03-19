@@ -21,7 +21,7 @@
   <parent>
     <artifactId>bookkeeper</artifactId>
     <groupId>org.apache.bookkeeper</groupId>
-    <version>4.2.6-TWTTR-SNAPSHOT</version>
+    <version>4.3.0-TWTTR-SNAPSHOT</version>
   </parent>
   <groupId>org.apache.bookkeeper</groupId>
   <artifactId>bookkeeper-server</artifactId>
@@ -35,6 +35,11 @@
     <dependency>
       <groupId>org.apache.bookkeeper.stats</groupId>
       <artifactId>bookkeeper-stats-api</artifactId>
+      <version>${project.parent.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper.shims</groupId>
+      <artifactId>zookeeper-shim</artifactId>
       <version>${project.parent.version}</version>
     </dependency>
     <dependency>
@@ -69,12 +74,7 @@
       <artifactId>slf4j-log4j12</artifactId>
       <version>1.6.4</version>
     </dependency>
-    <dependency>
-      <groupId>org.apache.zookeeper</groupId>
-      <artifactId>zookeeper</artifactId>
-      <version>${zookeeper.version}</version>
-      <scope>compile</scope>
-    </dependency>
+    <!-- we stil need this to compile tests -->
     <dependency>
       <groupId>org.apache.zookeeper</groupId>
       <artifactId>zookeeper</artifactId>
@@ -379,5 +379,28 @@
         </dependency>
       </dependencies>
     </profile> 
+    <profile>
+      <id>zk3.4</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.bookkeeper.shims</groupId>
+          <artifactId>zookeeper-shim-3.4</artifactId>
+          <version>${project.parent.version}</version>
+        </dependency>
+      </dependencies>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+    </profile>
+    <profile>
+      <id>zk3.3</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.bookkeeper.shims</groupId>
+          <artifactId>zookeeper-shim-3.3</artifactId>
+          <version>${project.parent.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
   </profiles>
 </project>

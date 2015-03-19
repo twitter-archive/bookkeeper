@@ -18,16 +18,13 @@
 
 package org.apache.bookkeeper.proto;
 
-import java.net.InetAddress;
 import java.net.UnknownHostException;
 
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanInfo;
-import org.apache.bookkeeper.proto.BKStats;
-import org.apache.bookkeeper.proto.BKStats.OpStats;
 import org.apache.bookkeeper.proto.BKStats.OpStatData;
+import org.apache.bookkeeper.util.StringUtils;
 
 /**
  * Bookie Server Bean
@@ -66,17 +63,12 @@ public class BookieServerBean implements BookieServerMXBean, BKMBeanInfo {
 
     @Override
     public OpStatData getAddStats() {
-        return bks.bkStats.getOpStats(BKStats.STATS_ADD).toOpStatData();
+        return BKStats.getInstance().getOpStats(BKStats.STATS_ADD).toOpStatData();
     }
 
     @Override
     public OpStatData getReadStats() {
-        return bks.bkStats.getOpStats(BKStats.STATS_READ).toOpStatData();
-    }
-
-    @Override
-    public String getServerState() {
-        return bks.nioServerFactory.stats.getServerState();
+        return BKStats.getInstance().getOpStats(BKStats.STATS_READ).toOpStatData();
     }
 
     @Override

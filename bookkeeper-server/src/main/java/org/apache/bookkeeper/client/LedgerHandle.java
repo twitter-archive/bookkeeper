@@ -964,20 +964,23 @@ public class LedgerHandle {
     }
 
     void sendAddSuccessCallbacks() {
+        int numSuccesses = 0;
         // Start from the head of the queue and proceed while there are
         // entries that have had all their responses come back
         PendingAddOp pendingAddOp;
         while ((pendingAddOp = pendingAddOps.peek()) != null
                && blockAddCompletions.get() == 0) {
             if (!pendingAddOp.completed) {
-                return;
+                break;
             }
             pendingAddOps.remove();
             bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
             setLastAddConfirmed(pendingAddOp.entryId);
             pendingAddOp.submitCallback(BKException.Code.OK);
+            ++numSuccesses;
         }
-
+        bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.NUM_ADDS_SUBMITTED_PER_CALLBACK)
+                .registerSuccessfulEvent(numSuccesses);
     }
 
     EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies,

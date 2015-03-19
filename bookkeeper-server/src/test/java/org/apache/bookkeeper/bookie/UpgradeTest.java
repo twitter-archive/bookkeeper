@@ -53,6 +53,12 @@ public class UpgradeTest extends BookKeeperClusterTestCase {
 
     final static int bookiePort = PortManager.nextFreePort();
 
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
     public UpgradeTest() {
         super(0);
     }
@@ -154,7 +160,7 @@ public class UpgradeTest extends BookKeeperClusterTestCase {
             .setBookiePort(bookiePort);
         Bookie b = null;
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException e) {
             // correct behaviour
@@ -162,14 +168,14 @@ public class UpgradeTest extends BookKeeperClusterTestCase {
         }
 
         FileSystemUpgrade.upgrade(conf); // should work fine
-        b = new Bookie(conf);
+        b = newBookie(conf);
         b.start();
         b.shutdown();
         b = null;
 
         FileSystemUpgrade.rollback(conf);
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
             fail("Shouldn't have been able to start");
         } catch (BookieException.InvalidCookieException e) {
             // correct behaviour
@@ -178,7 +184,7 @@ public class UpgradeTest extends BookKeeperClusterTestCase {
 
         FileSystemUpgrade.upgrade(conf);
         FileSystemUpgrade.finalizeUpgrade(conf);
-        b = new Bookie(conf);
+        b = newBookie(conf);
         b.start();
         b.shutdown();
         b = null;
@@ -216,7 +222,7 @@ public class UpgradeTest extends BookKeeperClusterTestCase {
             .setLedgerDirNames(new String[] { ledgerDir.getPath() })
             .setBookiePort(bookiePort);
         FileSystemUpgrade.upgrade(conf); // should work fine with current directory
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.start();
         b.shutdown();
     }

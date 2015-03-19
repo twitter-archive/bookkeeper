@@ -69,6 +69,12 @@ public class EntryLogTest {
         return true;
     }
 
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
     @Test
     public void testBufferedReadChannel() throws Exception {
         File tmpFile = IOUtils.createTempFileAndDeleteOnExit("bufferedReadTest", ".tmp");
@@ -160,7 +166,7 @@ public class EntryLogTest {
         ServerConfiguration conf = new ServerConfiguration();
         conf.setGcWaitTime(gcWaitTime);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         // create some entries
         EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
         logger.addEntry(1L, generateEntry(1, 1));
@@ -295,7 +301,7 @@ public class EntryLogTest {
 
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         // create some entries
         int numLogs = 3;
         int numEntries = 10;
@@ -379,7 +385,7 @@ public class EntryLogTest {
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] { ledgerDir1.getAbsolutePath(),
                 ledgerDir2.getAbsolutePath() });
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         EntryLogger entryLogger = new EntryLogger(conf,
                 bookie.getLedgerDirsManager());
         InterleavedLedgerStorage ledgerStorage = ((InterleavedLedgerStorage) bookie.ledgerStorage);

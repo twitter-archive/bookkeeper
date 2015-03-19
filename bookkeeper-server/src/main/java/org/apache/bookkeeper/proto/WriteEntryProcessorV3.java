@@ -1,30 +1,28 @@
 package org.apache.bookkeeper.proto;
 
-import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.util.MathUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
+import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.util.MathUtils;
+import org.jboss.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
-    public WriteEntryProcessorV3(Request request, Cnxn srcConn, Bookie bookie) {
-        super(request, srcConn, bookie);
+    public WriteEntryProcessorV3(Request request, Channel channel, Bookie bookie) {
+        super(request, channel, bookie);
     }
 
     // Returns null if there is no exception thrown
@@ -82,7 +80,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
                         .setStatus(addResponse.getStatus())
                         .setAddResponse(addResponse);
                 sendResponse(status, BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                             encodeResponse(response.build()));
+                             response.build());
             }
         };
         StatusCode status = null;
@@ -90,9 +88,9 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         ByteBuffer entryToAdd = addRequest.getBody().asReadOnlyByteBuffer();
         try {
             if (addRequest.hasFlag() && addRequest.getFlag().equals(AddRequest.Flag.RECOVERY_ADD)) {
-                bookie.recoveryAddEntry(entryToAdd, wcb, srcConn, masterKey);
+                bookie.recoveryAddEntry(entryToAdd, wcb, channel, masterKey);
             } else {
-                bookie.addEntry(entryToAdd, wcb, srcConn, masterKey);
+                bookie.addEntry(entryToAdd, wcb, channel, masterKey);
             }
             status = StatusCode.EOK;
         } catch (IOException e) {
@@ -134,7 +132,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
                     .setStatus(addResponse.getStatus())
                     .setAddResponse(addResponse);
             sendResponse(addResponse.getStatus(), BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                         encodeResponse(response.build()));
+                         response.build());
         }
     }
 }

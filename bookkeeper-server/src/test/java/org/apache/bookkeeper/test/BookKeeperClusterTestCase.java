@@ -116,7 +116,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     protected File createTempDir(String prefix, String suffix) throws IOException {
-        File dir = IOUtils.createTempDir(prefix, suffix);
+        File dir = IOUtils.createTempDir(prefix, suffix + getName());
         tmpDirs.add(dir);
         return dir;
     }
@@ -346,13 +346,24 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public void sleepBookie(InetSocketAddress addr, final CountDownLatch l)
             throws InterruptedException, IOException {
+        final CountDownLatch suspendLatch = new CountDownLatch(1);
+        sleepBookie(addr, l, suspendLatch);
+        suspendLatch.await();
+    }
+
+    public void sleepBookie(InetSocketAddress addr, final CountDownLatch l, final CountDownLatch suspendLatch)
+            throws InterruptedException, IOException {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {
+                LOG.info("Sleep bookie {}.", addr);
                 Thread sleeper = new Thread() {
                     @Override
                     public void run() {
                         try {
                             bookie.suspendProcessing();
+                            if (null != suspendLatch) {
+                                suspendLatch.countDown();
+                            }
                             l.await();
                             bookie.resumeProcessing();
                         } catch (Exception e) {

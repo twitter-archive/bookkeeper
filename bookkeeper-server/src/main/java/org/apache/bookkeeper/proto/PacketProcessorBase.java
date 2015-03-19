@@ -17,11 +17,9 @@
  */
 package org.apache.bookkeeper.proto;
 
-import java.nio.ByteBuffer;
-
 import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
+import org.apache.bookkeeper.proto.BookieProtocol.Request;
+import org.jboss.netty.channel.Channel;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
@@ -30,26 +28,20 @@ import org.slf4j.LoggerFactory;
 
 abstract class PacketProcessorBase extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBase.class);
-    final ByteBuffer packet;
-    final Cnxn srcConn;
+    final Request request;
+    final Channel channel;
     final Bookie bookie;
-
-    // The following members should be populated by a child class before calling
-    // buildResponse(int rc)
-    protected PacketHeader header;
-    protected long ledgerId;
-    protected long entryId;
     protected long enqueueNanos;
 
-    PacketProcessorBase(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
-        this.packet = packet;
-        this.srcConn = srcConn;
+    PacketProcessorBase(Request request, Channel channel, Bookie bookie) {
+        this.request = request;
+        this.channel = channel;
         this.bookie = bookie;
         this.enqueueNanos = MathUtils.nowInNano();
     }
 
-    protected void sendResponse(int rc, Enum statOp, ByteBuffer...response) {
-        srcConn.sendResponse(response);
+    protected void sendResponse(int rc, Enum statOp, Object response) {
+        channel.write(response);
         if (BookieProtocol.EOK == rc) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
@@ -59,29 +51,8 @@ abstract class PacketProcessorBase extends SafeRunnable {
         }
     }
 
-    // Builds a response packet without the actual entry.
-    public static ByteBuffer buildResponse(int rc, byte version, byte opCode, long ledgerId, long entryId) {
-        ByteBuffer response = ByteBuffer.allocate(24);
-        response.putInt(new BookieProtocol.PacketHeader(version, opCode, (short)0).toInt());
-        response.putInt(rc);
-        response.putLong(ledgerId);
-        response.putLong(entryId);
-        response.flip();
-        return response;
-    }
-
-    /**
-     * This is a helper function to build a response for this request. Ensure
-     * that the various values are populated before calling this function.
-     * @param rc
-     * @return
-     */
-    public ByteBuffer buildResponse(int rc) {
-        return buildResponse(rc, header.getVersion(), header.getOpCode(), ledgerId, entryId);
-    }
-
-    public boolean isVersionCompatible(PacketHeader header) {
-        byte version = header.getVersion();
+    public boolean isVersionCompatible(Request request) {
+        byte version = request.getProtocolVersion();
         if (version < BookieProtocol.LOWEST_COMPAT_PROTOCOL_VERSION
                 || version > BookieProtocol.CURRENT_PROTOCOL_VERSION) {
             logger.error("Invalid protocol version. Expected something between " +

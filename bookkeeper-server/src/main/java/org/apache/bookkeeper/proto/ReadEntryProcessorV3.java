@@ -1,5 +1,14 @@
 package org.apache.bookkeeper.proto;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.Observable;
+import java.util.Observer;
+
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -11,29 +20,20 @@ import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
-
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.Observable;
-import java.util.Observer;
-import java.util.concurrent.ExecutorService;
+import org.jboss.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
     private long lastPhaseStartTimeNanos;
@@ -48,12 +48,12 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessorV3.class);
 
     public ReadEntryProcessorV3(Request request,
-                                Cnxn srcConn,
+                                Channel channel,
                                 Bookie bookie,
                                 ExecutorService fenceThreadPool,
                                 ExecutorService longPollThreadPool,
                                 HashedWheelTimer requestTimer) {
-        super(request, srcConn, bookie);
+        super(request, channel, bookie);
         this.fenceThreadPool = fenceThreadPool;
         this.longPollThreadPool = longPollThreadPool;
         this.requestTimer = requestTimer;
@@ -80,11 +80,12 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         boolean readLACPiggyBack = false;
         try {
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
-                logger.info("Ledger fence request received for ledger:{} from address:{}",
-                        ledgerId, srcConn.getPeerName());
+                logger.info("Ledger fence request received for ledger: {} from address: {}", ledgerId,
+                        channel.getRemoteAddress());
                 if (!readRequest.hasMasterKey()) {
-                    logger.error("Fence ledger request received without master key for ledger:{} from address:{}",
-                            ledgerId, srcConn.getRemoteAddress());
+                    logger.error(
+                            "Fence ledger request received without master key for ledger:{} from address: {}",
+                            ledgerId, channel.getRemoteAddress());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 } else {
                     byte[] masterKey = readRequest.getMasterKey().toByteArray();
@@ -240,8 +241,9 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             status = StatusCode.EIO;
             logger.error("IOException while reading entry: {} from ledger: {}", entryId, ledgerId);
         } catch (BookieException e) {
-            logger.error("Unauthorized access to ledger: {} while reading entry: {} in request from address: ",
-                    new Object[] { ledgerId, entryId, srcConn.getPeerName() });
+            logger.error(
+                    "Unauthorized access to ledger:{} while reading entry:{} in request from address: {}",
+                    new Object[] { ledgerId, entryId, channel.getRemoteAddress() });
             status = StatusCode.EUA;
         }
 
@@ -319,7 +321,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         } else if (null != fenceResult) {
             op = BookkeeperServerOp.READ_ENTRY_FENCE_REQUEST;
         }
-        sendResponse(response.getStatus(), op, encodeResponse(response.build()));
+        sendResponse(response.getStatus(), op, response.build());
     }
 
     private synchronized void scheduleDeferredRead(Observable observable, boolean timeout) {

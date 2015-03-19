@@ -260,7 +260,10 @@ class PendingAddOp implements WriteCallback, TimerTask {
             lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
+        long completeStartNanos = MathUtils.nowInNano();
         cb.addComplete(rc, lh, entryId, ctx);
+        lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_COMPLETE)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(completeStartNanos));
     }
 
     @Override

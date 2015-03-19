@@ -102,14 +102,13 @@ public class Bookie extends BookieCriticalThread {
     final File journalDirectory;
     final ServerConfiguration conf;
 
-    final SyncThread syncThread;
-    final LedgerManagerFactory activeLedgerManagerFactory;
-    final ActiveLedgerManager activeLedgerManager;
-    final LedgerStorage ledgerStorage;
-    final Journal journal;
-    final FileLock lock;
+    SyncThread syncThread;
+    LedgerManagerFactory activeLedgerManagerFactory;
+    ActiveLedgerManager activeLedgerManager;
+    LedgerStorage ledgerStorage;
+    Journal journal;
 
-    final HandleFactory handles;
+    HandleFactory handles;
 
     static final long METAENTRY_ID_LEDGER_KEY = -0x1000;
     static final long METAENTRY_ID_FENCE_KEY  = -0x2000;
@@ -137,8 +136,8 @@ public class Bookie extends BookieCriticalThread {
 
     ConcurrentMap<Long, byte[]> masterKeyCache = new ConcurrentHashMap<Long, byte[]>();
 
-    final private String zkBookieRegPath;
-    final private String zkBookieReadOnlyPath;
+    private String zkBookieRegPath;
+    private String zkBookieReadOnlyPath;
 
     final private AtomicBoolean zkRegistered = new AtomicBoolean(false);
     final protected AtomicBoolean readOnly = new AtomicBoolean(false);
@@ -592,50 +591,6 @@ public class Bookie extends BookieCriticalThread {
             this.indexDirsManager = new LedgerDirsManager(conf, idxDirs,
                     statsLogger.scope("index"));
         }
-
-        // instantiate zookeeper client to initialize ledger manager
-        this.zk = instantiateZookeeperClient(conf);
-        checkEnvironment(this.zk);
-
-        // instantiate a file lock to guarantee only one process accessing the bookie data
-        this.lock = new FileLock(this.journalDirectory);
-
-        activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
-        activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
-
-        // instantiate the journal
-        journal = new Journal(conf, ledgerDirsManager);
-
-        // start sync thread after journal
-        syncThread = new SyncThread();
-
-        // Check the type of storage.
-        if (conf.getSortedLedgerStorageEnabled()) {
-            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager,
-                    ledgerDirsManager, indexDirsManager, syncThread);
-        } else {
-            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
-                    ledgerDirsManager, indexDirsManager, syncThread);
-        }
-        handles = new HandleFactoryImpl(ledgerStorage);
-
-        // Initialise ledgerDirManager. This would look through all the
-        // configured directories. When disk errors or all the ledger
-        // directories are full, would throws exception and fail bookie startup.
-        try {
-            checkDiskSpace();
-        } catch (NoWritableLedgerDirException nwlde) {
-            LOG.info("Ledger storage is already full : ", nwlde);
-            // if there is no writable ledger dir, we should try reclaimSpace
-            reclaimDiskSpace();
-            // check disk again if we still can't have enough room for replaying journal, fail it
-            checkDiskSpace();
-        }
-
-        // ZK ephemeral node for this Bookie.
-        String myID = getMyId();
-        zkBookieRegPath = this.bookieRegistrationPath + myID;
-        zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
         // 1 : up, 0 : readonly, -1 : unregistered
         ServerStatsProvider.getStatsLoggerInstance().registerGauge(BookkeeperServerGauge.SERVER_STATUS,
                 new Gauge<Number>() {
@@ -729,16 +684,51 @@ public class Bookie extends BookieCriticalThread {
         LOG.info("Finished replaying journal in {} ms.", elapsedTs);
     }
 
-    @Override
-    synchronized public void start() {
+    public void initialize() throws IOException, KeeperException, InterruptedException, BookieException {
+        // instantiate zookeeper client to initialize ledger manager
+        this.zk = instantiateZookeeperClient(conf);
+        checkEnvironment(this.zk);
+
+        activeLedgerManagerFactory = LedgerManagerFactory.newLedgerManagerFactory(conf, this.zk);
+        activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
+
+        // instantiate the journal
+        journal = new Journal(conf, ledgerDirsManager);
+
+        // start sync thread after journal
+        syncThread = new SyncThread();
+
+        // Check the type of storage.
+        if (conf.getSortedLedgerStorageEnabled()) {
+            ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager,
+                ledgerDirsManager, indexDirsManager, syncThread);
+        } else {
+            ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
+                ledgerDirsManager, indexDirsManager, syncThread);
+        }
+        handles = new HandleFactoryImpl(ledgerStorage);
+
+        // Initialise ledgerDirManager. This would look through all the
+        // configured directories. When disk errors or all the ledger
+        // directories are full, would throws exception and fail bookie startup.
         try {
-            this.lock.lock();
-        } catch (IOException ioe) {
-            LOG.error("Exception while locking bookie to start, shutting down", ioe);
-            shutdown(ExitCode.BOOKIE_EXCEPTION);
-            return;
+            checkDiskSpace();
+        } catch (NoWritableLedgerDirException nwlde) {
+            LOG.info("Ledger storage is already full : ", nwlde);
+            // if there is no writable ledger dir, we should try reclaimSpace
+            reclaimDiskSpace();
+            // check disk again if we still can't have enough room for replaying journal, fail it
+            checkDiskSpace();
         }
 
+        // ZK ephemeral node for this Bookie.
+        String myID = getMyId();
+        zkBookieRegPath = this.bookieRegistrationPath + myID;
+        zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
+    }
+
+    @Override
+    synchronized public void start() {
         setDaemon(true);
         LOG.info("I'm starting a bookie with journal directory {}", journalDirectory.getName());
         //Start DiskChecker thread
@@ -898,7 +888,7 @@ public class Bookie extends BookieCriticalThread {
     /**
      * Instantiate the ZooKeeper client for the Bookie.
      */
-    private ZooKeeper instantiateZookeeperClient(ServerConfiguration conf)
+    protected ZooKeeper instantiateZookeeperClient(ServerConfiguration conf)
             throws IOException, InterruptedException, KeeperException {
         if (conf.getZkServers() == null) {
             LOG.warn("No ZK servers passed to Bookie constructor so BookKeeper clients won't know about this server!");
@@ -1285,8 +1275,6 @@ public class Bookie extends BookieCriticalThread {
                 // setting running to false here, so watch thread in bookie server know it only after bookie shut down
                 running = false;
             }
-            // release the lock here
-            this.lock.release();
         } catch (InterruptedException ie) {
             LOG.error("Interrupted during shutting down bookie : ", ie);
         }

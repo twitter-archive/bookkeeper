@@ -9,7 +9,8 @@ public class BookkeeperClientStatsLogger extends BookkeeperStatsLogger {
      * An enum for the operations that can be logged by this logger.
      */
     public static enum BookkeeperClientOp {
-        ADD_ENTRY, READ_ENTRY, READ_LAST_CONFIRMED,
+        ADD_ENTRY, ADD_COMPLETE, NUM_ADDS_SUBMITTED_PER_CALLBACK,
+        READ_ENTRY, READ_LAST_CONFIRMED,
         TRY_READ_LAST_CONFIRMED, READ_LAST_CONFIRMED_LONG_POLL,
         READ_LAST_CONFIRMED_AND_ENTRY, READ_LAST_CONFIRMED_AND_ENTRY_RESPONSE,
         READ_LAST_CONFIRMED_AND_ENTRY_HIT, READ_LAST_CONFIRMED_AND_ENTRY_MISS,

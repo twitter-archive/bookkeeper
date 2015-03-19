@@ -88,7 +88,7 @@ public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase impleme
         List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
         byte[] data = "foobar".getBytes();
         lh.addEntry(data);
-        sleepBookie(curEns.get(0), 5);
+        sleepBookie(curEns.get(0), 5).await();
         try {
             lh.addEntry(data);
             fail("should have thrown");

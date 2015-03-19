@@ -23,18 +23,18 @@ package org.apache.bookkeeper.client;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.test.BaseTestCase;
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.KeeperException;
-
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
+import org.apache.zookeeper.ZooKeeper.States;
 import org.junit.Assert;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -85,7 +85,7 @@ public class BookKeeperTest extends BaseTestCase {
                                 public void process(WatchedEvent event) {
                                 }
                             });
-        assertFalse("ZK shouldn't have connected yet", zk.getState().isConnected());
+        assertFalse("ZK shouldn't have connected yet", zk.getState().equals(States.CONNECTED));
         try {
             BookKeeper bkc = new BookKeeper(conf, zk);
             fail("Shouldn't be able to construct with unconnected zk");
@@ -171,6 +171,7 @@ public class BookKeeperTest extends BaseTestCase {
 
         // Try to write, we shoud get and error callback but not an exception
         lh.asyncAddEntry("test".getBytes(), new AddCallback() {
+            @Override
             public void addComplete(int rc, LedgerHandle lh, long entryId, Object ctx) {
                 result.set(rc);
                 counter.countDown();
@@ -195,6 +196,7 @@ public class BookKeeperTest extends BaseTestCase {
             final CountDownLatch l = new CountDownLatch(1);
             final AtomicBoolean success = new AtomicBoolean(false);
             Thread t = new Thread() {
+                    @Override
                     public void run() {
                         try {
                             LedgerHandle lh = client.createLedger(3, 3, digestType, "testPasswd".getBytes());

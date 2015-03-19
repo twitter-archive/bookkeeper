@@ -22,11 +22,10 @@
   <parent>
     <artifactId>bookkeeper</artifactId>
     <groupId>org.apache.bookkeeper</groupId>
-    <version>4.2.6-TWTTR-SNAPSHOT</version>
+    <version>4.3.0-TWTTR-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.apache.bookkeeper</groupId>
-  <version>4.2.6-TWTTR-SNAPSHOT</version>
   <artifactId>bookkeeper-stats-providers</artifactId>
   <packaging>pom</packaging>
   <name>bookkeeper-stats-providers</name>

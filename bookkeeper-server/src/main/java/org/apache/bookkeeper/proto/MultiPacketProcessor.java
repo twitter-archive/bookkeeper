@@ -17,13 +17,9 @@
  */
 package org.apache.bookkeeper.proto;
 
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.Stats;
@@ -31,17 +27,15 @@ import org.apache.bookkeeper.util.MonitoredThreadPoolExecutor;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.util.HashedWheelTimer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+import org.jboss.netty.channel.Channel;
 
 /**
  * This class is a packet processor implementation that processes multiple packets at
@@ -50,9 +44,8 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
  * sends a response to the NIOServerFactory#Cnxn. Internally this is implemented using
  * an ExecutorService
  */
-public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
+public class MultiPacketProcessor implements RequestProcessor {
 
-    private final static Logger logger = LoggerFactory.getLogger(MultiPacketProcessor.class);
     /**
      * The server configuration. We use this for getting the number of add and read
      * worker threads.
@@ -135,73 +128,71 @@ public class MultiPacketProcessor implements NIOServerFactory.PacketProcessor {
     /**
      * Get the request type of the packet and dispatch a request to the appropriate
      * thread pool.
-     * @param packet
-     * @param srcConn
+     * @param msg
+     *          received request
+     * @param channel
+     *          channel that received the request.
      */
-    public void processPacket(ByteBuffer packet, Cnxn srcConn) {
+    @Override
+    public void processRequest(Object msg, Channel channel) {
         // If we can decode this packet as a Request protobuf packet, process
         // it as a version 3 packet. Else, just use the old protocol.
-        try {
-            Request request = Request.parseFrom(ByteString.copyFrom(packet));
+        if (msg instanceof Request) {
+            Request request = (Request) msg;
             //logger.info("Packet received : " + request.toString());
             BKPacketHeader header = request.getHeader();
             switch (header.getOperation()) {
-                case ADD_ENTRY:
-                    processAddRequest(srcConn, new WriteEntryProcessorV3(request, srcConn, bookie));
-                    break;
-                case READ_ENTRY:
-                    processReadRequest(srcConn,
-                            new ReadEntryProcessorV3(request, srcConn, bookie,
-                                                     null == readThreadPool ? null : readThreadPool.chooseThread(srcConn),
-                                                     longPollThreadPool, requestTimer));
-                    break;
-                default:
-                    Response.Builder response = Response.newBuilder()
-                            .setHeader(request.getHeader())
-                            .setStatus(StatusCode.EBADREQ);
-                    srcConn.sendResponse(ByteBuffer.wrap(response.build().toByteArray()));
-                    break;
+            case ADD_ENTRY:
+                processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie));
+                break;
+            case READ_ENTRY:
+                processReadRequest(channel, new ReadEntryProcessorV3(request, channel, bookie,
+                        null == readThreadPool ? null : readThreadPool.chooseThread(channel),
+                        longPollThreadPool, requestTimer));
+                break;
+            default:
+                Response.Builder response = Response.newBuilder().setHeader(request.getHeader())
+                        .setStatus(StatusCode.EBADREQ);
+                channel.write(response.build());
+                BKStats.getInstance().getOpStats(BKStats.STATS_UNKNOWN).incrementFailedOps();
+                break;
             }
-        } catch (InvalidProtocolBufferException e) {
-            // process as a normal packet.
-            // Rewind the packet as ByteString.copyFrom consumes all remaining bytes.
-            packet.rewind();
-            PacketHeader header = PacketHeader.fromInt(packet.getInt());
-            packet.rewind();
-            // The ByteBuffer is already allocated by the NIOServerFactory, so we shouldn't
-            // copy it here. It's safe to pass it on as is.
-            switch (header.getOpCode()) {
-                case BookieProtocol.ADDENTRY:
-                    processAddRequest(srcConn, new WriteEntryProcessor(packet, srcConn, bookie));
-                    break;
-                case BookieProtocol.READENTRY:
-                    processReadRequest(srcConn, new ReadEntryProcessor(packet, srcConn, bookie));
-                    break;
-                default:
-                    // We don't know the request type and as a result, the ledgerId or entryId.
-                    srcConn.sendResponse(PacketProcessorBase.buildResponse(BookieProtocol.EBADREQ,
-                            header.getVersion(), header.getOpCode(), -1, BookieProtocol.INVALID_ENTRY_ID));
-                    break;
+        } else {
+            BookieProtocol.Request request = (BookieProtocol.Request) msg;
+            // process as a prev v3 packet.
+            switch (request.getOpCode()) {
+            case BookieProtocol.ADDENTRY:
+                processAddRequest(channel, new WriteEntryProcessor(request, channel, bookie));
+                break;
+            case BookieProtocol.READENTRY:
+                processReadRequest(channel, new ReadEntryProcessor(request, channel, bookie));
+                break;
+            default:
+                // We don't know the request type and as a result, the ledgerId or entryId.
+                channel.write(ResponseBuilder.buildErrorResponse(BookieProtocol.EBADREQ, request));
+                BKStats.getInstance().getOpStats(BKStats.STATS_UNKNOWN).incrementFailedOps();
+                break;
             }
         }
     }
 
-    private void processAddRequest(Cnxn cnxn, SafeRunnable r) {
+    private void processAddRequest(Channel channel, SafeRunnable r) {
         if (null == writeThreadPool) {
             r.run();
         } else {
-            writeThreadPool.submitOrdered(cnxn, r);
+            writeThreadPool.submitOrdered(channel, r);
         }
     }
 
-    private void processReadRequest(Cnxn cnxn, SafeRunnable r) {
+    private void processReadRequest(Channel channel, SafeRunnable r) {
         if (null == readThreadPool) {
             r.run();
         } else {
-            readThreadPool.submitOrdered(cnxn, r);
+            readThreadPool.submitOrdered(channel, r);
         }
     }
 
+    @Override
     public void shutdown() {
         this.requestTimer.stop();
         shutdownOrderedSafeExecutor(readThreadPool);

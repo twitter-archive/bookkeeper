@@ -117,7 +117,7 @@ public abstract class BookieException extends Exception {
 
     public static class BookieIllegalOpException extends BookieException {
         public BookieIllegalOpException() {
-            super(Code.UnauthorizedAccessException);
+            super(Code.IllegalOpException);
         }
     }
 
