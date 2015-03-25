@@ -223,6 +223,35 @@ public class EntryLogger {
                     }
                 }
         );
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.CURRENT_ENTRYLOG_ID,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return curLogId;
+                    }
+                }
+        );
+        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
+                BookkeeperServerStatsLogger.BookkeeperServerGauge.LEAST_UNFLUSHED_ENTRYLOG_ID,
+                new Gauge<Number>() {
+                    @Override
+                    public Number getDefaultValue() {
+                        return 0;
+                    }
+
+                    @Override
+                    public Number getSample() {
+                        return leastUnflushedLogId;
+                    }
+                }
+        );
+
     }
 
     void addListener(EntryLogListener listener) {

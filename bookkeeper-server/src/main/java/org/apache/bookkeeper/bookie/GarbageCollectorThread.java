@@ -289,7 +289,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                         return scannedLogId;
                     }
                 });
-        StatsLogger gcStatsLogger = Stats.get().getStatsLogger("gc");
+        StatsLogger gcStatsLogger = Stats.get().getStatsLogger("bookkeeper_server");
         for (int i = 0; i < spaceDistributions.length; i++) {
             final AtomicInteger spaceUsage = new AtomicInteger(0);
             spaceDistributions[i] = spaceUsage;
@@ -442,7 +442,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                     lastMinorCompactionTime = lastMajorCompactionTime;
                 }
 
-                LOG.info("Finished {} garbage collection.", numGcs);
+                LOG.info("Finished {}th garbage collection.", numGcs);
                 ++numGcs;
                 ServerStatsProvider.getStatsLoggerInstance().getCounter(
                         BookkeeperServerStatsLogger.BookkeeperServerCounter.NUM_GC).inc();
@@ -471,6 +471,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 }
             }
         });
+        LOG.info("Garbage collected {} ledgers.", numLedgersDeleted.get());
         ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
                 BookkeeperServerStatsLogger.BookkeeperServerOp.GC_NUM_LEDGERS_DELETED_PER_GC).registerSuccessfulEvent(numLedgersDeleted.get());
     }
@@ -495,12 +496,16 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     }
 
     private boolean doGcEntryLog(long entryLogId, EntryLogMetadata meta) {
+        double oldUsage = meta.getUsage();
+        int numLedgersRemoved = 0;
         for (Long entryLogLedger : meta.ledgersMap.keySet()) {
             // Remove the entry log ledger from the set if it isn't active.
             if (!activeLedgerManager.containsActiveLedger(entryLogLedger)) {
                 meta.removeLedger(entryLogLedger);
+                ++numLedgersRemoved;
             }
         }
+        double newUsage = meta.getUsage();
         if (meta.isEmpty()) {
             // This means the entry log is not associated with any active ledgers anymore.
             // We can remove this entry log file now.
@@ -508,6 +513,10 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             removeEntryLog(entryLogId);
             return true;
         } else {
+            if (numLedgersRemoved > 0) {
+                LOG.info("EntryLog {} space usage reduced from {} to {} after removing {} ledgers.",
+                        new Object[] { entryLogId, oldUsage, newUsage, numLedgersRemoved });
+            }
             return false;
         }
     }
@@ -544,6 +553,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         List<EntryLogMetadata> logsToRemove = new ArrayList<EntryLogMetadata>();
         logsToCompact.addAll(entryLogMetadatas);
         Collections.sort(logsToCompact, sizeComparator);
+
         for (EntryLogMetadata meta : logsToCompact) {
             if (meta.getUsage() >= threshold) {
                 break;
@@ -648,7 +658,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             return false;
         }
 
-        LOG.info("Compacting entry log : {}.", entryLogMeta.entryLogId);
+        LOG.info("Compacting entry log {} : {}.", entryLogMeta.entryLogId, entryLogMeta);
 
         try {
             entryLogger.scanEntryLog(entryLogMeta.entryLogId,
@@ -702,16 +712,22 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         for (long entryLogId = scannedLogId; entryLogId < curLogId; entryLogId++) {
             // Comb the current entry log file if it has not already been extracted.
             if (entryLogMetadataManager.containsEntryLog(entryLogId)) {
+                if (!hasExceptionWhenScan) {
+                    ++scannedLogId;
+                }
                 continue;
             }
 
             // check whether log file exists or not
             // if it doesn't exist, this log file might have been garbage collected.
             if (!entryLogger.logExists(entryLogId)) {
+                if (!hasExceptionWhenScan) {
+                    ++scannedLogId;
+                }
                 continue;
             }
 
-            LOG.info("Extracting entry log meta from entryLogId: " + entryLogId);
+            LOG.info("Extracting entry log meta from entryLogId: {}", entryLogId);
 
             try {
                 // Read through the entry log file and extract the entry log meta
@@ -721,8 +737,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 doGcEntryLog(entryLogId, entryLogMeta);
             } catch (IOException e) {
                 hasExceptionWhenScan = true;
-                LOG.warn("Premature exception when processing " + entryLogId +
-                         ", recovery will take care of the problem", e);
+                LOG.warn("Premature exception when processing {} recovery will take care of the problem",
+                        entryLogId, e);
             }
 
             // if scan failed on some entry log, we don't move 'scannedLogId' to next id
