@@ -33,7 +33,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.net.InetSocketAddress;
 
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -46,12 +45,12 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.replication.ReplicationException.BKAuditException;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
@@ -357,12 +356,12 @@ public class Auditor {
         public void operationComplete(int rc, Set<LedgerFragment> fragments) {
             try {
                 if (rc == BKException.Code.OK) {
-                    Set<InetSocketAddress> bookies = Sets.newHashSet();
+                    Set<BookieSocketAddress> bookies = Sets.newHashSet();
                     for (LedgerFragment f : fragments) {
                         bookies.add(f.getAddress(f.getBookiesIndexes().iterator().next()));
                     }
-                    for (InetSocketAddress bookie : bookies) {
-                        publishSuspectedLedgers(StringUtils.addrToString(bookie),
+                    for (BookieSocketAddress bookie : bookies) {
+                        publishSuspectedLedgers(bookie.toString(),
                                                 Sets.newHashSet(lh.getId()));
                     }
                 }

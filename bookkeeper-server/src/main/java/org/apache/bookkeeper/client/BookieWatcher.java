@@ -19,7 +19,6 @@ package org.apache.bookkeeper.client;
  */
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -33,9 +32,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -43,7 +42,6 @@ import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,7 +59,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     static final Logger logger = LoggerFactory.getLogger(BookieWatcher.class);
 
     public static int ZK_CONNECT_BACKOFF_SEC = 1;
-    private static final Set<InetSocketAddress> EMPTY_SET = new HashSet<InetSocketAddress>();
+    private static final Set<BookieSocketAddress> EMPTY_SET = new HashSet<BookieSocketAddress>();
 
     // Bookie registration path in ZK
     private final String bookieRegistrationPath;
@@ -97,7 +95,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         readOnlyBookieWatcher.registerBookiesListener(listener);
     }
 
-    Collection<InetSocketAddress> getBookies() throws BKException {
+    Collection<BookieSocketAddress> getBookies() throws BKException {
         try {
             List<String> children = bk.getZkHandle().getChildren(this.bookieRegistrationPath, false);
             children.remove(BookKeeperConstants.READONLY);
@@ -113,7 +111,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         }
     }
 
-    Collection<InetSocketAddress> getReadOnlyBookies() throws BKException {
+    Collection<BookieSocketAddress> getReadOnlyBookies() throws BKException {
         try {
             readOnlyBookieWatcher.readROBookiesBlocking();
         } catch (KeeperException ke) {
@@ -124,7 +122,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             logger.error("Interrupted reading bookie list : ", ie);
             throw new BKException.BKInterruptedException();
         }
-        return new HashSet<InetSocketAddress>(readOnlyBookieWatcher.getReadOnlyBookies());
+        return new HashSet<BookieSocketAddress>(readOnlyBookieWatcher.getReadOnlyBookies());
     }
 
     private void readBookies() {
@@ -161,10 +159,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         // available nodes list.
         children.remove(READONLY);
 
-        HashSet<InetSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
+        HashSet<BookieSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
 
         synchronized (this) {
-            Set<InetSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
+            Set<BookieSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
             placementPolicy.onClusterChanged(newBookieAddrs, readonlyBookies);
         }
 
@@ -188,13 +186,13 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         // }
     }
 
-    private static HashSet<InetSocketAddress> convertToBookieAddresses(List<String> children) {
+    private static HashSet<BookieSocketAddress> convertToBookieAddresses(List<String> children) {
         // Read the bookie addresses into a set for efficient lookup
-        HashSet<InetSocketAddress> newBookieAddrs = new HashSet<InetSocketAddress>();
+        HashSet<BookieSocketAddress> newBookieAddrs = new HashSet<BookieSocketAddress>();
         for (String bookieAddrString : children) {
-            InetSocketAddress bookieAddr;
+            BookieSocketAddress bookieAddr;
             try {
-                bookieAddr = StringUtils.parseAddr(bookieAddrString);
+                bookieAddr = new BookieSocketAddress(bookieAddrString);
             } catch (IOException e) {
                 logger.error("Could not parse bookie address: " + bookieAddrString
                         + ", ignoring this bookie : ", e);
@@ -245,21 +243,23 @@ class BookieWatcher implements Watcher, ChildrenCallback {
      * @return list of bookies for new ensemble.
      * @throws BKNotEnoughBookiesException
      */
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize)
+    public ArrayList<BookieSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize)
             throws BKNotEnoughBookiesException {
         return placementPolicy.newEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, EMPTY_SET);
     }
 
     /**
      * Wrapper over the {@link org.apache.bookkeeper.client.EnsemblePlacementPolicy#replaceBookie(int, int, int,
-     * java.util.Collection, java.net.InetSocketAddress, java.util.Set)} method when you just need 1 extra bookie
+     * java.util.Collection, org.apache.bookkeeper.net.BookieSocketAddress, java.util.Set)} method when you just need 1 extra bookie
      * @param existingBookies
-     * @return
+     * @return replaced bookie
      * @throws BKNotEnoughBookiesException
      */
-    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize, List<InetSocketAddress> existingBookies, int bookieIdx, Set<InetSocketAddress> excludeBookies)
+    public BookieSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                             List<BookieSocketAddress> existingBookies,
+                                             int bookieIdx, Set<BookieSocketAddress> excludeBookies)
             throws BKNotEnoughBookiesException {
-        InetSocketAddress addr = existingBookies.get(bookieIdx);
+        BookieSocketAddress addr = existingBookies.get(bookieIdx);
         return placementPolicy.replaceBookie(ensembleSize, writeQuorumSize, ackQuorumSize, existingBookies, addr, excludeBookies);
     }
 
@@ -270,7 +270,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     private static class ReadOnlyBookieWatcher implements Watcher, ChildrenCallback {
 
         private final static Logger LOG = LoggerFactory.getLogger(ReadOnlyBookieWatcher.class);
-        private HashSet<InetSocketAddress> readOnlyBookies = new HashSet<InetSocketAddress>();
+        private HashSet<BookieSocketAddress> readOnlyBookies = new HashSet<BookieSocketAddress>();
         private final BookKeeper bk;
         private final String readOnlyBookieRegPath;
 
@@ -340,7 +340,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
                 return;
             }
 
-            HashSet<InetSocketAddress> newReadOnlyBookies = convertToBookieAddresses(children);
+            HashSet<BookieSocketAddress> newReadOnlyBookies = convertToBookieAddresses(children);
             readOnlyBookies = newReadOnlyBookies;
 
             for (BookiesListener listener : listeners) {
@@ -349,7 +349,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         }
 
         // returns the readonly bookies
-        public HashSet<InetSocketAddress> getReadOnlyBookies() {
+        public HashSet<BookieSocketAddress> getReadOnlyBookies() {
             return readOnlyBookies;
         }
     }

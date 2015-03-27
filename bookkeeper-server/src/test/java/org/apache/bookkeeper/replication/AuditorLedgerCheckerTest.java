@@ -113,7 +113,7 @@ public class AuditorLedgerCheckerTest extends BookKeeperClusterTestCase {
 
     private void startAuditorElectors() throws Exception {
         for (BookieServer bserver : bs) {
-            String addr = StringUtils.addrToString(bserver.getLocalAddress());
+            String addr = bserver.getLocalAddress().toString();
             AuditorElector auditorElector = new AuditorElector(addr,
                     baseConf, zkc);
             auditorElectors.put(addr, auditorElector);
@@ -329,7 +329,7 @@ public class AuditorLedgerCheckerTest extends BookKeeperClusterTestCase {
     private String shutdownBookie(int bkShutdownIndex) throws IOException,
             InterruptedException {
         BookieServer bkServer = bs.get(bkShutdownIndex);
-        String bookieAddr = StringUtils.addrToString(bkServer.getLocalAddress());
+        String bookieAddr = bkServer.getLocalAddress().toString();
         LOG.debug("Shutting down bookie:" + bookieAddr);
         killBookie(bkShutdownIndex);
         auditorElectors.get(bookieAddr).shutdown();

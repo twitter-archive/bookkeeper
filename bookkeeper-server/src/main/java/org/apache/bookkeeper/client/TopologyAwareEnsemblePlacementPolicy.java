@@ -1,6 +1,5 @@
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -8,10 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.NodeBase;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,7 +31,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
     protected static class EnsembleForReplacementWithNoConstraints implements Ensemble<BookieNode> {
 
         public static final EnsembleForReplacementWithNoConstraints instance = new EnsembleForReplacementWithNoConstraints();
-        static final ArrayList<InetSocketAddress> EMPTY_LIST = new ArrayList<InetSocketAddress>(0);
+        static final ArrayList<BookieSocketAddress> EMPTY_LIST = new ArrayList<BookieSocketAddress>(0);
 
         @Override
         public boolean addNode(BookieNode node) {
@@ -41,7 +40,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
         }
 
         @Override
-        public ArrayList<InetSocketAddress> toList() {
+        public ArrayList<BookieSocketAddress> toList() {
             return EMPTY_LIST;
         }
 
@@ -59,14 +58,14 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
 
     protected static class BookieNode extends NodeBase {
 
-        private final InetSocketAddress addr; // identifier of a bookie node.
+        private final BookieSocketAddress addr; // identifier of a bookie node.
 
-        BookieNode(InetSocketAddress addr, String networkLoc) {
-            super(StringUtils.addrToString(addr), networkLoc);
+        BookieNode(BookieSocketAddress addr, String networkLoc) {
+            super(addr.toString(), networkLoc);
             this.addr = addr;
         }
 
-        public InetSocketAddress getAddr() {
+        public BookieSocketAddress getAddr() {
             return addr;
         }
 
@@ -402,8 +401,8 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
         }
 
         @Override
-        public ArrayList<InetSocketAddress> toList() {
-            ArrayList<InetSocketAddress> addresses = new ArrayList<InetSocketAddress>(ensembleSize);
+        public ArrayList<BookieSocketAddress> toList() {
+            ArrayList<BookieSocketAddress> addresses = new ArrayList<BookieSocketAddress>(ensembleSize);
             for (BookieNode bn : chosenNodes) {
                 addresses.add(bn.getAddr());
             }
@@ -417,7 +416,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
          */
         @Override
         public boolean validate() {
-            HashSet<InetSocketAddress> addresses = new HashSet<InetSocketAddress>(ensembleSize);
+            HashSet<BookieSocketAddress> addresses = new HashSet<BookieSocketAddress>(ensembleSize);
             HashSet<String> racksOrRegions = new HashSet<String>();
             for (BookieNode bn : chosenNodes) {
                 if (addresses.contains(bn.getAddr())) {
@@ -438,12 +437,12 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+    public List<Integer> reorderReadSequence(ArrayList<BookieSocketAddress> ensemble, List<Integer> writeSet, Map<BookieSocketAddress, Long> bookieFailureHistory) {
         return writeSet;
     }
 
     @Override
-    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+    public List<Integer> reorderReadLACSequence(ArrayList<BookieSocketAddress> ensemble, List<Integer> writeSet, Map<BookieSocketAddress, Long> bookieFailureHistory) {
         List<Integer> retList = new ArrayList<Integer>(reorderReadSequence(ensemble, writeSet, bookieFailureHistory));
         if (retList.size() < ensemble.size()) {
             for (int i = 0; i < ensemble.size(); i++) {

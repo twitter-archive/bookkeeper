@@ -19,7 +19,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -32,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
@@ -61,7 +61,7 @@ public class LedgerFragmentReplicator {
     private void replicateFragmentInternal(final LedgerHandle lh,
             final LedgerFragment lf,
             final AsyncCallback.VoidCallback ledgerFragmentMcb,
-            final Set<InetSocketAddress> newBookies) throws InterruptedException {
+            final Set<BookieSocketAddress> newBookies) throws InterruptedException {
         if (!lf.isClosed()) {
             LOG.error("Trying to replicate an unclosed fragment;"
                       + " This is not safe {}", lf);
@@ -134,7 +134,7 @@ public class LedgerFragmentReplicator {
      */
     void replicate(final LedgerHandle lh, final LedgerFragment lf,
             final AsyncCallback.VoidCallback ledgerFragmentMcb,
-            final Set<InetSocketAddress> targetBookieAddresses)
+            final Set<BookieSocketAddress> targetBookieAddresses)
             throws InterruptedException {
         Set<LedgerFragment> partionedFragments = splitIntoSubFragments(lh, lf,
                 bkc.getConf().getRereplicationEntryBatchSize());
@@ -148,7 +148,7 @@ public class LedgerFragmentReplicator {
     private void replicateNextBatch(final LedgerHandle lh,
             final Iterator<LedgerFragment> fragments,
             final AsyncCallback.VoidCallback ledgerFragmentMcb,
-            final Set<InetSocketAddress> targetBookieAddresses) {
+            final Set<BookieSocketAddress> targetBookieAddresses) {
         if (fragments.hasNext()) {
             try {
                 replicateFragmentInternal(lh, fragments.next(),
@@ -239,12 +239,12 @@ public class LedgerFragmentReplicator {
     private void recoverLedgerFragmentEntry(final Long entryId,
             final LedgerHandle lh,
             final AsyncCallback.VoidCallback ledgerFragmentEntryMcb,
-            final Set<InetSocketAddress> newBookies) throws InterruptedException {
+            final Set<BookieSocketAddress> newBookies) throws InterruptedException {
         final AtomicInteger numCompleted = new AtomicInteger(0);
         final AtomicBoolean completed = new AtomicBoolean(false);
         final WriteCallback multiWriteCallback = new WriteCallback() {
             @Override
-            public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+            public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
                 if (rc != BKException.Code.OK) {
                     LOG.error("BK error writing entry for ledgerId: {}, entryId: {}, bookie: {}",
                               new Object[] { ledgerId, entryId, addr, BKException.create(rc) });
@@ -284,7 +284,7 @@ public class LedgerFragmentReplicator {
                  */
                 LedgerEntry entry = seq.nextElement();
                 byte[] data = entry.getEntry();
-                for (InetSocketAddress newBookie : newBookies) {
+                for (BookieSocketAddress newBookie : newBookies) {
                     ChannelBuffer toSend = lh.getDigestManager()
                             .computeDigestAndPackageForSending(entryId,
                                     lh.getLastAddConfirmed(), entry.getLength(),
@@ -307,11 +307,11 @@ public class LedgerFragmentReplicator {
         final AsyncCallback.VoidCallback ledgerFragmentsMcb;
         final LedgerHandle lh;
         final long fragmentStartId;
-        final Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookie;
+        final Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookie;
 
         SingleFragmentCallback(AsyncCallback.VoidCallback ledgerFragmentsMcb,
                 LedgerHandle lh, long fragmentStartId,
-                Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookie) {
+                Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookie) {
             this.ledgerFragmentsMcb = ledgerFragmentsMcb;
             this.lh = lh;
             this.fragmentStartId = fragmentStartId;
@@ -333,14 +333,14 @@ public class LedgerFragmentReplicator {
     /** Updates the ensemble with newBookie and notify the ensembleUpdatedCb */
     private static void updateEnsembleInfo(
             AsyncCallback.VoidCallback ensembleUpdatedCb, long fragmentStartId,
-            LedgerHandle lh, Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookie) {
+            LedgerHandle lh, Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookie) {
         /*
          * Update the ledger metadata's ensemble info to point to the new
          * bookie.
          */
-        ArrayList<InetSocketAddress> ensemble = lh.getLedgerMetadata()
+        ArrayList<BookieSocketAddress> ensemble = lh.getLedgerMetadata()
                 .getEnsembles().get(fragmentStartId);
-        for (Map.Entry<InetSocketAddress, InetSocketAddress> entry : oldBookie2NewBookie.entrySet()) {
+        for (Map.Entry<BookieSocketAddress, BookieSocketAddress> entry : oldBookie2NewBookie.entrySet()) {
             int deadBookieIndex = ensemble.indexOf(entry.getKey());
             // update ensemble info might happen after re-read ledger metadata, so the ensemble might already
             // change. if ensemble is already changed, skip replacing the bookie doesn't exist.
@@ -363,11 +363,11 @@ public class LedgerFragmentReplicator {
         final AsyncCallback.VoidCallback ensembleUpdatedCb;
         final LedgerHandle lh;
         final long fragmentStartId;
-        final Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookie;
+        final Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookie;
 
         public UpdateEnsembleCb(AsyncCallback.VoidCallback ledgerFragmentsMcb,
                 long fragmentStartId, LedgerHandle lh,
-                Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookie) {
+                Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookie) {
             this.ensembleUpdatedCb = ledgerFragmentsMcb;
             this.lh = lh;
             this.fragmentStartId = fragmentStartId;

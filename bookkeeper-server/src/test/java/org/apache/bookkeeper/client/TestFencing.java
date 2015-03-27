@@ -22,17 +22,12 @@ package org.apache.bookkeeper.client;
  */
 
 import org.junit.*;
-import java.net.InetSocketAddress;
 import java.util.Enumeration;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.CountDownLatch;
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.BookKeeperAdmin;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BaseTestCase;
 
 import org.slf4j.Logger;
@@ -266,7 +261,7 @@ public class TestFencing extends BaseTestCase {
             writelh.addEntry(tmp.getBytes());
         }
 
-        InetSocketAddress bookieToKill
+        BookieSocketAddress bookieToKill
             = writelh.getLedgerMetadata().getEnsemble(numEntries).get(0);
         killBookie(bookieToKill);
 
@@ -319,7 +314,7 @@ public class TestFencing extends BaseTestCase {
         LedgerHandle readlh = bkc.openLedger(writelh.getId(),
                                              digestType, "testPasswd".getBytes());
         // should be fenced by now
-        InetSocketAddress bookieToKill
+        BookieSocketAddress bookieToKill
             = writelh.getLedgerMetadata().getEnsemble(numEntries).get(0);
         killBookie(bookieToKill);
         admin.recoverBookieData(bookieToKill, null);

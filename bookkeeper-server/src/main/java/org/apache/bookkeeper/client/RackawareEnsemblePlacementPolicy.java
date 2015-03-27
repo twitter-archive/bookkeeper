@@ -1,17 +1,18 @@
 package org.apache.bookkeeper.client;
 
-import org.apache.bookkeeper.net.DNSToSwitchMapping;
-import org.apache.bookkeeper.net.Node;
-import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.stats.StatsLogger;
-import org.jboss.netty.util.HashedWheelTimer;
-
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.apache.bookkeeper.net.Node;
+import org.apache.bookkeeper.stats.AlertStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.jboss.netty.util.HashedWheelTimer;
 
 public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacementPolicyImpl
         implements ITopologyAwareEnsemblePlacementPolicy<TopologyAwareEnsemblePlacementPolicy.BookieNode> {
@@ -53,8 +54,8 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public Set<InetSocketAddress> onClusterChanged(Set<InetSocketAddress> writableBookies, Set<InetSocketAddress> readOnlyBookies) {
-        Set<InetSocketAddress> deadBookies = super.onClusterChanged(writableBookies, readOnlyBookies);
+    public Set<BookieSocketAddress> onClusterChanged(Set<BookieSocketAddress> writableBookies, Set<BookieSocketAddress> readOnlyBookies) {
+        Set<BookieSocketAddress> deadBookies = super.onClusterChanged(writableBookies, readOnlyBookies);
         if (null != slave) {
             deadBookies = slave.onClusterChanged(writableBookies, readOnlyBookies);
         }
@@ -62,11 +63,11 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(
+    public ArrayList<BookieSocketAddress> newEnsemble(
             int ensembleSize,
             int writeQuorumSize,
             int ackQuorumSize,
-            Set<InetSocketAddress> excludeBookies)
+            Set<BookieSocketAddress> excludeBookies)
             throws BKException.BKNotEnoughBookiesException {
         try {
             return super.newEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, excludeBookies);
@@ -80,13 +81,13 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public InetSocketAddress replaceBookie(
+    public BookieSocketAddress replaceBookie(
             int ensembleSize,
             int writeQuorumSize,
             int ackQuorumSize,
-            Collection<InetSocketAddress> currentEnsemble,
-            InetSocketAddress bookieToReplace,
-            Set<InetSocketAddress> excludeBookies)
+            Collection<BookieSocketAddress> currentEnsemble,
+            BookieSocketAddress bookieToReplace,
+            Set<BookieSocketAddress> excludeBookies)
             throws BKException.BKNotEnoughBookiesException {
         try {
             return super.replaceBookie(ensembleSize, writeQuorumSize, ackQuorumSize,
@@ -102,24 +103,24 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble,
+    public List<Integer> reorderReadSequence(ArrayList<BookieSocketAddress> ensemble,
                                              List<Integer> writeSet,
-                                             Map<InetSocketAddress, Long> bookieFailureHistory) {
+                                             Map<BookieSocketAddress, Long> bookieFailureHistory) {
         return super.reorderReadSequence(ensemble, writeSet, bookieFailureHistory);
     }
 
     @Override
-    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble,
+    public List<Integer> reorderReadLACSequence(ArrayList<BookieSocketAddress> ensemble,
                                                 List<Integer> writeSet,
-                                                Map<InetSocketAddress, Long> bookieFailureHistory) {
+                                                Map<BookieSocketAddress, Long> bookieFailureHistory) {
         return super.reorderReadLACSequence(ensemble, writeSet, bookieFailureHistory);
     }
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize,
+    public ArrayList<BookieSocketAddress> newEnsemble(int ensembleSize,
                                                     int writeQuorumSize,
                                                     int ackQuorumSize,
-                                                    Set<InetSocketAddress> excludeBookies,
+                                                    Set<BookieSocketAddress> excludeBookies,
                                                     Ensemble<BookieNode> parentEnsemble,
                                                     Predicate<BookieNode> parentPredicate)
             throws BKException.BKNotEnoughBookiesException {
@@ -160,7 +161,7 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies) {
+    public void handleBookiesThatLeft(Set<BookieSocketAddress> leftBookies) {
         super.handleBookiesThatLeft(leftBookies);
         if (null != slave) {
             slave.handleBookiesThatLeft(leftBookies);
@@ -168,7 +169,7 @@ public class RackawareEnsemblePlacementPolicy extends RackawareEnsemblePlacement
     }
 
     @Override
-    public void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies) {
+    public void handleBookiesThatJoined(Set<BookieSocketAddress> joinedBookies) {
         super.handleBookiesThatJoined(joinedBookies);
         if (null != slave) {
             slave.handleBookiesThatJoined(joinedBookies);

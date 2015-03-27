@@ -20,7 +20,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -43,6 +42,7 @@ import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
@@ -81,7 +81,7 @@ public class LedgerHandle {
     final DistributionSchedule distributionSchedule;
     final AtomicInteger refCount;
     final RateLimiter throttler;
-    final LoadingCache<InetSocketAddress, Long> bookieFailureHistory;
+    final LoadingCache<BookieSocketAddress, Long> bookieFailureHistory;
 
     /**
      * Invalid entry id. This value is returned from methods which
@@ -117,8 +117,8 @@ public class LedgerHandle {
         this.distributionSchedule = new RoundRobinDistributionSchedule(
                 metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), metadata.getEnsembleSize());
         this.bookieFailureHistory = CacheBuilder.newBuilder().
-            expireAfterWrite(bk.getConf().getBookieFailureHistoryExpirationMSec(), TimeUnit.MILLISECONDS).build(new CacheLoader<InetSocketAddress, Long>() {
-            public Long load(InetSocketAddress key) {
+            expireAfterWrite(bk.getConf().getBookieFailureHistoryExpirationMSec(), TimeUnit.MILLISECONDS).build(new CacheLoader<BookieSocketAddress, Long>() {
+            public Long load(BookieSocketAddress key) {
                 return -1L;
             }
         });
@@ -983,17 +983,17 @@ public class LedgerHandle {
                 .registerSuccessfulEvent(numSuccesses);
     }
 
-    EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies,
+    EnsembleInfo replaceBookieInMetadata(final Map<Integer, BookieSocketAddress> failedBookies,
                                          int ensembleChangeIdx)
             throws BKException.BKNotEnoughBookiesException {
-        final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
+        final ArrayList<BookieSocketAddress> newEnsemble = new ArrayList<BookieSocketAddress>();
         final long newEnsembleStartEntry = getLastAddConfirmed() + 1;
         final HashSet<Integer> replacedBookies = new HashSet<Integer>();
         synchronized (metadata) {
             newEnsemble.addAll(metadata.currentEnsemble);
-            for (Map.Entry<Integer, InetSocketAddress> entry : failedBookies.entrySet()) {
+            for (Map.Entry<Integer, BookieSocketAddress> entry : failedBookies.entrySet()) {
                 int idx = entry.getKey();
-                InetSocketAddress addr = entry.getValue();
+                BookieSocketAddress addr = entry.getValue();
                 LOG.info("[EnsembleChange-L{}-{}] : replacing bookie: {} index: {}",
                         new Object[] { getId(), ensembleChangeIdx, addr, idx });
                 if (!newEnsemble.get(idx).equals(addr)) {
@@ -1005,13 +1005,13 @@ public class LedgerHandle {
                     continue;
                 }
                 try {
-                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(
+                    BookieSocketAddress newBookie = bk.bookieWatcher.replaceBookie(
                         metadata.getEnsembleSize(),
                         metadata.getWriteQuorumSize(),
                         metadata.getAckQuorumSize(),
                         newEnsemble,
                         idx,
-                        new HashSet<InetSocketAddress>(failedBookies.values()));
+                        new HashSet<BookieSocketAddress>(failedBookies.values()));
                     newEnsemble.set(idx, newBookie);
                     replacedBookies.add(idx);
                 } catch (BKException.BKNotEnoughBookiesException e) {
@@ -1032,7 +1032,7 @@ public class LedgerHandle {
         return new EnsembleInfo(newEnsemble, failedBookies, replacedBookies);
     }
 
-    void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
+    void handleBookieFailure(final Map<Integer, BookieSocketAddress> failedBookies) {
         int curBlockAddCompletions = blockAddCompletions.incrementAndGet();
 
         if (bk.disableEnsembleChangeFeature.isAvailable()) {
@@ -1064,12 +1064,12 @@ public class LedgerHandle {
 
     // Contains newly reformed ensemble, bookieIndex, failedBookieAddress
     static final class EnsembleInfo {
-        private final ArrayList<InetSocketAddress> newEnsemble;
-        private final Map<Integer, InetSocketAddress> failedBookies;
+        private final ArrayList<BookieSocketAddress> newEnsemble;
+        private final Map<Integer, BookieSocketAddress> failedBookies;
         final Set<Integer> replacedBookies;
 
-        public EnsembleInfo(ArrayList<InetSocketAddress> newEnsemble,
-                            Map<Integer, InetSocketAddress> failedBookies,
+        public EnsembleInfo(ArrayList<BookieSocketAddress> newEnsemble,
+                            Map<Integer, BookieSocketAddress> failedBookies,
                             Set<Integer> replacedBookies) {
             this.newEnsemble = newEnsemble;
             this.failedBookies = failedBookies;
@@ -1266,8 +1266,8 @@ public class LedgerHandle {
         private boolean areFailedBookiesReplaced(LedgerMetadata newMeta, EnsembleInfo ensembleInfo) {
             boolean replaced = true;
             for (Integer replacedBookieIdx : ensembleInfo.replacedBookies) {
-                InetSocketAddress failedBookieAddr = ensembleInfo.failedBookies.get(replacedBookieIdx);
-                InetSocketAddress replacedBookieAddr = newMeta.currentEnsemble.get(replacedBookieIdx);
+                BookieSocketAddress failedBookieAddr = ensembleInfo.failedBookies.get(replacedBookieIdx);
+                BookieSocketAddress replacedBookieAddr = newMeta.currentEnsemble.get(replacedBookieIdx);
                 replaced &= !Objects.equal(replacedBookieAddr, failedBookieAddr);
             }
             return replaced;
@@ -1314,7 +1314,7 @@ public class LedgerHandle {
         bk.getLedgerManager().readLedgerMetadata(ledgerId, cb);
     }
 
-    void registerOperationFailureOnBookie(InetSocketAddress bookie, long entryId) {
+    void registerOperationFailureOnBookie(BookieSocketAddress bookie, long entryId) {
         if (bk.getConf().getEnableBookieFailureTracking()) {
             bookieFailureHistory.put(bookie, entryId);
         }

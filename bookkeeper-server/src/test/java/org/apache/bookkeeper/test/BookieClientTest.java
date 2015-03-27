@@ -22,12 +22,12 @@ package org.apache.bookkeeper.test;
  */
 
 import java.io.File;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.Executors;
 
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.util.IOUtils;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -115,7 +115,7 @@ public class BookieClientTest extends TestCase {
     };
 
     WriteCallback wrcb = new WriteCallback() {
-        public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+        public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
             if (ctx != null) {
                 synchronized (ctx) {
                     if (ctx instanceof ResultStruct) {
@@ -133,7 +133,7 @@ public class BookieClientTest extends TestCase {
         final Object notifyObject = new Object();
         byte[] passwd = new byte[20];
         Arrays.fill(passwd, (byte) 'a');
-        InetSocketAddress addr = new InetSocketAddress("127.0.0.1", port);
+        BookieSocketAddress addr = new BookieSocketAddress("127.0.0.1", port);
         ResultStruct arc = new ResultStruct();
 
         BookieClient bc = new BookieClient(new ClientConfiguration(), channelFactory, executor);
@@ -238,7 +238,7 @@ public class BookieClientTest extends TestCase {
     @Test
     public void testNoLedger() throws Exception {
         ResultStruct arc = new ResultStruct();
-        InetSocketAddress addr = new InetSocketAddress("127.0.0.1", port);
+        BookieSocketAddress addr = new BookieSocketAddress("127.0.0.1", port);
         BookieClient bc = new BookieClient(new ClientConfiguration(), channelFactory, executor);
         synchronized (arc) {
             bc.readEntry(addr, 2, 13, recb, arc);

@@ -36,7 +36,6 @@ import org.apache.bookkeeper.replication.ReplicationException.CompatibilityExcep
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
 import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.stats.StatsProvider;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -107,7 +106,7 @@ public class AutoRecoveryMain {
                 new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime,
                                                        Integer.MAX_VALUE));
         auditorElector = new AuditorElector(
-                StringUtils.addrToString(Bookie.getBookieAddress(conf)), conf,
+                Bookie.getBookieAddress(conf).toString(), conf,
                 zk, statsLogger.scope(AUDITOR_SCOPE));
         replicationWorker = new ReplicationWorker(zk, conf,
                 Bookie.getBookieAddress(conf), statsLogger.scope(REPLICATION_WORKER_SCOPE));

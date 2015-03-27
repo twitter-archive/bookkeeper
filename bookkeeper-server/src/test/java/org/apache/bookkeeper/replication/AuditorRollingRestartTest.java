@@ -20,6 +20,7 @@
  */
 package org.apache.bookkeeper.replication;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.test.TestCallbacks;
 
@@ -30,8 +31,6 @@ import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 
 import org.junit.Test;
-
-import java.net.InetSocketAddress;
 
 /**
  * Test auditor behaviours during a rolling restart
@@ -63,7 +62,7 @@ public class AuditorRollingRestartTest extends BookKeeperClusterTestCase {
                      underReplicationManager.pollLedgerToRereplicate(), -1);
         underReplicationManager.disableLedgerReplication();
 
-        InetSocketAddress auditor = AuditorElector.getCurrentAuditor(baseConf, zkc);
+        BookieSocketAddress auditor = AuditorElector.getCurrentAuditor(baseConf, zkc);
         ServerConfiguration conf = killBookie(auditor);
         Thread.sleep(2000);
         startBookie(conf);

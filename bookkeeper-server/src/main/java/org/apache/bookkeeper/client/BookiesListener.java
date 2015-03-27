@@ -19,7 +19,8 @@ package org.apache.bookkeeper.client;
  */
 
 
-import java.net.InetSocketAddress;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+
 import java.util.Set;
 
 /**
@@ -29,10 +30,10 @@ public interface BookiesListener {
     /**
      * Available bookies changed
      */
-    void availableBookiesChanged(Set<InetSocketAddress> bookies);
+    void availableBookiesChanged(Set<BookieSocketAddress> bookies);
 
     /**
      * ReadOnly bookies changed
      */
-    void readOnlyBookiesChanged(Set<InetSocketAddress> bookies);
+    void readOnlyBookiesChanged(Set<BookieSocketAddress> bookies);
 }

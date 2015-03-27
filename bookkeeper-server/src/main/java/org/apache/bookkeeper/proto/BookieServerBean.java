@@ -74,7 +74,7 @@ public class BookieServerBean implements BookieServerMXBean, BKMBeanInfo {
     @Override
     public String getServerPort() {
         try {
-            return StringUtils.addrToString(Bookie.getBookieAddress(conf));
+            return Bookie.getBookieAddress(conf).toString();
         } catch (UnknownHostException e) {
             return "localhost:" + conf.getBookiePort();
         }

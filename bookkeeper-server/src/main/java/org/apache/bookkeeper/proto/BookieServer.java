@@ -32,10 +32,10 @@ import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.replication.AutoRecoveryMain;
 import org.apache.bookkeeper.replication.ReplicationException;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -49,8 +49,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
-
-import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
 import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
@@ -143,11 +141,13 @@ public class BookieServer {
         registerJMX();
     }
 
-    public InetSocketAddress getLocalAddress() {
+    @VisibleForTesting
+    public BookieSocketAddress getLocalAddress() {
         try {
             return Bookie.getBookieAddress(conf);
         } catch (UnknownHostException uhe) {
-            return nettyServer.getLocalAddress();
+            InetSocketAddress localAddress = nettyServer.getLocalAddress();
+            return new BookieSocketAddress(localAddress.getHostName(), localAddress.getPort());
         }
     }
 

@@ -20,10 +20,10 @@
  */
 package org.apache.bookkeeper.replication;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.test.TestCallbacks;
 
-import java.net.InetSocketAddress;
 import java.util.List;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -102,8 +102,8 @@ public class AuditorPeriodicBookieCheckTest extends BookKeeperClusterTestCase {
 
         LedgerHandle lh = bkc.createLedger(3, 3, DigestType.CRC32, "passwd".getBytes());
         LedgerMetadata md = LedgerHandleAdapter.getLedgerMetadata(lh);
-        List<InetSocketAddress> ensemble = md.getEnsembles().get(0L);
-        ensemble.set(0, new InetSocketAddress("1.1.1.1", 1000));
+        List<BookieSocketAddress> ensemble = md.getEnsembles().get(0L);
+        ensemble.set(0, new BookieSocketAddress("1.1.1.1", 1000));
 
         TestCallbacks.GenericCallbackFuture<Void> cb = new TestCallbacks.GenericCallbackFuture<Void>();
         ledgerManager.writeLedgerMetadata(lh.getId(), md, cb);

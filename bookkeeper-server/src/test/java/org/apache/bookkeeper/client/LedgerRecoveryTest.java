@@ -21,7 +21,6 @@
 package org.apache.bookkeeper.client;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Enumeration;
 import java.util.concurrent.CountDownLatch;
@@ -35,6 +34,7 @@ import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -184,7 +184,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
         // kill first bookie server to start a fake one to simulate a slow bookie
         // and failed to add entry on crash
         // until write succeed
-        InetSocketAddress host = beforelh.getLedgerMetadata().currentEnsemble.get(slowBookieIdx);
+        BookieSocketAddress host = beforelh.getLedgerMetadata().currentEnsemble.get(slowBookieIdx);
         ServerConfiguration conf = killBookie(host);
 
         Bookie fakeBookie = new Bookie(conf) {
@@ -258,7 +258,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
         bs.add(startBookie(conf, deadBookie1));
 
         // kill first bookie server
-        InetSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
 
         // Try to recover and fence the ledger after killing one bookie in the
@@ -273,7 +273,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
         // restart the first server, kill the second
         bsConfs.add(conf1);
         bs.add(startBookie(conf1));
-        InetSocketAddress bookie2 = lhbefore.getLedgerMetadata().currentEnsemble.get(1);
+        BookieSocketAddress bookie2 = lhbefore.getLedgerMetadata().currentEnsemble.get(1);
         ServerConfiguration conf2 = killBookie(bookie2);
 
         // using async, because this could trigger an assertion
@@ -339,7 +339,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
         bs.add(startBookie(conf, deadBookie1));
 
         // kill first bookie server
-        InetSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
 
         // Try to recover and fence the ledger after killing one bookie in the
@@ -391,9 +391,9 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
             fail("Failed to add " + numEntries + " to ledger handle " + lh.getId());
         }
         // kill first 2 bookies to replace bookies
-        InetSocketAddress bookie1 = lh.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lh.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
-        InetSocketAddress bookie2 = lh.getLedgerMetadata().currentEnsemble.get(1);
+        BookieSocketAddress bookie2 = lh.getLedgerMetadata().currentEnsemble.get(1);
         ServerConfiguration conf2 = killBookie(bookie2);
 
         // replace these two bookies
@@ -569,7 +569,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
             lh.bk.bookieClient.addEntry(lh.metadata.currentEnsemble.get(bid), lh.getId(), lh.ledgerKey, entryId, toSend,
                     new WriteCallback() {
                         @Override
-                        public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+                        public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
                             addSuccess.set(BKException.Code.OK == rc);
                             addLatch.countDown();
                         }

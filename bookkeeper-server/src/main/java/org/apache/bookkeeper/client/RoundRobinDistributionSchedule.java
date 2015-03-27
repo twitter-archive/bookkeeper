@@ -18,9 +18,8 @@
 package org.apache.bookkeeper.client;
 
 import com.google.common.collect.ImmutableMap;
-import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 
-import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
@@ -58,8 +57,8 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
     @Override
     public AckSet getAckSet() {
         final HashSet<Integer> ackSet = new HashSet<Integer>();
-        final HashMap<Integer, InetSocketAddress> failureMap =
-                new HashMap<Integer, InetSocketAddress>();
+        final HashMap<Integer, BookieSocketAddress> failureMap =
+                new HashMap<Integer, BookieSocketAddress>();
         return new AckSet() {
             public boolean completeBookieAndCheck(int bookieIndexHeardFrom) {
                 failureMap.remove(bookieIndexHeardFrom);
@@ -68,14 +67,14 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
             }
 
             @Override
-            public boolean failBookieAndCheck(int bookieIndexHeardFrom, InetSocketAddress address) {
+            public boolean failBookieAndCheck(int bookieIndexHeardFrom, BookieSocketAddress address) {
                 ackSet.remove(bookieIndexHeardFrom);
                 failureMap.put(bookieIndexHeardFrom, address);
                 return failureMap.size() > (writeQuorumSize - ackQuorumSize);
             }
 
             @Override
-            public Map<Integer, InetSocketAddress> getFailedBookies() {
+            public Map<Integer, BookieSocketAddress> getFailedBookies() {
                 return ImmutableMap.copyOf(failureMap);
             }
 

@@ -5,12 +5,12 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -64,8 +64,8 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
         final byte[] entry = "test-disable-ensemble-change".getBytes(UTF_8);
 
         assertEquals(1, lh.getLedgerMetadata().getEnsembles().size());
-        ArrayList<InetSocketAddress> ensembleBeforeFailure =
-                new ArrayList<InetSocketAddress>(lh.getLedgerMetadata().getEnsembles().entrySet().iterator().next().getValue());
+        ArrayList<BookieSocketAddress> ensembleBeforeFailure =
+                new ArrayList<BookieSocketAddress>(lh.getLedgerMetadata().getEnsembles().entrySet().iterator().next().getValue());
 
         final RateLimiter rateLimiter = RateLimiter.create(10);
 
@@ -96,10 +96,10 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
         // check the ensemble after failure
         assertEquals("No new ensemble should be added when disable ensemble change.",
                 1, lh.getLedgerMetadata().getEnsembles().size());
-        ArrayList<InetSocketAddress> ensembleAfterFailure =
-                new ArrayList<InetSocketAddress>(lh.getLedgerMetadata().getEnsembles().entrySet().iterator().next().getValue());
-        assertArrayEquals(ensembleBeforeFailure.toArray(new InetSocketAddress[ensembleBeforeFailure.size()]),
-                ensembleAfterFailure.toArray(new InetSocketAddress[ensembleAfterFailure.size()]));
+        ArrayList<BookieSocketAddress> ensembleAfterFailure =
+                new ArrayList<BookieSocketAddress>(lh.getLedgerMetadata().getEnsembles().entrySet().iterator().next().getValue());
+        assertArrayEquals(ensembleBeforeFailure.toArray(new BookieSocketAddress[ensembleBeforeFailure.size()]),
+                ensembleAfterFailure.toArray(new BookieSocketAddress[ensembleAfterFailure.size()]));
 
         // enable ensemble change
         disableEnsembleChangeFeature.set(false);
@@ -215,7 +215,7 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
             lh.addEntry(entry);
         }
 
-        List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
+        List<BookieSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
 
         final CountDownLatch wakeupLatch = new CountDownLatch(1);
         final CountDownLatch suspendLatch = new CountDownLatch(1);

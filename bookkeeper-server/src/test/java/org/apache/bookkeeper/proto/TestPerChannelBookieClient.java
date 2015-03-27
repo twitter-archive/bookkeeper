@@ -21,21 +21,18 @@ package org.apache.bookkeeper.proto;
  *
  */
 
-import org.junit.*;
-import java.net.InetSocketAddress;
 import java.util.Arrays;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
-import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
-import org.apache.bookkeeper.util.OrderedSafeExecutor;
-import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.proto.PerChannelBookieClient.ConnectionState;
 import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.util.OrderedSafeExecutor;
 
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -43,6 +40,7 @@ import org.jboss.netty.channel.socket.ClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.jboss.netty.channel.Channel;
 
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +69,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
                                                 Executors.newCachedThreadPool());
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
 
-        InetSocketAddress addr = getBookie(0);
+        BookieSocketAddress addr = getBookie(0);
         for (int i = 0; i < 1000; i++) {
             PerChannelBookieClient client = new PerChannelBookieClient(executor, channelFactory, addr);
             client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
@@ -100,7 +98,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
             = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
             Executors.newCachedThreadPool());
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
-        InetSocketAddress addr = getBookie(0);
+        BookieSocketAddress addr = getBookie(0);
 
         final PerChannelBookieClient client = new PerChannelBookieClient(executor, channelFactory, addr);
         final AtomicBoolean inconsistent = new AtomicBoolean(false);
@@ -165,7 +163,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
     }
 
     WriteCallback wrcb = new WriteCallback() {
-        public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+        public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
             if (ctx != null) {
                 synchronized (ctx) {
                     ctx.notifyAll();
@@ -190,7 +188,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         ClientConfiguration conf = new ClientConfiguration();
         conf.setWriteToChannelAsync(true);
 
-        InetSocketAddress addr = getBookie(0);
+        BookieSocketAddress addr = getBookie(0);
         PerChannelBookieClient client = new PerChannelBookieClient(
             conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE);
         client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {

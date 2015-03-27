@@ -21,7 +21,6 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -32,11 +31,6 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-import org.apache.zookeeper.ZooKeeper;
-import org.apache.bookkeeper.meta.LedgerManagerFactory;
-import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
-import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
-
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
 import org.apache.bookkeeper.bookie.Journal.JournalScanner;
 import org.apache.bookkeeper.bookie.Journal.LastLogMark;
@@ -45,9 +39,11 @@ import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.util.EntryFormatter;
 import org.apache.bookkeeper.util.IOUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.util.Tool;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.configuration.Configuration;
@@ -59,9 +55,9 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.ParseException;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException;
 
-import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -216,7 +212,7 @@ public class BookieShell implements Tool {
             boolean result = Bookie.format(conf, interactive, force);
             // remove cookie
             if (cmdLine.hasOption("d")) {
-                InetSocketAddress address = Bookie.getBookieAddress(conf);
+                BookieSocketAddress address = Bookie.getBookieAddress(conf);
                 ZooKeeperClient zkc =
                         ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(),
                                 conf.getZkTimeout());
@@ -288,7 +284,7 @@ public class BookieShell implements Tool {
 
             // Get bookies list
             final String[] bookieStrs = args[0].split(",");
-            final Set<InetSocketAddress> bookieAddrs = new HashSet<InetSocketAddress>();
+            final Set<BookieSocketAddress> bookieAddrs = new HashSet<BookieSocketAddress>();
             for (String bookieStr : bookieStrs) {
                 final String bookieStrParts[] = bookieStr.split(":");
                 if (bookieStrParts.length != 2) {
@@ -296,7 +292,7 @@ public class BookieShell implements Tool {
                             + bookieStr);
                     return -1;
                 }
-                bookieAddrs.add(new InetSocketAddress(bookieStrParts[0],
+                bookieAddrs.add(new BookieSocketAddress(bookieStrParts[0],
                         Integer.parseInt(bookieStrParts[1])));
             }
 
@@ -323,7 +319,7 @@ public class BookieShell implements Tool {
             }
         }
 
-        private int bkQuery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs)
+        private int bkQuery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs)
                 throws InterruptedException, BKException {
             SortedMap<Long, LedgerMetadata> ledgersContainBookies =
                     bkAdmin.getLedgersContainBookies(bookieAddrs);
@@ -343,14 +339,14 @@ public class BookieShell implements Tool {
             return 0;
         }
 
-        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<InetSocketAddress> bookiesToInspect) {
+        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<BookieSocketAddress> bookiesToInspect) {
             Map<Long, Integer> numBookiesToReplacePerEnsemble = new TreeMap<Long, Integer>();
-            for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
-                ArrayList<InetSocketAddress> bookieList = ensemble.getValue();
+            for (Map.Entry<Long, ArrayList<BookieSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
+                ArrayList<BookieSocketAddress> bookieList = ensemble.getValue();
                 System.out.print(ensemble.getKey() + ":\t");
                 int numBookiesToReplace = 0;
-                for (InetSocketAddress bookie: bookieList) {
-                    System.out.print(StringUtils.addrToString(bookie));
+                for (BookieSocketAddress bookie: bookieList) {
+                    System.out.print(bookie);
                     if (bookiesToInspect.contains(bookie)) {
                         System.out.print("*");
                         ++numBookiesToReplace;
@@ -365,24 +361,24 @@ public class BookieShell implements Tool {
             return numBookiesToReplacePerEnsemble;
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, long lid, Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(BookKeeperAdmin bkAdmin, long lid, Set<BookieSocketAddress> bookieAddrs,
                                boolean dryrun, boolean skipOpenLedgers, boolean removeCookies)
                 throws InterruptedException, BKException, KeeperException {
             bkAdmin.recoverBookieData(lid, bookieAddrs, dryrun, skipOpenLedgers);
             if (removeCookies) {
-                for (InetSocketAddress addr : bookieAddrs) {
+                for (BookieSocketAddress addr : bookieAddrs) {
                     Cookie.removeCookieForBookie(bkConf, bkAdmin.getZooKeeper(), addr);
                 }
             }
             return 0;
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs,
                                boolean dryrun, boolean skipOpenLedgers, boolean removeCookies)
                 throws InterruptedException, BKException, KeeperException {
             bkAdmin.recoverBookieData(bookieAddrs, dryrun, skipOpenLedgers);
             if (removeCookies) {
-                for (InetSocketAddress addr : bookieAddrs) {
+                for (BookieSocketAddress addr : bookieAddrs) {
                     Cookie.removeCookieForBookie(bkConf, bkAdmin.getZooKeeper(), addr);
                 }
             }

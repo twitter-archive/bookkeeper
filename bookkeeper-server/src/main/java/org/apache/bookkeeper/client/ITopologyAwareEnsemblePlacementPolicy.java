@@ -1,8 +1,8 @@
 package org.apache.bookkeeper.client;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.net.Node;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Set;
 
@@ -36,7 +36,7 @@ public interface ITopologyAwareEnsemblePlacementPolicy<T extends Node> extends E
         /**
          * @return list of addresses representing the ensemble
          */
-        public ArrayList<InetSocketAddress> toList();
+        public ArrayList<BookieSocketAddress> toList();
 
         /**
          * Validates if an ensemble is valid
@@ -63,11 +63,11 @@ public interface ITopologyAwareEnsemblePlacementPolicy<T extends Node> extends E
      * @return list of bookies forming the ensemble
      * @throws BKException.BKNotEnoughBookiesException
      */
-    ArrayList<InetSocketAddress> newEnsemble(
+    ArrayList<BookieSocketAddress> newEnsemble(
             int ensembleSize,
             int writeQuorumSize,
             int ackQuorumSize,
-            Set<InetSocketAddress> excludeBookies,
+            Set<BookieSocketAddress> excludeBookies,
             Ensemble<T> parentEnsemble,
             Predicate<T> parentPredicate)
             throws BKException.BKNotEnoughBookiesException;
@@ -98,7 +98,7 @@ public interface ITopologyAwareEnsemblePlacementPolicy<T extends Node> extends E
      * @param leftBookies
      *          bookies that left
      */
-    void handleBookiesThatLeft(Set<InetSocketAddress> leftBookies);
+    void handleBookiesThatLeft(Set<BookieSocketAddress> leftBookies);
 
     /**
      * Handle bookies that joined
@@ -106,5 +106,5 @@ public interface ITopologyAwareEnsemblePlacementPolicy<T extends Node> extends E
      * @param joinedBookies
      *          bookies that joined.
      */
-    void handleBookiesThatJoined(Set<InetSocketAddress> joinedBookies);
+    void handleBookiesThatJoined(Set<BookieSocketAddress> joinedBookies);
 }

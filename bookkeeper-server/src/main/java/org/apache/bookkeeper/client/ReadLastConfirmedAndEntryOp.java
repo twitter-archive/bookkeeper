@@ -1,6 +1,5 @@
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
@@ -12,6 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
@@ -51,11 +51,11 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         int firstError = BKException.Code.OK;
         int numMissedEntryReads = 0;
 
-        final ArrayList<InetSocketAddress> ensemble;
+        final ArrayList<BookieSocketAddress> ensemble;
         final List<Integer> writeSet;
         final List<Integer> orderedEnsemble;
 
-        ReadLACAndEntryRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        ReadLACAndEntryRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(lId, eId);
 
             this.ensemble = ensemble;
@@ -85,7 +85,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
          * @return return true if we managed to complete the entry;
          *         otherwise return false if the read entry is not complete or it is already completed before
          */
-        boolean complete(int bookieIndex, InetSocketAddress host, final ChannelBuffer buffer, long entryId) {
+        boolean complete(int bookieIndex, BookieSocketAddress host, final ChannelBuffer buffer, long entryId) {
             ChannelBufferInputStream is;
             try {
                 is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
@@ -154,7 +154,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
          * @param rc
          *          read result code
          */
-        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
             translateAndSetFirstError(rc);
 
             if (BKException.Code.NoSuchEntryException == rc ||
@@ -182,7 +182,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
          *      the set of hosts that we already received responses.
          * @return host we sent to if we sent. null otherwise.
          */
-        abstract InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet);
+        abstract BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet);
 
         /**
          * Whether the read request completed.
@@ -212,7 +212,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
 
         int numPendings;
 
-        ParallelReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        ParallelReadRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(ensemble, lId, eId);
             numPendings = orderedEnsemble.size();
         }
@@ -220,7 +220,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         @Override
         void read() {
             for (int bookieIndex : orderedEnsemble) {
-                InetSocketAddress to = ensemble.get(bookieIndex);
+                BookieSocketAddress to = ensemble.get(bookieIndex);
                 try {
                     sendReadTo(bookieIndex, to, this);
                 } catch (InterruptedException ie) {
@@ -233,7 +233,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
             super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
             --numPendings;
             // if received all responses or this entry doesn't meet quorum write, complete the request.
@@ -248,7 +248,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
 
         @Override
-        InetSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet) {
+        BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet) {
             // no speculative read
             return null;
         }
@@ -262,7 +262,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         final BitSet erroredReplicas;
         final BitSet emptyResponseReplicas;
 
-        SequenceReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        SequenceReadRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(ensemble, lId, eId);
 
             this.sentReplicas = new BitSet(orderedEnsemble.size());
@@ -299,7 +299,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
          * @return host we sent to if we sent. null otherwise.
          */
         @Override
-        synchronized InetSocketAddress maybeSendSpeculativeRead(BitSet heardFrom) {
+        synchronized BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFrom) {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 return null;
             }
@@ -321,7 +321,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
             sendNextRead();
         }
 
-        synchronized InetSocketAddress sendNextRead() {
+        synchronized BookieSocketAddress sendNextRead() {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
@@ -342,7 +342,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
             nextReplicaIndexToReadFrom++;
 
             try {
-                InetSocketAddress to = ensemble.get(bookieIndex);
+                BookieSocketAddress to = ensemble.get(bookieIndex);
                 sendReadTo(bookieIndex, to, this);
                 sentReplicas.set(replica);
                 return to;
@@ -355,7 +355,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(int bookieIndex, InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
             super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
 
             int replica = getReplicaIndex(bookieIndex);
@@ -376,7 +376,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
 
         @Override
-        boolean complete(int bookieIndex, InetSocketAddress host, ChannelBuffer buffer, long entryId) {
+        boolean complete(int bookieIndex, BookieSocketAddress host, ChannelBuffer buffer, long entryId) {
             boolean completed = super.complete(bookieIndex, host, buffer, entryId);
             if (completed) {
                 lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
@@ -461,7 +461,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
         }
     }
 
-    void sendReadTo(int bookieIndex, InetSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
+    void sendReadTo(int bookieIndex, BookieSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Calling Read LAC and Entry with {} and long polling interval {} on Bookie {} - Parallel {}",
                     new Object[] { prevEntryId, timeOutInMillis, to, parallelRead });
@@ -485,11 +485,11 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
 
     public static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
         final int bookieIndex;
-        final InetSocketAddress bookie;
+        final BookieSocketAddress bookie;
         long lac = LedgerHandle.INVALID_ENTRY_ID;
         Optional<Long> lacUpdateTimestamp = Optional.absent();
 
-        ReadLastConfirmedAndEntryContext(int bookieIndex, InetSocketAddress bookie) {
+        ReadLastConfirmedAndEntryContext(int bookieIndex, BookieSocketAddress bookie) {
             this.bookieIndex = bookieIndex;
             this.bookie = bookie;
         }
@@ -541,7 +541,7 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                 new Object[] { getClass().getName(), ledgerId, entryId, rc });
         }
         ReadLastConfirmedAndEntryContext rCtx = (ReadLastConfirmedAndEntryContext) ctx;
-        InetSocketAddress bookie = rCtx.bookie;
+        BookieSocketAddress bookie = rCtx.bookie;
         numResponsesPending--;
         if (BKException.Code.OK == rc) {
             if (LOG.isTraceEnabled()) {

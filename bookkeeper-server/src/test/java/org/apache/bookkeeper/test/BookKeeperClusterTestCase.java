@@ -24,7 +24,6 @@ package org.apache.bookkeeper.test;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -41,6 +40,7 @@ import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.proto.ReadOnlyBookieServer;
 import org.apache.bookkeeper.replication.AutoRecoveryMain;
@@ -224,7 +224,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     /**
      * Get bookie address for bookie at index
      */
-    public InetSocketAddress getBookie(int index) throws IllegalArgumentException {
+    public BookieSocketAddress getBookie(int index) throws IllegalArgumentException {
         if (bs.size() <= index || index < 0) {
             throw new IllegalArgumentException("Invalid index, there are only " + bs.size()
                                                + " bookies. Asked for " + index);
@@ -241,7 +241,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @return the configuration of killed bookie
      * @throws InterruptedException
      */
-    public ServerConfiguration killBookie(InetSocketAddress addr) throws InterruptedException {
+    public ServerConfiguration killBookie(BookieSocketAddress addr) throws InterruptedException {
         BookieServer toRemove = null;
         int toRemoveIndex = 0;
         for (BookieServer server : bs) {
@@ -268,7 +268,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @return the configuration of killed bookie
      * @throws InterruptedException
      */
-    public void setBookieToReadOnly(InetSocketAddress addr) throws InterruptedException {
+    public void setBookieToReadOnly(BookieSocketAddress addr) throws InterruptedException {
         for (BookieServer server : bs) {
             if (server.getLocalAddress().equals(addr)) {
                 server.getBookie().doTransitionToReadOnlyMode();
@@ -309,7 +309,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws InterruptedException
      * @throws IOException
      */
-    public CountDownLatch sleepBookie(InetSocketAddress addr, final int seconds)
+    public CountDownLatch sleepBookie(BookieSocketAddress addr, final int seconds)
             throws InterruptedException, IOException {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {
@@ -344,14 +344,14 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws InterruptedException
      * @throws IOException
      */
-    public void sleepBookie(InetSocketAddress addr, final CountDownLatch l)
+    public void sleepBookie(BookieSocketAddress addr, final CountDownLatch l)
             throws InterruptedException, IOException {
         final CountDownLatch suspendLatch = new CountDownLatch(1);
         sleepBookie(addr, l, suspendLatch);
         suspendLatch.await();
     }
 
-    public void sleepBookie(InetSocketAddress addr, final CountDownLatch l, final CountDownLatch suspendLatch)
+    public void sleepBookie(BookieSocketAddress addr, final CountDownLatch l, final CountDownLatch suspendLatch)
             throws InterruptedException, IOException {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {

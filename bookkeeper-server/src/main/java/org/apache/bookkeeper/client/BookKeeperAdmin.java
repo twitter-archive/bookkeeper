@@ -21,7 +21,6 @@
 package org.apache.bookkeeper.client;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -42,13 +41,13 @@ import org.apache.bookkeeper.client.AsyncCallback.RecoverCallback;
 import org.apache.bookkeeper.client.BookKeeper.SyncOpenCallback;
 import org.apache.bookkeeper.client.LedgerFragmentReplicator.SingleFragmentCallback;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.MultiCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.zookeeper.AsyncCallback;
@@ -56,7 +55,6 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZKUtil;
 import org.apache.zookeeper.ZooKeeper;
-import org.apache.zookeeper.KeeperException.Code;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -178,16 +176,16 @@ public class BookKeeperAdmin {
      *
      * @return the registered bookie list.
      */
-    public Collection<InetSocketAddress> getRegisteredBookies()
+    public Collection<BookieSocketAddress> getRegisteredBookies()
             throws BKException {
         String cookiePath = bkc.getConf().getZkLedgersRootPath() + "/"
                 + BookKeeperConstants.COOKIE_NODE;
         try {
             List<String> children = zk.getChildren(cookiePath, false);
-            List<InetSocketAddress> bookies = new ArrayList<InetSocketAddress>(children.size());
+            List<BookieSocketAddress> bookies = new ArrayList<BookieSocketAddress>(children.size());
             for (String child : children) {
                 try {
-                    bookies.add(StringUtils.parseAddr(child));
+                    bookies.add(new BookieSocketAddress(child));
                 } catch (IOException ioe) {
                     LOG.error("Error parsing bookie address {} : ", child, ioe);
                     throw new BKException.ZKException();
@@ -209,7 +207,7 @@ public class BookKeeperAdmin {
      *
      * @return a collection of bookie addresses
      */
-    public Collection<InetSocketAddress> getAvailableBookies()
+    public Collection<BookieSocketAddress> getAvailableBookies()
             throws BKException {
         return bkc.bookieWatcher.getBookies();
     }
@@ -219,7 +217,7 @@ public class BookKeeperAdmin {
      *
      * @return a collection of bookie addresses
      */
-    public Collection<InetSocketAddress> getReadOnlyBookies()
+    public Collection<BookieSocketAddress> getReadOnlyBookies()
             throws BKException {
         return bkc.bookieWatcher.getReadOnlyBookies();
     }
@@ -340,7 +338,7 @@ public class BookKeeperAdmin {
         }
     }
 
-    public SortedMap<Long, LedgerMetadata> getLedgersContainBookies(Set<InetSocketAddress> bookies)
+    public SortedMap<Long, LedgerMetadata> getLedgersContainBookies(Set<BookieSocketAddress> bookies)
             throws InterruptedException, BKException {
         final SyncObject sync = new SyncObject();
         final AtomicReference<SortedMap<Long, LedgerMetadata>> resultHolder =
@@ -368,7 +366,7 @@ public class BookKeeperAdmin {
         return resultHolder.get();
     }
 
-    public void asyncGetLedgersContainBookies(final Set<InetSocketAddress> bookies,
+    public void asyncGetLedgersContainBookies(final Set<BookieSocketAddress> bookies,
                                               final GenericCallback<SortedMap<Long, LedgerMetadata>> callback) {
         final SortedMap<Long, LedgerMetadata> ledgers = new ConcurrentSkipListMap<Long, LedgerMetadata>();
         bkc.getLedgerManager().asyncProcessLedgers(new Processor<Long>() {
@@ -385,8 +383,8 @@ public class BookKeeperAdmin {
                             cb.processResult(rc, null, null);
                             return;
                         }
-                        Set<InetSocketAddress> bookiesInLedger = metadata.getBookiesInThisLedger();
-                        Sets.SetView<InetSocketAddress> intersection =
+                        Set<BookieSocketAddress> bookiesInLedger = metadata.getBookiesInThisLedger();
+                        Sets.SetView<BookieSocketAddress> intersection =
                                 Sets.intersection(bookiesInLedger, bookies);
                         if (!intersection.isEmpty()) {
                             ledgers.put(lid, metadata);
@@ -421,19 +419,19 @@ public class BookKeeperAdmin {
      *            Optional destination bookie that if passed, we will copy all
      *            of the ledger fragments from the source bookie over to it.
      */
-    public void recoverBookieData(final InetSocketAddress bookieSrc, final InetSocketAddress bookieDest)
+    public void recoverBookieData(final BookieSocketAddress bookieSrc, final BookieSocketAddress bookieDest)
             throws InterruptedException, BKException {
-        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        Set<BookieSocketAddress> bookiesSrc = new HashSet<BookieSocketAddress>();
         bookiesSrc.add(bookieSrc);
         recoverBookieData(bookiesSrc);
     }
 
-    public void recoverBookieData(final Set<InetSocketAddress> bookiesSrc)
+    public void recoverBookieData(final Set<BookieSocketAddress> bookiesSrc)
         throws InterruptedException, BKException {
         recoverBookieData(bookiesSrc, false, false);
     }
 
-    public void recoverBookieData(final Set<InetSocketAddress> bookiesSrc, boolean dryrun, boolean skipOpenLedgers)
+    public void recoverBookieData(final Set<BookieSocketAddress> bookiesSrc, boolean dryrun, boolean skipOpenLedgers)
         throws InterruptedException, BKException {
         SyncObject sync = new SyncObject();
         // Call the async method to recover bookie data.
@@ -461,7 +459,7 @@ public class BookKeeperAdmin {
         }
     }
 
-    public void recoverBookieData(final long lid, final Set<InetSocketAddress> bookiesSrc, boolean dryrun, boolean skipOpenLedgers)
+    public void recoverBookieData(final long lid, final Set<BookieSocketAddress> bookiesSrc, boolean dryrun, boolean skipOpenLedgers)
         throws InterruptedException, BKException {
         SyncObject sync = new SyncObject();
         // Call the async method to recover bookie data.
@@ -512,19 +510,19 @@ public class BookKeeperAdmin {
      * @param context
      *            Context for the RecoverCallback to call.
      */
-    public void asyncRecoverBookieData(final InetSocketAddress bookieSrc, final InetSocketAddress bookieDest,
+    public void asyncRecoverBookieData(final BookieSocketAddress bookieSrc, final BookieSocketAddress bookieDest,
                                        final RecoverCallback cb, final Object context) {
-        Set<InetSocketAddress> bookiesSrc = new HashSet<InetSocketAddress>();
+        Set<BookieSocketAddress> bookiesSrc = new HashSet<BookieSocketAddress>();
         bookiesSrc.add(bookieSrc);
         asyncRecoverBookieData(bookiesSrc, cb, context);
     }
 
-    public void asyncRecoverBookieData(final Set<InetSocketAddress> bookieSrc,
+    public void asyncRecoverBookieData(final Set<BookieSocketAddress> bookieSrc,
                                        final RecoverCallback cb, final Object context) {
         asyncRecoverBookieData(bookieSrc, false, false, cb, context);
     }
 
-    public void asyncRecoverBookieData(final Set<InetSocketAddress> bookieSrc, boolean dryrun,
+    public void asyncRecoverBookieData(final Set<BookieSocketAddress> bookieSrc, boolean dryrun,
                                        final boolean skipOpenLedgers, final RecoverCallback cb, final Object context) {
         getActiveLedgers(bookieSrc, dryrun, skipOpenLedgers, cb, context);
     }
@@ -546,7 +544,7 @@ public class BookKeeperAdmin {
      * @param context
      *          Context for the RecoverCallback to call.
      */
-    public void asyncRecoverBookieData(long lid, final Set<InetSocketAddress> bookieSrc, boolean dryrun,
+    public void asyncRecoverBookieData(long lid, final Set<BookieSocketAddress> bookieSrc, boolean dryrun,
                                        boolean skipOpenLedgers, final RecoverCallback callback, final Object context) {
         AsyncCallback.VoidCallback callbackWrapper = new AsyncCallback.VoidCallback() {
             @Override
@@ -576,7 +574,7 @@ public class BookKeeperAdmin {
      * @param context
      *            Context for the RecoverCallback to call.
      */
-    private void getActiveLedgers(final Set<InetSocketAddress> bookiesSrc, final boolean dryrun,
+    private void getActiveLedgers(final Set<BookieSocketAddress> bookiesSrc, final boolean dryrun,
                                   final boolean skipOpenLedgers, final RecoverCallback cb, final Object context) {
         // Wrapper class around the RecoverCallback so it can be used
         // as the final VoidCallback to process ledgers
@@ -621,7 +619,7 @@ public class BookKeeperAdmin {
      *            IterationCallback to invoke once we've recovered the current
      *            ledger.
      */
-    private void recoverLedger(final Set<InetSocketAddress> bookiesSrc, final long lId, final boolean dryrun,
+    private void recoverLedger(final Set<BookieSocketAddress> bookiesSrc, final long lId, final boolean dryrun,
                                final boolean skipOpenLedgers, final AsyncCallback.VoidCallback finalLedgerIterCb) {
         LOG.debug("Recovering ledger : {}", lId);
 
@@ -652,7 +650,7 @@ public class BookKeeperAdmin {
                 if (!lm.isClosed() &&
                     lm.getEnsembles().size() > 0) {
                     Long lastKey = lm.getEnsembles().lastKey();
-                    ArrayList<InetSocketAddress> lastEnsemble = lm.getEnsembles().get(lastKey);
+                    ArrayList<BookieSocketAddress> lastEnsemble = lm.getEnsembles().get(lastKey);
                     // the original write has not removed faulty bookie from
                     // current ledger ensemble. to avoid data loss issue in
                     // the case of concurrent updates to the ensemble composition,
@@ -721,7 +719,7 @@ public class BookKeeperAdmin {
                  */
                 Map<Long, Long> ledgerFragmentsRange = new HashMap<Long, Long>();
                 Long curEntryId = null;
-                for (Map.Entry<Long, ArrayList<InetSocketAddress>> entry : lh.getLedgerMetadata().getEnsembles()
+                for (Map.Entry<Long, ArrayList<BookieSocketAddress>> entry : lh.getLedgerMetadata().getEnsembles()
                          .entrySet()) {
                     if (curEntryId != null)
                         ledgerFragmentsRange.put(curEntryId, entry.getKey() - 1);
@@ -767,22 +765,22 @@ public class BookKeeperAdmin {
                  */
                 for (final Long startEntryId : ledgerFragmentsToRecover) {
                     Long endEntryId = ledgerFragmentsRange.get(startEntryId);
-                    ArrayList<InetSocketAddress> ensemble = lh.getLedgerMetadata().getEnsembles().get(startEntryId);
-                    ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
+                    ArrayList<BookieSocketAddress> ensemble = lh.getLedgerMetadata().getEnsembles().get(startEntryId);
+                    ArrayList<BookieSocketAddress> newEnsemble = new ArrayList<BookieSocketAddress>();
                     // Construct a new ensemble
                     newEnsemble.addAll(ensemble);
                     // Get bookies to replace
                     Set<Integer> bookieIndexesReplaced= new HashSet<Integer>();
-                    Set<InetSocketAddress> targetBookieAddresses = new HashSet<InetSocketAddress>();
-                    Map<InetSocketAddress, InetSocketAddress> oldBookie2NewBookieMap =
-                            new HashMap<InetSocketAddress, InetSocketAddress>();
+                    Set<BookieSocketAddress> targetBookieAddresses = new HashSet<BookieSocketAddress>();
+                    Map<BookieSocketAddress, BookieSocketAddress> oldBookie2NewBookieMap =
+                            new HashMap<BookieSocketAddress, BookieSocketAddress>();
                     try {
-                        Set<InetSocketAddress> bookiesToExclude = new HashSet<InetSocketAddress>();
+                        Set<BookieSocketAddress> bookiesToExclude = new HashSet<BookieSocketAddress>();
                         bookiesToExclude.addAll(bookiesSrc);
                         for (int bookieIndex = 0; bookieIndex < ensemble.size(); bookieIndex++) {
-                            InetSocketAddress bookieInEnsemble = ensemble.get(bookieIndex);
+                            BookieSocketAddress bookieInEnsemble = ensemble.get(bookieIndex);
                             if (bookiesSrc.contains(bookieInEnsemble)) {
-                                InetSocketAddress newBookie =
+                                BookieSocketAddress newBookie =
                                         bkc.getPlacementPolicy().replaceBookie(lh.getLedgerMetadata().getEnsembleSize(),
                                                             lh.getLedgerMetadata().getWriteQuorumSize(),
                                                             lh.getLedgerMetadata().getAckQuorumSize(),
@@ -837,11 +835,11 @@ public class BookKeeperAdmin {
             }, null);
     }
 
-    static String formatEnsemble(ArrayList<InetSocketAddress> ensemble, Set<InetSocketAddress> bookiesSrc, char marker) {
+    static String formatEnsemble(ArrayList<BookieSocketAddress> ensemble, Set<BookieSocketAddress> bookiesSrc, char marker) {
         StringBuilder sb = new StringBuilder();
         sb.append("[");
         for (int i = 0; i < ensemble.size(); i++) {
-            sb.append(StringUtils.addrToString(ensemble.get(i)));
+            sb.append(ensemble.get(i));
             if (bookiesSrc.contains(ensemble.get(i))) {
                 sb.append(marker);
             } else {
@@ -874,7 +872,7 @@ public class BookKeeperAdmin {
     private void asyncRecoverLedgerFragment(final LedgerHandle lh,
             final LedgerFragment ledgerFragment,
             final AsyncCallback.VoidCallback ledgerFragmentMcb,
-            final Set<InetSocketAddress> newBookies) throws InterruptedException {
+            final Set<BookieSocketAddress> newBookies) throws InterruptedException {
         lfr.replicate(lh, ledgerFragment, ledgerFragmentMcb, newBookies);
     }
 
@@ -890,25 +888,25 @@ public class BookKeeperAdmin {
      */
     public void replicateLedgerFragment(LedgerHandle lh,
             final LedgerFragment ledgerFragment,
-            final InetSocketAddress targetBookieAddress)
+            final BookieSocketAddress targetBookieAddress)
             throws InterruptedException, BKException {
         Preconditions.checkArgument(ledgerFragment.getBookiesIndexes().size() == 1);
-        Map<Integer, InetSocketAddress> targetBookieAddresses =
-                new HashMap<Integer, InetSocketAddress>();
+        Map<Integer, BookieSocketAddress> targetBookieAddresses =
+                new HashMap<Integer, BookieSocketAddress>();
         targetBookieAddresses.put(ledgerFragment.getBookiesIndexes().iterator().next(), targetBookieAddress);
         replicateLedgerFragment(lh, ledgerFragment, targetBookieAddresses);
     }
 
     public void replicateLedgerFragment(LedgerHandle lh,
             final LedgerFragment ledgerFragment,
-            final Map<Integer, InetSocketAddress> targetBookieAddresses)
+            final Map<Integer, BookieSocketAddress> targetBookieAddresses)
             throws InterruptedException, BKException {
         SyncCounter syncCounter = new SyncCounter();
         ResultCallBack resultCallBack = new ResultCallBack(syncCounter);
         SingleFragmentCallback cb = new SingleFragmentCallback(resultCallBack,
                 lh, ledgerFragment.getFirstEntryId(), getReplacedBookiesMap(ledgerFragment, targetBookieAddresses));
         syncCounter.inc();
-        Set<InetSocketAddress> targetBookieSet = new HashSet<InetSocketAddress>();
+        Set<BookieSocketAddress> targetBookieSet = new HashSet<BookieSocketAddress>();
         targetBookieSet.addAll(targetBookieAddresses.values());
         asyncRecoverLedgerFragment(lh, ledgerFragment, cb, targetBookieSet);
         syncCounter.block(0);
@@ -917,19 +915,19 @@ public class BookKeeperAdmin {
         }
     }
 
-    private static Map<InetSocketAddress, InetSocketAddress> getReplacedBookiesMap(LedgerFragment ledgerFragment,
-            Map<Integer, InetSocketAddress> targetBookieAddresses) {
-        Map<InetSocketAddress, InetSocketAddress> bookiesMap = new HashMap<InetSocketAddress, InetSocketAddress>();
+    private static Map<BookieSocketAddress, BookieSocketAddress> getReplacedBookiesMap(LedgerFragment ledgerFragment,
+            Map<Integer, BookieSocketAddress> targetBookieAddresses) {
+        Map<BookieSocketAddress, BookieSocketAddress> bookiesMap = new HashMap<BookieSocketAddress, BookieSocketAddress>();
         for (Integer bookieIndex : ledgerFragment.getBookiesIndexes()) {
-            InetSocketAddress oldBookie = ledgerFragment.getAddress(bookieIndex);
-            InetSocketAddress newBookie = targetBookieAddresses.get(bookieIndex);
+            BookieSocketAddress oldBookie = ledgerFragment.getAddress(bookieIndex);
+            BookieSocketAddress newBookie = targetBookieAddresses.get(bookieIndex);
             bookiesMap.put(oldBookie, newBookie);
         }
         return bookiesMap;
     }
 
-    private static boolean containBookies(ArrayList<InetSocketAddress> ensemble, Set<InetSocketAddress> bookies) {
-        for (InetSocketAddress bookie : ensemble) {
+    private static boolean containBookies(ArrayList<BookieSocketAddress> ensemble, Set<BookieSocketAddress> bookies) {
+        for (BookieSocketAddress bookie : ensemble) {
             if (bookies.contains(bookie)) {
                 return true;
             }

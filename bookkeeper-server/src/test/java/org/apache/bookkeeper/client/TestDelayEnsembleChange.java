@@ -23,6 +23,7 @@ package org.apache.bookkeeper.client;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -31,7 +32,6 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -90,9 +90,9 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
         LedgerMetadata md = lh.getLedgerMetadata();
 
         for (long eid = startEntry; eid < untilEntry; eid++) {
-            ArrayList<InetSocketAddress> addresses = md.getEnsemble(eid);
+            ArrayList<BookieSocketAddress> addresses = md.getEnsemble(eid);
             VerificationCallback callback = new VerificationCallback(addresses.size());
-            for (InetSocketAddress addr : addresses) {
+            for (BookieSocketAddress addr : addresses) {
                 bkc.bookieClient.readEntry(addr, lh.getId(), eid, callback, addr);
             }
             callback.latch.await();
@@ -107,9 +107,9 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
         LedgerMetadata md = lh.getLedgerMetadata();
 
         for (long eid = startEntry; eid < untilEntry; eid++) {
-            ArrayList<InetSocketAddress> addresses = md.getEnsemble(eid);
+            ArrayList<BookieSocketAddress> addresses = md.getEnsemble(eid);
             VerificationCallback callback = new VerificationCallback(addresses.size());
-            for (InetSocketAddress addr : addresses) {
+            for (BookieSocketAddress addr : addresses) {
                 bkc.bookieClient.readEntry(addr, lh.getId(), eid, callback, addr);
             }
             callback.latch.await();
@@ -213,8 +213,8 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
         assertEquals("There should be ensemble change if ack quorum couldn't be formed.",
                      2, lh.getLedgerMetadata().getEnsembles().size());
 
-        ArrayList<InetSocketAddress> firstFragment = lh.getLedgerMetadata().getEnsemble(0);
-        ArrayList<InetSocketAddress> secondFragment = lh.getLedgerMetadata().getEnsemble(3 * numEntries);
+        ArrayList<BookieSocketAddress> firstFragment = lh.getLedgerMetadata().getEnsemble(0);
+        ArrayList<BookieSocketAddress> secondFragment = lh.getLedgerMetadata().getEnsemble(3 * numEntries);
         assertFalse(firstFragment.get(0).equals(secondFragment.get(0)));
         assertFalse(firstFragment.get(1).equals(secondFragment.get(1)));
         assertFalse(firstFragment.get(2).equals(secondFragment.get(2)));
@@ -385,8 +385,8 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress failedBookie = lh.getLedgerMetadata().currentEnsemble.get(0);
-        InetSocketAddress readOnlyBookie = lh.getLedgerMetadata().currentEnsemble.get(1);
+        BookieSocketAddress failedBookie = lh.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress readOnlyBookie = lh.getLedgerMetadata().currentEnsemble.get(1);
         ServerConfiguration conf0 = killBookie(failedBookie);
 
         for (int i = 0; i < numEntries; i++) {
@@ -424,7 +424,7 @@ public class TestDelayEnsembleChange extends BookKeeperClusterTestCase {
         int numEntries = 10;
         lh.addEntry(data);
 
-        InetSocketAddress failedBookie = lh.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress failedBookie = lh.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf0 = killBookie(failedBookie);
 
         for (int i = 0; i < numEntries; i++) {

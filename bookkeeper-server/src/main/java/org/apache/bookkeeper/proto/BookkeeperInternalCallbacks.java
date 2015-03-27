@@ -21,7 +21,6 @@
 
 package org.apache.bookkeeper.proto;
 
-import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -30,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerMetadata;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
@@ -68,7 +68,7 @@ public class BookkeeperInternalCallbacks {
     }
 
     public interface WriteCallback {
-        void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx);
+        void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx);
     }
 
     public interface GenericCallback<T> {

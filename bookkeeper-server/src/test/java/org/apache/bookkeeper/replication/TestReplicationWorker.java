@@ -20,7 +20,6 @@
 package org.apache.bookkeeper.replication;
 
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -36,7 +35,7 @@ import org.apache.bookkeeper.client.LedgerHandleAdapter;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
-import org.apache.bookkeeper.meta.ZkLedgerUnderreplicationManager;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
@@ -109,7 +108,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKill);
@@ -120,7 +119,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
 
@@ -159,13 +158,13 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
         lh.close();
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
         LOG.info("Killing Bookie", replicaToKill);
         ServerConfiguration killedBookieConfig = killBookie(replicaToKill);
 
         int startNewBookie = startNewBookie();
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
 
@@ -209,7 +208,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
         lh.close();
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
         LOG.info("Killing Bookie", replicaToKill);
         ServerConfiguration killedBookieConfig = killBookie(replicaToKill);
@@ -217,14 +216,14 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         killAllBookies(lh, null);
         // Starte RW1
         int startNewBookie1 = startNewBookie();
-        InetSocketAddress newBkAddr1 = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr1 = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie1);
         LOG.info("New Bookie addr :" + newBkAddr1);
         ReplicationWorker rw1 = new ReplicationWorker(zkc, baseConf, newBkAddr1);
 
         // Starte RW2
         int startNewBookie2 = startNewBookie();
-        InetSocketAddress newBkAddr2 = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr2 = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie2);
         LOG.info("New Bookie addr :" + newBkAddr2);
         ZooKeeper zkc1 = ZooKeeperClient.createConnectedZooKeeperClient(
@@ -272,13 +271,13 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
         lh.close();
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
         LOG.info("Killing Bookie", replicaToKill);
         killBookie(replicaToKill);
 
         int startNewBookie = startNewBookie();
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
         ReplicationWorker rw = new ReplicationWorker(zkc, baseConf, newBkAddr);
@@ -308,7 +307,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh1.addEntry(data);
         }
-        InetSocketAddress replicaToKillFromFirstLedger = LedgerHandleAdapter
+        BookieSocketAddress replicaToKillFromFirstLedger = LedgerHandleAdapter
                 .getLedgerMetadata(lh1).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKillFromFirstLedger);
@@ -320,7 +319,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh2.addEntry(data);
         }
-        InetSocketAddress replicaToKillFromSecondLedger = LedgerHandleAdapter
+        BookieSocketAddress replicaToKillFromSecondLedger = LedgerHandleAdapter
                 .getLedgerMetadata(lh2).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKillFromSecondLedger);
@@ -334,7 +333,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
 
         int startNewBookie = startNewBookie();
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
 
@@ -381,7 +380,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKill);
@@ -389,7 +388,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
 
         int startNewBookie = startNewBookie();
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
 
@@ -436,7 +435,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = LedgerHandleAdapter
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKill);
@@ -450,7 +449,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
 
@@ -497,7 +496,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = LedgerHandleAdapter.getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter.getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKill);
         killBookie(replicaToKill);
@@ -507,7 +506,7 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress.getLocalHost().getHostAddress(), newBkPort);
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress.getLocalHost().getHostAddress(), newBkPort);
         LOG.info("New Bookie addr :" + newBkAddr);
 
         ReplicationWorker rw = new ReplicationWorker(zkc, baseConf, newBkAddr);
@@ -558,14 +557,14 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         }
     }
 
-    private void killAllBookies(LedgerHandle lh, InetSocketAddress excludeBK)
+    private void killAllBookies(LedgerHandle lh, BookieSocketAddress excludeBK)
             throws InterruptedException {
         // Killing all bookies except newly replicated bookie
-        Set<Entry<Long, ArrayList<InetSocketAddress>>> entrySet = LedgerHandleAdapter
+        Set<Entry<Long, ArrayList<BookieSocketAddress>>> entrySet = LedgerHandleAdapter
                 .getLedgerMetadata(lh).getEnsembles().entrySet();
-        for (Entry<Long, ArrayList<InetSocketAddress>> entry : entrySet) {
-            ArrayList<InetSocketAddress> bookies = entry.getValue();
-            for (InetSocketAddress bookie : bookies) {
+        for (Entry<Long, ArrayList<BookieSocketAddress>> entry : entrySet) {
+            ArrayList<BookieSocketAddress> bookies = entry.getValue();
+            for (BookieSocketAddress bookie : bookies) {
                 if (bookie.equals(excludeBK)) {
                     continue;
                 }

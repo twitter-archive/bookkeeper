@@ -6,6 +6,7 @@ import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
@@ -52,7 +53,7 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         BookkeeperInternalCallbacks.WriteCallback wcb = new BookkeeperInternalCallbacks.WriteCallback() {
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
-                                      InetSocketAddress addr, Object ctx) {
+                                      BookieSocketAddress addr, Object ctx) {
                 if (rc == BookieProtocol.EOK) {
                     ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
                             .ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));

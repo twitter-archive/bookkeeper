@@ -20,20 +20,18 @@
  */
 package org.apache.bookkeeper.replication;
 
-import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.io.Serializable;
 import java.io.IOException;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.DataFormats.AuditorVoteFormat;
 import com.google.common.annotations.VisibleForTesting;
 
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -334,7 +332,7 @@ public class AuditorElector {
      * Query zookeeper for the currently elected auditor
      * @return the bookie id of the current auditor
      */
-    public static InetSocketAddress getCurrentAuditor(ServerConfiguration conf, ZooKeeper zk)
+    public static BookieSocketAddress getCurrentAuditor(ServerConfiguration conf, ZooKeeper zk)
             throws KeeperException, InterruptedException, IOException {
         String electionRoot = conf.getZkLedgersRootPath() + '/'
             + BookKeeperConstants.UNDER_REPLICATION_NODE + '/' + ELECTION_ZNODE;
@@ -351,7 +349,7 @@ public class AuditorElector {
         TextFormat.merge(new String(data, UTF_8), builder);
         AuditorVoteFormat v = builder.build();
         String[] parts = v.getBookieId().split(":");
-        return new InetSocketAddress(parts[0], Integer.valueOf(parts[1]));
+        return new BookieSocketAddress(parts[0], Integer.valueOf(parts[1]));
     }
 
     /**

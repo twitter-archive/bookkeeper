@@ -23,19 +23,15 @@ package org.apache.bookkeeper.client;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
-import org.jboss.netty.buffer.ChannelBuffer;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase implements AddCallback {
 
@@ -85,7 +81,7 @@ public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase impleme
     @Test(timeout = 60000)
     public void testBasicTimeout() throws Exception {
         LedgerHandle lh = getTestLedger();
-        List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
+        List<BookieSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
         byte[] data = "foobar".getBytes();
         lh.addEntry(data);
         sleepBookie(curEns.get(0), 5).await();
@@ -99,7 +95,7 @@ public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase impleme
     @Test(timeout = 60000)
     public void testTimeoutWithPendingOps() throws Exception {
         LedgerHandle lh = getTestLedger();
-        List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
+        List<BookieSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
         byte[] data = "foobar".getBytes();
 
         SyncObj syncObj1 = new SyncObj();
@@ -126,7 +122,7 @@ public class TestAddEntryQuorumTimeout extends BookKeeperClusterTestCase impleme
     @Test(timeout = 60000)
     public void testLedgerClosedAfterTimeout() throws Exception {
         LedgerHandle lh = getTestLedger();
-        List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
+        List<BookieSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
         byte[] data = "foobar".getBytes();
         CountDownLatch b0latch = sleepBookie(curEns.get(0), 5);
         try {

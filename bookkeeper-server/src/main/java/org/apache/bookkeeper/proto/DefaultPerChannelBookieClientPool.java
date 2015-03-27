@@ -21,12 +21,12 @@
 package org.apache.bookkeeper.proto;
 
 import com.google.common.base.Preconditions;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -39,12 +39,12 @@ class DefaultPerChannelBookieClientPool implements PerChannelBookieClientPool,
     static final Logger logger = LoggerFactory.getLogger(DefaultPerChannelBookieClientPool.class);
 
     final PerChannelBookieClientFactory factory;
-    final InetSocketAddress address;
+    final BookieSocketAddress address;
     final PerChannelBookieClient[] clients;
     final AtomicInteger counter = new AtomicInteger(0);
 
     DefaultPerChannelBookieClientPool(PerChannelBookieClientFactory factory,
-                                      InetSocketAddress address,
+                                      BookieSocketAddress address,
                                       int coreSize) {
         Preconditions.checkArgument(coreSize > 0);
         this.factory = factory;

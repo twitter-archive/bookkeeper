@@ -19,7 +19,8 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -34,7 +35,7 @@ import java.util.SortedMap;
  */
 public class LedgerFragment {
     private final Set<Integer> bookieIndexes;
-    private final List<InetSocketAddress> ensemble;
+    private final List<BookieSocketAddress> ensemble;
     private final long firstEntryId;
     private final long lastKnownEntryId;
     private final long ledgerId;
@@ -49,7 +50,7 @@ public class LedgerFragment {
         this.bookieIndexes = bookieIndexes;
         this.ensemble = lh.getLedgerMetadata().getEnsemble(firstEntryId);
         this.schedule = lh.getDistributionSchedule();
-        SortedMap<Long, ArrayList<InetSocketAddress>> ensembles = lh
+        SortedMap<Long, ArrayList<BookieSocketAddress>> ensembles = lh
                 .getLedgerMetadata().getEnsembles();
         this.isLedgerClosed = lh.getLedgerMetadata().isClosed()
                 || !ensemble.equals(ensembles.get(ensembles.lastKey()));
@@ -84,12 +85,12 @@ public class LedgerFragment {
     /**
      * Gets the failedBookie address
      */
-    public InetSocketAddress getAddress(int bookieIndex) {
+    public BookieSocketAddress getAddress(int bookieIndex) {
         return ensemble.get(bookieIndex);
     }
 
-    public Set<InetSocketAddress> getAddresses() {
-        Set<InetSocketAddress> addresses = new HashSet<InetSocketAddress>();
+    public Set<BookieSocketAddress> getAddresses() {
+        Set<BookieSocketAddress> addresses = new HashSet<BookieSocketAddress>();
         for (int bookieIndex : bookieIndexes) {
             addresses.add(ensemble.get(bookieIndex));
         }
@@ -169,7 +170,7 @@ public class LedgerFragment {
      *
      * @return the ensemble for the segment which this fragment is a part of
      */
-    public List<InetSocketAddress> getEnsemble() {
+    public List<BookieSocketAddress> getEnsemble() {
         return this.ensemble;
     }
 

@@ -28,7 +28,6 @@ import java.io.FileNotFoundException;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -60,6 +59,7 @@ import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.jmx.BKMBeanRegistry;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerGauge;
@@ -182,7 +182,7 @@ public class Bookie extends BookieCriticalThread {
     static class NopWriteCallback implements WriteCallback {
         @Override
         public void writeComplete(int rc, long ledgerId, long entryId,
-                                  InetSocketAddress addr, Object ctx) {
+                                  BookieSocketAddress addr, Object ctx) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
                           new Object[] { entryId, ledgerId, addr, rc });
@@ -196,7 +196,7 @@ public class Bookie extends BookieCriticalThread {
 
         @Override
         public void writeComplete(int rc, long ledgerId, long entryId,
-                                  InetSocketAddress addr, Object ctx) {
+                                  BookieSocketAddress addr, Object ctx) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
                           new Object[] { entryId, ledgerId, addr, rc });
@@ -534,9 +534,9 @@ public class Bookie extends BookieCriticalThread {
     /**
      * Return the configured address of the bookie.
      */
-    public static InetSocketAddress getBookieAddress(ServerConfiguration conf)
+    public static BookieSocketAddress getBookieAddress(ServerConfiguration conf)
             throws UnknownHostException {
-        return new InetSocketAddress(InetAddress.getLocalHost()
+        return new BookieSocketAddress(InetAddress.getLocalHost()
                 .getHostAddress(), conf.getBookiePort());
     }
 
@@ -1485,7 +1485,7 @@ public class Bookie extends BookieCriticalThread {
         int count;
 
         @Override
-        synchronized public void writeComplete(int rc, long l, long e, InetSocketAddress addr, Object ctx) {
+        synchronized public void writeComplete(int rc, long l, long e, BookieSocketAddress addr, Object ctx) {
             count--;
             if (count == 0) {
                 notifyAll();

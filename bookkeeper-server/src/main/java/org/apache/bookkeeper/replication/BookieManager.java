@@ -4,13 +4,12 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.BookiesListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,8 +45,8 @@ class BookieManager implements BookiesListener {
 
     protected final ServerConfiguration conf;
     protected final BookKeeperAdmin admin;
-    protected final Map<InetSocketAddress, BookieStatus> bookieStatuses =
-            new HashMap<InetSocketAddress, BookieStatus>();
+    protected final Map<BookieSocketAddress, BookieStatus> bookieStatuses =
+            new HashMap<BookieSocketAddress, BookieStatus>();
     protected final long staleBookieIntervalInMs;
 
     BookieManager(ServerConfiguration conf,
@@ -70,19 +69,19 @@ class BookieManager implements BookiesListener {
         Set<String> staleBookies = new HashSet<String>();
         long now = MathUtils.now();
         synchronized (this) {
-            Iterator<Map.Entry<InetSocketAddress, BookieStatus>> iter =
+            Iterator<Map.Entry<BookieSocketAddress, BookieStatus>> iter =
                     bookieStatuses.entrySet().iterator();
             while (iter.hasNext()) {
-                Map.Entry<InetSocketAddress, BookieStatus> entry = iter.next();
+                Map.Entry<BookieSocketAddress, BookieStatus> entry = iter.next();
                 long millisSinceLastSeen = now - entry.getValue().getLastTimestamp();
                 if (millisSinceLastSeen > staleBookieIntervalInMs) {
                     logger.info("Bookie {} (seen @ {}) become stale for {} ms, remove it.",
                                 new Object[] { entry.getKey(), entry.getValue().getLastTimestamp(),
                                         millisSinceLastSeen });
                     iter.remove();
-                    staleBookies.add(StringUtils.addrToString(entry.getKey()));
+                    staleBookies.add(entry.getKey().toString());
                 } else {
-                    availableBookies.add(StringUtils.addrToString(entry.getKey()));
+                    availableBookies.add(entry.getKey().toString());
                 }
             }
         }
@@ -90,30 +89,30 @@ class BookieManager implements BookiesListener {
     }
 
     private void fetchRegisteredBookies() throws BKException {
-        Collection<InetSocketAddress> registeredBookies =
+        Collection<BookieSocketAddress> registeredBookies =
                 this.admin.getRegisteredBookies();
         logger.info("Fetch registered bookies : {}", registeredBookies);
         updateBookies(registeredBookies);
     }
 
     private void fetchBookies() throws BKException {
-        Collection<InetSocketAddress> availableBookies =
+        Collection<BookieSocketAddress> availableBookies =
                 this.admin.getAvailableBookies();
         logger.info("Fetch available bookies: {}", availableBookies);
-        Collection<InetSocketAddress> readOnlyBookies =
+        Collection<BookieSocketAddress> readOnlyBookies =
                 this.admin.getReadOnlyBookies();
         logger.info("Fetch readonly bookies: {}", readOnlyBookies);
         updateBookies(availableBookies);
         updateBookies(readOnlyBookies);
     }
 
-    private synchronized void updateBookies(Collection<InetSocketAddress> bookies) {
-        for (InetSocketAddress bookie : bookies) {
+    private synchronized void updateBookies(Collection<BookieSocketAddress> bookies) {
+        for (BookieSocketAddress bookie : bookies) {
             updateBookie(bookie);
         }
     }
 
-    private synchronized void updateBookie(InetSocketAddress bookie) {
+    private synchronized void updateBookie(BookieSocketAddress bookie) {
         BookieStatus bs = bookieStatuses.get(bookie);
         if (null == bs) {
             bs = new BookieStatus();
@@ -124,12 +123,12 @@ class BookieManager implements BookiesListener {
     }
 
     @Override
-    public void availableBookiesChanged(Set<InetSocketAddress> bookies) {
+    public void availableBookiesChanged(Set<BookieSocketAddress> bookies) {
         updateBookies(bookies);
     }
 
     @Override
-    public void readOnlyBookiesChanged(Set<InetSocketAddress> bookies) {
+    public void readOnlyBookiesChanged(Set<BookieSocketAddress> bookies) {
         updateBookies(bookies);
     }
 

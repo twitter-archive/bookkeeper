@@ -17,7 +17,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -31,6 +30,7 @@ import com.google.common.base.Optional;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.FeatureProvider;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
@@ -41,23 +41,23 @@ import org.jboss.netty.util.HashedWheelTimer;
  */
 public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
 
-    static final Set<InetSocketAddress> EMPTY_SET = new HashSet<InetSocketAddress>();
+    static final Set<BookieSocketAddress> EMPTY_SET = new HashSet<BookieSocketAddress>();
 
-    private Set<InetSocketAddress> knownBookies = new HashSet<InetSocketAddress>();
+    private Set<BookieSocketAddress> knownBookies = new HashSet<BookieSocketAddress>();
 
     @Override
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int quorumSize, int ackQuorumSize,
-            Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
-        ArrayList<InetSocketAddress> newBookies = new ArrayList<InetSocketAddress>(ensembleSize);
+    public ArrayList<BookieSocketAddress> newEnsemble(int ensembleSize, int quorumSize, int ackQuorumSize,
+            Set<BookieSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
+        ArrayList<BookieSocketAddress> newBookies = new ArrayList<BookieSocketAddress>(ensembleSize);
         if (ensembleSize <= 0) {
             return newBookies;
         }
-        List<InetSocketAddress> allBookies;
+        List<BookieSocketAddress> allBookies;
         synchronized (this) {
-            allBookies = new ArrayList<InetSocketAddress>(knownBookies);
+            allBookies = new ArrayList<BookieSocketAddress>(knownBookies);
         }
         Collections.shuffle(allBookies);
-        for (InetSocketAddress bookie : allBookies) {
+        for (BookieSocketAddress bookie : allBookies) {
             if (excludeBookies.contains(bookie)) {
                 continue;
             }
@@ -71,19 +71,19 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     }
 
     @Override
-    public InetSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize, Collection<InetSocketAddress> currentEnsemble,
-                                           InetSocketAddress bookieToReplace,
-                                           Set<InetSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
+    public BookieSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize, Collection<BookieSocketAddress> currentEnsemble,
+                                           BookieSocketAddress bookieToReplace,
+                                           Set<BookieSocketAddress> excludeBookies) throws BKNotEnoughBookiesException {
         excludeBookies.addAll(currentEnsemble);
-        ArrayList<InetSocketAddress> addresses = newEnsemble(1, 1, 1, excludeBookies);
+        ArrayList<BookieSocketAddress> addresses = newEnsemble(1, 1, 1, excludeBookies);
         return addresses.get(0);
     }
 
     @Override
-    public synchronized Set<InetSocketAddress> onClusterChanged(Set<InetSocketAddress> writableBookies,
-            Set<InetSocketAddress> readOnlyBookies) {
-        HashSet<InetSocketAddress> deadBookies;
-        deadBookies = new HashSet<InetSocketAddress>(knownBookies);
+    public synchronized Set<BookieSocketAddress> onClusterChanged(Set<BookieSocketAddress> writableBookies,
+            Set<BookieSocketAddress> readOnlyBookies) {
+        HashSet<BookieSocketAddress> deadBookies;
+        deadBookies = new HashSet<BookieSocketAddress>(knownBookies);
         deadBookies.removeAll(writableBookies);
         // readonly bookies should not be treated as dead bookies
         deadBookies.removeAll(readOnlyBookies);
@@ -92,12 +92,12 @@ public class DefaultEnsemblePlacementPolicy implements EnsemblePlacementPolicy {
     }
 
     @Override
-    public List<Integer> reorderReadSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+    public List<Integer> reorderReadSequence(ArrayList<BookieSocketAddress> ensemble, List<Integer> writeSet, Map<BookieSocketAddress, Long> bookieFailureHistory) {
         return writeSet;
     }
 
     @Override
-    public List<Integer> reorderReadLACSequence(ArrayList<InetSocketAddress> ensemble, List<Integer> writeSet, Map<InetSocketAddress, Long> bookieFailureHistory) {
+    public List<Integer> reorderReadLACSequence(ArrayList<BookieSocketAddress> ensemble, List<Integer> writeSet, Map<BookieSocketAddress, Long> bookieFailureHistory) {
         List<Integer> retList = new ArrayList<Integer>(writeSet);
         if (retList.size() < ensemble.size()) {
             for (int i = 0; i < ensemble.size(); i++) {

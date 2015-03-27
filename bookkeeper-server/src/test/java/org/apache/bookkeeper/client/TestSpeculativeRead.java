@@ -20,7 +20,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Enumeration;
@@ -30,6 +29,7 @@ import java.util.concurrent.CountDownLatch;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BaseTestCase;
 
 import org.junit.Test;
@@ -162,7 +162,7 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         // sleep second bookie
         CountDownLatch sleepLatch = new CountDownLatch(1);
-        InetSocketAddress second = lnospec.getLedgerMetadata().getEnsembles().get(0L).get(1);
+        BookieSocketAddress second = lnospec.getLedgerMetadata().getEnsembles().get(0L).get(1);
         sleepBookie(second, sleepLatch);
 
         try {
@@ -317,7 +317,7 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
 
-        ArrayList<InetSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
+        ArrayList<BookieSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
         BitSet allHosts = new BitSet(ensemble.size());
         for (int i = 0; i < ensemble.size(); i++) {
             allHosts.set(i, true);
@@ -567,7 +567,7 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
 
-        ArrayList<InetSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
+        ArrayList<BookieSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
         BitSet allHosts = new BitSet(ensemble.size());
         for (int i = 0; i < ensemble.size(); i++) {
             allHosts.set(i, true);

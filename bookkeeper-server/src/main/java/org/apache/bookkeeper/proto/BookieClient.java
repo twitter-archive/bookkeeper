@@ -25,6 +25,7 @@ import static com.google.common.base.Charsets.UTF_8;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -43,7 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -61,8 +61,8 @@ public class BookieClient implements PerChannelBookieClientFactory {
 
     final OrderedSafeExecutor executor;
     final ClientSocketChannelFactory channelFactory;
-    final ConcurrentHashMap<InetSocketAddress, PerChannelBookieClientPool> channels =
-            new ConcurrentHashMap<InetSocketAddress, PerChannelBookieClientPool>();
+    final ConcurrentHashMap<BookieSocketAddress, PerChannelBookieClientPool> channels =
+            new ConcurrentHashMap<BookieSocketAddress, PerChannelBookieClientPool>();
     final HashedWheelTimer requestTimer;
     private final ClientConfiguration conf;
     private volatile boolean closed;
@@ -115,12 +115,12 @@ public class BookieClient implements PerChannelBookieClientFactory {
     }
 
     @Override
-    public PerChannelBookieClient create(InetSocketAddress address) {
+    public PerChannelBookieClient create(BookieSocketAddress address) {
         return new PerChannelBookieClient(conf, executor, channelFactory, address,
                                           requestTimer, statsLogger);
     }
 
-    private PerChannelBookieClientPool lookupClient(InetSocketAddress addr, Object key) {
+    private PerChannelBookieClientPool lookupClient(BookieSocketAddress addr, Object key) {
         PerChannelBookieClientPool clientPool = channels.get(addr);
         if (null == clientPool) {
             closeLock.readLock().lock();
@@ -146,12 +146,12 @@ public class BookieClient implements PerChannelBookieClientFactory {
         return clientPool;
     }
 
-    public void closeClients(final Set<InetSocketAddress> addrs) {
+    public void closeClients(final Set<BookieSocketAddress> addrs) {
         final HashSet<PerChannelBookieClientPool> clients =
                 new HashSet<PerChannelBookieClientPool>();
         closeLock.readLock().lock();
         try {
-            for (InetSocketAddress a : addrs) {
+            for (BookieSocketAddress a : addrs) {
                 PerChannelBookieClientPool c = channels.get(a);
                 if (c != null) {
                     clients.add(c);
@@ -172,7 +172,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
     private void completeWrite(final int rc,
                                final long ledgerId,
                                final long entryId,
-                               final InetSocketAddress addr,
+                               final BookieSocketAddress addr,
                                final WriteCallback cb,
                                final Object ctx) {
         try {
@@ -191,7 +191,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         }
     }
 
-    public void addEntry(final InetSocketAddress addr,
+    public void addEntry(final BookieSocketAddress addr,
                          final long ledgerId,
                          final byte[] masterKey,
                          final long entryId,
@@ -242,7 +242,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         }
     }
 
-    public void readEntryAndFenceLedger(final InetSocketAddress addr,
+    public void readEntryAndFenceLedger(final BookieSocketAddress addr,
                                         final long ledgerId,
                                         final byte[] masterKey,
                                         final long entryId,
@@ -272,7 +272,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         }
     }
 
-    public void readEntry(final InetSocketAddress addr,
+    public void readEntry(final BookieSocketAddress addr,
                           final long ledgerId,
                           final long entryId,
                           final ReadEntryCallback cb,
@@ -302,7 +302,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         }
     }
 
-    public void readEntryWaitForLACUpdate(final InetSocketAddress addr,
+    public void readEntryWaitForLACUpdate(final BookieSocketAddress addr,
                                           final long ledgerId,
                                           final long entryId,
                                           final long previousLAC,
@@ -397,7 +397,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         }
         WriteCallback cb = new WriteCallback() {
 
-            public void writeComplete(int rc, long ledger, long entry, InetSocketAddress addr, Object ctx) {
+            public void writeComplete(int rc, long ledger, long entry, BookieSocketAddress addr, Object ctx) {
                 Counter counter = (Counter) ctx;
                 counter.dec();
                 if (rc != 0) {
@@ -412,7 +412,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
                 .newCachedThreadPool());
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
         BookieClient bc = new BookieClient(new ClientConfiguration(), channelFactory, executor);
-        InetSocketAddress addr = new InetSocketAddress(args[0], Integer.parseInt(args[1]));
+        BookieSocketAddress addr = new BookieSocketAddress(args[0], Integer.parseInt(args[1]));
 
         for (int i = 0; i < 100000; i++) {
             counter.inc();

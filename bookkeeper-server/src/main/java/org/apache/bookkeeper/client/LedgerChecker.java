@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.Map;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
@@ -32,7 +33,6 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -182,8 +182,8 @@ public class LedgerChecker {
         final Set<LedgerFragment> fragments = new HashSet<LedgerFragment>();
 
         Long curEntryId = null;
-        ArrayList<InetSocketAddress> curEnsemble = null;
-        for (Map.Entry<Long, ArrayList<InetSocketAddress>> e : lh
+        ArrayList<BookieSocketAddress> curEnsemble = null;
+        for (Map.Entry<Long, ArrayList<BookieSocketAddress>> e : lh
                 .getLedgerMetadata().getEnsembles().entrySet()) {
             if (curEntryId != null) {
                 for (int i = 0; i < curEnsemble.size(); i++) {
@@ -243,7 +243,7 @@ public class LedgerChecker {
                                               });
 
                 for (int bi : lh.getDistributionSchedule().getWriteSet(entryToRead)) {
-                    InetSocketAddress addr = curEnsemble.get(bi);
+                    BookieSocketAddress addr = curEnsemble.get(bi);
                     bookieClient.readEntry(addr, lh.getId(),
                                            entryToRead, eecb, null);
                 }

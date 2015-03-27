@@ -20,12 +20,6 @@
  */
 package org.apache.bookkeeper.replication;
 
-import org.apache.bookkeeper.client.AsyncCallback;
-import org.apache.bookkeeper.client.BKException;
-import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
-
-import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
 import java.util.HashMap;
@@ -33,21 +27,18 @@ import java.util.List;
 import java.util.LinkedList;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FilenameFilter;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieAccessor;
-import org.apache.bookkeeper.util.StringUtils;
-import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+import org.apache.bookkeeper.bookie.LedgerCacheImpl;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
-
-import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.bookie.LedgerCacheImpl;
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.zookeeper.ZooKeeper;
 import org.junit.Before;
 import org.junit.After;
@@ -83,7 +74,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
             ServerConfiguration conf = new ServerConfiguration(bsConfs.get(i));
             conf.setAuditorPeriodicCheckInterval(CHECK_INTERVAL);
 
-            String addr = StringUtils.addrToString(bs.get(i).getLocalAddress());
+            String addr = bs.get(i).getLocalAddress().toString();
 
             ZooKeeper zk = ZooKeeperClient.createConnectedZooKeeper(
                     zkUtil.getZooKeeperConnectString(), 10000);
@@ -316,7 +307,7 @@ public class AuditorPeriodicCheckTest extends BookKeeperClusterTestCase {
             lh.close();
         }
         final Auditor auditor = new Auditor(
-                StringUtils.addrToString(Bookie.getBookieAddress(bsConfs.get(0))),
+                Bookie.getBookieAddress(bsConfs.get(0)).toString(),
                 bsConfs.get(0), zkc);
         final AtomicBoolean exceptionCaught = new AtomicBoolean(false);
         final CountDownLatch latch = new CountDownLatch(1);

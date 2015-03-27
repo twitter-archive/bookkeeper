@@ -21,6 +21,7 @@ import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.ReadLastConfirmedAndEntryOp;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallbackCtx;
@@ -63,7 +64,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -97,7 +97,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
      */
     private final ConcurrentMap<CompletionKey, CompletionValue> completionObjects = new ConcurrentHashMap<CompletionKey, CompletionValue>();
 
-    final InetSocketAddress addr;
+    final BookieSocketAddress addr;
     final ClientSocketChannelFactory channelFactory;
     final OrderedSafeExecutor executor;
     final HashedWheelTimer requestTimer;
@@ -115,12 +115,12 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     private final ClientConfiguration conf;
 
     public PerChannelBookieClient(OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
-                                  InetSocketAddress addr) {
+                                  BookieSocketAddress addr) {
         this(new ClientConfiguration(), executor, channelFactory, addr, null, NullStatsLogger.INSTANCE);
     }
 
     public PerChannelBookieClient(ClientConfiguration conf, OrderedSafeExecutor executor,
-                                  ClientSocketChannelFactory channelFactory, InetSocketAddress addr,
+                                  ClientSocketChannelFactory channelFactory, BookieSocketAddress addr,
                                   HashedWheelTimer requestTimer, StatsLogger parentStatsLogger) {
         this.conf = conf;
         this.addr = addr;
@@ -176,7 +176,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         final long connectStartNanos = MathUtils.nowInNano();
 
-        ChannelFuture future = bootstrap.connect(addr);
+        ChannelFuture future = bootstrap.connect(addr.getSocketAddress());
 
         future.addListener(new ChannelFutureListener() {
             @Override
@@ -987,7 +987,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
             super(PCBookieClientOp.ADD_ENTRY, originalCtx, ledgerId, entryId, timeout);
             this.cb = new WriteCallback() {
                 @Override
-                public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+                public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
                     cancelTimeout();
                     if (rc != BKException.Code.OK) {
                         statsLogger.getOpStatsLogger(PCBookieClientOp.ADD_ENTRY)
