@@ -7,31 +7,8 @@ CWD=$(pwd)
 echo "${CWD}"
 java -version
 
-usage() {
-  echo "usage: $0 [release-type]"
-}
 
-release_type="$1"
-
-if [[ -z "${release_type}" ]]; then
-  usage
-  exit 1
-fi
-
-current_branch=$(git rev-parse --abbrev-ref HEAD)
-
-case "${release_type}" in
-  netty*)
-    mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package -DskipTests || exit 1
-    ;;
-  ql*)
-    mvn -Pnative -Ptwitter-science-provider clean package -DskipTests || exit 1
-    ;;
-  *)
-    echo "Unknown target"
-    exit 1
-    ;;
-esac
+mvn -Pnative -Pzk3.4 -Ptwitter-science-provider clean package -DskipTests || exit 1
 
 dist="dist"
 mkdir -p "${dist}" "${dist}/conf" "${dist}/target" "${dist}/bin" "${dist}/lib"
@@ -63,8 +40,8 @@ chmod +x "bin/bookkeeper"
 zip -r bookkeeper-server-deploy.zip .
 
 if [[ ! -f bookkeeper-server-deploy.zip ]] || [[ ! -s bookkeeper-server-deploy.zip ]]; then
-    echo "failed to build the artifact"
-    exit 1
+  echo "failed to build the artifact"
+  exit 1
 fi
 
 popd
