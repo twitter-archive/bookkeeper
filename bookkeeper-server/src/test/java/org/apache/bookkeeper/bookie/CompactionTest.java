@@ -23,6 +23,8 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Map;
@@ -42,24 +44,35 @@ import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.TestUtils;
 
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.junit.Before;
-import org.junit.Test;
-
+import static org.junit.Assert.*;
 /**
  * This class tests the entry log compaction functionality.
  * TODO: Modify the test to handle dynamically allocated chunks.
  */
+@RunWith(Parameterized.class)
 public class CompactionTest extends BookKeeperClusterTestCase {
-    static Logger LOG = LoggerFactory.getLogger(CompactionTest.class);
-    DigestType digestType;
+
+    private final static Logger LOG = LoggerFactory.getLogger(CompactionTest.class);
+
+    @Parameters
+    public static Collection<Object[]> data() {
+        return Arrays.asList(new Object[][] {{true}, {false}});
+    }
 
     static int ENTRY_OVERHEAD_SIZE = 44; // Metadata + CRC + Length
     static int ENTRY_SIZE = 1024;
     static int NUM_BOOKIES = 1;
 
+    private boolean isThrottleByBytes; 
+    DigestType digestType;
     int numEntries;
     int gcWaitTime;
     double minorCompactionThreshold;
@@ -69,9 +82,10 @@ public class CompactionTest extends BookKeeperClusterTestCase {
 
     String msg;
 
-    public CompactionTest() {
+    public CompactionTest(boolean isByBytes) {
         super(NUM_BOOKIES);
 
+        this.isThrottleByBytes = isByBytes;
         this.digestType = DigestType.CRC32;
 
         numEntries = 100;
@@ -102,7 +116,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
         baseConf.setMinorCompactionInterval(minorCompactionInterval);
         baseConf.setMajorCompactionInterval(majorCompactionInterval);
         baseConf.setEntryLogFilePreAllocationEnabled(false);
-
+        baseConf.setIsThrottleByBytes(this.isThrottleByBytes);
         super.setUp();
     }
 
