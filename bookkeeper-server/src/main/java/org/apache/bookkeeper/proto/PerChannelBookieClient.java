@@ -17,6 +17,7 @@
  */
 package org.apache.bookkeeper.proto;
 
+import com.google.common.base.Optional;
 import com.google.protobuf.ByteString;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.ReadLastConfirmedAndEntryOp;
@@ -115,20 +116,20 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
     private final ClientConfiguration conf;
 
     public PerChannelBookieClient(OrderedSafeExecutor executor, ClientSocketChannelFactory channelFactory,
-                                  BookieSocketAddress addr) {
-        this(new ClientConfiguration(), executor, channelFactory, addr, null, NullStatsLogger.INSTANCE);
+                                BookieSocketAddress addr) {
+        this(new ClientConfiguration(), executor, channelFactory, addr, null, NullStatsLogger.INSTANCE, Optional.<String>absent());
     }
 
     public PerChannelBookieClient(ClientConfiguration conf, OrderedSafeExecutor executor,
                                   ClientSocketChannelFactory channelFactory, BookieSocketAddress addr,
-                                  HashedWheelTimer requestTimer, StatsLogger parentStatsLogger) {
+                                  HashedWheelTimer requestTimer, StatsLogger parentStatsLogger, Optional<String> networkLocation) {
         this.conf = conf;
         this.addr = addr;
         this.executor = executor;
         this.channelFactory = channelFactory;
         this.state = ConnectionState.DISCONNECTED;
-        this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(conf, addr, parentStatsLogger);
-        this.preStatsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance("pre", conf, addr, parentStatsLogger);
+        this.statsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance(conf, addr, parentStatsLogger, networkLocation);
+        this.preStatsLogger = ClientStatsProvider.getPCBookieStatsLoggerInstance("pre", conf, addr, parentStatsLogger, networkLocation);
         this.requestTimer = requestTimer;
     }
 

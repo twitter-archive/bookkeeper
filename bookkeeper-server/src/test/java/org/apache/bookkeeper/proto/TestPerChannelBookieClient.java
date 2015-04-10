@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.Executors;
 
+import com.google.common.base.Optional;
+
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
@@ -190,7 +192,7 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
 
         BookieSocketAddress addr = getBookie(0);
         PerChannelBookieClient client = new PerChannelBookieClient(
-            conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE);
+            conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE, Optional.<String>absent());
         client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
             @Override
             public void operationComplete(int rc, PerChannelBookieClient client) {

@@ -36,6 +36,7 @@ import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.net.CachedDNSToSwitchMapping;
 import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.apache.bookkeeper.net.NetUtils;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.NetworkTopologyImpl;
 import org.apache.bookkeeper.net.Node;
@@ -192,23 +193,7 @@ class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsemblePlacemen
     }
 
     protected String resolveNetworkLocation(BookieSocketAddress addr) {
-        List<String> names = new ArrayList<String>(1);
-        if (dnsResolver instanceof CachedDNSToSwitchMapping) {
-            names.add(addr.getSocketAddress().getAddress().getHostAddress());
-        } else {
-            names.add(addr.getHostName());
-        }
-        // resolve network addresses
-        List<String> rNames = dnsResolver.resolve(names);
-        String netLoc;
-        if (null == rNames) {
-            LOG.warn("Failed to resolve network location for {}, using default rack for them : {}.", names,
-                    NetworkTopology.DEFAULT_RACK);
-            netLoc = NetworkTopology.DEFAULT_RACK;
-        } else {
-            netLoc = rNames.get(0);
-        }
-        return netLoc;
+        return NetUtils.resolveNetworkLocation(dnsResolver, addr.getSocketAddress());
     }
 
     @Override

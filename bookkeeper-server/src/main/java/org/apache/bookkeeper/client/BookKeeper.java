@@ -378,7 +378,7 @@ public class BookKeeper {
                 .build();
 
 
-        bookieClient = new BookieClient(conf, this.channelFactory, mainWorkerPool, statsLogger, requestTimer);
+        bookieClient = new BookieClient(conf, this.channelFactory, mainWorkerPool, statsLogger, requestTimer, Optional.fromNullable(dnsResolver));
         bookieWatcher = new BookieWatcher(conf, scheduler, placementPolicy, this);
         bookieWatcher.readBookiesBlocking();
 

@@ -22,9 +22,12 @@ package org.apache.bookkeeper.proto;
 
 import static com.google.common.base.Charsets.UTF_8;
 
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.DNSToSwitchMapping;
+import org.apache.bookkeeper.net.NetUtils;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
@@ -72,13 +75,14 @@ public class BookieClient implements PerChannelBookieClientFactory {
     // whether the timer is one we created, or is owned by whoever
     // instantiated us
     private final boolean ownTimer;
+    private final Optional<DNSToSwitchMapping> dnsResolver;
 
     public BookieClient(ClientConfiguration conf, ClientSocketChannelFactory channelFactory, OrderedSafeExecutor executor) {
-        this(conf, channelFactory, executor, NullStatsLogger.INSTANCE, null);
+        this(conf, channelFactory, executor, NullStatsLogger.INSTANCE, null, Optional.<DNSToSwitchMapping>absent());
     }
 
     public BookieClient(ClientConfiguration conf, ClientSocketChannelFactory channelFactory, OrderedSafeExecutor executor,
-                        StatsLogger statsLogger, HashedWheelTimer requestTimer) {
+                        StatsLogger statsLogger, HashedWheelTimer requestTimer, Optional<DNSToSwitchMapping> dnsResolver) {
         if (null == channelFactory) {
             throw new NullPointerException();
         }
@@ -90,6 +94,7 @@ public class BookieClient implements PerChannelBookieClientFactory {
         this.closeLock = new ReentrantReadWriteLock();
         this.statsLogger = statsLogger;
         this.numConnectionsPerBookie = conf.getNumChannelsPerBookie();
+        this.dnsResolver = dnsResolver;
         if (null == requestTimer) {
             this.requestTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("BookieClientTimer-%d").build(),
@@ -116,8 +121,16 @@ public class BookieClient implements PerChannelBookieClientFactory {
 
     @Override
     public PerChannelBookieClient create(BookieSocketAddress address) {
+        Optional<String> networkLocation = Optional.absent();
+        try {
+            if (dnsResolver.isPresent()) {
+                networkLocation = Optional.of(NetUtils.resolveNetworkLocation(dnsResolver.get(), address.getSocketAddress()));
+            }
+        } catch (Exception exc) {
+            LOG.info("Failed to resolve the network location", exc);
+        }
         return new PerChannelBookieClient(conf, executor, channelFactory, address,
-                                          requestTimer, statsLogger);
+                                          requestTimer, statsLogger, networkLocation);
     }
 
     private PerChannelBookieClientPool lookupClient(BookieSocketAddress addr, Object key) {

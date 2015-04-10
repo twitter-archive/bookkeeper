@@ -6,6 +6,8 @@ import org.apache.bookkeeper.net.BookieSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import com.google.common.base.Optional;
+
 /**
  * Provides an instance of a bookkeeper client stats logger and a per channel
  * bookie client stats logger
@@ -38,14 +40,16 @@ public class ClientStatsProvider {
      */
     public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(ClientConfiguration conf,
                                                                            BookieSocketAddress addr,
-                                                                           StatsLogger parentStatsLogger) {
-        return getPCBookieStatsLoggerInstance("", conf, addr, parentStatsLogger);
+                                                                           StatsLogger parentStatsLogger,
+                                                                            Optional<String> networkLocation) {
+        return getPCBookieStatsLoggerInstance("", conf, addr, parentStatsLogger, networkLocation);
     }
 
     public static PCBookieClientStatsLogger getPCBookieStatsLoggerInstance(String scope,
                                                                            ClientConfiguration conf,
                                                                            BookieSocketAddress addr,
-                                                                           StatsLogger parentStatsLogger) {
+                                                                           StatsLogger parentStatsLogger,
+                                                                           Optional<String> networkLocation) {
         StatsLogger underlyingLogger = parentStatsLogger.scope("per_channel_bookie_client");
         if (!"".equals(scope)) {
             underlyingLogger = underlyingLogger.scope(scope);
@@ -56,6 +60,10 @@ public class ClientStatsProvider {
         ConcurrentMap<BookieSocketAddress, PCBookieClientStatsLogger> loggerMap = getLoggerMap(scope);
         PCBookieClientStatsLogger statsLogger = loggerMap.get(addr);
         if (null == statsLogger) {
+            if (networkLocation.isPresent()) {
+                String netLoc = networkLocation.get();
+                underlyingLogger = underlyingLogger.scope(netLoc.startsWith("/") ? netLoc.substring(1) : netLoc);
+            }
             StringBuilder nameBuilder = new StringBuilder();
             nameBuilder.append(addr.getHostName().replace('.', '_').replace('-', '_'))
                 .append("_").append(addr.getPort());
