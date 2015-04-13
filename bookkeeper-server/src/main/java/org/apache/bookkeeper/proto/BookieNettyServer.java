@@ -156,8 +156,8 @@ class BookieNettyServer {
                              new LengthFieldBasedFrameDecoder(maxMessageSize, 0, 4, 0, 4));
             pipeline.addLast("lengthprepender", new LengthFieldPrepender(4));
 
-            pipeline.addLast("bookieProtoDecoder", new BookieProtoEncoding.Decoder());
-            pipeline.addLast("bookieProtoEncoder", new BookieProtoEncoding.Encoder());
+            pipeline.addLast("bookieProtoDecoder", new BookieProtoEncoding.RequestDecoder());
+            pipeline.addLast("bookieProtoEncoder", new BookieProtoEncoding.ResponseEncoder());
             SimpleChannelHandler requestHandler = isRunning.get() ? new BookieRequestHandler(conf, processor, allChannels)
                     : new RejectRequestHandler();
             pipeline.addLast("bookieRequestHandler", requestHandler);

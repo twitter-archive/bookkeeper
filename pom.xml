@@ -30,6 +30,7 @@
   <artifactId>bookkeeper</artifactId>
   <packaging>pom</packaging>
   <name>bookkeeper</name>
+  <inceptionYear>2011</inceptionYear>
   <distributionManagement>
     <repository>
       <id>artifactory-release</id>

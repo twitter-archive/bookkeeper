@@ -84,9 +84,9 @@ class WriteEntryProcessor extends PacketProcessorBase {
         int rc = BookieProtocol.EOK;
         try {
             if (add.isRecoveryAdd()) {
-                bookie.recoveryAddEntry(add.getData(), wcb, channel, add.getMasterKey());
+                bookie.recoveryAddEntry(add.getDataAsByteBuffer(), wcb, channel, add.getMasterKey());
             } else {
-                bookie.addEntry(add.getData(), wcb, channel, add.getMasterKey());
+                bookie.addEntry(add.getDataAsByteBuffer(), wcb, channel, add.getMasterKey());
             }
             rc = BookieProtocol.EOK;
         } catch (IOException e) {

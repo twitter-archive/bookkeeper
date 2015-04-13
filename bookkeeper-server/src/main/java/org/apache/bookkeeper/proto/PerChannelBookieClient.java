@@ -56,8 +56,6 @@ import org.jboss.netty.handler.codec.frame.CorruptedFrameException;
 import org.jboss.netty.handler.codec.frame.LengthFieldBasedFrameDecoder;
 import org.jboss.netty.handler.codec.frame.LengthFieldPrepender;
 import org.jboss.netty.handler.codec.frame.TooLongFrameException;
-import org.jboss.netty.handler.codec.protobuf.ProtobufDecoder;
-import org.jboss.netty.handler.codec.protobuf.ProtobufEncoder;
 import org.jboss.netty.util.HashedWheelTimer;
 import org.jboss.netty.util.Timeout;
 import org.jboss.netty.util.TimerTask;
@@ -730,8 +728,8 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         pipeline.addLast("lengthbasedframedecoder", new LengthFieldBasedFrameDecoder(MAX_FRAME_LENGTH, 0, 4, 0, 4));
         pipeline.addLast("lengthprepender", new LengthFieldPrepender(4));
-        pipeline.addLast("protobufdecoder", new ProtobufDecoder(Response.getDefaultInstance()));
-        pipeline.addLast("protobufencoder", new ProtobufEncoder());
+        pipeline.addLast("protobufdecoder", new BookieProtoEncoding.ResponseDecoder());
+        pipeline.addLast("protobufencoder", new BookieProtoEncoding.RequestEncoder());
         pipeline.addLast("mainhandler", this);
         return pipeline;
     }

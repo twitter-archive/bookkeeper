@@ -21,6 +21,7 @@ package org.apache.bookkeeper.proto;
  *
  */
 
+import org.jboss.netty.buffer.ChannelBuffer;
 import java.nio.ByteBuffer;
 
 /**
@@ -38,7 +39,7 @@ public interface BookieProtocol {
     public static final byte LOWEST_COMPAT_PROTOCOL_VERSION = 0;
 
     /**
-     * Current version of the protocol, which client will use. 
+     * Current version of the protocol, which client will use.
      */
     public static final byte CURRENT_PROTOCOL_VERSION = 3;
 
@@ -60,12 +61,12 @@ public interface BookieProtocol {
      */
     public static final int MASTER_KEY_LENGTH = 20;
 
-    /** 
+    /**
      * The first int of a packet is the header.
      * It contains the version, opCode and flags.
      * The initial versions of BK didn't have this structure
-     * and just had an int representing the opCode as the 
-     * first int. This handles that case also. 
+     * and just had an int representing the opCode as the
+     * first int. This handles that case also.
      */
     static class PacketHeader {
         final byte version;
@@ -77,19 +78,19 @@ public interface BookieProtocol {
             this.opCode = opCode;
             this.flags = flags;
         }
-        
+
         int toInt() {
             if (version == 0) {
                 return (int)opCode;
             } else {
-                return ((version & 0xFF) << 24) 
+                return ((version & 0xFF) << 24)
                     | ((opCode & 0xFF) << 16)
                     | (flags & 0xFFFF);
             }
         }
 
         static PacketHeader fromInt(int i) {
-            byte version = (byte)(i >> 24); 
+            byte version = (byte)(i >> 24);
             byte opCode = 0;
             short flags = 0;
             if (version == 0) {
@@ -217,6 +218,10 @@ public interface BookieProtocol {
             return entryId;
         }
 
+        short getFlags() {
+            return flags;
+        }
+
         boolean hasMasterKey() {
             return masterKey != null;
         }
@@ -233,16 +238,20 @@ public interface BookieProtocol {
     }
 
     static class AddRequest extends Request {
-        final ByteBuffer data;
+        final ChannelBuffer data;
 
         AddRequest(byte protocolVersion, long ledgerId, long entryId,
-                   short flags, byte[] masterKey, ByteBuffer data) {
+                   short flags, byte[] masterKey, ChannelBuffer data) {
             super(protocolVersion, ADDENTRY, ledgerId, entryId, flags, masterKey);
             this.data = data;
         }
 
-        ByteBuffer getData() {
+        ChannelBuffer getData() {
             return data;
+        }
+
+        ByteBuffer getDataAsByteBuffer() {
+            return data.toByteBuffer().slice();
         }
 
         boolean isRecoveryAdd() {
@@ -308,21 +317,29 @@ public interface BookieProtocol {
     }
 
     static class ReadResponse extends Response {
-        final ByteBuffer data;
+        final ChannelBuffer data;
 
-        ReadResponse(byte protocolVersion, long ledgerId, long entryId, ByteBuffer data) {
-            super(protocolVersion, READENTRY, EOK, ledgerId, entryId);
+        ReadResponse(byte protocolVersion, int errorCode, long ledgerId, long entryId) {
+            this(protocolVersion, errorCode, ledgerId, entryId, null);
+        }
+
+        ReadResponse(byte protocolVersion, int errorCode, long ledgerId, long entryId, ChannelBuffer data) {
+            super(protocolVersion, READENTRY, errorCode, ledgerId, entryId);
             this.data = data;
         }
 
-        ByteBuffer getData() {
+        boolean hasData() {
+            return data != null;
+        }
+
+        ChannelBuffer getData() {
             return data;
         }
     }
 
     static class AddResponse extends Response {
-        AddResponse(byte protocolVersion, long ledgerId, long entryId) {
-            super(protocolVersion, ADDENTRY, EOK, ledgerId, entryId);
+        AddResponse(byte protocolVersion, int errorCode, long ledgerId, long entryId) {
+            super(protocolVersion, ADDENTRY, errorCode, ledgerId, entryId);
         }
     }
 
