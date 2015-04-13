@@ -33,6 +33,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
 import com.google.common.util.concurrent.RateLimiter;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogScanner;
 import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
@@ -116,24 +118,24 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             this.offset = offset;
         }
     }
- 
+
     private static class Throttler {
         final RateLimiter rateLimiter;
         final boolean isThrottleByBytes;
         final int compactionRateByBytes;
         final int compactionRateByEntries;
 
-        Throttler(boolean isThrottleByBytes, 
-                  int compactionRateByBytes, 
+        Throttler(boolean isThrottleByBytes,
+                  int compactionRateByBytes,
                   int compactionRateByEntries) {
             this.isThrottleByBytes  = isThrottleByBytes;
             this.compactionRateByBytes = compactionRateByBytes;
             this.compactionRateByEntries = compactionRateByEntries;
-            this.rateLimiter = RateLimiter.create(this.isThrottleByBytes ? 
-                                                  this.compactionRateByBytes : 
+            this.rateLimiter = RateLimiter.create(this.isThrottleByBytes ?
+                                                  this.compactionRateByBytes :
                                                   this.compactionRateByEntries);
         }
-        
+
         // acquire. if bybytes: bytes of this entry; if byentries: 1.
         void acquire(int permits) {
             rateLimiter.acquire(this.isThrottleByBytes ? permits : 1);
@@ -149,7 +151,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
         EntryLogScanner newScanner(final EntryLogMetadata meta) {
             final Throttler throttler = new Throttler (isThrottleByBytes,
-                                                       compactionRateByBytes, 
+                                                       compactionRateByBytes,
                                                        compactionRateByEntries);
 
             return new EntryLogScanner() {
@@ -556,13 +558,13 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * Compact entry logs if necessary.
      *
      * <p>
-     * Compaction will be executed from low unused space to high unused space.
+     * Compaction will be executed from high unused space to low unused space.
      * Those entry log files whose remaining size percentage is higher than threshold
      * would not be compacted.
      * </p>
      */
     @VisibleForTesting
-    void doCompactEntryLogs(double threshold) {
+    void doCompactEntryLogs(final double threshold) {
         LOG.info("Do compaction to compact those files lower than {}", threshold);
         // sort the ledger meta by occupied unused space
         Comparator<EntryLogMetadata> sizeComparator = new Comparator<EntryLogMetadata>() {
@@ -585,11 +587,16 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         logsToCompact.addAll(entryLogMetadatas);
         Collections.sort(logsToCompact, sizeComparator);
 
-        for (EntryLogMetadata meta : logsToCompact) {
-            if (meta.getUsage() >= threshold) {
-                break;
+        Iterable<EntryLogMetadata> compactIterable = Iterables.filter(logsToCompact, new Predicate<EntryLogMetadata>() {
+            @Override
+            public boolean apply(EntryLogMetadata metadata) {
+                return metadata.getUsage() < threshold;
             }
-            LOG.debug("Compacting entry log {} below threshold {}.", meta.entryLogId, threshold);
+        });
+
+        for (EntryLogMetadata meta : compactIterable) {
+            LOG.debug("Compacting entry log {} whose usage {} is below threshold {}.",
+                    new Object[] { meta.entryLogId, meta.getUsage(), threshold });
             try {
                 if (compactEntryLog(meta)) {
                     ServerStatsProvider.getStatsLoggerInstance().getCounter(

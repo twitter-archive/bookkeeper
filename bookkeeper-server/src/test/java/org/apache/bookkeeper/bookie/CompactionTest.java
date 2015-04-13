@@ -46,32 +46,22 @@ import org.apache.bookkeeper.util.TestUtils;
 
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.junit.Assert.*;
 /**
  * This class tests the entry log compaction functionality.
  * TODO: Modify the test to handle dynamically allocated chunks.
  */
-@RunWith(Parameterized.class)
-public class CompactionTest extends BookKeeperClusterTestCase {
+abstract class CompactionTest extends BookKeeperClusterTestCase {
 
     private final static Logger LOG = LoggerFactory.getLogger(CompactionTest.class);
-
-    @Parameters
-    public static Collection<Object[]> data() {
-        return Arrays.asList(new Object[][] {{true}, {false}});
-    }
 
     static int ENTRY_OVERHEAD_SIZE = 44; // Metadata + CRC + Length
     static int ENTRY_SIZE = 1024;
     static int NUM_BOOKIES = 1;
 
-    private boolean isThrottleByBytes; 
+    private boolean isThrottleByBytes;
     DigestType digestType;
     int numEntries;
     int gcWaitTime;
@@ -82,7 +72,7 @@ public class CompactionTest extends BookKeeperClusterTestCase {
 
     String msg;
 
-    public CompactionTest(boolean isByBytes) {
+    protected CompactionTest(boolean isByBytes) {
         super(NUM_BOOKIES);
 
         this.isThrottleByBytes = isByBytes;
