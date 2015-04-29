@@ -15,7 +15,7 @@ mkdir -p "${dist}" "${dist}/conf" "${dist}/target" "${dist}/bin" "${dist}/lib"
 
 cp bookkeeper-server/lib/* "${dist}/lib/"
 cp bookkeeper-server/bin/bookkeeper "${dist}/bin"
-cp bookkeeper-server/conf/bk_server.conf "${dist}/conf/"
+cp bookkeeper-server/conf/* "${dist}/conf/"
 
 echo "#!/bin/bash
 
