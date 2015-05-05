@@ -370,7 +370,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
                         @Override
                         public Number getSample() {
-                            return spaceUsage;
+                            return spaceUsage.get();
                         }
                     });
         }
