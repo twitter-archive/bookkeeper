@@ -611,7 +611,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplace() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(2, false);
+        testEnsembleWithThreeRegionsReplaceInternal(3, false);
     }
 
 
@@ -679,9 +679,14 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             disableDurabilityFeature.set(true);
         }
 
+        int ackQuorum = 4;
+        if (minDurability > 2) {
+            ackQuorum = 5;
+        }
+
         ArrayList<BookieSocketAddress> ensemble;
         try {
-            ensemble = repp.newEnsemble(6, 6, 4, new HashSet<BookieSocketAddress>());
+            ensemble = repp.newEnsemble(6, 6, ackQuorum, new HashSet<BookieSocketAddress>());
             assert(ensemble.size() == 6);
             assertEquals(3, getNumRegionsInEnsemble(ensemble));
         } catch (BKNotEnoughBookiesException bnebe) {
@@ -706,7 +711,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         Set<BookieSocketAddress> excludedAddrs = new HashSet<BookieSocketAddress>();
 
         try{
-            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, 4, ensemble, bookieToReplace, excludedAddrs);
+            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
             assert(replacedBookie.equals(replacedBookieExpected));
             assertEquals(3, getNumRegionsInEnsemble(ensemble));
         } catch (BKNotEnoughBookiesException bnebe) {
@@ -715,7 +720,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
         excludedAddrs.add(replacedBookieExpected);
         try{
-            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, 4, ensemble, bookieToReplace, excludedAddrs);
+            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
             if (minDurability > 1 && !disableDurabilityFeature.isAvailable()) {
                 fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
             }

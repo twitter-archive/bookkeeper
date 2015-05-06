@@ -438,7 +438,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             }
             // pick a candidate from same rack to replace
             BookieNode candidate = replaceFromRack(bookieNodeToReplace, excludeNodes,
-                ensemble, enforceDurability);
+                ensemble, ensemble, enforceDurability);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Bookie {} is chosen to replace bookie {}.", candidate, bookieNodeToReplace);
             }
@@ -451,6 +451,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     protected BookieNode replaceFromRack(BookieNode bookieNodeToReplace,
                                          Set<Node> excludeBookies,
                                          Predicate<BookieNode> predicate,
+                                         Ensemble<BookieNode> ensemble,
                                          boolean enforceDurability)
         throws BKException.BKNotEnoughBookiesException {
         Set<String> availableRegions = new HashSet<String>();
@@ -484,7 +485,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         return selectRandomFromRegions(availableRegions, 1,
             excludeBookies,
             enforceDurability ? predicate : TruePredicate.instance,
-            EnsembleForReplacementWithNoConstraints.instance).get(0);
+            enforceDurability ? ensemble : EnsembleForReplacementWithNoConstraints.instance).get(0);
     }
 
     @Override
