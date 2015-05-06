@@ -219,9 +219,19 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         rwLock.readLock().lock();
         try {
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
-            int numRegions = perRegionPlacement.keySet().size();
-            // If we were unable to get region information
-            if (numRegions < 1) {
+            Set<String> availableRegions = new HashSet<String>();
+            for (String region: perRegionPlacement.keySet()) {
+                availableRegions.add(region);
+            }
+            int numRegionsAvailable = availableRegions.size();
+
+            // If we were unable to get region information or all regions are disallowed which is
+            // an invalid configuration; default to random selection from the set of nodes
+            if (numRegionsAvailable < 1) {
+                // We cant disallow all regions; if we did, raise an alert to draw attention
+                if (perRegionPlacement.keySet().size() >= 1) {
+                    alertStatsLogger.raise("No regions available, invalid configuration");
+                }
                 List<BookieNode> bns = selectRandom(ensembleSize, excludeNodes, TruePredicate.instance,
                     EnsembleForReplacementWithNoConstraints.instance);
                 ArrayList<BookieSocketAddress> addrs = new ArrayList<BookieSocketAddress>(ensembleSize);
@@ -232,7 +242,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             }
 
             // Single region, fall back to RackAwareEnsemblePlacement
-            if (numRegions < 2) {
+            if (numRegionsAvailable < 2) {
                 RRTopologyAwareCoverageEnsemble ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize,
                                                                     writeQuorumSize,
                                                                     ackQuorumSize,
@@ -240,7 +250,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                                                     effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
                                                                     effectiveMinRegionsForDurability,
                                                                     alertStatsLogger);
-                TopologyAwareEnsemblePlacementPolicy nextPolicy = perRegionPlacement.values().iterator().next();
+                TopologyAwareEnsemblePlacementPolicy nextPolicy = perRegionPlacement.get(availableRegions.iterator().next());
                 return nextPolicy.newEnsemble(ensembleSize, writeQuorumSize, writeQuorumSize, excludeBookies, ensemble, ensemble);
             }
 
@@ -253,7 +263,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             // accommodated are placed on other regions
             // Within each region try and follow rack aware placement
             Map<String, Pair<Integer,Integer>> regionsWiseAllocation = new HashMap<String, Pair<Integer,Integer>>();
-            for (String region: perRegionPlacement.keySet()) {
+            for (String region: availableRegions) {
                 regionsWiseAllocation.put(region, Pair.of(0,0));
             }
             int remainingEnsembleBeforeIteration;
@@ -262,11 +272,14 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             int iteration = 0;
             do {
                 LOG.info("RegionAwareEnsemblePlacementPolicy#newEnsemble Iteration {}", iteration++);
-                int numRemainingRegions = numRegions - regionsReachedMaxAllocation.size();
+                int numRemainingRegions = numRegionsAvailable - regionsReachedMaxAllocation.size();
                 ensemble = new RRTopologyAwareCoverageEnsemble(ensembleSize,
                                     writeQuorumSize,
                                     ackQuorumSize,
                                     REGIONID_DISTANCE_FROM_LEAVES,
+                                    // We pass all regions we know off to the coverage ensemble as
+                                    // regardless of regions that are available; constraints are
+                                    // always applied based on all possible regions
                                     effectiveMinRegionsForDurability > 0 ? new HashSet<String>(perRegionPlacement.keySet()) : null,
                                     effectiveMinRegionsForDurability,
                                     alertStatsLogger);
