@@ -468,12 +468,23 @@ class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsemblePlacemen
      * @return the bookie node chosen.
      * @throws BKNotEnoughBookiesException
      */
-    protected List<BookieNode> selectRandom(int numBookies, Set<Node> excludeBookies, Predicate<BookieNode> predicate, Ensemble<BookieNode> ensemble)
+    protected List<BookieNode> selectRandom(int numBookies,
+                                            Set<Node> excludeBookies,
+                                            Predicate<BookieNode> predicate,
+                                            Ensemble<BookieNode> ensemble)
             throws BKNotEnoughBookiesException {
-        List<BookieNode> allBookies = new ArrayList<BookieNode>(knownBookies.values());
-        Collections.shuffle(allBookies);
+        return selectRandomInternal(new ArrayList<BookieNode>(knownBookies.values()),  numBookies, excludeBookies, predicate, ensemble);
+    }
+
+    protected List<BookieNode> selectRandomInternal(List<BookieNode> bookiesToSelectFrom,
+                                                    int numBookies,
+                                                    Set<Node> excludeBookies,
+                                                    Predicate<BookieNode> predicate,
+                                                    Ensemble<BookieNode> ensemble)
+        throws BKNotEnoughBookiesException {
+        Collections.shuffle(bookiesToSelectFrom);
         List<BookieNode> newBookies = new ArrayList<BookieNode>(numBookies);
-        for (BookieNode bookie : allBookies) {
+        for (BookieNode bookie : bookiesToSelectFrom) {
             if (excludeBookies.contains(bookie)) {
                 continue;
             }
@@ -497,10 +508,12 @@ class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsemblePlacemen
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("Failed to find {} bookies : excludeBookies {}, allBookies {}.", new Object[] {
-                    numBookies, excludeBookies, allBookies });
+                numBookies, excludeBookies, bookiesToSelectFrom });
         }
         throw new BKNotEnoughBookiesException();
     }
+
+
 
     @Override
     public List<Integer> reorderReadSequence(ArrayList<BookieSocketAddress> ensemble, List<Integer> writeSet, Map<BookieSocketAddress, Long> bookieFailureHistory) {

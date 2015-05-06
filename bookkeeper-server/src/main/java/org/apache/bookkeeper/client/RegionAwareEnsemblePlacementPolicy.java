@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentMap;
 import com.google.common.base.Optional;
 
 
+import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
@@ -190,6 +191,23 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         }
         return this;
     }
+
+    protected List<BookieNode> selectRandomFromRegions(Set<String> availableRegions,
+                                            int numBookies,
+                                            Set<Node> excludeBookies,
+                                            Predicate<BookieNode> predicate,
+                                            Ensemble<BookieNode> ensemble)
+        throws BKException.BKNotEnoughBookiesException {
+        List<BookieNode> availableBookies = new ArrayList<BookieNode>();
+        for(BookieNode bookieNode: knownBookies.values()) {
+            if (availableRegions.contains(getLocalRegion(bookieNode))) {
+                availableBookies.add(bookieNode);
+            }
+        }
+
+        return selectRandomInternal(availableBookies,  numBookies, excludeBookies, predicate, ensemble);
+    }
+
 
     @Override
     public ArrayList<BookieSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
@@ -430,34 +448,40 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         }
     }
 
-    protected BookieNode replaceFromRack(BookieNode bn,
+    protected BookieNode replaceFromRack(BookieNode bookieNodeToReplace,
                                          Set<Node> excludeBookies,
                                          Predicate<BookieNode> predicate,
                                          boolean enforceDurability)
         throws BKException.BKNotEnoughBookiesException {
-        String region = getLocalRegion(bn);
-        TopologyAwareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(region);
-        if (null != regionPolicy) {
-            try {
-                // select one from local rack => it falls back to selecting a node from the region
-                // if the rack does not have an available node, selecting from the same region
-                // should not violate durability constraints so we can simply not have to check
-                // for that.
-                return regionPolicy.selectFromNetworkLocation(
-                        bn.getNetworkLocation(),
+        Set<String> availableRegions = new HashSet<String>();
+        for (String region: perRegionPlacement.keySet()) {
+            availableRegions.add(region);
+        }
+        String regionForBookieToReplace = getLocalRegion(bookieNodeToReplace);
+        if (availableRegions.contains(regionForBookieToReplace)) {
+            TopologyAwareEnsemblePlacementPolicy regionPolicy = perRegionPlacement.get(regionForBookieToReplace);
+            if (null != regionPolicy) {
+                try {
+                    // select one from local rack => it falls back to selecting a node from the region
+                    // if the rack does not have an available node, selecting from the same region
+                    // should not violate durability constraints so we can simply not have to check
+                    // for that.
+                    return regionPolicy.selectFromNetworkLocation(
+                        bookieNodeToReplace.getNetworkLocation(),
                         excludeBookies,
                         TruePredicate.instance,
                         EnsembleForReplacementWithNoConstraints.instance);
-            } catch (BKException.BKNotEnoughBookiesException e) {
-                LOG.warn("Failed to choose a bookie from {} : "
-                    + "excluded {}, fallback to choose bookie randomly from the cluster.",
-                    bn.getNetworkLocation(), excludeBookies);
+                } catch (BKException.BKNotEnoughBookiesException e) {
+                    LOG.warn("Failed to choose a bookie from {} : "
+                            + "excluded {}, fallback to choose bookie randomly from the cluster.",
+                        bookieNodeToReplace.getNetworkLocation(), excludeBookies);
+                }
             }
         }
 
-        // randomly choose one from whole cluster, ignore the provided predicate if we are not
+        // randomly choose one from all the regions that are available, ignore the provided predicate if we are not
         // enforcing durability.
-        return selectRandom(1,
+        return selectRandomFromRegions(availableRegions, 1,
             excludeBookies,
             enforceDurability ? predicate : TruePredicate.instance,
             EnsembleForReplacementWithNoConstraints.instance).get(0);
