@@ -17,11 +17,13 @@
  */
 package org.apache.bookkeeper.proto;
 
+import java.util.concurrent.TimeUnit;
+import com.google.common.base.Stopwatch;
+
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
 import org.jboss.netty.channel.Channel;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,23 +33,23 @@ abstract class PacketProcessorBase extends SafeRunnable {
     final Request request;
     final Channel channel;
     final Bookie bookie;
-    protected long enqueueNanos;
+    protected Stopwatch enqueueTimeSw;
 
     PacketProcessorBase(Request request, Channel channel, Bookie bookie) {
         this.request = request;
         this.channel = channel;
         this.bookie = bookie;
-        this.enqueueNanos = MathUtils.nowInNano();
+        this.enqueueTimeSw = Stopwatch.createStarted();
     }
 
     protected void sendResponse(int rc, Enum statOp, Object response) {
         channel.write(response);
         if (BookieProtocol.EOK == rc) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+                    .registerSuccessfulEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
         } else {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+                    .registerFailedEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
         }
     }
 

@@ -1,5 +1,9 @@
 package org.apache.bookkeeper.proto;
 
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Stopwatch;
+
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
@@ -18,23 +22,23 @@ abstract class PacketProcessorBaseV3 extends SafeRunnable {
     final Request request;
     final Channel channel;
     final Bookie  bookie;
-    protected long enqueueNanos;
+    protected Stopwatch enqueueTimeSw;
 
     PacketProcessorBaseV3(Request request, Channel channel, Bookie bookie) {
         this.request = request;
         this.channel = channel;
         this.bookie = bookie;
-        this.enqueueNanos = MathUtils.nowInNano();
+        this.enqueueTimeSw = Stopwatch.createStarted();
     }
 
     protected void sendResponse(StatusCode code, Enum statOp, Object response) {
         channel.write(response);
         if (StatusCode.EOK == code) {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+                    .registerSuccessfulEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
         } else {
             ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
+                    .registerFailedEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
         }
     }
 
