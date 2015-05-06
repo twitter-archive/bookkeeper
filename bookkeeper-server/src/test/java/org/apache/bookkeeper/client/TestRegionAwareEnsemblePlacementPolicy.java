@@ -29,6 +29,7 @@ import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.bookkeeper.feature.FeatureProvider;
 import org.apache.bookkeeper.feature.SettableFeature;
 import org.apache.bookkeeper.feature.SettableFeatureProvider;
@@ -532,6 +533,85 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
     }
 
     @Test(timeout = 60000)
+    public void testNewEnsembleWithThreeRegionsWithDisable() throws Exception {
+        FeatureProvider featureProvider = new SettableFeatureProvider("", 0);
+        repp.uninitalize();
+        repp = new RegionAwareEnsemblePlacementPolicy();
+        conf.setProperty(REPP_DISALLOW_BOOKIE_PLACEMENT_IN_REGION_FEATURE_NAME, "disallowBookies");
+        repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, featureProvider, null, null);
+        BookieSocketAddress addr1 = new BookieSocketAddress("127.0.0.2", 3181);
+        BookieSocketAddress addr2 = new BookieSocketAddress("127.0.0.3", 3181);
+        BookieSocketAddress addr3 = new BookieSocketAddress("127.0.0.4", 3181);
+        BookieSocketAddress addr4 = new BookieSocketAddress("127.0.0.5", 3181);
+        BookieSocketAddress addr5 = new BookieSocketAddress("127.0.0.6", 3181);
+        BookieSocketAddress addr6 = new BookieSocketAddress("127.0.0.7", 3181);
+        BookieSocketAddress addr7 = new BookieSocketAddress("127.0.0.8", 3181);
+        BookieSocketAddress addr8 = new BookieSocketAddress("127.0.0.9", 3181);
+        BookieSocketAddress addr9 = new BookieSocketAddress("127.0.0.10", 3181);
+        BookieSocketAddress addr10 = new BookieSocketAddress("127.0.0.11", 3181);
+        // update dns mapping
+        StaticDNSResolver.addNodeToRack(addr1.getHostName(), "/region2/r1");
+        StaticDNSResolver.addNodeToRack(addr2.getHostName(), "/region1/r2");
+        StaticDNSResolver.addNodeToRack(addr3.getHostName(), "/region2/r3");
+        StaticDNSResolver.addNodeToRack(addr4.getHostName(), "/region3/r4");
+        StaticDNSResolver.addNodeToRack(addr5.getHostName(), "/region1/r11");
+        StaticDNSResolver.addNodeToRack(addr6.getHostName(), "/region1/r12");
+        StaticDNSResolver.addNodeToRack(addr7.getHostName(), "/region2/r13");
+        StaticDNSResolver.addNodeToRack(addr8.getHostName(), "/region3/r14");
+        StaticDNSResolver.addNodeToRack(addr9.getHostName(), "/region2/r23");
+        StaticDNSResolver.addNodeToRack(addr10.getHostName(), "/region1/r24");
+        // Update cluster
+        Set<BookieSocketAddress> addrs = new HashSet<BookieSocketAddress>();
+        addrs.add(addr1);
+        addrs.add(addr2);
+        addrs.add(addr3);
+        addrs.add(addr4);
+        addrs.add(addr5);
+        addrs.add(addr6);
+        addrs.add(addr7);
+        addrs.add(addr8);
+        addrs.add(addr9);
+        addrs.add(addr10);
+        repp.onClusterChanged(addrs, new HashSet<BookieSocketAddress>());
+        try {
+            ((SettableFeature) featureProvider.scope("region1").getFeature("disallowBookies")).set(true);
+            ArrayList<BookieSocketAddress> ensemble = repp.newEnsemble(6, 6, 4, new HashSet<BookieSocketAddress>());
+            assertEquals(2, getNumRegionsInEnsemble(ensemble));
+            assert(ensemble.contains(addr1));
+            assert(ensemble.contains(addr3));
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr7));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.contains(addr9));
+            assert(ensemble.size() == 6);
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+        try {
+            ((SettableFeature) featureProvider.scope("region2").getFeature("disallowBookies")).set(true);
+            ArrayList<BookieSocketAddress> ensemble = repp.newEnsemble(6, 6, 4, new HashSet<BookieSocketAddress>());
+            fail("Should get not enough bookies exception even there is only one region with insufficient bookies.");
+        } catch (BKNotEnoughBookiesException bnebe) {
+            // Expected
+        }
+        try {
+            ((SettableFeature) featureProvider.scope("region2").getFeature("disallowBookies")).set(false);
+            ArrayList<BookieSocketAddress> ensemble = repp.newEnsemble(6, 6, 4, new HashSet<BookieSocketAddress>());
+            assert(ensemble.contains(addr1));
+            assert(ensemble.contains(addr3));
+            assert(ensemble.contains(addr4));
+            assert(ensemble.contains(addr7));
+            assert(ensemble.contains(addr8));
+            assert(ensemble.contains(addr9));
+            assert(ensemble.size() == 6);
+            assertEquals(2, getNumRegionsInEnsemble(ensemble));
+        } catch (BKNotEnoughBookiesException bnebe) {
+            fail("Should not get not enough bookies exception even there is only one rack.");
+        }
+    }
+
+
+    @Test(timeout = 60000)
     public void testNewEnsembleWithFiveRegions() throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
@@ -611,21 +691,25 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplace() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(3, false);
+        testEnsembleWithThreeRegionsReplaceInternal(3, false, false);
     }
 
+    @Test(timeout = 60000)
+    public void testEnsembleWithThreeRegionsReplaceDisableOneRegion() throws Exception {
+        testEnsembleWithThreeRegionsReplaceInternal(2, false, true);
+    }
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplaceMinDurabilityOne() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(1, false);
+        testEnsembleWithThreeRegionsReplaceInternal(1, false, false);
     }
 
     @Test(timeout = 60000)
     public void testEnsembleWithThreeRegionsReplaceDisableDurability() throws Exception {
-        testEnsembleWithThreeRegionsReplaceInternal(1, true);
+        testEnsembleWithThreeRegionsReplaceInternal(1, true, false);
     }
 
-    public void testEnsembleWithThreeRegionsReplaceInternal(int minDurability, boolean disableDurability) throws Exception {
+    public void testEnsembleWithThreeRegionsReplaceInternal(int minDurability, boolean disableDurability, boolean disableOneRegion) throws Exception {
         repp.uninitalize();
         repp = new RegionAwareEnsemblePlacementPolicy();
         conf.setProperty(REPP_REGIONS_TO_WRITE, "region1;region2;region3");
@@ -636,6 +720,7 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
         } else {
             conf.setProperty(REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE, true);
         }
+        conf.setProperty(REPP_DISALLOW_BOOKIE_PLACEMENT_IN_REGION_FEATURE_NAME, "disallowBookies");
 
         repp.initialize(conf, Optional.<DNSToSwitchMapping>absent(), timer, featureProvider, null, null);
         BookieSocketAddress addr1 = new BookieSocketAddress("127.1.0.2", 3181);
@@ -695,41 +780,61 @@ public class TestRegionAwareEnsemblePlacementPolicy extends TestCase {
             throw bnebe;
         }
 
-        BookieSocketAddress bookieToReplace;
-        BookieSocketAddress replacedBookieExpected;
-        if (ensemble.contains(addr4)) {
-            bookieToReplace = addr4;
-            if (ensemble.contains(addr5)) {
-                replacedBookieExpected = addr6;
-            } else {
-                replacedBookieExpected = addr5;
+        if (disableOneRegion) {
+            ((SettableFeature) featureProvider.scope("region2").getFeature("disallowBookies")).set(true);
+            Set<BookieSocketAddress> region2Bookies = new HashSet<BookieSocketAddress>();
+            region2Bookies.add(addr4);
+            region2Bookies.add(addr5);
+            region2Bookies.add(addr6);
+            Set<BookieSocketAddress> region1And3Bookies = new HashSet<BookieSocketAddress>(addrs);
+            region1And3Bookies.removeAll(region2Bookies);
+
+            Set<BookieSocketAddress> excludedAddrs = new HashSet<BookieSocketAddress>();
+            for(BookieSocketAddress addr: region2Bookies) {
+                if (ensemble.contains(addr)) {
+                    BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, addr, excludedAddrs);
+                    ensemble.remove(addr);
+                    ensemble.add(replacedBookie);
+                }
             }
+            assertEquals(2, getNumRegionsInEnsemble(ensemble));
+            assertTrue(ensemble.containsAll(region1And3Bookies));
         } else {
-            replacedBookieExpected = addr4;
-            bookieToReplace = addr5;
-        }
-        Set<BookieSocketAddress> excludedAddrs = new HashSet<BookieSocketAddress>();
-
-        try{
-            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
-            assert(replacedBookie.equals(replacedBookieExpected));
-            assertEquals(3, getNumRegionsInEnsemble(ensemble));
-        } catch (BKNotEnoughBookiesException bnebe) {
-            fail("Should not get not enough bookies exception even there is only one rack.");
-        }
-
-        excludedAddrs.add(replacedBookieExpected);
-        try{
-            BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
-            if (minDurability > 1 && !disableDurabilityFeature.isAvailable()) {
-                fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+            BookieSocketAddress bookieToReplace;
+            BookieSocketAddress replacedBookieExpected;
+            if (ensemble.contains(addr4)) {
+                bookieToReplace = addr4;
+                if (ensemble.contains(addr5)) {
+                    replacedBookieExpected = addr6;
+                } else {
+                    replacedBookieExpected = addr5;
+                }
+            } else {
+                replacedBookieExpected = addr4;
+                bookieToReplace = addr5;
             }
-        } catch (BKNotEnoughBookiesException bnebe) {
-            if (minDurability <= 1 || disableDurabilityFeature.isAvailable()) {
-                fail("Should not throw BKNotEnoughBookiesException when there is not enough bookies");
+            Set<BookieSocketAddress> excludedAddrs = new HashSet<BookieSocketAddress>();
+
+            try {
+                BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
+                assert (replacedBookie.equals(replacedBookieExpected));
+                assertEquals(3, getNumRegionsInEnsemble(ensemble));
+            } catch (BKNotEnoughBookiesException bnebe) {
+                fail("Should not get not enough bookies exception even there is only one rack.");
+            }
+
+            excludedAddrs.add(replacedBookieExpected);
+            try {
+                BookieSocketAddress replacedBookie = repp.replaceBookie(6, 6, ackQuorum, ensemble, bookieToReplace, excludedAddrs);
+                if (minDurability > 1 && !disableDurabilityFeature.isAvailable()) {
+                    fail("Should throw BKNotEnoughBookiesException when there is not enough bookies");
+                }
+            } catch (BKNotEnoughBookiesException bnebe) {
+                if (minDurability <= 1 || disableDurabilityFeature.isAvailable()) {
+                    fail("Should not throw BKNotEnoughBookiesException when there is not enough bookies");
+                }
             }
         }
-
     }
 
     @Test(timeout = 60000)

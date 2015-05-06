@@ -56,6 +56,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public static final String REPP_MINIMUM_REGIONS_FOR_DURABILITY = "reppMinimumRegionsForDurability";
     public static final String REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE = "reppEnableDurabilityEnforcementInReplace";
     public static final String REPP_DISABLE_DURABILITY_FEATURE_NAME = "reppDisableDurabilityFeatureName";
+    public static final String REPP_DISALLOW_BOOKIE_PLACEMENT_IN_REGION_FEATURE_NAME = "reppDisallowBookiePlacementInRegionFeatureName";
     public static final String REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE = "reppDisableDurabilityEnforcementFeature";
     public static final String REPP_ENABLE_VALIDATION = "reppEnableValidation";
     public static final String REGION_AWARE_ANOMALOUS_ENSEMBLE = "region_aware_anomalous_ensemble";
@@ -66,6 +67,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
 
     protected final Map<String, TopologyAwareEnsemblePlacementPolicy> perRegionPlacement;
     protected final ConcurrentMap<BookieSocketAddress, String> address2Region;
+    protected FeatureProvider featureProvider;
+    protected String disallowBookiePlacementInRegionFeatureName;
     protected String myRegion = null;
     protected int minRegionsForDurability = 0;
     protected boolean enableValidation = true;
@@ -183,9 +186,11 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                 throw new IllegalArgumentException("Regions provided are insufficient to meet the durability constraints");
             }
         }
-        disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, null);
+        this.featureProvider = featureProvider;
+        this.disallowBookiePlacementInRegionFeatureName = conf.getString(REPP_DISALLOW_BOOKIE_PLACEMENT_IN_REGION_FEATURE_NAME);
+        this.disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, null);
         if (null == disableDurabilityFeature) {
-            disableDurabilityFeature =
+            this.disableDurabilityFeature =
                     featureProvider.getFeature(
                         conf.getString(REPP_DISABLE_DURABILITY_FEATURE_NAME, FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT));
         }
@@ -239,7 +244,10 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
             Set<Node> excludeNodes = convertBookiesToNodes(excludeBookies);
             Set<String> availableRegions = new HashSet<String>();
             for (String region: perRegionPlacement.keySet()) {
-                availableRegions.add(region);
+                if ((null == disallowBookiePlacementInRegionFeatureName) ||
+                    !featureProvider.scope(region).getFeature(disallowBookiePlacementInRegionFeatureName).isAvailable()) {
+                    availableRegions.add(region);
+                }
             }
             int numRegionsAvailable = availableRegions.size();
 
@@ -456,7 +464,10 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         throws BKException.BKNotEnoughBookiesException {
         Set<String> availableRegions = new HashSet<String>();
         for (String region: perRegionPlacement.keySet()) {
-            availableRegions.add(region);
+            if ((null == disallowBookiePlacementInRegionFeatureName) ||
+                !featureProvider.scope(region).getFeature(disallowBookiePlacementInRegionFeatureName).isAvailable()) {
+                availableRegions.add(region);
+            }
         }
         String regionForBookieToReplace = getLocalRegion(bookieNodeToReplace);
         if (availableRegions.contains(regionForBookieToReplace)) {
