@@ -54,6 +54,7 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
     public static final String REPP_REGIONS_TO_WRITE = "reppRegionsToWrite";
     public static final String REPP_MINIMUM_REGIONS_FOR_DURABILITY = "reppMinimumRegionsForDurability";
     public static final String REPP_ENABLE_DURABILITY_ENFORCEMENT_IN_REPLACE = "reppEnableDurabilityEnforcementInReplace";
+    public static final String REPP_DISABLE_DURABILITY_FEATURE_NAME = "reppDisableDurabilityFeatureName";
     public static final String REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE = "reppDisableDurabilityEnforcementFeature";
     public static final String REPP_ENABLE_VALIDATION = "reppEnableValidation";
     public static final String REGION_AWARE_ANOMALOUS_ENSEMBLE = "region_aware_anomalous_ensemble";
@@ -184,7 +185,8 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         disableDurabilityFeature = conf.getFeature(REPP_DISABLE_DURABILITY_ENFORCEMENT_FEATURE, null);
         if (null == disableDurabilityFeature) {
             disableDurabilityFeature =
-                    featureProvider.getFeature(FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT);
+                    featureProvider.getFeature(
+                        conf.getString(REPP_DISABLE_DURABILITY_FEATURE_NAME, FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT));
         }
         return this;
     }
@@ -443,9 +445,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
         // randomly choose one from whole cluster, ignore the provided predicate if we are not
         // enforcing durability.
         return selectRandom(1,
-                excludeBookies,
-                enforceDurability ? predicate: TruePredicate.instance,
-                EnsembleForReplacementWithNoConstraints.instance).get(0);
+            excludeBookies,
+            enforceDurability ? predicate : TruePredicate.instance,
+            EnsembleForReplacementWithNoConstraints.instance).get(0);
     }
 
     @Override

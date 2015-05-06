@@ -336,7 +336,7 @@ public class BookKeeper {
             this.featureProvider = featureProvider;
         }
         // get features
-        this.disableEnsembleChangeFeature = this.featureProvider.getFeature(FEATURE_DISABLE_ENSEMBLE_CHANGE);
+        this.disableEnsembleChangeFeature = this.featureProvider.getFeature(conf.getDisableEnsembleChangeFeatureName());
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());

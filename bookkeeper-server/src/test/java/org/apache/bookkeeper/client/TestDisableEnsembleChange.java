@@ -45,8 +45,9 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
 
     void disableEnsembleChangeTest(boolean startNewBookie) throws Exception {
         ClientConfiguration conf = new ClientConfiguration();
-        conf.setZkServers(zkUtil.getZooKeeperConnectString());
-        conf.setDelayEnsembleChange(false);
+        conf.setZkServers(zkUtil.getZooKeeperConnectString())
+            .setDelayEnsembleChange(false)
+            .setDisableEnsembleChangeFeatureName(FEATURE_DISABLE_ENSEMBLE_CHANGE);
 
         SettableFeatureProvider featureProvider = new SettableFeatureProvider("test", 0);
         BookKeeper bkc = BookKeeper.newBuilder()
@@ -149,7 +150,8 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
     public void testRetryFailureBookie() throws Exception {
         ClientConfiguration conf = new ClientConfiguration();
         conf.setZkServers(zkUtil.getZooKeeperConnectString())
-            .setDelayEnsembleChange(false);
+            .setDelayEnsembleChange(false)
+            .setDisableEnsembleChangeFeatureName(FEATURE_DISABLE_ENSEMBLE_CHANGE);
 
         SettableFeatureProvider featureProvider = new SettableFeatureProvider("test", 0);
         BookKeeper bkc = BookKeeper.newBuilder()
@@ -198,7 +200,9 @@ public class TestDisableEnsembleChange extends BookKeeperClusterTestCase {
         conf.setZkServers(zkUtil.getZooKeeperConnectString())
             .setReadTimeout(readTimeout)
             .setAddEntryTimeout(readTimeout)
-            .setDelayEnsembleChange(false);
+            .setDelayEnsembleChange(false)
+            .setDisableEnsembleChangeFeatureName(FEATURE_DISABLE_ENSEMBLE_CHANGE);
+
 
         SettableFeatureProvider featureProvider = new SettableFeatureProvider("test", 0);
         BookKeeper bkc = BookKeeper.newBuilder()

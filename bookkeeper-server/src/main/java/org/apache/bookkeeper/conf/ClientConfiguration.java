@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.EnsemblePlacementPolicy;
 import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
@@ -95,6 +96,9 @@ public class ClientConfiguration extends AbstractConfiguration {
     // Failure History Settings
     protected final static String ENABLE_BOOKIE_FAILURE_TRACKING = "enableBookieFailureTracking";
     protected final static String BOOKIE_FAILURE_HISTORY_EXPIRATION_MS = "bookieFailureHistoryExpirationMSec";
+
+    // Names of dynamic features
+    protected final static String DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME = "disableEnsembleChangeFeatureName";
 
     /**
      * Construct a default client-side configuration
@@ -1003,6 +1007,27 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setBookieFailureHistoryExpirationMSec(int expirationMSec) {
         setProperty(BOOKIE_FAILURE_HISTORY_EXPIRATION_MS, expirationMSec);
+        return this;
+    }
+
+    /**
+     * Get the name of the dynamic feature that disables ensemble change
+     *
+     * @return name of the dynamic feature that disables ensemble change
+     */
+    public String getDisableEnsembleChangeFeatureName() {
+        return getString(DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME, BookKeeperConstants.FEATURE_DISABLE_ENSEMBLE_CHANGE);
+    }
+
+    /**
+     * Set the name of the dynamic feature that disables ensemble change
+     *
+     * @param disableEnsembleChangeFeatureName
+     *          name of the dynamic feature that disables ensemble change
+     * @return client configuration.
+     */
+    public ClientConfiguration setDisableEnsembleChangeFeatureName(String disableEnsembleChangeFeatureName) {
+        setProperty(DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME, disableEnsembleChangeFeatureName);
         return this;
     }
 }

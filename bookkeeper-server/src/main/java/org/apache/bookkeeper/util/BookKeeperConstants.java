@@ -50,7 +50,7 @@ public class BookKeeperConstants {
     public final static long MAX_LOG_SIZE_LIMIT = 1 * 1024 * 1024 * 1024;
 
     // BookKeeper Feature Keys
-    public static final String FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT = "repp_disable_durability_enforcement";
-    public static final String FEATURE_DISABLE_ENSEMBLE_CHANGE = "disable_ensemble_change";
+    @Deprecated public static final String FEATURE_REPP_DISABLE_DURABILITY_ENFORCEMENT = "repp_disable_durability_enforcement";
+    @Deprecated public static final String FEATURE_DISABLE_ENSEMBLE_CHANGE = "disable_ensemble_change";
 
 }
