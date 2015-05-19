@@ -22,35 +22,57 @@ import com.google.common.base.Stopwatch;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
-import org.jboss.netty.channel.Channel;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.ChannelFutureListener;
 
 abstract class PacketProcessorBase extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBase.class);
     final Request request;
     final Channel channel;
     final Bookie bookie;
-    protected Stopwatch enqueueTimeSw;
+    final OpStatsLogger channelWriteOpStatsLogger;
+    protected Stopwatch enqueueStopwatch;
 
     PacketProcessorBase(Request request, Channel channel, Bookie bookie) {
         this.request = request;
         this.channel = channel;
         this.bookie = bookie;
-        this.enqueueTimeSw = Stopwatch.createStarted();
+        this.enqueueStopwatch = Stopwatch.createStarted();
+        this.channelWriteOpStatsLogger = ServerStatsProvider.getStatsLoggerInstance()
+                .getOpStatsLogger(BookkeeperServerOp.CHANNEL_WRITE);
     }
 
-    protected void sendResponse(int rc, Enum statOp, Object response) {
-        channel.write(response);
-        if (BookieProtocol.EOK == rc) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
-        } else {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
-        }
+    protected void sendResponse(final int rc, final Enum statOp, Object response) {
+        final Stopwatch writeStopwatch = Stopwatch.createStarted();
+        channel.write(response).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+
+                long writeMicros = writeStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (!channelFuture.isSuccess()) {
+                    channelWriteOpStatsLogger.registerFailedEvent(writeMicros);
+                } else {
+                    channelWriteOpStatsLogger.registerSuccessfulEvent(writeMicros);
+                }
+
+                long requestMicros = enqueueStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (BookieProtocol.EOK == rc) {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                            .registerSuccessfulEvent(requestMicros);
+                } else {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                            .registerFailedEvent(requestMicros);
+                }
+            }
+        });
     }
 
     public boolean isVersionCompatible(Request request) {

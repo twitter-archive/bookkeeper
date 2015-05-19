@@ -254,7 +254,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
 
     @Override
     public void safeRun() {
-        registerSuccessfulEvent(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY, enqueueTimeSw);
+        registerSuccessfulEvent(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY, enqueueStopwatch);
 
         ReadResponse readResponse = getReadResponse();
         if (null != readResponse) {

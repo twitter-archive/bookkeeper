@@ -5,6 +5,8 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Stopwatch;
 
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
@@ -15,31 +17,51 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
+
 import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.ChannelFutureListener;
 
 abstract class PacketProcessorBaseV3 extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBaseV3.class);
     final Request request;
     final Channel channel;
     final Bookie  bookie;
-    protected Stopwatch enqueueTimeSw;
+    final OpStatsLogger channelWriteOpStatsLogger;
+    protected Stopwatch enqueueStopwatch;
 
     PacketProcessorBaseV3(Request request, Channel channel, Bookie bookie) {
         this.request = request;
         this.channel = channel;
         this.bookie = bookie;
-        this.enqueueTimeSw = Stopwatch.createStarted();
+        this.channelWriteOpStatsLogger = ServerStatsProvider.getStatsLoggerInstance()
+                .getOpStatsLogger(BookkeeperServerOp.CHANNEL_WRITE);
+        this.enqueueStopwatch = Stopwatch.createStarted();
     }
 
-    protected void sendResponse(StatusCode code, Enum statOp, Object response) {
-        channel.write(response);
-        if (StatusCode.EOK == code) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
-        } else {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(enqueueTimeSw.elapsed(TimeUnit.MICROSECONDS));
-        }
+    protected void sendResponse(final StatusCode code, final Enum statOp, Object response) {
+        final Stopwatch writeStopwatch = Stopwatch.createStarted();
+        channel.write(response).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+
+                long writeMicros = writeStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (!channelFuture.isSuccess()) {
+                    channelWriteOpStatsLogger.registerFailedEvent(writeMicros);
+                } else {
+                    channelWriteOpStatsLogger.registerSuccessfulEvent(writeMicros);
+                }
+
+                long requestMicros = enqueueStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (StatusCode.EOK == code) {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                            .registerSuccessfulEvent(requestMicros);
+                } else {
+                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
+                            .registerFailedEvent(requestMicros);
+                }
+            }
+        });
     }
 
     protected boolean isVersionCompatible() {
