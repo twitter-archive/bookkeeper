@@ -146,9 +146,14 @@ public class MultiPacketProcessor implements RequestProcessor {
                 processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie));
                 break;
             case READ_ENTRY:
-                processReadRequest(channel, new ReadEntryProcessorV3(request, channel, bookie,
+                ReadEntryProcessorV3 readProcessor = new ReadEntryProcessorV3(request, channel, bookie,
                         null == readThreadPool ? null : readThreadPool.chooseThread(channel),
-                        longPollThreadPool, requestTimer));
+                        longPollThreadPool, requestTimer);
+                if (readProcessor.isLongPollRequest()) {
+                    processLongPollReadRequest(readProcessor);
+                } else {
+                    processReadRequest(channel, readProcessor);
+                }
                 break;
             default:
                 Response.Builder response = Response.newBuilder().setHeader(request.getHeader())
@@ -189,6 +194,14 @@ public class MultiPacketProcessor implements RequestProcessor {
             r.run();
         } else {
             readThreadPool.submitOrdered(channel, r);
+        }
+    }
+
+    private void processLongPollReadRequest(SafeRunnable r) {
+        if (null == longPollThreadPool) {
+            r.run();
+        } else {
+            longPollThreadPool.submit(r);
         }
     }
 

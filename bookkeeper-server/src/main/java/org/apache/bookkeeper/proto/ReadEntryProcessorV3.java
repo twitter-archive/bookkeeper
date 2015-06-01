@@ -62,6 +62,16 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         lastPhaseStartTime = Stopwatch.createStarted();
     }
 
+    boolean isFenceRequest() {
+        final ReadRequest readRequest = request.getReadRequest();
+        return readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER);
+    }
+
+    boolean isLongPollRequest() {
+        final ReadRequest readRequest = request.getReadRequest();
+        return !isFenceRequest() && readRequest.hasPreviousLAC();
+    }
+
     private ReadResponse getReadResponse() {
         final Stopwatch startTimeSw = Stopwatch.createStarted();
         final ReadRequest readRequest = request.getReadRequest();
@@ -81,7 +91,8 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         final ByteBuffer entryBody;
         boolean readLACPiggyBack = false;
         try {
-            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
+            // handle fence reqest
+            if (isFenceRequest()) {
                 logger.info("Ledger fence request received for ledger: {} from address: {}", ledgerId,
                         channel.getRemoteAddress());
                 if (!readRequest.hasMasterKey()) {
@@ -94,6 +105,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
                     fenceResult = bookie.fenceLedger(ledgerId, masterKey);
                 }
             }
+            // handle long poll request
             if ((null == previousLAC) && (null == fenceResult) && (readRequest.hasPreviousLAC())) {
                 previousLAC = readRequest.getPreviousLAC();
                 logger.trace("Waiting For LAC Update {}", previousLAC);
@@ -125,7 +137,6 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             }
 
             boolean shouldReadEntry = true;
-
             if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
                 if(!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
                     // This is not a valid request - client bug?
