@@ -76,6 +76,7 @@ public class BookieProtoEncoding {
             }
             BookieProtocol.Request r = (BookieProtocol.Request)msg;
             if (BookieProtocol.ADDENTRY == r.getOpCode()) {
+                assert(r instanceof BookieProtocol.AddRequest);
                 BookieProtocol.AddRequest ar = (BookieProtocol.AddRequest)r;
                 int totalHeaderSize = 4 // for the header
                         + BookieProtocol.MASTER_KEY_LENGTH; // for the master key

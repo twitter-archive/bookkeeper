@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.net.NetworkTopology;
 import org.apache.bookkeeper.net.NodeBase;
@@ -96,10 +99,10 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
      */
     protected static class RRTopologyAwareCoverageEnsemble implements Predicate<BookieNode>, Ensemble<BookieNode> {
 
-        protected interface CoverageSet extends Cloneable {
+        protected interface CoverageSet {
             boolean apply(BookieNode candidate);
             void addBookie(BookieNode candidate);
-            public CoverageSet clone();
+            public CoverageSet duplicate();
         }
 
         protected class RackQuorumCoverageSet implements CoverageSet {
@@ -127,9 +130,9 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
             }
 
             @Override
-            public RackQuorumCoverageSet clone() {
+            public RackQuorumCoverageSet duplicate() {
                 RackQuorumCoverageSet ret = new RackQuorumCoverageSet();
-                ret.racksOrRegionsInQuorum = (HashSet<String>)this.racksOrRegionsInQuorum.clone();
+                ret.racksOrRegionsInQuorum = Sets.newHashSet(this.racksOrRegionsInQuorum);
                 ret.seenBookies = this.seenBookies;
                 return ret;
             }
@@ -145,9 +148,9 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
             }
 
             @Override
-            public RackOrRegionDurabilityCoverageSet clone() {
+            public RackOrRegionDurabilityCoverageSet duplicate() {
                 RackOrRegionDurabilityCoverageSet ret = new RackOrRegionDurabilityCoverageSet();
-                ret.allocationToRacksOrRegions = (HashMap<String, Integer>)this.allocationToRacksOrRegions.clone();
+                ret.allocationToRacksOrRegions = Maps.newHashMap(this.allocationToRacksOrRegions);
                 return ret;
             }
 
@@ -261,11 +264,11 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements ITopologyAwareEns
             this.writeQuorumSize = that.writeQuorumSize;
             this.ackQuorumSize = that.ackQuorumSize;
             this.alertStatsLogger = that.alertStatsLogger;
-            this.chosenNodes = (ArrayList<BookieNode>)that.chosenNodes.clone();
+            this.chosenNodes = Lists.newArrayList(that.chosenNodes);
             this.quorums = new CoverageSet[that.quorums.length];
             for (int i = 0; i < that.quorums.length; i++) {
                 if (null != that.quorums[i]) {
-                    this.quorums[i] = that.quorums[i].clone();
+                    this.quorums[i] = that.quorums[i].duplicate();
                 } else {
                     this.quorums[i] = null;
                 }

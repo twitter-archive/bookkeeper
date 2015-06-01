@@ -307,7 +307,9 @@ public class IndexInMemPageMgr {
                     BookkeeperServerStatsLogger.BookkeeperServerCounter.INDEX_INMEM_ILLEGAL_STATE_RESET)
                     .inc();
             }
-            listOfFreePages.add(lep);
+            if (null != lep) {
+                listOfFreePages.add(lep);
+            }
         }
 
         @Override

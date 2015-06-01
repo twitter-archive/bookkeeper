@@ -310,8 +310,9 @@ public class RegionAwareEnsemblePlacementPolicy extends RackawareEnsemblePlaceme
                                     effectiveMinRegionsForDurability,
                                     alertStatsLogger);
                 remainingEnsembleBeforeIteration = remainingEnsemble;
-                for (String region: regionsWiseAllocation.keySet()) {
-                    final Pair<Integer, Integer> currentAllocation = regionsWiseAllocation.get(region);
+                for (Map.Entry<String, Pair<Integer, Integer>> regionEntry: regionsWiseAllocation.entrySet()) {
+                    String region = regionEntry.getKey();
+                    final Pair<Integer, Integer> currentAllocation = regionEntry.getValue();
                     TopologyAwareEnsemblePlacementPolicy policyWithinRegion = perRegionPlacement.get(region);
                     if (!regionsReachedMaxAllocation.contains(region)) {
                         if (numRemainingRegions <= 0) {
