@@ -253,4 +253,27 @@ public class ZkUtils {
         }
         return newZk;
     }
+
+    /**
+     * Check whether the given result code is recoverable by retry.
+     *
+     * @param rc result code
+     * @return true if given result code is recoverable.
+     */
+    public static boolean isRecoverableException(int rc) {
+        return KeeperException.Code.CONNECTIONLOSS.intValue() == rc ||
+                KeeperException.Code.OPERATIONTIMEOUT.intValue() == rc ||
+                KeeperException.Code.SESSIONMOVED.intValue() == rc ||
+                KeeperException.Code.SESSIONEXPIRED.intValue() == rc;
+    }
+
+    /**
+     * Check whether the given exception is recoverable by retry.
+     *
+     * @param exception given exception
+     * @return true if given exception is recoverable.
+     */
+    public static boolean isRecoverableException(KeeperException exception) {
+        return isRecoverableException(exception.code().intValue());
+    }
 }

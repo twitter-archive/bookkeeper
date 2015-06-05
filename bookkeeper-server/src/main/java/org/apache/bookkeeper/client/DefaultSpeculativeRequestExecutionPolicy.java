@@ -73,8 +73,10 @@ public class DefaultSpeculativeRequestExecutionPolicy implements SpeculativeRequ
                 }
             }, speculativeRequestTimeout, TimeUnit.MILLISECONDS);
         } catch (RejectedExecutionException re) {
-            LOG.warn("Failed to schedule speculative request for {}, speculativeReadTimeout = {} : ",
-                new Object[] { requestExecutor, speculativeRequestTimeout, re });
+            if (!scheduler.isShutdown()) {
+                LOG.warn("Failed to schedule speculative request for {}, speculativeReadTimeout = {} : ",
+                        new Object[]{requestExecutor, speculativeRequestTimeout, re});
+            }
         }
     }
 }

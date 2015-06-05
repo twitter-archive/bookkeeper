@@ -916,7 +916,7 @@ public class BookKeeper {
             ledgerManager.close();
             ledgerManagerFactory.uninitialize();
         } catch (IOException ie) {
-            LOG.error("Failed to close ledger manager : ", ie);
+            LOG.warn("Failed to close ledger manager : {}", ie);
         }
 
         // Close the scheduler

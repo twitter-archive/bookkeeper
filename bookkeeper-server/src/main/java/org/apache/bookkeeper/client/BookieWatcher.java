@@ -35,6 +35,7 @@ import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.SafeRunnable;
+import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -78,10 +79,11 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     };
     private final ReadOnlyBookieWatcher readOnlyBookieWatcher;
 
-    public BookieWatcher(ClientConfiguration conf,
-                         ScheduledExecutorService scheduler,
-                         EnsemblePlacementPolicy placementPolicy,
-                         BookKeeper bk) throws KeeperException, InterruptedException  {
+    BookieWatcher(ClientConfiguration conf,
+                  ScheduledExecutorService scheduler,
+                  EnsemblePlacementPolicy placementPolicy,
+                  BookKeeper bk)
+            throws KeeperException, InterruptedException  {
         this.bk = bk;
         // ZK bookie registration path
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath();
@@ -101,8 +103,12 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             children.remove(BookKeeperConstants.READONLY);
             return convertToBookieAddresses(children);
         } catch (KeeperException ke) {
-            logger.error("Encountered zookeeper exception on getting bookie list : code = {}, message = {}",
-                    ke.code(), ke.getMessage());
+            if (ZkUtils.isRecoverableException(ke)) {
+                logger.info("Encountered recoverable zookeeper exception on getting bookie list : code = {}", ke.code());
+            } else {
+                logger.error("Encountered zookeeper exception on getting bookie list : code = {}, message = {}",
+                        ke.code(), ke.getMessage());
+            }
             throw new BKException.ZKException();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -115,7 +121,13 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         try {
             readOnlyBookieWatcher.readROBookiesBlocking();
         } catch (KeeperException ke) {
-            logger.error("Failed to get readonly bookie list : ", ke);
+            if (ZkUtils.isRecoverableException(ke)) {
+                logger.info("Encountered recoverable zookeeper exception on getting readonly bookie list : code = {}",
+                        ke.code());
+            } else {
+                logger.error("Encountered zookeeper exception on getting readonly bookie list : code = {}, message = {}",
+                        ke.code(), ke.getMessage());
+            }
             throw new BKException.ZKException();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -145,12 +157,14 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             if (bk.closed) {
                 return;
             }
-            //logger.error("Error while reading bookies", KeeperException.create(Code.get(rc), path));
             // try the read after a second again
             try {
                 scheduler.schedule(reReadTask, ZK_CONNECT_BACKOFF_SEC, TimeUnit.SECONDS);
             } catch (RejectedExecutionException ree) {
-                logger.warn("Failed to schedule reading bookies task : ", ree);
+                if (!bk.closed) {
+                    logger.warn("Failed to schedule reading bookies task (it might be because bookkeeper" +
+                            " client is closing): ", ree);
+                }
             }
             return;
         }
@@ -194,8 +208,8 @@ class BookieWatcher implements Watcher, ChildrenCallback {
             try {
                 bookieAddr = new BookieSocketAddress(bookieAddrString);
             } catch (IOException e) {
-                logger.error("Could not parse bookie address: " + bookieAddrString
-                        + ", ignoring this bookie : ", e);
+                logger.info("Could not parse bookie address: {}, ignoring this bookie : ",
+                        bookieAddrString, e);
                 continue;
             }
             newBookieAddrs.add(bookieAddr);
@@ -336,7 +350,12 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         @Override
         public void processResult(int rc, String path, Object ctx, List<String> children) {
             if (rc != Code.OK.intValue()) {
-                LOG.error("Not able to read readonly bookies : ", KeeperException.create(Code.get(rc)));
+                if (ZkUtils.isRecoverableException(rc)) {
+                    logger.info("Encountered recoverable zookeeper exception on reading readonly bookie list : code = {}", Code.get(rc));
+                } else {
+                    logger.error("Encountered zookeeper exception on reading readonly bookie list : code = {}",
+                            Code.get(rc));
+                }
                 return;
             }
 

@@ -577,14 +577,18 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
                     // received advanced lac
                     completeRequest();
                 } else if(emptyResponsesFromHostsBitSet.cardinality() >= numEmptyResponsesAllowed) {
-                    LOG.info("Completed readLACAndEntry(lid = {}, previousEntryId = {}) after received {} empty responses ('{}').",
-                            new Object[] { ledgerId, prevEntryId, emptyResponsesFromHostsBitSet.cardinality(), emptyResponsesFromHostsBitSet });
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Completed readLACAndEntry(lid = {}, previousEntryId = {}) after received {} empty responses ('{}').",
+                                new Object[]{ledgerId, prevEntryId, emptyResponsesFromHostsBitSet.cardinality(), emptyResponsesFromHostsBitSet});
+                    }
                     completeRequest();
                 } else {
-                    LOG.debug("Received empty response for readLACAndEntry(lid = {}, previousEntryId = {}) from" +
-                            " bookie {} @ {}, reattempting reading next bookie : lac = {}",
-                            new Object[] { ledgerId, prevEntryId, rCtx.bookieIndex,
-                                    rCtx.bookie, lastAddConfirmed });
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Received empty response for readLACAndEntry(lid = {}, previousEntryId = {}) from" +
+                                        " bookie {} @ {}, reattempting reading next bookie : lac = {}",
+                                new Object[]{ledgerId, prevEntryId, rCtx.bookieIndex,
+                                        rCtx.bookie, lastAddConfirmed});
+                    }
                     request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Empty Response", rc);
                 }
                 return;

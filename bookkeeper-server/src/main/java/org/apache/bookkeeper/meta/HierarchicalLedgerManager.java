@@ -148,7 +148,7 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                 ZkUtils.asyncCreateFullPathOptimistic(zk, ledgerPath, metadata.serialize(),
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, scb, null);
                 // delete the znode for id generation
-                scheduler.submit(new Runnable() {
+                submitTask(new Runnable() {
                     @Override
                     public void run() {
                         zk.delete(idPathName, -1, new AsyncCallback.VoidCallback() {
