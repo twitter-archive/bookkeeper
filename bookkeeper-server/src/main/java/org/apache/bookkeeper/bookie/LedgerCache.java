@@ -52,5 +52,4 @@ interface LedgerCache extends Closeable {
 
     void deleteLedger(long ledgerId) throws IOException;
 
-    LedgerCacheBean getJMXBean();
 }

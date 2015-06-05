@@ -162,41 +162,6 @@ public class LedgerCacheImpl implements LedgerCache {
     }
 
     @Override
-    public LedgerCacheBean getJMXBean() {
-        return new LedgerCacheBean() {
-            @Override
-            public String getName() {
-                return "LedgerCache";
-            }
-
-            @Override
-            public boolean isHidden() {
-                return false;
-            }
-
-            @Override
-            public int getPageCount() {
-                return LedgerCacheImpl.this.indexPageManager.getNumUsedPages();
-            }
-
-            @Override
-            public int getPageSize() {
-                return LedgerCacheImpl.this.getPageSize();
-            }
-
-            @Override
-            public int getOpenFileLimit() {
-                return LedgerCacheImpl.this.indexPersistenceManager.getOpenFileLimit();
-            }
-
-            @Override
-            public int getNumOpenLedgers() {
-                return LedgerCacheImpl.this.indexPersistenceManager.getNumOpenLedgers();
-            }
-        };
-    }
-
-    @Override
     public void close() throws IOException {
         indexPersistenceManager.close();
     }

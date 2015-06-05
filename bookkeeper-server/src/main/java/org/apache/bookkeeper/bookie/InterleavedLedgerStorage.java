@@ -27,7 +27,6 @@ import java.io.IOException;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.jmx.BKMBeanInfo;
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
@@ -292,11 +291,6 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
         }
         somethingWritten = false;
         flushOptional(true, false);
-    }
-
-    @Override
-    public BKMBeanInfo getJMXBean() {
-        return ledgerCache.getJMXBean();
     }
 
     protected void processEntry(long ledgerId, long entryId, ByteBuffer entry) throws IOException {

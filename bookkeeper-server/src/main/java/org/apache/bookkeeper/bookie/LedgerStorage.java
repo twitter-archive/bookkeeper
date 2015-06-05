@@ -27,7 +27,6 @@ import java.util.Observable;
 import java.util.Observer;
 
 import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
-import org.apache.bookkeeper.jmx.BKMBeanInfo;
 
 /**
  * Interface for storing ledger data
@@ -138,8 +137,4 @@ interface LedgerStorage {
      */
     void checkpoint(CheckPoint checkpoint) throws IOException;
 
-    /**
-     * Get the JMX management bean for this LedgerStorage
-     */
-    BKMBeanInfo getJMXBean();
 }
