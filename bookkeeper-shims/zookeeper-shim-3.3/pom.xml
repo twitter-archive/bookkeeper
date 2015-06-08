@@ -21,7 +21,7 @@
   <parent>
     <artifactId>bookkeeper-shims</artifactId>
     <groupId>org.apache.bookkeeper.shims</groupId>
-    <version>4.3.1-TWTTR-SNAPSHOT</version>
+    <version>4.3.2-TWTTR-SNAPSHOT</version>
   </parent>
   <groupId>org.apache.bookkeeper.shims</groupId>
   <artifactId>zookeeper-shim-3.3</artifactId>
