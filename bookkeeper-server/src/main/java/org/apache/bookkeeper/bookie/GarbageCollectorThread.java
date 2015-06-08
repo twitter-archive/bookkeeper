@@ -798,11 +798,12 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 EntryLogMetadata entryLogMeta = extractMetaFromEntryLog(entryLogger, entryLogId);
                 entryLogMetadataManager.addEntryLogMetadata(entryLogMeta);
                 // GC the log if possible
-                doGcEntryLog(entryLogId, entryLogMeta);
-                // Minor Compacting the log if possible
-                if (enableMinorCompaction && !suspendMinorCompaction
-                        && entryLogMeta.getUsage() < minorCompactionThreshold) {
-                    compactEntryLog(entryLogMeta);
+                if (!doGcEntryLog(entryLogId, entryLogMeta)) {
+                    // if entry log file isn't empty (deleted), then minor compact the log if possible
+                    if (enableMinorCompaction && !suspendMinorCompaction
+                            && entryLogMeta.getUsage() < minorCompactionThreshold) {
+                        compactEntryLog(entryLogMeta);
+                    }
                 }
             } catch (IOException e) {
                 hasExceptionWhenScan = true;
