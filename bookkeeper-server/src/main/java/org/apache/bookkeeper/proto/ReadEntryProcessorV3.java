@@ -240,7 +240,8 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
             }
         } catch (IOException e) {
             status = StatusCode.EIO;
-            logger.error("IOException while reading entry: {} from ledger: {}", entryId, ledgerId);
+            logger.error("IOException while reading entry {} from ledger {}: ",
+                    new Object[] { entryId, ledgerId, e });
         } catch (BookieException e) {
             logger.error(
                     "Unauthorized access to ledger:{} while reading entry:{} in request from address: {}",
