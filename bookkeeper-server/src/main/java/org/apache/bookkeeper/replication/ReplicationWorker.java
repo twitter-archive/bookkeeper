@@ -20,7 +20,6 @@
 package org.apache.bookkeeper.replication;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -74,7 +73,6 @@ public class ReplicationWorker implements Runnable {
     private volatile boolean workerRunning = false;
     final private BookKeeperAdmin admin;
     private final LedgerChecker ledgerChecker;
-    private final BookieSocketAddress targetBookie;
     private final BookKeeper bkc;
     private final Thread workerThread;
     private final long openLedgerRereplicationGracePeriod;
@@ -92,15 +90,12 @@ public class ReplicationWorker implements Runnable {
      *            - ZK instance
      * @param conf
      *            - configurations
-     * @param targetBKAddr
-     *            - to where replication should happen. Ideally this will be
-     *            local Bookie address.
      */
     public ReplicationWorker(final ZooKeeper zkc,
-                             final ServerConfiguration conf, BookieSocketAddress targetBKAddr)
+                             final ServerConfiguration conf)
             throws CompatibilityException, KeeperException,
             InterruptedException, IOException {
-        this(zkc, conf, targetBKAddr, NullStatsLogger.INSTANCE);
+        this(zkc, conf, NullStatsLogger.INSTANCE);
     }
 
     /**
@@ -112,18 +107,14 @@ public class ReplicationWorker implements Runnable {
      *            - ZK instance
      * @param conf
      *            - configurations
-     * @param targetBKAddr
-     *            - to where replication should happen. Ideally this will be
-     *            local Bookie address.
      */
     public ReplicationWorker(final ZooKeeper zkc,
-                             final ServerConfiguration conf, BookieSocketAddress targetBKAddr,
+                             final ServerConfiguration conf,
                              StatsLogger statsLogger)
             throws CompatibilityException, KeeperException,
             InterruptedException, IOException {
         this.zkc = zkc;
         this.conf = conf;
-        this.targetBookie = targetBKAddr;
         LedgerManagerFactory mFactory = LedgerManagerFactory
                 .newLedgerManagerFactory(this.conf, this.zkc);
         this.underreplicationManager = mFactory
@@ -236,23 +227,15 @@ public class ReplicationWorker implements Runnable {
             if (!ledgerFragment.isClosed()) {
                 foundOpenFragments = true;
                 continue;
-            } else if (isTargetBookieExistsInFragmentEnsemble(lh,
-                    ledgerFragment)) {
-                LOG.debug("Target Bookie[{}] found in the fragment ensemble: {}", targetBookie,
-                        ledgerFragment.getEnsemble());
-                continue;
             }
             try {
-                admin.replicateLedgerFragment(lh, ledgerFragment, targetBookie);
+                admin.replicateLedgerFragment(lh, ledgerFragment);
             } catch (BKException.BKBookieHandleNotAvailableException e) {
                 LOG.warn("BKBookieHandleNotAvailableException "
                         + "while replicating the fragment", e);
             } catch (BKException.BKLedgerRecoveryException e) {
                 LOG.warn("BKLedgerRecoveryException "
                         + "while replicating the fragment", e);
-                if (admin.getReadOnlyBookies().contains(targetBookie)) {
-                    throw new BKException.BKWriteOnReadOnlyBookieException();
-                }
             }
         }
 
@@ -320,8 +303,7 @@ public class ReplicationWorker implements Runnable {
             throws InterruptedException {
         CheckerCallback checkerCb = new CheckerCallback();
         ledgerChecker.checkLedger(lh, checkerCb);
-        Set<LedgerFragment> fragments = checkerCb.waitAndGetResult();
-        return fragments;
+        return checkerCb.waitAndGetResult();
     }
 
     /**
@@ -428,17 +410,6 @@ public class ReplicationWorker implements Runnable {
      */
     boolean isRunning() {
         return workerRunning && workerThread.isAlive();
-    }
-
-    private boolean isTargetBookieExistsInFragmentEnsemble(LedgerHandle lh,
-            LedgerFragment ledgerFragment) {
-        List<BookieSocketAddress> ensemble = ledgerFragment.getEnsemble();
-        for (BookieSocketAddress bkAddr : ensemble) {
-            if (targetBookie.equals(bkAddr)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** Ledger checker call back */

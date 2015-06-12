@@ -578,7 +578,8 @@ public class BookieRecoveryTest extends BookKeeperClusterTestCase {
         for (Map.Entry<Long, ArrayList<BookieSocketAddress>> e : md.getEnsembles().entrySet()) {
             Set<BookieSocketAddress> uniqueBookies = new HashSet<BookieSocketAddress>();
             uniqueBookies.addAll(e.getValue());
-            assertEquals(e.getValue().size(), uniqueBookies.size());
+            assertEquals("Duplicated bookies found in " + e.getValue(),
+                    e.getValue().size(), uniqueBookies.size());
             for (BookieSocketAddress addr : e.getValue()) {
                 if (bookiesReplaced.contains(addr)) {
                     containReplacedBookies = true;

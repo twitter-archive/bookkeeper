@@ -639,7 +639,7 @@ public class BookKeeperCloseTest extends BookKeeperClusterTestCase {
 
         try {
             bkadmin.replicateLedgerFragment(lh3,
-                    checkercb.getResult(10, TimeUnit.SECONDS).iterator().next(), newBookie);
+                    checkercb.getResult(10, TimeUnit.SECONDS).iterator().next());
             fail("Shouldn't be able to replicate with a closed client");
         } catch (BKException.BKClientClosedException cce) {
             // correct behaviour

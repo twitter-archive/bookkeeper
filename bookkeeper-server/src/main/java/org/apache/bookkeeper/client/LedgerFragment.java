@@ -28,8 +28,8 @@ import java.util.Set;
 import java.util.SortedMap;
 
 /**
- * Represents the entries of a segment of a ledger which are stored on a single
- * bookie in the segments bookie ensemble.
+ * Represents the entries of a segment of a ledger which are stored on subset of
+ * bookies in the segments bookie ensemble.
  *
  * Used for checking and recovery
  */
@@ -42,7 +42,9 @@ public class LedgerFragment {
     private final DistributionSchedule schedule;
     private final boolean isLedgerClosed;
 
-    LedgerFragment(LedgerHandle lh, long firstEntryId, long lastKnownEntryId,
+    LedgerFragment(LedgerHandle lh,
+                   long firstEntryId,
+                   long lastKnownEntryId,
                    Set<Integer> bookieIndexes) {
         this.ledgerId = lh.getId();
         this.firstEntryId = firstEntryId;
@@ -54,6 +56,27 @@ public class LedgerFragment {
                 .getLedgerMetadata().getEnsembles();
         this.isLedgerClosed = lh.getLedgerMetadata().isClosed()
                 || !ensemble.equals(ensembles.get(ensembles.lastKey()));
+    }
+
+    LedgerFragment(LedgerFragment lf, Set<Integer> subset) {
+        this.ledgerId = lf.ledgerId;
+        this.firstEntryId = lf.firstEntryId;
+        this.lastKnownEntryId = lf.lastKnownEntryId;
+        this.bookieIndexes = subset;
+        this.ensemble = lf.ensemble;
+        this.schedule = lf.schedule;
+        this.isLedgerClosed = lf.isLedgerClosed;
+    }
+
+    /**
+     * Return a ledger fragment contains subset of bookies.
+     *
+     * @param subset
+     *          subset of bookies.
+     * @return ledger fragment contains subset of bookies
+     */
+    public LedgerFragment subset(Set<Integer> subset) {
+        return new LedgerFragment(this, subset);
     }
 
     /**
@@ -112,7 +135,7 @@ public class LedgerFragment {
     public long getFirstStoredEntryId() {
         Long firstEntry = null;
         for (int bookieIndex : bookieIndexes) {
-            Long firstStoredEntryForBookie = getFistStoredEntryId(bookieIndex);
+            Long firstStoredEntryForBookie = getFirstStoredEntryId(bookieIndex);
             if (null == firstEntry) {
                 firstEntry = firstStoredEntryForBookie;
             } else if (null != firstStoredEntryForBookie) {
@@ -122,7 +145,14 @@ public class LedgerFragment {
         return null == firstEntry ? LedgerHandle.INVALID_ENTRY_ID : firstEntry;
     }
 
-    private Long getFistStoredEntryId(int bookieIndex) {
+    /**
+     * Get the first stored entry id of the fragment in the given failed bookies.
+     *
+     * @param bookieIndex
+     *          the bookie index in the ensemble.
+     * @return first stored entry id on the bookie.
+     */
+    public Long getFirstStoredEntryId(int bookieIndex) {
         long firstEntry = firstEntryId;
 
         for (int i = 0; i < ensemble.size() && firstEntry <= lastKnownEntryId; i++) {
@@ -132,7 +162,7 @@ public class LedgerFragment {
                 firstEntry++;
             }
         }
-        return null;
+        return LedgerHandle.INVALID_ENTRY_ID;
     }
 
     /**
@@ -153,7 +183,14 @@ public class LedgerFragment {
         return null == lastEntry ? LedgerHandle.INVALID_ENTRY_ID : lastEntry;
     }
 
-    private Long getLastStoredEntryId(int bookieIndex) {
+    /**
+     * Get the last stored entry id of the fragment in the given failed bookie.
+     *
+     * @param bookieIndex
+     *          the bookie index in the ensemble.
+     * @return first stored entry id on the bookie.
+     */
+    public Long getLastStoredEntryId(int bookieIndex) {
         long lastEntry = lastKnownEntryId;
         for (int i = 0; i < ensemble.size() && lastEntry >= firstEntryId; i++) {
             if (schedule.hasEntry(lastEntry, bookieIndex)) {
@@ -162,7 +199,7 @@ public class LedgerFragment {
                 lastEntry--;
             }
         }
-        return null;
+        return LedgerHandle.INVALID_ENTRY_ID;
     }
 
     /**

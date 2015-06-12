@@ -20,25 +20,24 @@
 package org.apache.bookkeeper.client;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
-
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicInteger;
-
 /**
- *Checks the complete ledger and finds the UnderReplicated fragments if any
+ * Checks the complete ledger and finds the UnderReplicated fragments if any
  */
 public class LedgerChecker {
     private static Logger LOG = LoggerFactory.getLogger(LedgerChecker.class);
@@ -84,10 +83,100 @@ public class LedgerChecker {
         bookieClient = bkc.getBookieClient();
     }
 
+    /**
+     * This will collect the bad bookies inside a ledger fragment.
+     */
+    private static class LedgerFragmentCallback implements GenericCallback<LedgerFragment> {
+
+        private final LedgerFragment fragment;
+        private final int bookieIndex;
+        // bookie index -> return code
+        private final Map<Integer, Integer> badBookies;
+        private final AtomicInteger numBookies;
+        private final GenericCallback<LedgerFragment> cb;
+
+        LedgerFragmentCallback(LedgerFragment lf,
+                               int bookieIndex,
+                               GenericCallback<LedgerFragment> cb,
+                               Map<Integer, Integer> badBookies,
+                               AtomicInteger numBookies) {
+            this.fragment = lf;
+            this.bookieIndex = bookieIndex;
+            this.cb = cb;
+            this.badBookies = badBookies;
+            this.numBookies = numBookies;
+        }
+
+        @Override
+        public void operationComplete(int rc, LedgerFragment lf) {
+            if (BKException.Code.OK != rc) {
+                synchronized (badBookies) {
+                    badBookies.put(bookieIndex, rc);
+                }
+            }
+            if (numBookies.decrementAndGet() == 0) {
+                if (badBookies.isEmpty()) {
+                    cb.operationComplete(BKException.Code.OK, fragment);
+                } else {
+                    int rcToReturn = BKException.Code.NoBookieAvailableException;
+                    for (Map.Entry<Integer, Integer> entry : badBookies.entrySet()) {
+                        rcToReturn = entry.getValue();
+                        if (entry.getValue() == BKException.Code.ClientClosedException) {
+                            break;
+                        }
+                    }
+                    cb.operationComplete(rcToReturn,
+                            fragment.subset(badBookies.keySet()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Verify a ledger fragment to collect bad bookies
+     *
+     * @param fragment
+     *          fragment to verify
+     * @param cb
+     *          callback
+     * @throws InvalidFragmentException
+     */
     private void verifyLedgerFragment(LedgerFragment fragment,
-            GenericCallback<LedgerFragment> cb) throws InvalidFragmentException {
-        long firstStored = fragment.getFirstStoredEntryId();
-        long lastStored = fragment.getLastStoredEntryId();
+                                      GenericCallback<LedgerFragment> cb)
+            throws InvalidFragmentException {
+        Set<Integer> bookiesToCheck = fragment.getBookiesIndexes();
+        if (bookiesToCheck.isEmpty()) {
+            cb.operationComplete(BKException.Code.OK, fragment);
+            return;
+        }
+
+        AtomicInteger numBookies = new AtomicInteger(bookiesToCheck.size());
+        Map<Integer, Integer> badBookies = new HashMap<Integer, Integer>();
+
+        for (Integer bookieIndex : bookiesToCheck) {
+            LedgerFragmentCallback lfCb = new LedgerFragmentCallback(
+                    fragment, bookieIndex, cb, badBookies, numBookies);
+            verifyLedgerFragment(fragment, bookieIndex, lfCb);
+        }
+    }
+
+    /**
+     * Verify a bookie inside a ledger fragment.
+     *
+     * @param fragment
+     *          ledger fragment
+     * @param bookieIndex
+     *          bookie index in the fragment
+     * @param cb
+     *          callback
+     * @throws InvalidFragmentException
+     */
+    private void verifyLedgerFragment(LedgerFragment fragment,
+                                      int bookieIndex,
+                                      GenericCallback<LedgerFragment> cb)
+            throws InvalidFragmentException {
+        long firstStored = fragment.getFirstStoredEntryId(bookieIndex);
+        long lastStored = fragment.getLastStoredEntryId(bookieIndex);
 
         if (firstStored == LedgerHandle.INVALID_ENTRY_ID) {
             if (lastStored != LedgerHandle.INVALID_ENTRY_ID) {
@@ -96,19 +185,23 @@ public class LedgerChecker {
             cb.operationComplete(BKException.Code.OK, fragment);
             return;
         }
+
+        BookieSocketAddress bookie = fragment.getAddress(bookieIndex);
+        if (null == bookie) {
+            throw new InvalidFragmentException();
+        }
+
         if (firstStored == lastStored) {
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(1,
                     fragment, cb);
-            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
+            bookieClient.readEntry(bookie, fragment
                     .getLedgerId(), firstStored, manycb, null);
         } else {
             // TODO: make sure it works with deplayEnsembleChange
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(2,
                     fragment, cb);
-            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
-                    .getLedgerId(), firstStored, manycb, null);
-            bookieClient.readEntry(fragment.getAddress(fragment.getBookiesIndexes().iterator().next()), fragment
-                    .getLedgerId(), lastStored, manycb, null);
+            bookieClient.readEntry(bookie, fragment.getLedgerId(), firstStored, manycb, null);
+            bookieClient.readEntry(bookie, fragment.getLedgerId(), lastStored, manycb, null);
         }
     }
 
@@ -186,12 +279,12 @@ public class LedgerChecker {
         for (Map.Entry<Long, ArrayList<BookieSocketAddress>> e : lh
                 .getLedgerMetadata().getEnsembles().entrySet()) {
             if (curEntryId != null) {
+                Set<Integer> bookieIndexes = new HashSet<Integer>();
                 for (int i = 0; i < curEnsemble.size(); i++) {
-                    Set<Integer> bookieIndexes = new HashSet<Integer>();
                     bookieIndexes.add(i);
-                    fragments.add(new LedgerFragment(lh, curEntryId,
-                            e.getKey() - 1, bookieIndexes));
                 }
+                fragments.add(new LedgerFragment(lh, curEntryId,
+                        e.getKey() - 1, bookieIndexes));
             }
             curEntryId = e.getKey();
             curEnsemble = e.getValue();
@@ -218,13 +311,12 @@ public class LedgerChecker {
                 lastEntry = curEntryId;
             }
 
-            final Set<LedgerFragment> finalSegmentFragments = new HashSet<LedgerFragment>();
+            Set<Integer> bookieIndexes = new HashSet<Integer>();
             for (int i = 0; i < curEnsemble.size(); i++) {
-                Set<Integer> bookieIndexes = new HashSet<Integer>();
                 bookieIndexes.add(i);
-                finalSegmentFragments.add(new LedgerFragment(lh, curEntryId,
-                        lastEntry, bookieIndexes));
             }
+            final LedgerFragment lastLedgerFragment = new LedgerFragment(lh, curEntryId,
+                    lastEntry, bookieIndexes);
 
             // Check for the case that no last confirmed entry has
             // been set.
@@ -236,7 +328,7 @@ public class LedgerChecker {
                                               new GenericCallback<Boolean>() {
                                                   public void operationComplete(int rc, Boolean result) {
                                                       if (result) {
-                                                          fragments.addAll(finalSegmentFragments);
+                                                          fragments.add(lastLedgerFragment);
                                                       }
                                                       checkFragments(fragments, cb);
                                                   }
@@ -249,7 +341,7 @@ public class LedgerChecker {
                 }
                 return;
             } else {
-                fragments.addAll(finalSegmentFragments);
+                fragments.add(lastLedgerFragment);
             }
         }
 

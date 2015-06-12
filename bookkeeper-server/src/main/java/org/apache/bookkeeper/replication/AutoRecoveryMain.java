@@ -109,7 +109,7 @@ public class AutoRecoveryMain {
                 Bookie.getBookieAddress(conf).toString(), conf,
                 zk, statsLogger.scope(AUDITOR_SCOPE));
         replicationWorker = new ReplicationWorker(zk, conf,
-                Bookie.getBookieAddress(conf), statsLogger.scope(REPLICATION_WORKER_SCOPE));
+                statsLogger.scope(REPLICATION_WORKER_SCOPE));
         deathWatcher = new AutoRecoveryDeathWatcher(this);
     }
 

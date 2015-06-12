@@ -358,8 +358,9 @@ public class Auditor {
                 if (rc == BKException.Code.OK) {
                     Set<BookieSocketAddress> bookies = Sets.newHashSet();
                     for (LedgerFragment f : fragments) {
-                        bookies.add(f.getAddress(f.getBookiesIndexes().iterator().next()));
+                        bookies.addAll(f.getAddresses());
                     }
+                    // TODO: publish ledger with failed bookies to reduce zookeeper accesses
                     for (BookieSocketAddress bookie : bookies) {
                         publishSuspectedLedgers(bookie.toString(),
                                                 Sets.newHashSet(lh.getId()));

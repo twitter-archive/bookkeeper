@@ -103,7 +103,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         // 0-9 entries should be copy to new bookie
 
         for (LedgerFragment lf : result) {
-            admin.replicateLedgerFragment(lh, lf, newBkAddr);
+            admin.replicateLedgerFragment(lh, lf);
         }
 
         // Killing all bookies except newly replicated bookie
@@ -169,11 +169,11 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         int unclosedCount = 0;
         for (LedgerFragment lf : result) {
             if (lf.isClosed()) {
-                admin.replicateLedgerFragment(lh, lf, newBkAddr);
+                admin.replicateLedgerFragment(lh, lf);
             } else {
                 unclosedCount++;
                 try {
-                    admin.replicateLedgerFragment(lh, lf, newBkAddr);
+                    admin.replicateLedgerFragment(lh, lf);
                     fail("Shouldn't be able to rereplicate unclosed ledger");
                 } catch (BKException bke) {
                     // correct behaviour
@@ -215,12 +215,10 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
 
         Set<LedgerFragment> fragments = getFragmentsToReplicate(lh);
         BookKeeperAdmin admin = new BookKeeperAdmin(baseClientConf);
-        int startNewBookie = startNewBookie();
-        BookieSocketAddress additionalBK = new BookieSocketAddress(InetAddress
-                .getLocalHost().getHostAddress(), startNewBookie);
+        startNewBookie();
         for (LedgerFragment lf : fragments) {
             try {
-                admin.replicateLedgerFragment(lh, lf, additionalBK);
+                admin.replicateLedgerFragment(lh, lf);
             } catch (BKException.BKLedgerRecoveryException e) {
                 // expected
             }

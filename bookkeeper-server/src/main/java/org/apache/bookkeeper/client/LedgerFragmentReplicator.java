@@ -138,8 +138,8 @@ public class LedgerFragmentReplicator {
             throws InterruptedException {
         Set<LedgerFragment> partionedFragments = splitIntoSubFragments(lh, lf,
                 bkc.getConf().getRereplicationEntryBatchSize());
-        LOG.info("Fragment :" + lf + " is split into sub fragments :"
-                + partionedFragments);
+        LOG.info("Replicating fragment {} in {} sub fragments.",
+                lf, partionedFragments.size());
         replicateNextBatch(lh, partionedFragments.iterator(),
                 ledgerFragmentMcb, targetBookieAddresses);
     }
