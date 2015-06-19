@@ -20,22 +20,21 @@ package org.apache.bookkeeper.proto;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
 import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.Stats;
 import org.apache.bookkeeper.util.MonitoredThreadPoolExecutor;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
+import org.jboss.netty.channel.Channel;
 import org.jboss.netty.util.HashedWheelTimer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.jboss.netty.channel.Channel;
 
 /**
  * This class is a packet processor implementation that processes multiple packets at
@@ -146,12 +145,16 @@ public class MultiPacketProcessor implements RequestProcessor {
                 processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie));
                 break;
             case READ_ENTRY:
-                ReadEntryProcessorV3 readProcessor = new ReadEntryProcessorV3(request, channel, bookie,
-                        null == readThreadPool ? null : readThreadPool.chooseThread(channel),
-                        longPollThreadPool, requestTimer);
-                if (readProcessor.isLongPollRequest()) {
+                ExecutorService fenceThreadPool =
+                        null == readThreadPool ? null : readThreadPool.chooseThread(channel);
+                if (RequestUtils.isLongPollReadRequest(request.getReadRequest())) {
+                    LongPollReadEntryProcessorV3 readProcessor =
+                            new LongPollReadEntryProcessorV3(request, channel, bookie, fenceThreadPool,
+                                    longPollThreadPool, requestTimer);
                     processLongPollReadRequest(readProcessor);
                 } else {
+                    ReadEntryProcessorV3 readProcessor =
+                            new ReadEntryProcessorV3(request, channel, bookie, fenceThreadPool);
                     processReadRequest(channel, readProcessor);
                 }
                 break;
