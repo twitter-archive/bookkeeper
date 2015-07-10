@@ -84,7 +84,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     final int maxOutstandingRequests;
     final int compactionRateByEntries;
     final int compactionRateByBytes;
-    final CompactionScannerFactory scannerFactory;
+    final Throttler throttler;
 
     // Entry Logger Handle
     final EntryLogger entryLogger;
@@ -150,17 +150,29 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
     /**
      * A scanner wrapper to check whether a ledger is alive in an entry log file
+     *
+     * TODO: move this out of GarbageCollectorThread for better testability
      */
-    class CompactionScannerFactory implements EntryLogger.EntryLogListener {
+    static class CompactionScannerFactory implements EntryLogger.EntryLogListener {
+
+        final EntryLogger entryLogger;
+        final LedgerCache ledgerCache;
+        final Throttler throttler;
+
         final LinkedHashMap<Long, List<Offset>> offsetMap = new LinkedHashMap<Long, List<Offset>>();
         final AtomicBoolean isEntryLogRotated = new AtomicBoolean(false);
         final Set<Long> deletedLedgers = new HashSet<Long>();
 
-        synchronized EntryLogScanner newScanner(final EntryLogMetadata meta) {
-            final Throttler throttler = new Throttler (isThrottleByBytes,
-                                                       compactionRateByBytes,
-                                                       compactionRateByEntries);
+        public CompactionScannerFactory(final EntryLogger entryLogger,
+                                        final LedgerCache ledgerCache,
+                                        final Throttler throttler) {
+            this.entryLogger = entryLogger;
+            this.ledgerCache = ledgerCache;
+            this.throttler = throttler;
+            this.entryLogger.addListener(this);
+        }
 
+        synchronized EntryLogScanner newScanner(final EntryLogMetadata meta) {
             List<Offset> offsets = offsetMap.get(meta.entryLogId);
             if (null == offsets) {
                 offsets = new ArrayList<Offset>();
@@ -219,7 +231,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 // it is an entry log without valid entries, delete it.
                 if (offsets.getValue().isEmpty() && offsets.getKey() != compactingLogId) {
                     entryLogIterator.remove();
-                    removeEntryLog(offsets.getKey(), "compacted");
+                    removeEntryLog(entryLogger, offsets.getKey(), "compacted");
                     continue;
                 }
 
@@ -259,7 +271,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             if (!logsToRemove.isEmpty()) {
                 ledgerCache.flushLedger(true);
                 for (Long logId : logsToRemove) {
-                    removeEntryLog(logId, "compacted");
+                    removeEntryLog(entryLogger, logId, "compacted");
                 }
             }
         }
@@ -298,8 +310,10 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         this.maxOutstandingRequests = conf.getCompactionMaxOutstandingRequests();
         this.compactionRateByEntries  = conf.getCompactionRateByEntries();
         this.compactionRateByBytes = conf.getCompactionRateByBytes();
-        this.scannerFactory = new CompactionScannerFactory();
-        entryLogger.addListener(this.scannerFactory);
+        // Compaction Throttler
+        throttler = new Throttler (isThrottleByBytes,
+                compactionRateByBytes,
+                compactionRateByEntries);
         // compaction parameters
         minorCompactionThreshold = conf.getMinorCompactionThreshold();
         minorCompactionInterval = conf.getMinorCompactionInterval() * SECOND;
@@ -582,7 +596,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         if (meta.isEmpty()) {
             // This means the entry log is not associated with any active ledgers anymore.
             // We can remove this entry log file now.
-            removeEntryLog(entryLogId, "empty");
+            removeEntryLog(entryLogger, entryLogId, "empty");
             return true;
         } else {
             if (numLedgersRemoved > 0) {
@@ -640,11 +654,17 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             }
         });
 
+        // Build the compaction scanner factory each time we do compaction. So the compaction scanner factory only lives
+        // in the lifecyle of compaction. If there is any exception is thrown during compaction, the compaction factory
+        // will be discarded, so any state it holds (including offsets) will be discarded. it would prevent accumulating
+        // any offsets if exception happened during compaction.
+        CompactionScannerFactory scannerFactory = new CompactionScannerFactory(entryLogger, ledgerCache, throttler);
+
         for (EntryLogMetadata meta : compactIterable) {
             LOG.debug("Compacting entry log {} whose usage {} is below threshold {}.",
                     new Object[] { meta.entryLogId, meta.getUsage(), threshold });
             try {
-                if (compactEntryLog(meta)) {
+                if (compactEntryLog(scannerFactory, meta)) {
                     ServerStatsProvider.getStatsLoggerInstance().getCounter(
                             BookkeeperServerStatsLogger.BookkeeperServerCounter.GC_NUM_ENTRYLOGS_COMPACTED).inc();
                     // schedule entry log to be removed after moving entries
@@ -687,7 +707,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             try {
                 scannerFactory.flush();
                 for (EntryLogMetadata metadata: logsToRemove) {
-                    removeEntryLog(metadata.entryLogId, "compacted");
+                    removeEntryLog(entryLogger, metadata.entryLogId, "compacted");
                 }
             } catch (IOException e) {
                 LOG.info("Exception when flushing cache and removing entry logs", e);
@@ -721,7 +741,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * @param entryLogId
      *          Entry Log File Id
      */
-    private void removeEntryLog(long entryLogId, String reason) {
+    private static void removeEntryLog(EntryLogger entryLogger, long entryLogId, String reason) {
         // remove entry log file successfully
         if (entryLogger.removeEntryLog(entryLogId)) {
             LOG.info("Deleted entryLogId {} as it is {}!", entryLogId, reason);
@@ -737,7 +757,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * @param entryLogMeta
      *          Entry Log Metadata
      */
-    protected boolean compactEntryLog(EntryLogMetadata entryLogMeta) throws IOException {
+    protected boolean compactEntryLog(CompactionScannerFactory scannerFactory,
+                                      EntryLogMetadata entryLogMeta) throws IOException {
         // Similar with Sync Thread
         // try to mark compacting flag to make sure it would not be interrupted
         // by shutdown during compaction. otherwise it will receive
@@ -801,6 +822,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         long curLogId = entryLogger.getLeastUnflushedLogId();
         boolean hasExceptionWhenScan = false;
         boolean noWritableDirs = false;
+        CompactionScannerFactory scannerFactory = new CompactionScannerFactory(entryLogger, ledgerCache, throttler);
         for (long entryLogId = scannedLogId; entryLogId < curLogId; entryLogId++) {
             // Comb the current entry log file if it has not already been extracted.
             if (entryLogMetadataManager.containsEntryLog(entryLogId)) {
@@ -831,7 +853,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                     if (enableMinorCompaction && !suspendMinorCompaction && !noWritableDirs
                             && entryLogMeta.getUsage() < minorCompactionThreshold) {
                         try {
-                            compactEntryLog(entryLogMeta);
+                            compactEntryLog(scannerFactory, entryLogMeta);
                         } catch (LedgerDirsManager.NoWritableLedgerDirException nwle) {
                             noWritableDirs = true;
                             LOG.warn("No writable ledger directory available, skipping compaction", nwle);
