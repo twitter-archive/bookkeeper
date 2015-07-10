@@ -26,15 +26,22 @@ import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-class HandleFactoryImpl implements HandleFactory {
-    ConcurrentMap<Long, LedgerDescriptor> ledgers = new ConcurrentHashMap<Long, LedgerDescriptor>();
-    ConcurrentMap<Long, LedgerDescriptor> readOnlyLedgers
+class HandleFactoryImpl implements HandleFactory, LedgerStorageListener {
+    final ConcurrentMap<Long, LedgerDescriptor> ledgers = new ConcurrentHashMap<Long, LedgerDescriptor>();
+    final ConcurrentMap<Long, LedgerDescriptor> readOnlyLedgers
         = new ConcurrentHashMap<Long, LedgerDescriptor>();
 
     final LedgerStorage ledgerStorage;
 
     HandleFactoryImpl(LedgerStorage ledgerStorage) {
         this.ledgerStorage = ledgerStorage;
+        this.ledgerStorage.registerListener(this);
+    }
+
+    @Override
+    public void onLedgerDeleted(long ledgerId) {
+        ledgers.remove(ledgerId);
+        readOnlyLedgers.remove(ledgerId);
     }
 
     @Override

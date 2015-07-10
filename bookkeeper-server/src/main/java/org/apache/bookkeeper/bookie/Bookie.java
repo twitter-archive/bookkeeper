@@ -93,7 +93,7 @@ import static org.apache.bookkeeper.util.BookKeeperConstants.*;
  * Implements a bookie.
  *
  */
-public class Bookie extends BookieCriticalThread {
+public class Bookie extends BookieCriticalThread implements LedgerStorageListener {
 
     static Logger LOG = LoggerFactory.getLogger(Bookie.class);
 
@@ -700,6 +700,7 @@ public class Bookie extends BookieCriticalThread {
             ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
                 ledgerDirsManager, indexDirsManager, syncThread);
         }
+        ledgerStorage.registerListener(this);
         handles = new HandleFactoryImpl(ledgerStorage);
 
         // Initialise ledgerDirManager. This would look through all the
@@ -719,6 +720,11 @@ public class Bookie extends BookieCriticalThread {
         String myID = getMyId();
         zkBookieRegPath = this.bookieRegistrationPath + myID;
         zkBookieReadOnlyPath = this.bookieReadonlyRegistrationPath + "/" + myID;
+    }
+
+    @Override
+    public void onLedgerDeleted(long ledgerId) {
+        masterKeyCache.remove(ledgerId);
     }
 
     @Override

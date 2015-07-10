@@ -24,6 +24,7 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -44,6 +45,7 @@ public class LedgerCacheImpl implements LedgerCache {
     final IndexPersistenceMgr indexPersistenceManager;
     final int pageSize;
     final int entriesPerPage;
+    final CopyOnWriteArraySet<LedgerStorageListener> listeners;
 
     public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm, LedgerDirsManager ledgerDirsManager)
             throws IOException {
@@ -51,9 +53,15 @@ public class LedgerCacheImpl implements LedgerCache {
         this.entriesPerPage = pageSize / LedgerEntryPage.getIndexEntrySize();
         this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager);
         this.indexPageManager = new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager);
+        this.listeners = new CopyOnWriteArraySet<LedgerStorageListener>();
 
         LOG.info("maxMemory = {}", Runtime.getRuntime().maxMemory());
         LOG.info("PageSize is {}", pageSize);
+    }
+
+    @Override
+    public void registerListener(LedgerStorageListener listener) {
+        this.listeners.add(listener);
     }
 
     IndexInMemPageMgr getIndexPageManager() {
@@ -134,6 +142,11 @@ public class LedgerCacheImpl implements LedgerCache {
 
         indexPageManager.removePagesForLedger(ledgerId);
         indexPersistenceManager.removeLedger(ledgerId);
+
+        // when a ledger is deleted, notify by listeners
+        for (LedgerStorageListener listener : listeners) {
+            listener.onLedgerDeleted(ledgerId);
+        }
     }
 
     @Override

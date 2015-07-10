@@ -75,6 +75,11 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     }
 
     @Override
+    public void registerListener(LedgerStorageListener listener) {
+        ledgerCache.registerListener(listener);
+    }
+
+    @Override
     public void reclaimDiskSpace() throws IOException {
         gcThread.gc();
     }

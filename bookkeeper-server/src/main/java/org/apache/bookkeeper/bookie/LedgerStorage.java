@@ -35,6 +35,13 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 interface LedgerStorage {
 
     /**
+     * Register a listener on ledger storage changes.
+     *
+     * @param listener listener on ledger storage changes.
+     */
+    void registerListener(LedgerStorageListener listener);
+
+    /**
      * Reclaim disk space from ledger storage.
      *
      * @throws IOException
