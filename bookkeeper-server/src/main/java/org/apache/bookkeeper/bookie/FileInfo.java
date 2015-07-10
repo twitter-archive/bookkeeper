@@ -172,7 +172,12 @@ class FileInfo extends Observable {
     }
 
     @VisibleForTesting
-    synchronized void checkOpen(boolean create) throws IOException {
+    void checkOpen(boolean create) throws IOException {
+        checkOpen(create, false);
+    }
+
+    private synchronized void checkOpen(boolean create, boolean openBeforeClose)
+            throws IOException {
         if (fc != null) {
             return;
         }
@@ -192,6 +197,10 @@ class FileInfo extends Observable {
                 }
             }
         } else {
+            if (openBeforeClose) {
+                // if it is checking for close, skip reading header
+                return;
+            }
             try {
                 readHeader();
             } catch (BufferUnderflowException buf) {
@@ -314,18 +323,18 @@ class FileInfo extends Observable {
 
     /**
      * Close a file info. Generally, force should be set to true. If set to false metadata will not be flushed and
-     * accessing metadata before restart and recovery will be unsafe (since reloading from the index file will 
+     * accessing metadata before restart and recovery will be unsafe (since reloading from the index file will
      * cause metadata to be lost). Setting force=false helps avoid expensive file create during shutdown with many
      * dirty ledgers, and is safe becuase ledger metadata will be recovered before being accessed again.
      *
      * @param force
-     *          if set to true, flush metadata before close even if the file doesn't exist yet (creates the file first) 
+     *          if set to true, flush metadata before close even if the file doesn't exist yet (creates the file first)
      *          if set to false, do not flush metadata
      */
     public void close(boolean force) throws IOException {
         synchronized (this) {
             isClosed = true;
-            checkOpen(force);
+            checkOpen(force, true);
             if (force) {
                 flushHeader();
             }
