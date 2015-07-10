@@ -28,10 +28,13 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -151,6 +154,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     class CompactionScannerFactory implements EntryLogger.EntryLogListener {
         final LinkedHashMap<Long, List<Offset>> offsetMap = new LinkedHashMap<Long, List<Offset>>();
         final AtomicBoolean isEntryLogRotated = new AtomicBoolean(false);
+        final Set<Long> deletedLedgers = new HashSet<Long>();
 
         synchronized EntryLogScanner newScanner(final EntryLogMetadata meta) {
             final Throttler throttler = new Throttler (isThrottleByBytes,
@@ -232,7 +236,14 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                             break;
                         }
                     }
-                    ledgerCache.putEntryOffset(o.ledger, o.entry, o.offset);
+                    if (!deletedLedgers.contains(o.ledger)) {
+                        try {
+                            ledgerCache.putEntryOffset(o.ledger, o.entry, o.offset);
+                        } catch (Bookie.NoLedgerException nle) {
+                            LOG.info("Ledger {} is found deleted during compaction, skipping compacting its entries.");
+                            deletedLedgers.add(o.ledger);
+                        }
+                    }
                     offsetIterator.remove();
                 }
 
@@ -256,6 +267,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         synchronized void flush() throws IOException {
             writeOffsetsToCache(EntryLogger.INVALID_LID, true);
             ledgerCache.flushLedger(true);
+            deletedLedgers.clear();
         }
     }
 
@@ -515,7 +527,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     /**
      * Do garbage collection ledger index files
      */
-    private void doGcLedgers() {
+    @VisibleForTesting
+    void doGcLedgers() {
         final AtomicInteger numLedgersDeleted = new AtomicInteger(0);
         activeLedgerManager.garbageCollectLedgers(
         new ActiveLedgerManager.GarbageCollector() {
@@ -589,8 +602,15 @@ public class GarbageCollectorThread extends BookieCriticalThread {
      * would not be compacted.
      * </p>
      */
-    @VisibleForTesting
     void doCompactEntryLogs(final double threshold) {
+        doCompactEntryLogs(threshold,
+                new CountDownLatch(0), new CountDownLatch(0));
+    }
+
+    @VisibleForTesting
+    void doCompactEntryLogs(final double threshold,
+                            CountDownLatch flushNotifier,
+                            CountDownLatch flushLatch) {
         LOG.info("Do compaction to compact those files lower than {}", threshold);
         // sort the ledger meta by occupied unused space
         Comparator<EntryLogMetadata> sizeComparator = new Comparator<EntryLogMetadata>() {
@@ -655,6 +675,13 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 // set compacting flag failed, means compacting is true now
                 // indicates another thread wants to interrupt gc thread to exit
                 return;
+            }
+
+            flushNotifier.countDown();
+            try {
+                flushLatch.await();
+            } catch (InterruptedException e) {
+                // no-op
             }
 
             try {

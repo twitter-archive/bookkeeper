@@ -30,8 +30,10 @@ import java.util.Enumeration;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -154,7 +156,64 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
+    public void testCompactionOnDeletedLedgers() throws Exception {
+        // prepare data
+        final LedgerHandle[] lhs = prepareData(3, false);
+
+        // disable compaction
+        baseConf.setMinorCompactionThreshold(0.0f);
+        baseConf.setMajorCompactionThreshold(0.0f);
+
+        // restart bookies
+        restartBookies();
+
+        // remove ledger2 and ledger3
+        // so entry log 1 and 2 would have ledger1 entries left
+        bkc.deleteLedger(lhs[1].getId());
+        bkc.deleteLedger(lhs[2].getId());
+        LOG.info("Finished deleting the ledgers contains most entries.");
+        Thread.sleep(baseConf.getMajorCompactionInterval() * 1000
+                + baseConf.getGcWaitTime());
+
+        Bookie bookie = this.bs.get(0).getBookie();
+        final GarbageCollectorThread gcThread = ((InterleavedLedgerStorage) bookie.ledgerStorage).gcThread;
+
+        final CountDownLatch flushLatch = new CountDownLatch(1);
+        final CountDownLatch flushNotifier = new CountDownLatch(1);
+        Thread flushThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    flushNotifier.await();
+                } catch (InterruptedException e) {
+                    // no-op
+                }
+                try {
+                    bkc.deleteLedger(lhs[0].getId());
+                } catch (InterruptedException e) {
+                    LOG.warn("Interrupted on deleting ledger {} : ",
+                            lhs[0].getId(), e);
+                } catch (BKException e) {
+                    LOG.error("Error on deleting ledger {} : ",
+                            lhs[0].getId(), e);
+                }
+                gcThread.doGcLedgers();
+                flushLatch.countDown();
+            }
+        }, "flush-thread");
+        flushThread.start();
+
+        gcThread.doCompactEntryLogs(0.99, flushNotifier, flushLatch);
+
+        // entry logs ([0,1,2].log) should be compacted
+        for (File ledgerDirectory : tmpDirs) {
+            assertFalse("Found entry log file ([0,1,2].log that should have not been compacted in ledgerDirectory: "
+                      + ledgerDirectory, TestUtils.hasLogFiles(ledgerDirectory, true, 0, 1, 2));
+        }
+    }
+
+    @Test(timeout = 60000)
     public void testDisableCompaction() throws Exception {
         // prepare data
         LedgerHandle[] lhs = prepareData(3, false);
@@ -181,7 +240,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testForceGarbageCollection() throws Exception {
         baseConf.setGcWaitTime(60000);
         baseConf.setMinorCompactionInterval(120000);
@@ -228,7 +287,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
                 lastMinorCompactionTime, storage.gcThread.lastMinorCompactionTime);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMinorCompaction() throws Exception {
         // prepare data
         LedgerHandle[] lhs = prepareData(3, false);
@@ -262,7 +321,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         verifyLedger(lhs[0].getId(), 0, lhs[0].getLastAddConfirmed());
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMajorCompaction() throws Exception {
 
         // prepare data
@@ -297,7 +356,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         verifyLedger(lhs[1].getId(), 0, lhs[1].getLastAddConfirmed());
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testMajorCompactionAboveThreshold() throws Exception {
         // prepare data
         LedgerHandle[] lhs = prepareData(3, false);
@@ -320,7 +379,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testCompactionSmallEntryLogs() throws Exception {
 
         // create a ledger to write a few entries
