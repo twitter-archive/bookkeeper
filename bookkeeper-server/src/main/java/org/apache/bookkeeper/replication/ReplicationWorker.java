@@ -197,30 +197,33 @@ public class ReplicationWorker implements Runnable {
         } catch (BKNoSuchLedgerExistsException e) {
             // Ledger might have been deleted by user
             LOG.info("BKNoSuchLedgerExistsException while opening "
-                    + "ledger for replication. Other clients "
+                    + "ledger {} for replication. Other clients "
                     + "might have deleted the ledger. "
-                    + "So, no harm to continue");
+                    + "So, no harm to continue", ledgerIdToReplicate);
             underreplicationManager.markLedgerReplicated(ledgerIdToReplicate);
             return false;
         } catch (BKReadException e) {
             LOG.info("BKReadException while"
-                    + " opening ledger for replication."
+                    + " opening ledger {} for replication."
                     + " Enough Bookies might not have available"
-                    + "So, no harm to continue");
+                    + "So, no harm to continue", ledgerIdToReplicate);
             underreplicationManager
                     .releaseUnderreplicatedLedger(ledgerIdToReplicate);
             return false;
         } catch (BKBookieHandleNotAvailableException e) {
             LOG.info("BKBookieHandleNotAvailableException while"
-                    + " opening ledger for replication."
+                    + " opening ledger {} for replication."
                     + " Enough Bookies might not have available"
-                    + "So, no harm to continue");
+                    + "So, no harm to continue", ledgerIdToReplicate);
             underreplicationManager
                     .releaseUnderreplicatedLedger(ledgerIdToReplicate);
             return false;
         }
         Set<LedgerFragment> fragments = getUnderreplicatedFragments(lh);
-        LOG.debug("Founds fragments {} for replication from ledger: {}", fragments, ledgerIdToReplicate);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Founds fragments {} for replication from ledger: {}",
+                    fragments, ledgerIdToReplicate);
+        }
 
         boolean foundOpenFragments = false;
         for (LedgerFragment ledgerFragment : fragments) {
@@ -232,10 +235,10 @@ public class ReplicationWorker implements Runnable {
                 admin.replicateLedgerFragment(lh, ledgerFragment);
             } catch (BKException.BKBookieHandleNotAvailableException e) {
                 LOG.warn("BKBookieHandleNotAvailableException "
-                        + "while replicating the fragment", e);
+                        + "while replicating the fragment {}", ledgerFragment, e);
             } catch (BKException.BKLedgerRecoveryException e) {
                 LOG.warn("BKLedgerRecoveryException "
-                        + "while replicating the fragment", e);
+                        + "while replicating the fragment {}", ledgerFragment, e);
             }
         }
 
@@ -246,8 +249,7 @@ public class ReplicationWorker implements Runnable {
 
         fragments = getUnderreplicatedFragments(lh);
         if (fragments.size() == 0) {
-            LOG.info("Ledger replicated successfully. ledger id is: "
-                    + ledgerIdToReplicate);
+            LOG.info("Ledger {} is replicated successfully.", ledgerIdToReplicate);
             underreplicationManager.markLedgerReplicated(ledgerIdToReplicate);
             return true;
         } else {

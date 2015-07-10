@@ -79,26 +79,30 @@ public class BookieLedgerIndexer {
                     @Override
                     public void operationComplete(final int rc,
                             LedgerMetadata ledgerMetadata) {
+                        int rcToReturn = rc;
                         if (rc == BKException.Code.OK) {
                             for (Map.Entry<Long, ArrayList<BookieSocketAddress>> ensemble : ledgerMetadata
                                     .getEnsembles().entrySet()) {
                                 for (BookieSocketAddress bookie : ensemble
                                         .getValue()) {
                                     putLedger(bookie2ledgersMap,
-                                              bookie.toString(),
-                                              ledgerId);
+                                            bookie.toString(),
+                                            ledgerId);
                                 }
                             }
+                        } else if (rc == BKException.Code.NoSuchLedgerExistsException) {
+                            // ledger is deleted during indexing
+                            rcToReturn = BKException.Code.OK;
                         } else {
-                            LOG.warn("Unable to read the ledger:" + ledgerId
-                                    + " information");
+                            LOG.warn("Unable to read the ledger {}'s metadata : {}",
+                                    ledgerId, BKException.getMessage(rc));
                         }
 
                         if (numLedgers.incrementAndGet() % 2000 == 0) {
                             LOG.info("indexed {} ledgers.", numLedgers.get());
                         }
 
-                        iterCallback.processResult(rc, null, null);
+                        iterCallback.processResult(rcToReturn, null, null);
                     }
                 };
                 ledgerManager.readLedgerMetadata(ledgerId, genericCallback);
