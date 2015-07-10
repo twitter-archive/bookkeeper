@@ -770,9 +770,9 @@ public class EntryLogger {
         try {
             fc = getChannelForLogId(entryLogId);
         } catch (FileNotFoundException e) {
-            FileNotFoundException newe = new FileNotFoundException(e.getMessage() + " for " + ledgerId + " with location " + location);
-            newe.setStackTrace(e.getStackTrace());
-            throw newe;
+            LOG.warn("{} on reading (lid={}, eid={}) from location {} @ log {}",
+                    new Object[]{ e.getMessage(), ledgerId, entryId, location, entryLogId });
+            throw new Bookie.NoEntryException(e.getMessage(), ledgerId, entryId);
         }
         if (readFromLogChannel(entryLogId, fc, sizeBuff, pos) != sizeBuff.capacity()) {
             throw new Bookie.NoEntryException("Short read from entrylog " + entryLogId,

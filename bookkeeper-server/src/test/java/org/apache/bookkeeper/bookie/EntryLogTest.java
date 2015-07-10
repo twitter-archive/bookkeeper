@@ -75,7 +75,7 @@ public class EntryLogTest {
         return b;
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testBufferedReadChannel() throws Exception {
         File tmpFile = IOUtils.createTempFileAndDeleteOnExit("bufferedReadTest", ".tmp");
         RandomAccessFile raf = null;
@@ -147,12 +147,12 @@ public class EntryLogTest {
         assertEquals(50, brc.read(dstBuff, cap - 50));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testCorruptEntryLog() throws Exception {
         extractEntryLogMetadataFromCorruptedLog(false);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testGcExtractEntryLogMetadataFromCorruptedLog() throws Exception {
         extractEntryLogMetadataFromCorruptedLog(true);
     }
@@ -354,7 +354,7 @@ public class EntryLogTest {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     /** Test that EntryLogger Should fail with FNFE, if entry logger directories does not exist*/
     public void testEntryLoggerShouldThrowFNFEIfDirectoriesDoesNotExist()
             throws Exception {
@@ -375,10 +375,21 @@ public class EntryLogTest {
         }
     }
 
+    @Test(timeout = 60000, expected = Bookie.NoEntryException.class)
+    public void testFileNotFoundOnReadingEntries() throws Exception {
+        File ledgerDir = createTempDir("EntryLogTest", ".dir");
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { ledgerDir.getAbsolutePath() });
+        Bookie bookie = newBookie(conf);
+        EntryLogger entryLogger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+        long pos = (9999L << 32L) | 9999L;
+        entryLogger.readEntry(1L, 0L, pos);
+    }
+
     /**
      * Test to verify the DiskFull during addEntry
      */
-    @Test
+    @Test(timeout = 60000)
     public void testAddEntryFailureOnDiskFull() throws Exception {
         File ledgerDir1 = createTempDir("bkTest", ".dir");
         File ledgerDir2 = createTempDir("bkTest", ".dir");
