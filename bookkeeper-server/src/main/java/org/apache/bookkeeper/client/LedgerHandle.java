@@ -124,10 +124,17 @@ public class LedgerHandle {
         });
     }
 
-    public void hintOpen() {
+    void hintOpen() {
         // Hint to the handle that an open operation was performed. This is so that the handle can handle refCounts accordingly.
         if (refCount.getAndIncrement() == 0) {
             bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).inc();
+        }
+    }
+
+    void hintClose() {
+        // Hint the handle is closed
+        if (refCount.decrementAndGet() == 0) {
+            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).dec();
         }
     }
 
@@ -271,10 +278,7 @@ public class LedgerHandle {
             @Override
             public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
                 if (rc == BKException.Code.OK) {
-                    if (refCount.decrementAndGet() == 0) {
-                        // Closed a ledger
-                        bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).dec();
-                    }
+                    hintClose();
                 }
                 origCb.closeComplete(rc, lh, origCtx);
             }

@@ -82,11 +82,13 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
     @Override
     public void close()
             throws InterruptedException, BKException {
+        hintClose();
         bk.getLedgerManager().unregisterLedgerMetadataListener(ledgerId, this);
     }
 
     @Override
     public void asyncClose(CloseCallback cb, Object ctx) {
+        hintClose();
         bk.getLedgerManager().unregisterLedgerMetadataListener(ledgerId, this);
         cb.closeComplete(BKException.Code.OK, this, ctx);
     }

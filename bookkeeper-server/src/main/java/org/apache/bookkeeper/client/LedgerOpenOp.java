@@ -213,6 +213,15 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(statEnum)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
+            // make sure we close the open ledger, since the ledger handle won't be used though
+            if (null != lh) {
+                lh.asyncClose(new AsyncCallback.CloseCallback() {
+                    @Override
+                    public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
+                        // no-op
+                    }
+                }, null);
+            }
         } else {
             bk.getStatsLogger().getOpStatsLogger(statEnum)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
