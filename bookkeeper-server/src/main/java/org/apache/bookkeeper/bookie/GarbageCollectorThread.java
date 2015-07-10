@@ -800,6 +800,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         // by 1 when the log fills up and we roll to a new one.
         long curLogId = entryLogger.getLeastUnflushedLogId();
         boolean hasExceptionWhenScan = false;
+        boolean noWritableDirs = false;
         for (long entryLogId = scannedLogId; entryLogId < curLogId; entryLogId++) {
             // Comb the current entry log file if it has not already been extracted.
             if (entryLogMetadataManager.containsEntryLog(entryLogId)) {
@@ -827,9 +828,14 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                 // GC the log if possible
                 if (!doGcEntryLog(entryLogId, entryLogMeta)) {
                     // if entry log file isn't empty (deleted), then minor compact the log if possible
-                    if (enableMinorCompaction && !suspendMinorCompaction
+                    if (enableMinorCompaction && !suspendMinorCompaction && !noWritableDirs
                             && entryLogMeta.getUsage() < minorCompactionThreshold) {
-                        compactEntryLog(entryLogMeta);
+                        try {
+                            compactEntryLog(entryLogMeta);
+                        } catch (LedgerDirsManager.NoWritableLedgerDirException nwle) {
+                            noWritableDirs = true;
+                            LOG.warn("No writable ledger directory available, skipping compaction", nwle);
+                        }
                     }
                 }
             } catch (IOException e) {
