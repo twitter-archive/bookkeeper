@@ -22,9 +22,9 @@
 package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +43,8 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
+
 public class IndexInMemPageMgr {
     private final static Logger LOG = LoggerFactory.getLogger(IndexInMemPageMgr.class);
     private final static ConcurrentHashMap<Long, LedgerEntryPage> EMPTY_PAGE_MAP
@@ -50,16 +52,20 @@ public class IndexInMemPageMgr {
 
     private static class InMemPageCollection implements LEPStateChangeCallback {
 
-        ConcurrentMap<Long, ConcurrentMap<Long,LedgerEntryPage>> pages;
+        final ConcurrentMap<Long, ConcurrentMap<Long,LedgerEntryPage>> pages;
+        final Map<EntryKey, LedgerEntryPage> lruCleanPageMap;
+        final ConcurrentLinkedQueue<LedgerEntryPage> listOfFreePages;
 
-        Map<EntryKey, LedgerEntryPage> lruCleanPageMap;
+        // Stats
+        final Counter illegalStateResetCounter;
+        final Counter illegalStateDeleteCounter;
 
-        ConcurrentLinkedQueue<LedgerEntryPage> listOfFreePages;
-
-        public InMemPageCollection() {
+        public InMemPageCollection(StatsLogger statsLogger) {
             pages = new ConcurrentHashMap<Long, ConcurrentMap<Long,LedgerEntryPage>>();
             lruCleanPageMap = Collections.synchronizedMap(new LinkedHashMap<EntryKey, LedgerEntryPage>(16, 0.75f, true));
             listOfFreePages = new ConcurrentLinkedQueue<LedgerEntryPage>();
+            illegalStateResetCounter = statsLogger.getCounter(INDEX_INMEM_ILLEGAL_STATE_RESET);
+            illegalStateDeleteCounter = statsLogger.getCounter(INDEX_INMEM_ILLEGAL_STATE_DELETE);
         }
 
         /**
@@ -155,9 +161,7 @@ public class IndexInMemPageMgr {
                     // Just being safe
                     if (null != lep) {
                         if (lep.inUse()) {
-                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                                BookkeeperServerStatsLogger.BookkeeperServerCounter.INDEX_INMEM_ILLEGAL_STATE_DELETE)
-                                .inc();
+                            illegalStateDeleteCounter.inc();
                         }
                         listOfFreePages.add(lep);
                     }
@@ -303,9 +307,7 @@ public class IndexInMemPageMgr {
 
         public void addToListOfFreePages(LedgerEntryPage lep) {
             if ((null == lep) || lep.inUse()) {
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                    BookkeeperServerStatsLogger.BookkeeperServerCounter.INDEX_INMEM_ILLEGAL_STATE_RESET)
-                    .inc();
+                illegalStateResetCounter.inc();
             }
             if (null != lep) {
                 listOfFreePages.add(lep);
@@ -354,11 +356,12 @@ public class IndexInMemPageMgr {
     public IndexInMemPageMgr(int pageSize,
                              int entriesPerPage,
                              ServerConfiguration conf,
-                             IndexPersistenceMgr indexPersistenceManager) {
+                             IndexPersistenceMgr indexPersistenceManager,
+                             StatsLogger statsLogger) {
         this.pageSize = pageSize;
         this.entriesPerPage = entriesPerPage;
         this.indexPersistenceManager = indexPersistenceManager;
-        this.pageMapAndList = new InMemPageCollection();
+        this.pageMapAndList = new InMemPageCollection(statsLogger);
 
         if (conf.getPageLimit() <= 0) {
             // allocate half of the memory to the page cache
@@ -368,8 +371,8 @@ public class IndexInMemPageMgr {
         }
 
         // Export sampled stats for index pages, ledgers.
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_INDEX_PAGES,
+        statsLogger.registerGauge(
+                NUM_INDEX_PAGES,
                 new Gauge<Integer>() {
                     @Override
                     public Integer getDefaultValue() {

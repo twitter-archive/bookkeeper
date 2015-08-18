@@ -21,19 +21,21 @@
 
 package org.apache.bookkeeper.bookie;
 
-import java.util.Arrays;
-
 import java.io.Closeable;
 import java.io.File;
 import java.io.RandomAccessFile;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.NativeIO;
 import org.apache.bookkeeper.util.ZeroBuffer;
@@ -41,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.util.NativeIO.*;
 
 /**
@@ -87,27 +90,42 @@ class JournalChannel implements Closeable {
     // The position of the file channel's last drop position
     private long lastDropPosition = 0L;
 
+    // Stats
+    private final OpStatsLogger journalPreallocationStats;
+    private final Counter journalForceWriteCounter;
+    private final OpStatsLogger journalForceWriteStats;
+
     // Mostly used by tests
+    @VisibleForTesting
     JournalChannel(File journalDirectory, long logId) throws IOException {
-        this(journalDirectory, logId, 4*1024*1024, 65536, START_OF_FILE);
+        this(journalDirectory, logId, 4*1024*1024, 65536, START_OF_FILE, NullStatsLogger.INSTANCE);
     }
 
-    JournalChannel(File journalDirectory, long logId, long preAllocSize, int writeBufferSize) throws IOException {
-        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE);
-    }
-
-    JournalChannel(File journalDirectory, long logId,
-                   long preAllocSize, int writeBufferSize, long position) throws IOException {
-         this(journalDirectory, logId, preAllocSize, writeBufferSize, position, false);
+    JournalChannel(File journalDirectory, long logId, long preAllocSize, int writeBufferSize, StatsLogger statsLogger)
+            throws IOException {
+        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE, statsLogger);
     }
 
     JournalChannel(File journalDirectory, long logId,
-                   long preAllocSize, int writeBufferSize, boolean fRemoveFromPageCache) throws IOException {
-        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE, fRemoveFromPageCache);
+                   long preAllocSize, int writeBufferSize, long position, StatsLogger statsLogger)
+            throws IOException {
+         this(journalDirectory, logId, preAllocSize, writeBufferSize, position, false, statsLogger);
     }
 
     JournalChannel(File journalDirectory, long logId,
-                   long preAllocSize, int writeBufferSize, long position, boolean fRemoveFromPageCache) throws IOException {
+                   long preAllocSize, int writeBufferSize, boolean fRemoveFromPageCache, StatsLogger statsLogger)
+            throws IOException {
+        this(journalDirectory, logId, preAllocSize, writeBufferSize, START_OF_FILE, fRemoveFromPageCache, statsLogger);
+    }
+
+    private JournalChannel(File journalDirectory,
+                           long logId,
+                           long preAllocSize,
+                           int writeBufferSize,
+                           long position,
+                           boolean fRemoveFromPageCache,
+                           StatsLogger statsLogger)
+            throws IOException {
         this.preAllocSize = preAllocSize - preAllocSize % SECTOR_SIZE;
         this.fRemoveFromPageCache = fRemoveFromPageCache;
         File fn = new File(journalDirectory, Long.toHexString(logId) + ".txn");
@@ -185,6 +203,12 @@ class JournalChannel implements Closeable {
                 LOG.error("Bookie journal file can seek to position :", e);
             }
         }
+
+        // Stats
+        this.journalForceWriteCounter = statsLogger.getCounter(JOURNAL_NUM_FORCE_WRITES);
+        this.journalForceWriteStats = statsLogger.getOpStatsLogger(JOURNAL_FORCE_WRITE_LATENCY);
+        this.journalPreallocationStats = statsLogger.getOpStatsLogger(JOURNAL_PREALLOCATION);
+
         LOG.info("Opened journal {} : fd {}", fn, fd);
     }
 
@@ -219,9 +243,7 @@ class JournalChannel implements Closeable {
             }
             preallocate();
             if (null != stopwatch) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_PREALLOCATION)
-                        .registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
+                journalPreallocationStats.registerSuccessfulEvent(stopwatch.stop().elapsed(TimeUnit.MICROSECONDS));
             }
         }
     }
@@ -256,11 +278,8 @@ class JournalChannel implements Closeable {
         long startTimeNanos = MathUtils.nowInNano();
         forceWriteImpl(forceMetadata);
         // collect stats
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FORCE_WRITES).inc();
-        ServerStatsProvider.getStatsLoggerInstance()
-                .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                        .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        journalForceWriteCounter.inc();
+        journalForceWriteStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
     }
 
     private void removeFromPageCacheIfPossible(long offset) {
@@ -297,10 +316,7 @@ class JournalChannel implements Closeable {
             forceWriteImpl(false);
         }
         // collect stats
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FORCE_WRITES).inc();
-        ServerStatsProvider.getStatsLoggerInstance()
-                .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                        .JOURNAL_FORCE_WRITE_LATENCY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        journalForceWriteCounter.inc();
+        journalForceWriteStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
     }
 }

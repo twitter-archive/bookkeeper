@@ -42,6 +42,7 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.EntryFormatter;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.Tool;
@@ -866,7 +867,8 @@ public class BookieShell implements Tool {
 
     private synchronized Journal getJournal() throws IOException {
         if (null == journal) {
-            journal = new Journal(bkConf, new LedgerDirsManager(bkConf, bkConf.getLedgerDirs()));
+            journal = new Journal(bkConf, new LedgerDirsManager(bkConf, bkConf.getLedgerDirs()),
+                    NullStatsLogger.INSTANCE);
         }
         return journal;
     }

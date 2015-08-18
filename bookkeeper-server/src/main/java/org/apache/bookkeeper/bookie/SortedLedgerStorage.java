@@ -31,6 +31,7 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +44,15 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     private final ScheduledExecutorService scheduler;
     private final CheckpointProgress checkpointer;
 
-    public SortedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
+    public SortedLedgerStorage(ServerConfiguration conf,
+                               ActiveLedgerManager activeLedgerManager,
                                LedgerDirsManager ledgerDirsManager,
-                               LedgerDirsManager indexDirsManager, final CheckpointProgress progress)
+                               LedgerDirsManager indexDirsManager,
+                               final CheckpointProgress progress,
+                               StatsLogger statsLogger)
                                        throws IOException {
-        super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null);
-        this.memTable = new EntryMemTable(conf, progress);
+        super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null, statsLogger);
+        this.memTable = new EntryMemTable(conf, progress, statsLogger);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder()
                         .setThreadFactory(new DaemonThreadFactory((Thread.NORM_PRIORITY + Thread.MAX_PRIORITY)/2))

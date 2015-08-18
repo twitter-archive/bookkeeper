@@ -4,6 +4,7 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -86,7 +87,7 @@ public class IndexPersistenceMgrTest {
 
         indexPersistenceMgr = new IndexPersistenceMgr(
                 conf.getPageSize(), conf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-                conf, activeLedgerManager, ledgerDirsManager);
+                conf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
     }
 
     @After
@@ -171,7 +172,7 @@ public class IndexPersistenceMgrTest {
 
         IndexPersistenceMgr newMgr = new IndexPersistenceMgr(
                 conf.getPageSize(), conf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-                conf, activeLedgerManager, ledgerDirsManager);
+                conf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
         assertEquals("write", new String(newMgr.getFileInfo(lid, "fake".getBytes()).getMasterKey(), UTF_8));
         assertEquals("write", new String(newMgr.getFileInfo(lid, null).getMasterKey(), UTF_8));
         newMgr.close();
@@ -185,7 +186,7 @@ public class IndexPersistenceMgrTest {
 
         return new IndexPersistenceMgr(
             localConf.getPageSize(), localConf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-            localConf, activeLedgerManager, ledgerDirsManager);
+            localConf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
     }
 
     void fillCache(IndexPersistenceMgr indexPersistenceMgr, int numEntries) throws Exception {

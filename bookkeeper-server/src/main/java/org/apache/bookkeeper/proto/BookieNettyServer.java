@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.zookeeper.KeeperException;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.channel.Channel;
@@ -68,7 +69,9 @@ class BookieNettyServer {
 
     InetSocketAddress localAddress = null;
 
-    BookieNettyServer(ServerConfiguration conf, Bookie bookie)
+    BookieNettyServer(ServerConfiguration conf,
+                      Bookie bookie,
+                      StatsLogger statsLogger)
             throws IOException, KeeperException, InterruptedException, BookieException  {
         this.conf = conf;
         this.bookie = bookie;
@@ -98,9 +101,8 @@ class BookieNettyServer {
             conf.setBookiePort(localAddress.getPort());
         }
 
-        processor = new MultiPacketProcessor(conf, bookie);
+        processor = new MultiPacketProcessor(conf, bookie, statsLogger);
         allChannels.add(listen);
-
     }
 
     boolean isRunning() {

@@ -29,6 +29,7 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,12 +48,17 @@ public class LedgerCacheImpl implements LedgerCache {
     final int entriesPerPage;
     final CopyOnWriteArraySet<LedgerStorageListener> listeners;
 
-    public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm, LedgerDirsManager ledgerDirsManager)
+    public LedgerCacheImpl(ServerConfiguration conf,
+                           ActiveLedgerManager alm,
+                           LedgerDirsManager ledgerDirsManager,
+                           StatsLogger statsLogger)
             throws IOException {
         this.pageSize = conf.getPageSize();
         this.entriesPerPage = pageSize / LedgerEntryPage.getIndexEntrySize();
-        this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager);
-        this.indexPageManager = new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager);
+        this.indexPersistenceManager =
+                new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager, statsLogger);
+        this.indexPageManager =
+                new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager, statsLogger);
         this.listeners = new CopyOnWriteArraySet<LedgerStorageListener>();
 
         LOG.info("maxMemory = {}", Runtime.getRuntime().maxMemory());

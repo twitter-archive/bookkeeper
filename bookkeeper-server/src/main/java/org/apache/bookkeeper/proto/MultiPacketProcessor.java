@@ -24,9 +24,7 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MonitoredThreadPoolExecutor;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
 import org.apache.bookkeeper.util.SafeRunnable;
@@ -35,6 +33,8 @@ import org.jboss.netty.util.HashedWheelTimer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * This class is a packet processor implementation that processes multiple packets at
@@ -77,9 +77,15 @@ public class MultiPacketProcessor implements RequestProcessor {
      */
     private final HashedWheelTimer requestTimer;
 
-    public MultiPacketProcessor(ServerConfiguration serverCfg, Bookie bookie) {
+    // Stats
+    protected final StatsLogger statsLogger;
+
+    public MultiPacketProcessor(ServerConfiguration serverCfg,
+                                Bookie bookie,
+                                StatsLogger statsLogger) {
         this.serverCfg = serverCfg;
         this.bookie = bookie;
+        this.statsLogger = statsLogger;
         this.readThreadPool =
             createOrderedSafeExecutor(this.serverCfg.getNumReadWorkerThreads(),
                             "BookieReadThread-" + serverCfg.getBookiePort());
@@ -87,20 +93,21 @@ public class MultiPacketProcessor implements RequestProcessor {
             createOrderedSafeExecutor(this.serverCfg.getNumAddWorkerThreads(),
                             "BookieWriteThread-" + serverCfg.getBookiePort());
         this.longPollThreadPool =
-            createExecutor(this.serverCfg.getNumLongPollWorkerThreads(),
-                            "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d",
-                            BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_LONG_POLL);
+            createExecutor(
+                    this.serverCfg.getNumLongPollWorkerThreads(),
+                    "BookieLongPollThread-" + serverCfg.getBookiePort() + "-%d",
+                    OP_LONG_POLL);
         this.requestTimer = new HashedWheelTimer(
                 new ThreadFactoryBuilder().setNameFormat("BookieRequestTimer-%d").build(),
                 this.serverCfg.getRequestTimerTickDurationMs(),
                 TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
     }
 
-    private ExecutorService createExecutor(int numThreads, String nameFormat, BookkeeperServerStatsLogger.BookkeeperServerGauge guage) {
+    private ExecutorService createExecutor(int numThreads, String nameFormat, String scope) {
         if (numThreads <= 0) {
             return null;
         } else {
-            return new MonitoredThreadPoolExecutor(numThreads, nameFormat, ServerStatsProvider.getStatsLoggerInstance(), guage);
+            return new MonitoredThreadPoolExecutor(numThreads, nameFormat, statsLogger, scope);
         }
     }
 
@@ -109,7 +116,7 @@ public class MultiPacketProcessor implements RequestProcessor {
             return null;
         }
         return OrderedSafeExecutor.newBuilder()
-                .name(name).numThreads(numThreads).statsLogger(Stats.get().getStatsLogger("bookie")).build();
+                .name(name).numThreads(numThreads).statsLogger(statsLogger.scope(BOOKIE_SCOPE)).build();
     }
 
     private void shutdownExecutor(ExecutorService service) {
@@ -142,7 +149,7 @@ public class MultiPacketProcessor implements RequestProcessor {
             BKPacketHeader header = request.getHeader();
             switch (header.getOperation()) {
             case ADD_ENTRY:
-                processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie));
+                processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie, statsLogger));
                 break;
             case READ_ENTRY:
                 ExecutorService fenceThreadPool =
@@ -150,11 +157,11 @@ public class MultiPacketProcessor implements RequestProcessor {
                 if (RequestUtils.isLongPollReadRequest(request.getReadRequest())) {
                     LongPollReadEntryProcessorV3 readProcessor =
                             new LongPollReadEntryProcessorV3(request, channel, bookie, fenceThreadPool,
-                                    longPollThreadPool, requestTimer);
+                                    longPollThreadPool, requestTimer, statsLogger);
                     processLongPollReadRequest(readProcessor);
                 } else {
                     ReadEntryProcessorV3 readProcessor =
-                            new ReadEntryProcessorV3(request, channel, bookie, fenceThreadPool);
+                            new ReadEntryProcessorV3(request, channel, bookie, fenceThreadPool, statsLogger);
                     processReadRequest(channel, readProcessor);
                 }
                 break;
@@ -170,10 +177,10 @@ public class MultiPacketProcessor implements RequestProcessor {
             // process as a prev v3 packet.
             switch (request.getOpCode()) {
             case BookieProtocol.ADDENTRY:
-                processAddRequest(channel, new WriteEntryProcessor(request, channel, bookie));
+                processAddRequest(channel, new WriteEntryProcessor(request, channel, bookie, statsLogger));
                 break;
             case BookieProtocol.READENTRY:
-                processReadRequest(channel, new ReadEntryProcessor(request, channel, bookie));
+                processReadRequest(channel, new ReadEntryProcessor(request, channel, bookie, statsLogger));
                 break;
             default:
                 // We don't know the request type and as a result, the ledgerId or entryId.

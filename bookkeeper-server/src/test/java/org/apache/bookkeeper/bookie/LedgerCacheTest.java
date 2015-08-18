@@ -34,6 +34,7 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -119,7 +120,7 @@ public class LedgerCacheTest extends TestCase {
             ledgerCache.close();
         }
         ledgerCache = ((InterleavedLedgerStorage) bookie.ledgerStorage).ledgerCache = new LedgerCacheImpl(
-                conf, activeLedgerManager, bookie.getIndexDirsManager());
+                conf, activeLedgerManager, bookie.getIndexDirsManager(), NullStatsLogger.INSTANCE);
         flushThread = new Thread() {
                 public void run() {
                     while (true) {

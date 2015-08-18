@@ -18,19 +18,19 @@
 package org.apache.bookkeeper.proto;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol.AddRequest;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Processes add entry requests
@@ -39,8 +39,8 @@ class WriteEntryProcessor extends PacketProcessorBase {
 
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessor.class);
 
-    public WriteEntryProcessor(Request request, Channel channel, Bookie bookie) {
-        super(request, channel, bookie);
+    public WriteEntryProcessor(Request request, Channel channel, Bookie bookie, StatsLogger statsLogger) {
+        super(request, channel, bookie, statsLogger);
     }
 
     @Override
@@ -51,7 +51,7 @@ class WriteEntryProcessor extends PacketProcessorBase {
             // The client and server versions are not compatible. Just return
             // an error.
             sendResponse(BookieProtocol.EBADVERSION,
-                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
                          ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request));
             return;
         }
@@ -60,7 +60,7 @@ class WriteEntryProcessor extends PacketProcessorBase {
             logger.warn("BookieServer is running as readonly mode,"
                     + " so rejecting the request from the client!");
             sendResponse(BookieProtocol.EBADVERSION,
-                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                         statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
                          ResponseBuilder.buildErrorResponse(BookieProtocol.EREADONLY, add));
             return;
         }
@@ -69,15 +69,13 @@ class WriteEntryProcessor extends PacketProcessorBase {
             public void writeComplete(int rc, long ledgerId, long entryId,
                                       BookieSocketAddress addr, Object ctx) {
                 if (rc == BookieProtocol.EOK) {
-                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                    statsLogger.getOpStatsLogger(ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 } else {
-                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                    statsLogger.getOpStatsLogger(ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
                 assert ledgerId == request.getLedgerId();
                 assert entryId == request.getEntryId();
-                sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
+                sendResponse(rc, statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
                              ResponseBuilder.buildAddResponse(request));
             }
         };
@@ -102,9 +100,8 @@ class WriteEntryProcessor extends PacketProcessorBase {
         }
 
         if (rc != BookieProtocol.EOK) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-            sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
+            statsLogger.getOpStatsLogger(ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            sendResponse(rc, statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
                          ResponseBuilder.buildErrorResponse(rc, add));
         }
     }

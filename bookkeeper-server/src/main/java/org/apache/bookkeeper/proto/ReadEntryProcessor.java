@@ -28,25 +28,26 @@ import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.proto.BookieProtocol.ReadRequest;
 import org.apache.bookkeeper.proto.BookieProtocol.Request;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
+
 class ReadEntryProcessor extends PacketProcessorBase {
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessor.class);
 
-    ReadEntryProcessor(Request request, Channel channel, Bookie bookie) {
-        super(request, channel, bookie);
+    ReadEntryProcessor(Request request, Channel channel, Bookie bookie, StatsLogger statsLogger) {
+        super(request, channel, bookie, statsLogger);
     }
 
     @Override
     public void safeRun() {
         if (!isVersionCompatible(request)) {
             sendResponse(BookieProtocol.EBADVERSION,
-                         BookkeeperServerOp.READ_ENTRY_REQUEST,
+                         statsLogger.getOpStatsLogger(READ_ENTRY_REQUEST),
                          ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request));
             return;
         }
@@ -118,15 +119,15 @@ class ReadEntryProcessor extends PacketProcessorBase {
         }
 
         if (rc == BookieProtocol.EOK) {
-            sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST,
+            sendResponse(rc, statsLogger.getOpStatsLogger(READ_ENTRY_REQUEST),
                          ResponseBuilder.buildReadResponse(data, read));
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            statsLogger.getOpStatsLogger(READ_ENTRY)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         } else {
-            sendResponse(rc, BookkeeperServerOp.READ_ENTRY_REQUEST,
+            sendResponse(rc, statsLogger.getOpStatsLogger(READ_ENTRY_REQUEST),
                          ResponseBuilder.buildErrorResponse(rc, read));
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .READ_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            statsLogger.getOpStatsLogger(READ_ENTRY)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         }
     }
 

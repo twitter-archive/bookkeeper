@@ -33,12 +33,13 @@ import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
-
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Interleave ledger storage
@@ -61,17 +62,27 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     // this indicates that a write has happened since the last flush
     private volatile boolean somethingWritten = false;
 
-    public InterleavedLedgerStorage(ServerConfiguration conf, ActiveLedgerManager activeLedgerManager,
+    // Stats
+    final OpStatsLogger getOffsetStats;
+    final OpStatsLogger getEntryStats;
+
+    public InterleavedLedgerStorage(ServerConfiguration conf,
+                                    ActiveLedgerManager activeLedgerManager,
                                     LedgerDirsManager ledgerDirsManager,
-                                    LedgerDirsManager indexDirsManager, CheckpointProgress checkPointer)
-                                            throws IOException {
+                                    LedgerDirsManager indexDirsManager,
+                                    CheckpointProgress checkPointer,
+                                    StatsLogger statsLogger)
+            throws IOException {
         this.checkPointer = checkPointer;
-        entryLogger = new EntryLogger(conf, ledgerDirsManager, this);
-        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager);
+        entryLogger = new EntryLogger(conf, ledgerDirsManager, this, statsLogger);
+        ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager, statsLogger);
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
-                activeLedgerManager);
+                activeLedgerManager, statsLogger);
         this.ledgerDirsManager = ledgerDirsManager;
         this.indexDirsManager = indexDirsManager;
+        // Stats
+        this.getEntryStats = statsLogger.getOpStatsLogger(STORAGE_GET_ENTRY);
+        this.getOffsetStats = statsLogger.getOpStatsLogger(STORAGE_GET_OFFSET);
     }
 
     @Override
@@ -225,16 +236,14 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
 
         long startTimeNanos = MathUtils.nowInNano();
         long offset = ledgerCache.getEntryOffset(ledgerId, entryId);
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .STORAGE_GET_OFFSET).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        getOffsetStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         if (offset == 0) {
             return null;
         }
         startTimeNanos = MathUtils.nowInNano();
         byte[] retBytes = entryLogger.readEntry(ledgerId, entryId, offset);
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .STORAGE_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        getEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return ByteBuffer.wrap(retBytes);
     }
 

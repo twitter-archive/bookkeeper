@@ -34,7 +34,9 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.replication.AutoRecoveryMain;
 import org.apache.bookkeeper.replication.ReplicationException;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -49,6 +51,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
 /**
@@ -67,17 +70,21 @@ public class BookieServer {
     int exitCode = ExitCode.OK;
 
     // operation stats
-    final private StatsProvider statsProvider;
-    final BKStats bkStats = BKStats.getInstance();
-    final boolean isStatsEnabled;
     AutoRecoveryMain autoRecoveryMain = null;
     private boolean isAutoRecoveryDaemonEnabled;
 
+    // Stats
+    protected final StatsLogger statsLogger;
+
     public BookieServer(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
+        this(conf, NullStatsLogger.INSTANCE);
+    }
+
+    public BookieServer(ServerConfiguration conf, StatsLogger statsLogger)
+            throws IOException, KeeperException, InterruptedException, BookieException {
         this.conf = conf;
-        this.statsProvider = ServerStatsProvider.initialize(conf);
-        isStatsEnabled = conf.isStatisticsEnabled();
+        this.statsLogger = statsLogger;
 
         // Restart sequence
         // 1. First instantiate the server factory and bind to the port
@@ -89,13 +96,13 @@ public class BookieServer {
         // 5. Start the server and accept connections
         //
         this.bookie = newBookie(conf);
-        this.nettyServer = new BookieNettyServer(this.conf, this.bookie);
+        this.nettyServer = new BookieNettyServer(this.conf, this.bookie, statsLogger.scope(SERVER_SCOPE));
         this.bookie.initialize();
 
         isAutoRecoveryDaemonEnabled = conf.isAutoRecoveryDaemonEnabled();
         if (isAutoRecoveryDaemonEnabled) {
             try {
-                this.autoRecoveryMain = new AutoRecoveryMain(conf, statsProvider.getStatsLogger(REPLICATION_SCOPE));
+                this.autoRecoveryMain = new AutoRecoveryMain(conf, statsLogger.scope(REPLICATION_SCOPE));
             } catch (ReplicationException.UnavailableException e) {
                 throw new IOException("Failed to create auto recovery daemon : ", e);
             } catch (ReplicationException.CompatibilityException e) {
@@ -106,7 +113,7 @@ public class BookieServer {
 
     protected Bookie newBookie(ServerConfiguration conf)
         throws IOException, KeeperException, InterruptedException, BookieException {
-        return new Bookie(conf);
+        return new Bookie(conf, statsLogger.scope(SERVER_SCOPE));
     }
 
     public void start() throws IOException {
@@ -127,9 +134,6 @@ public class BookieServer {
         }
 
         this.nettyServer.start();
-
-        // Start stats provider.
-        statsProvider.start(conf);
 
         running = true;
         deathWatcher = new DeathWatcher(conf);
@@ -172,9 +176,6 @@ public class BookieServer {
             return;
         }
         this.nettyServer.shutdown();
-
-        // Stop stats exporter.
-        statsProvider.stop();
 
         exitCode = bookie.shutdown();
         running = false;
@@ -359,11 +360,16 @@ public class BookieServer {
                            conf.getBookiePort(), conf.getZkServers(),
                            conf.getJournalDirName(), sb);
         try {
+            // Initialize Stats Provider
+            Stats.loadStatsProvider(conf);
+            final StatsProvider statsProvider = Stats.get();
+            statsProvider.start(conf);
+
             final BookieServer bs;
             if (readOnly) {
-                bs = new ReadOnlyBookieServer(conf);
+                bs = new ReadOnlyBookieServer(conf, statsProvider.getStatsLogger(""));
             } else {
-                bs = new BookieServer(conf);
+                bs = new BookieServer(conf, statsProvider.getStatsLogger(""));
             }
             bs.start();
             LOG.info(hello);
@@ -377,6 +383,7 @@ public class BookieServer {
             LOG.info("Register shutdown hook successfully");
             bs.join();
 
+            statsProvider.stop();
             System.exit(bs.getExitCode());
         } catch (Exception e) {
             LOG.error("Exception running bookie server : ", e);

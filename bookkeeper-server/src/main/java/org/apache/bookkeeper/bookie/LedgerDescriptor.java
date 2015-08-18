@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Observable;
 import java.util.Observer;
 
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,19 +38,22 @@ import org.slf4j.LoggerFactory;
 public abstract class LedgerDescriptor {
     static LedgerDescriptor create(byte[] masterKey,
                                    long ledgerId,
-                                   LedgerStorage ledgerStorage) throws IOException {
-        LedgerDescriptor ledger = new LedgerDescriptorImpl(masterKey, ledgerId, ledgerStorage);
+                                   LedgerStorage ledgerStorage,
+                                   StatsLogger statsLogger)
+            throws IOException {
+        LedgerDescriptor ledger = new LedgerDescriptorImpl(masterKey, ledgerId, ledgerStorage, statsLogger);
         ledgerStorage.setMasterKey(ledgerId, masterKey);
         return ledger;
     }
 
     static LedgerDescriptor createReadOnly(long ledgerId,
-                                           LedgerStorage ledgerStorage)
+                                           LedgerStorage ledgerStorage,
+                                           StatsLogger statsLogger)
             throws IOException, Bookie.NoLedgerException {
         if (!ledgerStorage.ledgerExists(ledgerId)) {
             throw new Bookie.NoLedgerException(ledgerId);
         }
-        return new LedgerDescriptorReadOnlyImpl(ledgerId, ledgerStorage);
+        return new LedgerDescriptorReadOnlyImpl(ledgerId, ledgerStorage, statsLogger);
     }
 
     abstract void checkAccess(byte masterKey[]) throws BookieException, IOException;

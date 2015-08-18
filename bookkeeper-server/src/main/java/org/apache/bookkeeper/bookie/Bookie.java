@@ -59,11 +59,9 @@ import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerGauge;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.IOUtils;
@@ -87,6 +85,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.SettableFuture;
 
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
@@ -138,6 +137,13 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
     // executor to manage the state changes for a bookie.
     final ExecutorService stateService = Executors.newSingleThreadExecutor(
             new ThreadFactoryBuilder().setNameFormat("BookieStateService-%d").build());
+
+    // Expose Stats
+    private final StatsLogger statsLogger;
+    private final OpStatsLogger addEntryStats;
+    private final OpStatsLogger recoveryAddEntryStats;
+    private final OpStatsLogger readEntryStats;
+    private final OpStatsLogger readLastConfirmedStats;
 
     public static class NoLedgerException extends IOException {
         private static final long serialVersionUID = 1L;
@@ -569,24 +575,34 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
 
     public Bookie(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
+        this(conf, NullStatsLogger.INSTANCE);
+    }
+
+    public Bookie(ServerConfiguration conf, StatsLogger statsLogger)
+            throws IOException, KeeperException, InterruptedException, BookieException {
         super("Bookie-" + conf.getBookiePort());
-        StatsLogger statsLogger = Stats.get().getStatsLogger("bookie");
+        this.statsLogger = statsLogger;
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath() + "/";
         this.bookieReadonlyRegistrationPath =
             this.bookieRegistrationPath + READONLY;
         this.conf = conf;
         this.journalDirectory = getCurrentDirectory(conf.getJournalDir());
         this.ledgerDirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs(),
-                statsLogger.scope("ledger"));
+                statsLogger.scope(BOOKIE_SCOPE).scope(LD_LEDGER_SCOPE));
         File[] idxDirs = conf.getIndexDirs();
         if (null == idxDirs) {
             this.indexDirsManager = this.ledgerDirsManager;
         } else {
             this.indexDirsManager = new LedgerDirsManager(conf, idxDirs,
-                    statsLogger.scope("index"));
+                    statsLogger.scope(BOOKIE_SCOPE).scope(LD_INDEX_SCOPE));
         }
+        // Expose stats
+        this.addEntryStats = statsLogger.getOpStatsLogger(BOOKIE_ADD_ENTRY);
+        this.recoveryAddEntryStats = statsLogger.getOpStatsLogger(BOOKIE_RECOVERY_ADD_ENTRY);
+        this.readEntryStats = statsLogger.getOpStatsLogger(BOOKIE_READ_ENTRY);
+        this.readLastConfirmedStats = statsLogger.getOpStatsLogger(BOOKIE_READ_LAST_CONFIRMED);
         // 1 : up, 0 : readonly, -1 : unregistered
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(BookkeeperServerGauge.SERVER_STATUS,
+        statsLogger.registerGauge(SERVER_STATUS,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {
@@ -687,7 +703,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         activeLedgerManager = activeLedgerManagerFactory.newActiveLedgerManager();
 
         // instantiate the journal
-        journal = new Journal(conf, ledgerDirsManager);
+        journal = new Journal(conf, ledgerDirsManager, statsLogger);
 
         // start sync thread after journal
         syncThread = new SyncThread();
@@ -695,13 +711,13 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         // Check the type of storage.
         if (conf.getSortedLedgerStorageEnabled()) {
             ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager,
-                ledgerDirsManager, indexDirsManager, syncThread);
+                ledgerDirsManager, indexDirsManager, syncThread, statsLogger);
         } else {
             ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
-                ledgerDirsManager, indexDirsManager, syncThread);
+                ledgerDirsManager, indexDirsManager, syncThread, statsLogger);
         }
         ledgerStorage.registerListener(this);
-        handles = new HandleFactoryImpl(ledgerStorage);
+        handles = new HandleFactoryImpl(ledgerStorage, statsLogger);
 
         // Initialise ledgerDirManager. This would look through all the
         // configured directories. When disk errors or all the ledger
@@ -1305,13 +1321,9 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         } finally {
             long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_RECOVERY_ADD_ENTRY)
-                        .registerSuccessfulEvent(elapsedMicros);
+                recoveryAddEntryStats.registerSuccessfulEvent(elapsedMicros);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_RECOVERY_ADD_ENTRY)
-                        .registerFailedEvent(elapsedMicros);
+                recoveryAddEntryStats.registerFailedEvent(elapsedMicros);
             }
         }
     }
@@ -1340,13 +1352,9 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         } finally {
             long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY)
-                        .registerSuccessfulEvent(elapsedMicros);
+                addEntryStats.registerSuccessfulEvent(elapsedMicros);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY)
-                        .registerFailedEvent(elapsedMicros);
+                addEntryStats.registerFailedEvent(elapsedMicros);
             }
         }
     }
@@ -1396,13 +1404,9 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         } finally {
             long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY)
-                        .registerSuccessfulEvent(elapsedMicros);
+                readEntryStats.registerSuccessfulEvent(elapsedMicros);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY)
-                        .registerFailedEvent(elapsedMicros);
+                readEntryStats.registerFailedEvent(elapsedMicros);
             }
         }
     }
@@ -1418,13 +1422,9 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         } finally {
             long elapsedMicros = MathUtils.elapsedMicroSec(requestNanos);
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_LAST_CONFIRMED)
-                        .registerSuccessfulEvent(elapsedMicros);
+                readLastConfirmedStats.registerSuccessfulEvent(elapsedMicros);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_LAST_CONFIRMED)
-                        .registerFailedEvent(elapsedMicros);
+                readLastConfirmedStats.registerFailedEvent(elapsedMicros);
             }
         }
     }

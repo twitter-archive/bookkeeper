@@ -21,6 +21,8 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.stats.StatsLogger;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 /**
@@ -28,8 +30,8 @@ import java.nio.ByteBuffer;
  * to write entries to a ledger and read entries from a ledger.
  */
 public class LedgerDescriptorReadOnlyImpl extends LedgerDescriptorImpl {
-    LedgerDescriptorReadOnlyImpl(long ledgerId, LedgerStorage storage) {
-        super(null, ledgerId, storage);
+    LedgerDescriptorReadOnlyImpl(long ledgerId, LedgerStorage storage, StatsLogger statsLogger) {
+        super(null, ledgerId, storage, statsLogger);
     }
 
     @Override

@@ -20,15 +20,16 @@
  */
 package org.apache.bookkeeper.bookie;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 
 import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Manage entry log metadata.
@@ -98,9 +99,9 @@ class EntryLogMetadataManager {
     private final ConcurrentMap<Long, EntryLogMetadata> entryLogMetadataMap =
             new ConcurrentHashMap<Long, EntryLogMetadata>();
 
-    EntryLogMetadataManager() {
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.GC_TOTAL_SCANNED_BYTES,
+    EntryLogMetadataManager(StatsLogger statsLogger) {
+        statsLogger.registerGauge(
+                GC_TOTAL_SCANNED_BYTES,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {
@@ -112,8 +113,8 @@ class EntryLogMetadataManager {
                         return totalSize.get();
                     }
                 });
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.GC_TOTAL_SCANNED_ENTRYLOG_FILES,
+        statsLogger.registerGauge(
+                GC_TOTAL_SCANNED_ENTRYLOG_FILES,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {

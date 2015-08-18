@@ -58,13 +58,14 @@ import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.util.BookKeeperConstants.MAX_LOG_SIZE_LIMIT;
 
 /**
@@ -172,19 +173,22 @@ public class EntryLogger {
      * directories
      */
     public EntryLogger(ServerConfiguration conf,
-            LedgerDirsManager ledgerDirsManager) throws IOException {
-        this(conf, ledgerDirsManager, null);
+                       LedgerDirsManager ledgerDirsManager)
+            throws IOException {
+        this(conf, ledgerDirsManager, null, NullStatsLogger.INSTANCE);
     }
 
     public EntryLogger(ServerConfiguration conf,
-            LedgerDirsManager ledgerDirsManager, EntryLogListener listener)
-                    throws IOException {
+                       LedgerDirsManager ledgerDirsManager,
+                       EntryLogListener listener,
+                       StatsLogger statsLogger)
+            throws IOException {
         this.ledgerDirsManager = ledgerDirsManager;
         addListener(listener);
         // log size limit
         this.logSizeLimit = Math.min(conf.getEntryLogSizeLimit(), MAX_LOG_SIZE_LIMIT);
         this.entryLogPreAllocationEnabled = conf.isEntryLogFilePreAllocationEnabled();
-        this.entryLogMetadataManager = new EntryLogMetadataManager();
+        this.entryLogMetadataManager = new EntryLogMetadataManager(statsLogger);
 
         // Initialize the entry log header buffer. This cannot be a static object
         // since in our unit tests, we run multiple Bookies and thus EntryLoggers
@@ -209,8 +213,8 @@ public class EntryLogger {
         this.serverCfg = conf;
         initialize();
 
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_PENDING_ENTRY_LOG_FILES,
+        statsLogger.registerGauge(
+                NUM_PENDING_ENTRY_LOG_FILES,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {
@@ -223,8 +227,8 @@ public class EntryLogger {
                     }
                 }
         );
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.CURRENT_ENTRYLOG_ID,
+        statsLogger.registerGauge(
+                CURRENT_ENTRYLOG_ID,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {
@@ -237,8 +241,8 @@ public class EntryLogger {
                     }
                 }
         );
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.LEAST_UNFLUSHED_ENTRYLOG_ID,
+        statsLogger.registerGauge(
+                LEAST_UNFLUSHED_ENTRYLOG_ID,
                 new Gauge<Number>() {
                     @Override
                     public Number getDefaultValue() {

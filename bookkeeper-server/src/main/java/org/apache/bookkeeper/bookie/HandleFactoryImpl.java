@@ -21,8 +21,9 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.stats.StatsLogger;
+
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -32,10 +33,12 @@ class HandleFactoryImpl implements HandleFactory, LedgerStorageListener {
         = new ConcurrentHashMap<Long, LedgerDescriptor>();
 
     final LedgerStorage ledgerStorage;
+    final StatsLogger statsLogger;
 
-    HandleFactoryImpl(LedgerStorage ledgerStorage) {
+    HandleFactoryImpl(LedgerStorage ledgerStorage, StatsLogger statsLogger) {
         this.ledgerStorage = ledgerStorage;
         this.ledgerStorage.registerListener(this);
+        this.statsLogger = statsLogger;
     }
 
     @Override
@@ -52,7 +55,8 @@ class HandleFactoryImpl implements HandleFactory, LedgerStorageListener {
             // LedgerDescriptor#create sets the master key in the ledger storage, calling it
             // twice on the same ledgerId is safe because it eventually puts a value in the ledger cache
             // that guarantees synchronized access across all cached entries.
-            handle = ledgers.putIfAbsent(ledgerId, LedgerDescriptor.create(masterKey, ledgerId, ledgerStorage));
+            handle = ledgers.putIfAbsent(ledgerId,
+                    LedgerDescriptor.create(masterKey, ledgerId, ledgerStorage, statsLogger));
             if (null == handle) {
                 handle = ledgers.get(ledgerId);
             }
@@ -66,7 +70,8 @@ class HandleFactoryImpl implements HandleFactory, LedgerStorageListener {
             throws IOException, Bookie.NoLedgerException {
         LedgerDescriptor handle = null;
         if (null == (handle = readOnlyLedgers.get(ledgerId))) {
-            handle = readOnlyLedgers.putIfAbsent(ledgerId, LedgerDescriptor.createReadOnly(ledgerId, ledgerStorage));
+            handle = readOnlyLedgers.putIfAbsent(ledgerId,
+                    LedgerDescriptor.createReadOnly(ledgerId, ledgerStorage, statsLogger));
             if (null == handle) {
                 handle = readOnlyLedgers.get(ledgerId);
             }

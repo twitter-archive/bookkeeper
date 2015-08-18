@@ -32,10 +32,9 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerCounter;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -52,9 +51,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 public class IndexPersistenceMgr {
     private final static Logger LOG = LoggerFactory.getLogger(IndexPersistenceMgr.class);
@@ -68,8 +68,7 @@ public class IndexPersistenceMgr {
                     if (null == fileInfo) {
                         return;
                     }
-                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                            BookkeeperServerCounter.LEDGER_CACHE_NUM_EVICTED_LEDGERS).inc();
+                    evictedLedgerCounter.inc();
                     try {
                         fileInfo.close(true);
                         numOpenLedgers.decrementAndGet();
@@ -95,11 +94,15 @@ public class IndexPersistenceMgr {
     final ActiveLedgerManager activeLedgerManager;
     private LedgerDirsManager ledgerDirsManager;
 
+    // Stats
+    final Counter evictedLedgerCounter;
+
     public IndexPersistenceMgr (int pageSize,
                                 int entriesPerPage,
                                 ServerConfiguration conf,
                                 ActiveLedgerManager activeLedgerManager,
-                                LedgerDirsManager ledgerDirsManager) throws IOException {
+                                LedgerDirsManager ledgerDirsManager,
+                                StatsLogger statsLogger) throws IOException {
         this.openFileLimit = conf.getOpenFileLimit();
         this.activeLedgerManager = activeLedgerManager;
         this.ledgerDirsManager = ledgerDirsManager;
@@ -122,8 +125,9 @@ public class IndexPersistenceMgr {
 
         LOG.info("openFileLimit is {}.", openFileLimit);
 
-        ServerStatsProvider.getStatsLoggerInstance().registerGauge(
-                BookkeeperServerStatsLogger.BookkeeperServerGauge.NUM_OPEN_LEDGERS,
+        this.evictedLedgerCounter = statsLogger.getCounter(LEDGER_CACHE_NUM_EVICTED_LEDGERS);
+        statsLogger.registerGauge(
+                NUM_OPEN_LEDGERS,
                 new Gauge<Integer>() {
                     @Override
                     public Integer getDefaultValue() {
@@ -279,13 +283,13 @@ public class IndexPersistenceMgr {
         try {
             fi = getFileInfo(ledgerId, null);
 
-            // Don't force flush. There's no need since we're deleting the ledger 
-            // anyway, and recreating the file at this point, although safe, will 
+            // Don't force flush. There's no need since we're deleting the ledger
+            // anyway, and recreating the file at this point, although safe, will
             // force the garbage collector to do more work later.
             fi.close(false);
             fi.delete();
         } finally {
-            
+
             // should release use count
             // otherwise the file channel would not be closed.
             if (null != fi) {
@@ -335,8 +339,8 @@ public class IndexPersistenceMgr {
             ConcurrentMap<Long, FileInfo> fileInfos = fileInfoCache.asMap();
             for (Map.Entry<Long, FileInfo> entry : fileInfos.entrySet()) {
                 // Don't force create the file. We may have many dirty ledgers and file create/flush
-                // can be quite expensive as a result. We can use this optimization in this case 
-                // because metadata will be recovered from the journal when we restart anyway. 
+                // can be quite expensive as a result. We can use this optimization in this case
+                // because metadata will be recovered from the journal when we restart anyway.
                 entry.getValue().close(false);
             }
         } finally {

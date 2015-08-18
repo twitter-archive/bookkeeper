@@ -27,10 +27,13 @@ import java.util.Arrays;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Implements a ledger inside a bookie. In particular, it implements operations
@@ -44,10 +47,24 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
 
     final byte[] masterKey;
 
-    LedgerDescriptorImpl(byte[] masterKey, long ledgerId, LedgerStorage ledgerStorage) {
+    // Stats
+    final Counter writeBytesCounter;
+    final Counter readBytesCounter;
+    final OpStatsLogger addEntryBytesStats;
+    final OpStatsLogger readEntryBytesStats;
+
+    LedgerDescriptorImpl(byte[] masterKey,
+                         long ledgerId,
+                         LedgerStorage ledgerStorage,
+                         StatsLogger statsLogger) {
         this.masterKey = masterKey;
         this.ledgerId = ledgerId;
         this.ledgerStorage = ledgerStorage;
+        // Stats
+        this.writeBytesCounter = statsLogger.getCounter(WRITE_BYTES);
+        this.readBytesCounter = statsLogger.getCounter(READ_BYTES);
+        this.addEntryBytesStats = statsLogger.getOpStatsLogger(BOOKIE_ADD_ENTRY_BYTES);
+        this.readEntryBytesStats = statsLogger.getOpStatsLogger(BOOKIE_READ_ENTRY_BYTES);
     }
 
     @Override
@@ -89,16 +106,10 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
             return entryId;
         } finally {
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                        BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
-                        .add(dataSize);
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY_BYTES)
-                        .registerSuccessfulEvent(dataSize);
+                writeBytesCounter.add(dataSize);
+                addEntryBytesStats.registerSuccessfulEvent(dataSize);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_ADD_ENTRY_BYTES)
-                        .registerFailedEvent(dataSize);
+                addEntryBytesStats.registerFailedEvent(dataSize);
             }
         }
     }
@@ -114,16 +125,10 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
             return data;
         } finally {
             if (success) {
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                        BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
-                        .add(dataSize);
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY_BYTES)
-                        .registerSuccessfulEvent(dataSize);
+                readBytesCounter.add(dataSize);
+                readEntryBytesStats.registerSuccessfulEvent(dataSize);
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.BOOKIE_READ_ENTRY_BYTES)
-                        .registerFailedEvent(dataSize);
+                readEntryBytesStats.registerFailedEvent(dataSize);
             }
         }
     }

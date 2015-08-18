@@ -38,9 +38,10 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.MathUtils;
@@ -49,6 +50,8 @@ import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.util.ZeroBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Provide journal related management.
@@ -291,28 +294,33 @@ class Journal extends BookieCriticalThread {
      * Journal Entry to Record
      */
     private static class QueueEntry extends SafeRunnable {
-        ByteBuffer entry;
-        long ledgerId;
-        long entryId;
-        WriteCallback cb;
-        Object ctx;
-        long enqueueTime;
+        final ByteBuffer entry;
+        final long ledgerId;
+        final long entryId;
+        final WriteCallback cb;
+        final Object ctx;
+        final long enqueueTime;
+        final OpStatsLogger addLatencyStats;
 
-        QueueEntry(ByteBuffer entry, long ledgerId, long entryId,
-                   WriteCallback cb, Object ctx, long enqueueTime) {
+        QueueEntry(ByteBuffer entry,
+                   long ledgerId, long entryId,
+                   WriteCallback cb,
+                   Object ctx,
+                   long enqueueTime,
+                   OpStatsLogger addLatencyStats) {
             this.entry = entry.duplicate();
             this.cb = cb;
             this.ctx = ctx;
             this.ledgerId = ledgerId;
             this.entryId = entryId;
             this.enqueueTime = enqueueTime;
+            this.addLatencyStats = addLatencyStats;
         }
 
         @Override
         public void safeRun() {
-            ServerStatsProvider.getStatsLoggerInstance()
-                    .getOpStatsLogger(BookkeeperServerStatsLogger.BookkeeperServerOp
-                            .JOURNAL_ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueTime));
+            this.addLatencyStats.registerSuccessfulEvent(
+                    MathUtils.elapsedMicroSec(enqueueTime));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Acknowledge Ledger: {}, Entry: {}", ledgerId, entryId);
             }
@@ -348,16 +356,11 @@ class Journal extends BookieCriticalThread {
             this.endFlushPosition = endFlushPosition;
             this.shouldClose = shouldClose;
             this.isMarker = isMarker;
-            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_FORCE_WRITE_QUEUE_SIZE)
-                    .inc();
+            journalForceWriteQueueSizeGauge.inc();
         }
 
         public int process(boolean shouldForceWrite) throws IOException {
-
-            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_FORCE_WRITE_QUEUE_SIZE)
-                    .dec();
+            journalForceWriteQueueSizeGauge.dec();
 
             if (isMarker) {
                 return 0;
@@ -450,9 +453,7 @@ class Journal extends BookieCriticalThread {
                         // the last force write and then reset the counter so we can accumulate
                         // requests in the write we are about to issue
                         if (numReqInLastForceWrite > 0) {
-                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_GROUPING_COUNT)
-                                    .registerSuccessfulEvent(numReqInLastForceWrite);
+                            journalForceWriteGroupingStats.registerSuccessfulEvent(numReqInLastForceWrite);
                             numReqInLastForceWrite = 0;
                         }
                     }
@@ -562,7 +563,26 @@ class Journal extends BookieCriticalThread {
     volatile boolean running = true;
     private final LedgerDirsManager ledgerDirsManager;
 
-    public Journal(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager) {
+    // Stats
+    final StatsLogger statsLogger;
+    final Counter journalQueueSizeGauge; // counter implemented gauge
+    final Counter journalForceWriteQueueSizeGauge; // counter implemented gauge
+    final Counter journalWriteBytesCounter;
+    final OpStatsLogger journalCreationLatencyStats;
+    final OpStatsLogger journalAddLatencyStats;
+    final Counter journalFlushMaxWaitCounter;
+    final Counter journalFlushMaxOutstandingBytesCounter;
+    final Counter journalFlushEmptyQueueCounter;
+    final OpStatsLogger journalFlushLatencyStats;
+    final OpStatsLogger journalMemAddFlushTimesStats;
+    final OpStatsLogger journalMemAddLatencyStats;
+    final OpStatsLogger journalForceWriteBatchEntriesStats;
+    final OpStatsLogger journalForceWriteBatchBytesStats;
+    final OpStatsLogger journalForceWriteGroupingStats;
+
+    public Journal(ServerConfiguration conf,
+                   LedgerDirsManager ledgerDirsManager,
+                   StatsLogger statsLogger) {
         super("BookieJournal-" + conf.getBookiePort());
         this.ledgerDirsManager = ledgerDirsManager;
         this.conf = conf;
@@ -591,6 +611,23 @@ class Journal extends BookieCriticalThread {
         // read last log mark
         lastLogMark.readLog();
         LOG.debug("Last Log Mark : {}", lastLogMark.getCurMark());
+
+        // Stats
+        this.statsLogger = statsLogger;
+        journalQueueSizeGauge = statsLogger.getCounter(JOURNAL_QUEUE_SIZE);
+        journalForceWriteQueueSizeGauge = statsLogger.getCounter(JOURNAL_FORCE_WRITE_QUEUE_SIZE);
+        journalWriteBytesCounter = statsLogger.getCounter(JOURNAL_WRITE_BYTES);
+        journalCreationLatencyStats = statsLogger.getOpStatsLogger(JOURNAL_CREATION_LATENCY);
+        journalAddLatencyStats = statsLogger.getOpStatsLogger(JOURNAL_ADD_ENTRY);
+        journalFlushMaxWaitCounter = statsLogger.getCounter(JOURNAL_NUM_FLUSH_MAX_WAIT);
+        journalFlushMaxOutstandingBytesCounter = statsLogger.getCounter(JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES);
+        journalFlushEmptyQueueCounter = statsLogger.getCounter(JOURNAL_NUM_FLUSH_EMPTY_QUEUE);
+        journalFlushLatencyStats = statsLogger.getOpStatsLogger(JOURNAL_FLUSH_LATENCY);
+        journalMemAddFlushTimesStats = statsLogger.getOpStatsLogger(JOURNAL_FLUSH_IN_MEM_ADD);
+        journalMemAddLatencyStats = statsLogger.getOpStatsLogger(JOURNAL_MEM_ADD_ENTRY);
+        journalForceWriteBatchEntriesStats = statsLogger.getOpStatsLogger(JOURNAL_FORCE_WRITE_BATCH_ENTRIES);
+        journalForceWriteBatchBytesStats = statsLogger.getOpStatsLogger(JOURNAL_FORCE_WRITE_BATCH_BYTES);
+        journalForceWriteGroupingStats = statsLogger.getOpStatsLogger(JOURNAL_FORCE_WRITE_GROUPING_COUNT);
     }
 
     LastLogMark getLastLogMark() {
@@ -621,9 +658,11 @@ class Journal extends BookieCriticalThread {
         throws IOException {
         JournalChannel recLog;
         if (journalPos <= 0) {
-            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize);
+            recLog = new JournalChannel(journalDirectory, journalId,
+                    journalPreAllocSize, journalWriteBufferSize, statsLogger);
         } else {
-            recLog = new JournalChannel(journalDirectory, journalId, journalPreAllocSize, journalWriteBufferSize, journalPos);
+            recLog = new JournalChannel(journalDirectory, journalId,
+                    journalPreAllocSize, journalWriteBufferSize, journalPos, statsLogger);
         }
         int journalVersion = recLog.getFormatVersion();
         try {
@@ -729,10 +768,8 @@ class Journal extends BookieCriticalThread {
         long ledgerId = entry.getLong();
         long entryId = entry.getLong();
         entry.rewind();
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_QUEUE_SIZE)
-            .inc();
-        queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx, MathUtils.nowInNano()));
+        journalQueueSizeGauge.inc();
+        queue.add(new QueueEntry(entry, ledgerId, entryId, cb, ctx, MathUtils.nowInNano(), journalAddLatencyStats));
     }
 
     /**
@@ -791,10 +828,10 @@ class Journal extends BookieCriticalThread {
                                         logId,
                                         journalPreAllocSize,
                                         journalWriteBufferSize,
-                                        removePagesFromCache);
-                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                            BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_CREATION_LATENCY)
-                            .registerSuccessfulEvent(journalCreationWatcher.stop().elapsed(TimeUnit.MICROSECONDS));
+                                        removePagesFromCache,
+                                        statsLogger);
+                    journalCreationLatencyStats.registerSuccessfulEvent(
+                            journalCreationWatcher.stop().elapsed(TimeUnit.MICROSECONDS));
 
                     bc = logFile.getBufferedChannel();
 
@@ -823,23 +860,20 @@ class Journal extends BookieCriticalThread {
                             // b) limit the number of entries to group
                             groupWhenTimeout = false;
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                                BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_WAIT).inc();
+                            journalFlushMaxWaitCounter.inc();
                         } else if (qe != null &&
                                 ((bufferedEntriesThreshold > 0 && toFlush.size() > bufferedEntriesThreshold) ||
                                  (bc.position() > lastFlushPosition + bufferedWritesThreshold))) {
                             // 2. If we have buffered more than the buffWriteThreshold or bufferedEntriesThreshold
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_MAX_OUTSTANDING_BYTES).inc();
+                            journalFlushMaxOutstandingBytesCounter.inc();
                         } else if (qe == null) {
                             // We should get here only if we flushWhenQueueEmpty is true else we would wait
                             // for timeout that would put is past the maxWait threshold
                             // 3. If the queue is empty i.e. no benefit of grouping. This happens when we have one
                             // publish at a time - common case in tests.
                             shouldFlush = true;
-                            ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                                    BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_NUM_FLUSH_EMPTY_QUEUE).inc();
+                            journalFlushEmptyQueueCounter.inc();
                         }
 
                         // toFlush is non null and not empty so should be safe to access getFirst
@@ -855,9 +889,8 @@ class Journal extends BookieCriticalThread {
                             if (!enableGroupForceWrites) {
                                 logFile.startSyncRange(prevFlushPosition, lastFlushPosition);
                             }
-                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FLUSH_LATENCY)
-                                    .registerSuccessfulEvent(journalFlushWatcher.stop().elapsed(TimeUnit.MICROSECONDS));
+                            journalFlushLatencyStats.registerSuccessfulEvent(
+                                    journalFlushWatcher.stop().elapsed(TimeUnit.MICROSECONDS));
 
                             // Trace the lifetime of entries through persistence
                             if (LOG.isDebugEnabled()) {
@@ -866,12 +899,8 @@ class Journal extends BookieCriticalThread {
                                 }
                             }
 
-                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_BATCH_ENTRIES)
-                                    .registerSuccessfulEvent(toFlush.size());
-                            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                                    BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FORCE_WRITE_BATCH_BYTES)
-                                    .registerSuccessfulEvent(batchSize);
+                            journalForceWriteBatchEntriesStats.registerSuccessfulEvent(toFlush.size());
+                            journalForceWriteBatchBytesStats.registerSuccessfulEvent(batchSize);
 
                             forceWriteRequests.put(new ForceWriteRequest(logFile, logId, prevFlushPosition,
                                     lastFlushPosition, toFlush, (lastFlushPosition > maxJournalSize), false));
@@ -894,12 +923,8 @@ class Journal extends BookieCriticalThread {
                 if (qe == null) { // no more queue entry
                     continue;
                 }
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                        BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_WRITE_BYTES)
-                        .add(qe.entry.remaining());
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                        BookkeeperServerStatsLogger.BookkeeperServerCounter.JOURNAL_QUEUE_SIZE)
-                        .dec();
+                journalWriteBytesCounter.add(qe.entry.remaining());
+                journalQueueSizeGauge.dec();
 
                 batchSize += (4 + qe.entry.remaining());
 
@@ -918,13 +943,9 @@ class Journal extends BookieCriticalThread {
                 flushes += bc.write(lenBuff);
                 flushes += bc.write(qe.entry);
 
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_FLUSH_IN_MEM_ADD)
-                        .registerSuccessfulEvent(flushes);
-
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(
-                        BookkeeperServerStatsLogger.BookkeeperServerOp.JOURNAL_MEM_ADD_ENTRY)
-                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(qe.enqueueTime));
+                journalMemAddFlushTimesStats.registerSuccessfulEvent(flushes);
+                journalMemAddLatencyStats.registerSuccessfulEvent(
+                        MathUtils.elapsedMicroSec(qe.enqueueTime));
 
                 toFlush.add(qe);
                 qe = null;

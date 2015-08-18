@@ -27,6 +27,7 @@ import java.util.HashSet;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Test;
 import org.junit.Before;
 import java.nio.ByteBuffer;
@@ -50,7 +51,8 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
 
     @Before
     public void setUp() throws Exception {
-        this.memTable = new EntryMemTable(TestBKConfiguration.newServerConfiguration(), this);
+        this.memTable = new EntryMemTable(TestBKConfiguration.newServerConfiguration(),
+                this, NullStatsLogger.INSTANCE);
     }
 
     @Test
@@ -263,7 +265,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         public void checkpointComplete(boolean compact) throws IOException {
             // do nothing
         }
-        
+
     }
 }
 

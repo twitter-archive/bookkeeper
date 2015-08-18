@@ -17,12 +17,13 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
 import org.apache.bookkeeper.stats.OpStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
 
@@ -36,26 +37,31 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
     protected final ReadRequest readRequest;
     protected final long ledgerId;
     protected final long entryId;
-    protected final Enum readStatOp;
-    protected final Enum reqStatOp;
+
+    // Stats
+    protected final StatsLogger statsLogger;
+    protected final OpStatsLogger readStats;
+    protected final OpStatsLogger reqStats;
 
     public ReadEntryProcessorV3(Request request,
                                 Channel channel,
                                 Bookie bookie,
-                                ExecutorService fenceThreadPool) {
-        super(request, channel, bookie);
+                                ExecutorService fenceThreadPool,
+                                StatsLogger statsLogger) {
+        super(request, channel, bookie, statsLogger);
         this.readRequest = request.getReadRequest();
         this.ledgerId = readRequest.getLedgerId();
         this.entryId = readRequest.getEntryId();
+        this.statsLogger = statsLogger;
         if (RequestUtils.isFenceRequest(this.readRequest)) {
-            this.readStatOp = BookkeeperServerOp.READ_ENTRY_FENCE_READ;
-            this.reqStatOp  = BookkeeperServerOp.READ_ENTRY_FENCE_REQUEST;
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_READ);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_REQUEST);
         } else if (readRequest.hasPreviousLAC()) {
-            this.readStatOp = BookkeeperServerOp.READ_ENTRY_LONG_POLL_READ;
-            this.reqStatOp  = BookkeeperServerOp.READ_ENTRY_LONG_POLL_REQUEST;
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY_LONG_POLL_READ);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_LONG_POLL_REQUEST);
         } else {
-            this.readStatOp = BookkeeperServerOp.READ_ENTRY;
-            this.reqStatOp  = BookkeeperServerOp.READ_ENTRY_REQUEST;
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_REQUEST);
         }
 
         this.fenceThreadPool = fenceThreadPool;
@@ -163,7 +169,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
                 long knownLAC = bookie.readLastAddConfirmed(ledgerId);
                 readResponseBuilder.setMaxLAC(knownLAC);
             }
-            registerSuccessfulEvent(readStatOp, startTimeSw);
+            registerSuccessfulEvent(readStats, startTimeSw);
             readResponseBuilder.setStatus(StatusCode.EOK);
             return readResponseBuilder.build();
         }
@@ -216,7 +222,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
 
     @Override
     public void safeRun() {
-        registerSuccessfulEvent(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY, enqueueStopwatch);
+        registerSuccessfulEvent(statsLogger.getOpStatsLogger(READ_ENTRY_SCHEDULING_DELAY), enqueueStopwatch);
 
         if (!isVersionCompatible()) {
             ReadResponse readResponse = ReadResponse.newBuilder()
@@ -242,11 +248,11 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
         StatusCode status;
         if (!fenceResult) {
             status = StatusCode.EIO;
-            registerFailedEvent(BookkeeperServerOp.READ_ENTRY_FENCE_WAIT, lastPhaseStartTime);
+            registerFailedEvent(statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_WAIT), lastPhaseStartTime);
         } else {
             status = StatusCode.EOK;
             readResponse.setBody(ByteString.copyFrom(entryBody));
-            registerSuccessfulEvent(BookkeeperServerOp.READ_ENTRY_FENCE_WAIT, lastPhaseStartTime);
+            registerSuccessfulEvent(statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_WAIT), lastPhaseStartTime);
         }
         readResponse.setStatus(status);
     }
@@ -258,7 +264,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
         // build the fence read response
         getFenceResponse(readResponse, entryBody, fenceResult);
         // register fence read stat
-        registerEvent(!fenceResult, BookkeeperServerOp.READ_ENTRY_FENCE_READ, startTimeSw);
+        registerEvent(!fenceResult, statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_READ), startTimeSw);
         // send the fence read response
         sendResponse(readResponse.build());
     }
@@ -267,7 +273,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
             ReadResponse.Builder readResponseBuilder,
             StatusCode statusCode,
             Stopwatch startTimeSw) {
-        registerEvent(!statusCode.equals(StatusCode.EOK), readStatOp, startTimeSw);
+        registerEvent(!statusCode.equals(StatusCode.EOK), readStats, startTimeSw);
         readResponseBuilder.setStatus(statusCode);
         return readResponseBuilder.build();
     }
@@ -277,26 +283,22 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
             .setHeader(getHeader())
             .setStatus(readResponse.getStatus())
             .setReadResponse(readResponse);
-        sendResponse(response.getStatus(), reqStatOp, response.build());
+        sendResponse(response.getStatus(), reqStats, response.build());
     }
 
     //
     // Stats Methods
     //
 
-    protected void registerSuccessfulEvent(Enum op, Stopwatch startTime) {
-        registerEvent(false, op, startTime);
+    protected void registerSuccessfulEvent(OpStatsLogger statsLogger, Stopwatch startTime) {
+        registerEvent(false, statsLogger, startTime);
     }
 
-    protected void registerFailedEvent(Enum op, Stopwatch startTime) {
-        registerEvent(true, op, startTime);
+    protected void registerFailedEvent(OpStatsLogger statsLogger, Stopwatch startTime) {
+        registerEvent(true, statsLogger, startTime);
     }
 
-    protected void registerEvent(boolean failed, Enum op, Stopwatch startTime) {
-        final OpStatsLogger statsLogger = ServerStatsProvider
-            .getStatsLoggerInstance()
-            .getOpStatsLogger(op);
-
+    protected void registerEvent(boolean failed, OpStatsLogger statsLogger, Stopwatch startTime) {
         if (failed) {
             statsLogger.registerFailedEvent(startTime.elapsed(TimeUnit.MICROSECONDS));
         } else {

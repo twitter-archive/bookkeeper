@@ -20,23 +20,22 @@
 package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
-import org.apache.bookkeeper.conf.ServerConfiguration;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * The EntryMemTable holds in-memory representation to the entries not-yet flushed.
@@ -106,11 +105,20 @@ public class EntryMemTable {
         return new EntrySkipList(progress.requestCheckpoint());
     }
 
+    // Stats
+    private final OpStatsLogger snapshotStats;
+    private final OpStatsLogger putEntryStats;
+    private final OpStatsLogger getEntryStats;
+    private final Counter flushBytesCounter;
+    private final Counter throttlingCounter;
+
     /**
     * Constructor.
     * @param conf Server configuration
     */
-    public EntryMemTable(final ServerConfiguration conf, final CheckpointProgress progress) {
+    public EntryMemTable(final ServerConfiguration conf,
+                         final CheckpointProgress progress,
+                         final StatsLogger statsLogger) {
         this.progress = progress;
         this.kvmap = newSkipList();
         this.snapshot = EntrySkipList.EMPTY_VALUE;
@@ -119,6 +127,13 @@ public class EntryMemTable {
         this.allocator = new SkipListArena(conf);
         // skip list size limit
         this.skipListSizeLimit = conf.getSkipListSizeLimit();
+
+        // Stats
+        this.snapshotStats = statsLogger.getOpStatsLogger(SKIP_LIST_SNAPSHOT);
+        this.putEntryStats = statsLogger.getOpStatsLogger(SKIP_LIST_PUT_ENTRY);
+        this.getEntryStats = statsLogger.getOpStatsLogger(SKIP_LIST_GET_ENTRY);
+        this.flushBytesCounter = statsLogger.getCounter(SKIP_LIST_FLUSH_BYTES);
+        this.throttlingCounter = statsLogger.getCounter(SKIP_LIST_THROTTLING);
     }
 
     void dump() {
@@ -167,11 +182,9 @@ public class EntryMemTable {
             }
 
             if (null != cp) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                snapshotStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                snapshotStats.registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             }
         }
         return cp;
@@ -221,8 +234,7 @@ public class EntryMemTable {
                             }
                         }
                     }
-                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                            BookkeeperServerStatsLogger.BookkeeperServerCounter.SKIP_LIST_FLUSH_BYTES).add(size);
+                    flushBytesCounter.add(size);
                     clearSnapshot(keyValues);
                 }
             }
@@ -258,8 +270,7 @@ public class EntryMemTable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter
-                .SKIP_LIST_THROTTLING).inc();
+        throttlingCounter.inc();
     }
 
     /**
@@ -288,8 +299,7 @@ public class EntryMemTable {
             this.lock.readLock().unlock();
         }
 
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        putEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return size;
     }
 
@@ -357,9 +367,7 @@ public class EntryMemTable {
         } finally {
             this.lock.readLock().unlock();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-
+        getEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return value;
     }
 
@@ -381,8 +389,7 @@ public class EntryMemTable {
         } finally {
             this.lock.readLock().unlock();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        getEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         if (result == null || result.getLedgerId() != ledgerId) {
             return null;
