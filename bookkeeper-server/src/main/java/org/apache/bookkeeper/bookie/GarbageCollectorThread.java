@@ -815,27 +815,6 @@ public class GarbageCollectorThread extends BookieCriticalThread {
     }
 
     /**
-     * A scanner used to extract entry log meta from entry log files.
-     */
-    static class ExtractionScanner implements EntryLogScanner {
-        EntryLogMetadata meta;
-
-        public ExtractionScanner(EntryLogMetadata meta) {
-            this.meta = meta;
-        }
-
-        @Override
-        public boolean accept(long ledgerId) {
-            return ledgerId != EntryLogger.INVALID_LID;
-        }
-        @Override
-        public void process(long ledgerId, long offset, ByteBuffer entry) {
-            // add new entry size of a ledger to entry log meta
-            meta.addLedgerSize(ledgerId, entry.limit() + 4);
-        }
-    }
-
-    /**
      * Method to read in all of the entry logs (those that we haven't done so yet),
      * and find the set of ledger ID's that make up each entry log file.
      *
@@ -873,8 +852,7 @@ public class GarbageCollectorThread extends BookieCriticalThread {
 
             try {
                 // Read through the entry log file and extract the entry log meta
-                EntryLogMetadata entryLogMeta = extractMetaFromEntryLog(entryLogger, entryLogId);
-                entryLogMetadataManager.addEntryLogMetadata(entryLogMeta);
+                EntryLogMetadata entryLogMeta = entryLogger.extractEntryLogMetadata(entryLogId);
                 // GC the log if possible
                 if (!doGcEntryLog(entryLogId, entryLogMeta)) {
                     // if entry log file isn't empty (deleted), then minor compact the log if possible
@@ -903,19 +881,4 @@ public class GarbageCollectorThread extends BookieCriticalThread {
         }
     }
 
-    static EntryLogMetadata extractMetaFromEntryLog(EntryLogger entryLogger, long entryLogId)
-            throws IOException {
-        EntryLogMetadata entryLogMeta = new EntryLogMetadata(entryLogId);
-        ExtractionScanner scanner = new ExtractionScanner(entryLogMeta);
-        // Read through the entry log file and extract the entry log meta
-        try {
-            entryLogger.scanEntryLog(entryLogId, scanner);
-        } catch (ShortReadException sre) {
-            // short read exception, it means that the last entry in entry logger is corrupted due to
-            // an unsuccessful shutdown (e.g kill -9 or power off)
-            LOG.warn("Short read on retrieving entry log metadata for {} : ", entryLogId, sre);
-        }
-        LOG.info("Retrieved entry log meta data entryLogId: {}, meta: {}", entryLogId, entryLogMeta);
-        return entryLogMeta;
-    }
 }

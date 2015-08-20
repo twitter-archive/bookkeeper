@@ -28,9 +28,11 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.common.base.Optional;
 import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
-import org.apache.bookkeeper.bookie.GarbageCollectorThread.ExtractionScanner;
+import org.apache.bookkeeper.bookie.EntryLogger.ExtractionScanner;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -185,7 +187,7 @@ public class EntryLogTest {
         EntryLogMetadata meta = new EntryLogMetadata(0L);
         if (useGCExtracter) {
             // it should scan short-read entry log successfully.
-            meta = GarbageCollectorThread.extractMetaFromEntryLog(logger, 0);
+            meta = logger.extractEntryLogMetadata(0);
         } else {
             ExtractionScanner scanner = new ExtractionScanner(meta);
             try {
@@ -417,6 +419,138 @@ public class EntryLogTest {
         Assert.assertTrue(0 == generateEntry(1, 1).compareTo(ledgerStorage.getEntry(1, 1)));
         Assert.assertTrue(0 == generateEntry(2, 1).compareTo(ledgerStorage.getEntry(2, 1)));
         Assert.assertTrue(0 == generateEntry(3, 1).compareTo(ledgerStorage.getEntry(3, 1)));
+    }
+
+    @Test(timeout=60000)
+    public void testGetLedgersMapFromIndex() throws Exception {
+        File tmpDir = createTempDir("bkTest", ".dir");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+
+        int gcWaitTime = 1000;
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        conf.setGcWaitTime(gcWaitTime);
+        conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+        Bookie bookie = new Bookie(conf);
+        bookie.initialize();
+
+        // create some entries
+        EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
+        logger.addEntry(1, generateEntry(1, 1));
+        logger.addEntry(3, generateEntry(3, 1));
+        logger.addEntry(2, generateEntry(2, 1));
+        logger.addEntry(1, generateEntry(1, 2));
+        logger.rollLog();
+        logger.flush();
+
+        logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+        Optional<EntryLogMetadata> metaOptional = logger.extractEntryLogMetadataFromIndex(0L);
+        assertTrue(metaOptional.isPresent());
+        EntryLogMetadata meta = metaOptional.get();
+        LOG.info("Extracted Meta From Entry Log {}", meta);
+        assertEquals(60, meta.ledgersMap.get(1L).longValue());
+        assertEquals(30, meta.ledgersMap.get(2L).longValue());
+        assertEquals(30, meta.ledgersMap.get(3L).longValue());
+        assertNull(meta.ledgersMap.get(4L));
+        assertEquals(120, meta.getTotalSize());
+        assertEquals(120, meta.getRemainingSize());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapOnV0EntryLog() throws Exception {
+        testGetLedgersMap(true, false, false, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedOffset() throws Exception {
+        testGetLedgersMap(false, true, false, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedTotalLedgers() throws Exception {
+        testGetLedgersMap(false, false, true, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedLedgersMapEntry() throws Exception {
+        testGetLedgersMap(false, false, false, true, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapMissingLedgersMapEntry() throws Exception {
+        testGetLedgersMap(false, false, false, false, true);
+    }
+
+    private void testGetLedgersMap(boolean writeAsV0Log,
+                                   boolean corruptedOffset,
+                                   boolean corruptedTotalLedgers,
+                                   boolean corruptedLedgersMapEntry,
+                                   boolean missingLedgersMapEntry) throws Exception {
+        File tmpDir = createTempDir("bkTest", ".dir");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+
+        int gcWaitTime = 1000;
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        conf.setGcWaitTime(gcWaitTime);
+        conf.setLedgerDirNames(new String[] { tmpDir.toString() });
+        Bookie bookie = new Bookie(conf);
+        bookie.initialize();
+
+        // create some entries
+        EntryLogger logger = ((InterleavedLedgerStorage) bookie.ledgerStorage).entryLogger;
+        logger.addEntry(1, generateEntry(1, 1));
+        logger.addEntry(3, generateEntry(3, 1));
+        logger.addEntry(2, generateEntry(2, 1));
+        logger.addEntry(1, generateEntry(1, 2));
+        logger.rollLog();
+        logger.flush();
+
+        // Rewrite the entry log header to be on V0 format
+
+        File f = new File(curDir, "0.log");
+        RandomAccessFile raf = new RandomAccessFile(f, "rw");
+        try {
+            if (writeAsV0Log) {
+                raf.seek(0L);
+                // rewrite the header to v0
+                ByteBuffer buf = ByteBuffer.allocate(EntryLogger.LOGFILE_HEADER_LENGTH);
+                buf.put(EntryLogger.MAGIC_BYTES);
+                raf.write(buf.array());
+            } else {
+                if (corruptedLedgersMapEntry) {
+                    raf.setLength(raf.length() - 6);
+                } else if (missingLedgersMapEntry) {
+                    raf.setLength(raf.length() - 16);
+                } else if (corruptedTotalLedgers) {
+                    ByteBuffer buf = ByteBuffer.allocate(4);
+                    buf.putInt(99999);
+                    raf.seek(EntryLogger.HEADER_VERSION_LENGTH + 8);
+                    raf.write(buf.array());
+                } else if (corruptedOffset) {
+                    ByteBuffer buf = ByteBuffer.allocate(8);
+                    buf.putLong(999999);
+                    raf.seek(EntryLogger.HEADER_VERSION_LENGTH);
+                    raf.write(buf.array());
+                }
+            }
+        } finally {
+            raf.close();
+        }
+
+        // now see which ledgers are in the log
+        logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+
+        assertFalse(logger.extractEntryLogMetadataFromIndex(0L).isPresent());
+
+        EntryLogMetadata meta = logger.extractEntryLogMetadata(0L);
+        LOG.info("Extracted Meta From Entry Log {}", meta);
+        assertEquals(60, meta.ledgersMap.get(1L).longValue());
+        assertEquals(30, meta.ledgersMap.get(2L).longValue());
+        assertEquals(30, meta.ledgersMap.get(3L).longValue());
+        assertNull(meta.ledgersMap.get(4L));
+        assertEquals(120, meta.getTotalSize());
+        assertEquals(120, meta.getRemainingSize());
     }
 
 }

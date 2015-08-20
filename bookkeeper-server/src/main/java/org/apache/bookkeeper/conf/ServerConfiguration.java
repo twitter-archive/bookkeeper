@@ -34,6 +34,8 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Entry Log Parameters
     protected final static String ENTRY_LOG_SIZE_LIMIT = "logSizeLimit";
     protected final static String ENTRY_LOG_FILE_PREALLOCATION_ENABLED = "entryLogFilePreallocationEnabled";
+    protected final static String ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED = "entryLogWriteLedgersMapEnabled";
+    protected final static String ENTRY_LOG_READ_LEDGERSMAP_ENABLED = "entryLogReadLedgersMapEnabled";
     protected final static String MINOR_COMPACTION_INTERVAL = "minorCompactionInterval";
     protected final static String MINOR_COMPACTION_THRESHOLD = "minorCompactionThreshold";
     protected final static String MAJOR_COMPACTION_INTERVAL = "majorCompactionInterval";
@@ -102,7 +104,6 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Long poll parameters
     protected final static String REQUEST_TIMER_TICK_DURATION_MILLISEC = "requestTimerTickDurationMs";
     protected final static String REQUEST_TIMER_NO_OF_TICKS = "requestTimerNumTicks";
-
 
     // Stats exporting
     protected final static String STATS_EXPORT = "statsExport";
@@ -174,6 +175,49 @@ public class ServerConfiguration extends AbstractConfiguration {
         this.setProperty(ENTRY_LOG_FILE_PREALLOCATION_ENABLED, enabled);
         return this;
     }
+
+    /**
+     * Is writing ledgers map for entry log files enabled?
+     *
+     * @return true if writing ledgers map enabled. otherwise false.
+     */
+    public boolean isEntryLogWriteLedgersMapEnabled() {
+        return this.getBoolean(ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED, false);
+    }
+
+    /**
+     * Enable/Disable writing ledgers map for entry log.
+     *
+     * @param enabled
+     *          flag to enable/disable writing ledgers map.
+     * @return server configuration
+     */
+    public ServerConfiguration setEntryLogWriteLedgersMapEnabled(boolean enabled) {
+        this.setProperty(ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Is reading ledgers map from entry log files enabled?
+     *
+     * @return true if reading ledgers map enabled. otherwise false.
+     */
+    public boolean isEntryLogReadLedgersMapEnabled() {
+        return this.getBoolean(ENTRY_LOG_READ_LEDGERSMAP_ENABLED, false);
+    }
+
+    /**
+     * Enable/Disable reading ledgers map from entry log.
+     *
+     * @param enabled
+     *          flag to enable/disable reading ledgers map.
+     * @return server configuration
+     */
+    public ServerConfiguration setEntryLogReadLedgersMapEnabled(boolean enabled) {
+        this.setProperty(ENTRY_LOG_READ_LEDGERSMAP_ENABLED, enabled);
+        return this;
+    }
+
 
     /**
      * Get Garbage collection wait time
@@ -1253,7 +1297,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     /**
      * Get whether use bytes to throttle garbage collector compaction or not
      *
-     * @return true  - use Bytes, 
+     * @return true  - use Bytes,
      *         false - use Entries.
      */
     public boolean getIsThrottleByBytes() {
@@ -1302,7 +1346,7 @@ public class ServerConfiguration extends AbstractConfiguration {
         setProperty(COMPACTION_MAX_OUTSTANDING_REQUESTS, maxOutstandingRequests);
         return this;
     }
-    
+
     /**
      * Get the rate of compaction adds. Default is 1,000.
      *

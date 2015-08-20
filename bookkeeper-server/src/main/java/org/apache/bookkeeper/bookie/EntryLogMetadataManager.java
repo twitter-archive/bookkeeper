@@ -82,6 +82,18 @@ class EntryLogMetadataManager {
             return (double)remainingSize / totalSize;
         }
 
+        public int getTotalLedgers() {
+            return ledgersMap.size();
+        }
+
+        public long getTotalSize() {
+            return totalSize;
+        }
+
+        public long getRemainingSize() {
+            return remainingSize;
+        }
+
         public boolean isEmpty() {
             return ledgersMap.isEmpty();
         }

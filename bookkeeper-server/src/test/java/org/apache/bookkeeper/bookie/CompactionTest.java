@@ -23,8 +23,6 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.Map;
@@ -441,7 +439,7 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         Bookie.checkDirectoryStructure(curDir);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
 
-        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_SIZE + 3 * (4+ENTRY_SIZE));
+        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_LENGTH + 3 * (4+ENTRY_SIZE));
         conf.setGcWaitTime(100);
         conf.setMinorCompactionThreshold(0.7f);
         conf.setMajorCompactionThreshold(0.0f);
