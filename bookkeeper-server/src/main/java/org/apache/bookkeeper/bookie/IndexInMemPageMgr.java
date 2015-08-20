@@ -21,9 +21,11 @@
 
 package org.apache.bookkeeper.bookie;
 
+import com.google.common.base.Stopwatch;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
@@ -353,6 +356,11 @@ public class IndexInMemPageMgr {
     private final ConcurrentLinkedQueue<Long> ledgersToFlush = new ConcurrentLinkedQueue<Long>();
     private final ConcurrentSkipListSet<Long> ledgersFlushing = new ConcurrentSkipListSet<Long>();
 
+    // Stats
+    private final Counter ledgerCacheHitCounter;
+    private final Counter ledgerCacheMissCounter;
+    private final OpStatsLogger ledgerCacheReadPageStats;
+
     public IndexInMemPageMgr(int pageSize,
                              int entriesPerPage,
                              ServerConfiguration conf,
@@ -370,6 +378,10 @@ public class IndexInMemPageMgr {
             this.pageLimit = conf.getPageLimit();
         }
 
+        // Stats
+        this.ledgerCacheHitCounter = statsLogger.getCounter(LEDGER_CACHE_HIT);
+        this.ledgerCacheMissCounter = statsLogger.getCounter(LEDGER_CACHE_MISS);
+        this.ledgerCacheReadPageStats = statsLogger.getOpStatsLogger(LEDGER_CACHE_READ_PAGE);
         // Export sampled stats for index pages, ledgers.
         statsLogger.registerGauge(
                 NUM_INDEX_PAGES,
@@ -393,7 +405,31 @@ public class IndexInMemPageMgr {
         return pageCount.get();
     }
 
-    public LedgerEntryPage getLedgerEntryPage(Long ledger, Long firstEntry, boolean onlyDirty) {
+    /**
+     * Get the ledger entry page for a given <i>pageEntry</i>.
+     *
+     * @param ledger
+     *          ledger id
+     * @param pageEntry
+     *          first entry id of a given page
+     * @return ledger entry page
+     * @throws IOException
+     */
+    public LedgerEntryPage getLedgerEntryPage(long ledger,
+                                              long pageEntry) throws IOException {
+        LedgerEntryPage lep = getLedgerEntryPageFromCache(ledger, pageEntry, false);
+        if (lep == null) {
+            ledgerCacheMissCounter.inc();
+            lep = grabLedgerEntryPage(ledger, pageEntry);
+        } else {
+            ledgerCacheHitCounter.inc();
+        }
+        return lep;
+    }
+
+    public LedgerEntryPage getLedgerEntryPageFromCache(long ledger,
+                                                       long firstEntry,
+                                                       boolean onlyDirty) {
         LedgerEntryPage lep = pageMapAndList.getPage(ledger, firstEntry);
         if (onlyDirty && null != lep && lep.isClean()) {
             return null;
@@ -415,13 +451,19 @@ public class IndexInMemPageMgr {
      * @param pageEntry
      *          Start entry of this entry page.
      */
-    public LedgerEntryPage grabLedgerEntryPage(long ledger, long pageEntry) throws IOException {
+    public LedgerEntryPage grabLedgerEntryPage(long ledger, long pageEntry)
+            throws IOException {
         LedgerEntryPage lep = grabCleanPage(ledger, pageEntry);
         try {
             // should get the up to date page from the persistence manager
             // before we put it into table otherwise we would put
             // an empty page in it
-            indexPersistenceManager.updatePage(lep);
+            Stopwatch readPageStopwatch = Stopwatch.createStarted();
+            boolean isNewPage = indexPersistenceManager.updatePage(lep);
+            if (!isNewPage) {
+                ledgerCacheReadPageStats.registerSuccessfulEvent(
+                        readPageStopwatch.elapsed(TimeUnit.MICROSECONDS));
+            }
         } catch (IOException ie) {
             // if we grab a clean page, but failed to update the page
             // we should put this page in the free page list so that it
@@ -528,7 +570,7 @@ public class IndexInMemPageMgr {
         List<LedgerEntryPage> entries = new ArrayList<LedgerEntryPage>(firstEntryList.size());
         try {
             for(Long firstEntry: firstEntryList) {
-                LedgerEntryPage lep = getLedgerEntryPage(ledger, firstEntry, true);
+                LedgerEntryPage lep = getLedgerEntryPageFromCache(ledger, firstEntry, true);
                 if (lep != null) {
                     entries.add(lep);
                 }
@@ -546,13 +588,16 @@ public class IndexInMemPageMgr {
         // find the id of the first entry of the page that has the entry
         // we are looking for
         long pageEntry = entry-offsetInPage;
-        LedgerEntryPage lep = getLedgerEntryPage(ledger, pageEntry, false);
-        if (lep == null) {
-            lep = grabLedgerEntryPage(ledger, pageEntry);
+        LedgerEntryPage lep = null;
+        try {
+            lep = getLedgerEntryPage(ledger, pageEntry);
+            assert lep != null;
+            lep.setOffset(offset, offsetInPage * 8);
+        } finally {
+            if (null != lep) {
+                lep.releasePage();
+            }
         }
-        assert lep != null;
-        lep.setOffset(offset, offsetInPage*8);
-        lep.releasePage();
     }
 
     public long getEntryOffset(long ledger, long entry) throws IOException {
@@ -560,11 +605,9 @@ public class IndexInMemPageMgr {
         // find the id of the first entry of the page that has the entry
         // we are looking for
         long pageEntry = entry-offsetInPage;
-        LedgerEntryPage lep = getLedgerEntryPage(ledger, pageEntry, false);
+        LedgerEntryPage lep = null;
         try {
-            if (lep == null) {
-                lep = grabLedgerEntryPage(ledger, pageEntry);
-            }
+            lep = getLedgerEntryPage(ledger, pageEntry);
             return lep.getOffset(offsetInPage*8);
         } finally {
             if (lep != null) {
@@ -572,4 +615,5 @@ public class IndexInMemPageMgr {
             }
         }
     }
+
 }

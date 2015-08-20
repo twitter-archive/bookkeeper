@@ -31,10 +31,13 @@ import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.DaemonThreadFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 public class SortedLedgerStorage extends InterleavedLedgerStorage
         implements LedgerStorage, CacheCallback, SkipListFlusher {
@@ -43,6 +46,12 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     private final EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
     private final CheckpointProgress checkpointer;
+
+    // Stats
+    private final Counter memtableReadEntryCounter;
+    private final Counter entrylogReadEntryCounter;
+    private final Counter memtableReadBytesCounter;
+    private final Counter entrylogReadBytesCounter;
 
     public SortedLedgerStorage(ServerConfiguration conf,
                                ActiveLedgerManager activeLedgerManager,
@@ -59,6 +68,11 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                         .setNameFormat("SortedLedgerStorageExecutor-%d")
                         .build());
         this.checkpointer = progress;
+        // Stats
+        this.memtableReadEntryCounter = statsLogger.getCounter(NUM_ENTRIES_READ_FROM_MEMTABLE);
+        this.memtableReadBytesCounter = statsLogger.getCounter(NUM_BYTES_READ_FROM_MEMTABLE);
+        this.entrylogReadEntryCounter = statsLogger.getCounter(NUM_ENTRIES_READ_FROM_ENTRYLOG);
+        this.entrylogReadBytesCounter = statsLogger.getCounter(NUM_BYTES_READ_FROM_ENTRYLOG);
     }
 
     @Override
@@ -112,11 +126,18 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
      */
     private ByteBuffer getLastEntryId(long ledgerId) throws IOException {
         EntryKeyValue kv = memTable.getLastEntry(ledgerId);
+        ByteBuffer bufferToRet;
         if (null != kv) {
-            return kv.getValueAsByteBuffer();
+            bufferToRet = kv.getValueAsByteBuffer();
+            memtableReadEntryCounter.inc();
+            memtableReadBytesCounter.add(bufferToRet.remaining());
+        } else {
+            // If it doesn't exist in the skip list, then fallback to the ledger cache+index.
+            bufferToRet = super.getEntry(ledgerId, BookieProtocol.LAST_ADD_CONFIRMED);
+            entrylogReadEntryCounter.inc();
+            entrylogReadBytesCounter.add(bufferToRet.remaining());
         }
-        // If it doesn't exist in the skip list, then fallback to the ledger cache+index.
-        return super.getEntry(ledgerId, BookieProtocol.LAST_ADD_CONFIRMED);
+        return bufferToRet;
     }
 
     @Override
@@ -131,9 +152,16 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                 // The entry might have been flushed since we last checked, so query the ledger cache again.
                 // If the entry truly doesn't exist, then this will throw a NoEntryException
                 buffToRet = super.getEntry(ledgerId, entryId);
+                entrylogReadEntryCounter.inc();
+                entrylogReadBytesCounter.add(buffToRet.remaining());
             } else {
                 buffToRet = kv.getValueAsByteBuffer();
+                memtableReadEntryCounter.inc();
+                memtableReadBytesCounter.add(buffToRet.remaining());
             }
+        } else {
+            entrylogReadEntryCounter.inc();
+            entrylogReadBytesCounter.add(buffToRet.remaining());
         }
         // buffToRet will not be null when we reach here.
         return buffToRet;

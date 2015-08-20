@@ -604,7 +604,15 @@ public class IndexPersistenceMgr {
         }
     }
 
-    public void updatePage(LedgerEntryPage lep) throws IOException {
+    /**
+     * Update the ledger entry page
+     *
+     * @param lep
+     *          ledger entry page
+     * @return true if it is a new page, otherwise false.
+     * @throws IOException
+     */
+    public boolean updatePage(LedgerEntryPage lep) throws IOException {
         if (!lep.isClean()) {
             throw new IOException("Trying to update a dirty page");
         }
@@ -614,8 +622,10 @@ public class IndexPersistenceMgr {
             long pos = lep.getFirstEntryPosition();
             if (pos >= fi.size()) {
                 lep.zeroPage();
+                return true;
             } else {
                 lep.readPage(fi);
+                return false;
             }
         } finally {
             if (fi != null) {
