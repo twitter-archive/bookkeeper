@@ -641,7 +641,6 @@ public class LedgerHandle {
                 entryId = ++lastAddPushed;
                 currentLength = addToLength(length);
                 op.setEntryId(entryId);
-                numPendingAddsGauge.inc();
                 pendingAddOps.add(op);
             }
         }
@@ -970,7 +969,6 @@ public class LedgerHandle {
         PendingAddOp pendingAddOp;
         List<PendingAddOp> opsDrained = new ArrayList<PendingAddOp>(pendingAddOps.size());
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
-            numPendingAddsGauge.dec();
             addToLength(-pendingAddOp.entryLength);
             opsDrained.add(pendingAddOp);
         }
@@ -994,7 +992,6 @@ public class LedgerHandle {
                 break;
             }
             pendingAddOps.remove();
-            numPendingAddsGauge.dec();
             setLastAddConfirmed(pendingAddOp.entryId);
             pendingAddOp.submitCallback(BKException.Code.OK);
             ++numSuccesses;

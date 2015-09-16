@@ -74,6 +74,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
 
         this.timeoutSec = lh.bk.getConf().getAddEntryQuorumTimeout();
         this.delayEnsembleChange = lh.bk.getConf().getDelayEnsembleChange();
+        this.lh.numPendingAddsGauge.inc();
     }
 
     /**
@@ -265,6 +266,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
         cb.addComplete(rc, lh, entryId, ctx);
         lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_COMPLETE)
                 .registerSuccessfulEvent(MathUtils.elapsedMicroSec(completeStartNanos));
+        lh.numPendingAddsGauge.dec();
     }
 
     @Override
