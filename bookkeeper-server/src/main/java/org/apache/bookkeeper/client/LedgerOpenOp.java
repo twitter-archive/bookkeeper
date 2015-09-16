@@ -28,11 +28,13 @@ import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN_RECOVERY;
 
 /**
  * Encapsulates the ledger open operation
@@ -209,9 +211,9 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     }
 
     void openComplete(int rc, LedgerHandle lh) {
-        Enum statEnum = doRecovery ? BookkeeperClientOp.LEDGER_OPEN_RECOVERY : BookkeeperClientOp.LEDGER_OPEN;
+        String statName = doRecovery ? LEDGER_OPEN_RECOVERY : LEDGER_OPEN;
         if (BKException.Code.OK != rc) {
-            bk.getStatsLogger().getOpStatsLogger(statEnum)
+            bk.getStatsLogger().getOpStatsLogger(statName)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
             // make sure we close the open ledger, since the ledger handle won't be used though
             if (null != lh) {
@@ -223,7 +225,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 }, null);
             }
         } else {
-            bk.getStatsLogger().getOpStatsLogger(statEnum)
+            bk.getStatsLogger().getOpStatsLogger(statName)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
             if (null != lh) {
                 lh.hintOpen();

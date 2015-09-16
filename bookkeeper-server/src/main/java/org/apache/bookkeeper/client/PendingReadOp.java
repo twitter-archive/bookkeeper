@@ -38,7 +38,6 @@ import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallbackCtx;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
@@ -406,7 +405,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         boolean complete(int bookieIndex, BookieSocketAddress host, ChannelBuffer buffer) {
             boolean completed = super.complete(bookieIndex, host, buffer);
             if (completed) {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.SPECULATIVES_PER_READ)
                         .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
@@ -416,7 +415,7 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         boolean fail(int rc) {
             boolean completed = super.fail(rc);
             if (completed) {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.SPECULATIVES_PER_READ)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.SPECULATIVES_PER_READ)
                         .registerFailedEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
@@ -547,10 +546,10 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         }
 
         if (code != BKException.Code.OK) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_ENTRY)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_ENTRY)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
         cb.readComplete(code, lh, PendingReadOp.this, PendingReadOp.this.ctx);

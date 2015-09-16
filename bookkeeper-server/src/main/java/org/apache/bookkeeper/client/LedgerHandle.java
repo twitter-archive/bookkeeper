@@ -48,9 +48,9 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.TimedGenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientCounter;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
@@ -93,6 +93,16 @@ public class LedgerHandle {
     final AtomicInteger numEnsembleChanges = new AtomicInteger(0);
     final Queue<PendingAddOp> pendingAddOps = new ConcurrentLinkedQueue<PendingAddOp>();
 
+    // Stats
+    final OpStatsLogger closeOpLogger;
+    final OpStatsLogger deleteOpLogger;
+    final OpStatsLogger recoverOpLogger;
+    final Counter lacUpdateHitsCounter;
+    final Counter lacUpdateMissesCounter;
+    final Counter numOpenLedgersGauge;
+    final Counter numPendingAddsGauge;
+    final OpStatsLogger numSubmittedPerCallbackStatsLogger;
+
     LedgerHandle(BookKeeper bk, long ledgerId, LedgerMetadata metadata,
                  DigestType digestType, byte[] password)
             throws GeneralSecurityException, NumberFormatException {
@@ -122,19 +132,30 @@ public class LedgerHandle {
                 return -1L;
             }
         });
+
+        // Stats
+        this.lacUpdateHitsCounter = bk.getStatsLogger().getCounter(BookKeeperClientStats.LAC_UPDATE_HITS);
+        this.lacUpdateMissesCounter = bk.getStatsLogger().getCounter(BookKeeperClientStats.LAC_UPDATE_MISSES);
+        this.numOpenLedgersGauge = bk.getStatsLogger().getCounter(BookKeeperClientStats.NUM_OPEN_LEDGERS);
+        this.numPendingAddsGauge = bk.getStatsLogger().getCounter(BookKeeperClientStats.NUM_PENDING_ADDS);
+        this.closeOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_CLOSE);
+        this.deleteOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_DELETE);
+        this.recoverOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER);
+        this.numSubmittedPerCallbackStatsLogger =
+                bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.NUM_ADDS_SUBMITTED_PER_CALLBACK);
     }
 
     void hintOpen() {
         // Hint to the handle that an open operation was performed. This is so that the handle can handle refCounts accordingly.
         if (refCount.getAndIncrement() == 0) {
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).inc();
+            numOpenLedgersGauge.inc();
         }
     }
 
     void hintClose() {
         // Hint the handle is closed
         if (refCount.decrementAndGet() == 0) {
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).dec();
+            numOpenLedgersGauge.dec();
         }
     }
 
@@ -313,11 +334,9 @@ public class LedgerHandle {
             @Override
             public void closeComplete(int newRc, LedgerHandle newLh, Object newCtx) {
                 if (BKException.Code.OK == newRc) {
-                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
+                    closeOpLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
                 } else {
-                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
+                    closeOpLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
                 }
                 finalCb.closeComplete(newRc, newLh, newCtx);
             }
@@ -622,7 +641,7 @@ public class LedgerHandle {
                 entryId = ++lastAddPushed;
                 currentLength = addToLength(length);
                 op.setEntryId(entryId);
-                bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).inc();
+                numPendingAddsGauge.inc();
                 pendingAddOps.add(op);
             }
         }
@@ -634,8 +653,7 @@ public class LedgerHandle {
                     @Override
                     public void safeRun() {
                         LOG.warn("Attempt to add to closed ledger: {}", ledgerId);
-                        cb.addComplete(BKException.Code.LedgerClosedException,
-                                LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+                        op.submitCallback(BKException.Code.LedgerClosedException);
                     }
                     @Override
                     public String toString() {
@@ -643,8 +661,7 @@ public class LedgerHandle {
                     }
                 });
             } catch (RejectedExecutionException e) {
-                cb.addComplete(bk.getReturnRc(BKException.Code.InterruptedException),
-                        LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+                op.submitCallback(bk.getReturnRc(BKException.Code.InterruptedException));
             }
             return;
         }
@@ -663,17 +680,16 @@ public class LedgerHandle {
                 }
             });
         } catch (RejectedExecutionException e) {
-            cb.addComplete(bk.getReturnRc(BKException.Code.InterruptedException),
-                    LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            op.submitCallback(bk.getReturnRc(BKException.Code.InterruptedException));
         }
     }
 
     synchronized void updateLastConfirmed(long lac, long len) {
         if (lac > lastAddConfirmed) {
             lastAddConfirmed = lac;
-            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_HITS).inc();
+            lacUpdateHitsCounter.inc();
         } else {
-            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_MISSES).inc();
+            lacUpdateMissesCounter.inc();
         }
         lastAddPushed = Math.max(lastAddPushed, lac);
         length = Math.max(length, len);
@@ -954,7 +970,7 @@ public class LedgerHandle {
         PendingAddOp pendingAddOp;
         List<PendingAddOp> opsDrained = new ArrayList<PendingAddOp>(pendingAddOps.size());
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
+            numPendingAddsGauge.dec();
             addToLength(-pendingAddOp.entryLength);
             opsDrained.add(pendingAddOp);
         }
@@ -978,13 +994,12 @@ public class LedgerHandle {
                 break;
             }
             pendingAddOps.remove();
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
+            numPendingAddsGauge.dec();
             setLastAddConfirmed(pendingAddOp.entryId);
             pendingAddOp.submitCallback(BKException.Code.OK);
             ++numSuccesses;
         }
-        bk.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.NUM_ADDS_SUBMITTED_PER_CALLBACK)
-                .registerSuccessfulEvent(numSuccesses);
+        numSubmittedPerCallbackStatsLogger.registerSuccessfulEvent(numSuccesses);
     }
 
     EnsembleInfo replaceBookieInMetadata(final Map<Integer, BookieSocketAddress> failedBookies,
@@ -1115,7 +1130,7 @@ public class LedgerHandle {
                 // We changed the ensemble, but got a version exception. We
                 // should still consider this as an ensemble change
                 bk.getStatsLogger().getCounter(
-                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                        BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
 
                 LOG.info("[EnsembleChange-L{}-{}] : encountered version conflicts, re-read ledger metadata.",
                         getId(), ensembleChangeIdx);
@@ -1136,7 +1151,7 @@ public class LedgerHandle {
 
             // We've successfully changed an ensemble
             bk.getStatsLogger().getCounter(
-                    BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                    BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
             // the failed bookie has been replaced
             unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
         }
@@ -1248,7 +1263,7 @@ public class LedgerHandle {
             } else {
                 // We've successfully changed an ensemble
                 bk.getStatsLogger().getCounter(
-                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                        BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
                 int newBlockAddCompletions = blockAddCompletions.decrementAndGet();
                 unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
@@ -1343,7 +1358,7 @@ public class LedgerHandle {
                  final @VisibleForTesting BookkeeperInternalCallbacks.ReadEntryListener listener,
                  final boolean forceRecovery) {
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
-                this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
+                this.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER));
 
         boolean wasClosed = false;
         boolean wasInRecovery = false;
@@ -1430,7 +1445,7 @@ public class LedgerHandle {
         });
     }
 
-    public BookkeeperClientStatsLogger getStatsLogger() {
+    public StatsLogger getStatsLogger() {
         // We log everything to one client logger. So just return the stats logger for bk
         return bk.getStatsLogger();
     }

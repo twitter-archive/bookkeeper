@@ -21,7 +21,6 @@
 package org.apache.bookkeeper.client;
 
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryListener;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 
 import java.util.NoSuchElementException;
@@ -47,10 +46,10 @@ class ListenerBasedPendingReadOp extends PendingReadOp {
             }
             seq.remove();
             if (BKException.Code.OK == request.getRc()) {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_ENTRY)
                         .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             } else {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.READ_ENTRY)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_ENTRY)
                         .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
             }
             // callback with completed entry

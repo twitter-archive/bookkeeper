@@ -27,7 +27,6 @@ import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryListener;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -138,14 +137,14 @@ class LedgerRecoveryOp implements ReadEntryListener, AddCallback {
 
     private void submitCallback(int rc) {
         if (BKException.Code.OK == rc) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_ADD_ENTRIES)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER_ADD_ENTRIES)
                     .registerSuccessfulEvent(writeCount.get());
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_READ_ENTRIES)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER_READ_ENTRIES)
                     .registerSuccessfulEvent(readCount.get());
         } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_ADD_ENTRIES)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER_ADD_ENTRIES)
                     .registerFailedEvent(writeCount.get());
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER_READ_ENTRIES)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER_READ_ENTRIES)
                     .registerFailedEvent(readCount.get());
         }
         cb.operationComplete(rc, null);

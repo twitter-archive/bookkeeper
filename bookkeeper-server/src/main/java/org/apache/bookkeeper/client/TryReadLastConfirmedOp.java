@@ -21,13 +21,10 @@ import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.client.ReadLastConfirmedOp.LastConfirmedDataCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.List;
 
 /**
  * This op is try to read last confirmed without involving quorum coverage checking.
@@ -63,8 +60,8 @@ class TryReadLastConfirmedOp implements ReadEntryCallback {
         }
     }
 
-    protected Enum getRequestStatsOp() {
-        return BookkeeperClientStatsLogger.BookkeeperClientOp.TRY_READ_LAST_CONFIRMED;
+    protected String getRequestStatsOp() {
+        return BookKeeperClientStats.TRY_READ_LAST_CONFIRMED;
     }
 
     private void submitCallback(int rc, DigestManager.RecoveryData data) {

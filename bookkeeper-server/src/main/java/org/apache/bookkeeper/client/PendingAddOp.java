@@ -24,7 +24,6 @@ import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -63,7 +62,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
     final int timeoutSec;
     final boolean delayEnsembleChange;
 
-    Timeout timeout;
+    Timeout timeout = null;
 
     PendingAddOp(LedgerHandle lh, AddCallback cb, Object ctx) {
         this.lh = lh;
@@ -103,7 +102,7 @@ class PendingAddOp implements WriteCallback, TimerTask {
     }
 
     void timeoutQuorumWait() {
-        lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.TIMEOUT_ADD_ENTRY)
+        lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.TIMEOUT_ADD_ENTRY)
                 .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         try {
             lh.bk.mainWorkerPool.submitOrdered(lh.ledgerId, new SafeRunnable() {
@@ -149,7 +148,9 @@ class PendingAddOp implements WriteCallback, TimerTask {
     }
 
     void initiate(ChannelBuffer toSend, int entryLength) {
-        this.timeout = lh.bk.bookieClient.scheduleTimeout(this, timeoutSec, TimeUnit.SECONDS);
+        if (timeoutSec > 0) {
+            this.timeout = lh.bk.bookieClient.scheduleTimeout(this, timeoutSec, TimeUnit.SECONDS);
+        }
         this.requestTimeNanos = MathUtils.nowInNano();
         this.toSend = toSend;
         this.entryLength = entryLength;
@@ -254,15 +255,15 @@ class PendingAddOp implements WriteCallback, TimerTask {
             timeout.cancel();
         }
         if (rc != BKException.Code.OK) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
         }
         long completeStartNanos = MathUtils.nowInNano();
         cb.addComplete(rc, lh, entryId, ctx);
-        lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_COMPLETE)
+        lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_COMPLETE)
                 .registerSuccessfulEvent(MathUtils.elapsedMicroSec(completeStartNanos));
     }
 

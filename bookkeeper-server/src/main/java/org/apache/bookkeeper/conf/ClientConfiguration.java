@@ -461,7 +461,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return add entry ack quorum timeout.
      */
     public int getAddEntryQuorumTimeout() {
-        return getInt(ADD_ENTRY_QUORUM_TIMEOUT_SEC, Integer.MAX_VALUE);
+        return getInt(ADD_ENTRY_QUORUM_TIMEOUT_SEC, -1);
     }
 
     /**

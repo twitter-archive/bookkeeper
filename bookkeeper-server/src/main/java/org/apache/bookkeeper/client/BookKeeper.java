@@ -40,8 +40,6 @@ import org.apache.bookkeeper.net.DNSToSwitchMapping;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.stats.AlertStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
-import org.apache.bookkeeper.stats.ClientStatsProvider;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.OrderedSafeExecutor;
@@ -64,7 +62,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.*;
 
 /**
  * BookKeeper client. We assume there is one single writer to a ledger at any
@@ -87,7 +85,7 @@ public class BookKeeper {
     final ClientSocketChannelFactory channelFactory;
 
     // The stats logger for this client.
-    private final BookkeeperClientStatsLogger statsLogger;
+    private final StatsLogger statsLogger;
 
     // whether the socket factory is one we created, or is owned by whoever
     // instantiated us
@@ -340,7 +338,7 @@ public class BookKeeper {
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-scheduler-%d").build());
-        this.statsLogger = ClientStatsProvider.createBookKeeperClientStatsLogger(statsLogger);
+        this.statsLogger = statsLogger.scope(CLIENT_SCOPE);
         this.alertStatsLogger = new AlertStatsLogger(statsLogger, "bk_alert");
         // initialize the ensemble placement
         this.placementPolicy = initializeEnsemblePlacementPolicy(
@@ -826,7 +824,7 @@ public class BookKeeper {
     /**
      * Get the stats logger
      */
-    public BookkeeperClientStatsLogger getStatsLogger() {
+    public StatsLogger getStatsLogger() {
         return this.statsLogger;
     }
 
