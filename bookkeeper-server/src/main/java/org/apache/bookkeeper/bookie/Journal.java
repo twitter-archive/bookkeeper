@@ -34,7 +34,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Stopwatch;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -100,10 +100,10 @@ class Journal extends BookieCriticalThread {
      * A wrapper over log mark to provide a checkpoint for users of journal
      * to do checkpointing.
      */
-    public class LogMarkCheckPoint implements CheckPoint {
+    public class LogMarkCheckpoint implements Checkpoint {
         final LastLogMark mark;
 
-        public LogMarkCheckPoint(LastLogMark checkpoint) {
+        public LogMarkCheckpoint(LastLogMark checkpoint) {
             this.mark = checkpoint;
         }
 
@@ -137,19 +137,19 @@ class Journal extends BookieCriticalThread {
         }
 
         @Override
-        public int compareTo(CheckPoint o) {
-            if (o == CheckPoint.MAX) {
+        public int compareTo(Checkpoint o) {
+            if (o == Checkpoint.MAX) {
                 return -1;
             }
-            return mark.getCurMark().compare(((LogMarkCheckPoint)o).mark.getCurMark());
+            return mark.getCurMark().compare(((LogMarkCheckpoint) o).mark.getCurMark());
         }
 
         @Override
         public boolean equals(Object o) {
-            if (!(o instanceof LogMarkCheckPoint)) {
+            if (!(o instanceof LogMarkCheckpoint)) {
                 return false;
             }
-            return 0 == compareTo((LogMarkCheckPoint)o);
+            return 0 == compareTo((LogMarkCheckpoint)o);
         }
 
         @Override
@@ -639,8 +639,8 @@ class Journal extends BookieCriticalThread {
      * before checkpoint are persisted, a <i>checkpoint</i> will be returned
      * to application. Application could use <i>checkpoint</i> to do its logic.
      */
-    public CheckPoint requestCheckpoint() {
-        return new LogMarkCheckPoint(lastLogMark.markLog());
+    public Checkpoint requestCheckpoint() {
+        return new LogMarkCheckpoint(lastLogMark.markLog());
     }
 
     /**

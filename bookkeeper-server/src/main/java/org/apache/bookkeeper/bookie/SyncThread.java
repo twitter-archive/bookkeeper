@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </p>
  */
 @VisibleForTesting
-public class SyncThread extends BookieCriticalThread implements CheckpointProgress {
+public class SyncThread extends BookieCriticalThread implements CheckpointSource {
     private final static Logger LOG = LoggerFactory.getLogger(SyncThread.class);
 
     /**
@@ -45,12 +45,12 @@ public class SyncThread extends BookieCriticalThread implements CheckpointProgre
      */
     class SyncAction implements Callable<Boolean> {
         // sync ledger storage up to this checkpoint
-        final CheckPoint checkpoint;
+        final Checkpoint checkpoint;
         // is the sync request a fully flush request
         final boolean isFlush;
         boolean completed = false;
 
-        SyncAction(CheckPoint cp, boolean isFlush) {
+        SyncAction(Checkpoint cp, boolean isFlush) {
             this.checkpoint = cp;
             this.isFlush = isFlush;
         }
@@ -137,7 +137,7 @@ public class SyncThread extends BookieCriticalThread implements CheckpointProgre
      * @param checkpoint
      */
     @VisibleForTesting
-    public void checkPoint(final CheckPoint checkpoint) {
+    public void checkPoint(final Checkpoint checkpoint) {
         new SyncAction(checkpoint, !running).call();
     }
 
@@ -145,7 +145,7 @@ public class SyncThread extends BookieCriticalThread implements CheckpointProgre
      * flush on current state.
      */
     Future<Boolean> flush() {
-        CheckPoint cp = requestCheckpoint();
+        Checkpoint cp = requestCheckpoint();
         LOG.info("Flush ledger storage at checkpoint {}.", cp);
         return offerSyncRequest(new SyncAction(cp, true));
     }
@@ -213,7 +213,7 @@ public class SyncThread extends BookieCriticalThread implements CheckpointProgre
         // Wake up and finish sync thread
         running = false;
         flushing.compareAndSet(false, true);
-        CheckPoint cp = requestCheckpoint();
+        Checkpoint cp = requestCheckpoint();
         startCheckpoint(cp);
         this.join();
 
@@ -221,12 +221,12 @@ public class SyncThread extends BookieCriticalThread implements CheckpointProgre
     }
 
     @Override
-    public CheckPoint requestCheckpoint() {
+    public Checkpoint requestCheckpoint() {
         return journal.requestCheckpoint();
     }
 
     @Override
-    public void startCheckpoint(CheckPoint checkpoint) {
+    public void startCheckpoint(Checkpoint checkpoint) {
         offerSyncRequest(new SyncAction(checkpoint, !running));
     }
 

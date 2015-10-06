@@ -35,7 +35,7 @@ import junit.framework.TestCase;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -397,7 +397,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public void checkpointBookies() {
         for (BookieServer server : bs) {
-            server.getBookie().getSyncThread().checkPoint(CheckPoint.MAX);
+            server.getBookie().getSyncThread().checkPoint(Checkpoint.MAX);
         }
     }
 

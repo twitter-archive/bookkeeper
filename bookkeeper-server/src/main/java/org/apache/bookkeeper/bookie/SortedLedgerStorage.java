@@ -27,7 +27,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -45,7 +45,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
 
     private final EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
-    private final CheckpointProgress checkpointer;
+    private final CheckpointSource checkpointer;
 
     // Stats
     private final Counter memtableReadEntryCounter;
@@ -57,7 +57,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                                ActiveLedgerManager activeLedgerManager,
                                LedgerDirsManager ledgerDirsManager,
                                LedgerDirsManager indexDirsManager,
-                               final CheckpointProgress progress,
+                               final CheckpointSource progress,
                                StatsLogger statsLogger)
                                        throws IOException {
         super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null, statsLogger);
@@ -168,7 +168,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
-    public void checkpoint(final CheckPoint checkpoint) throws IOException {
+    public void checkpoint(final Checkpoint checkpoint) throws IOException {
         memTable.flush(this, checkpoint);
         super.checkpoint(checkpoint);
     }
@@ -181,13 +181,13 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
 
     @Override
     public void flush() throws IOException {
-        memTable.flush(this, CheckPoint.MAX);
+        memTable.flush(this, Checkpoint.MAX);
         super.flush();
     }
 
     // CacheCallback functions.
     @Override
-    public void onSizeLimitReached(final CheckPoint cp) throws IOException {
+    public void onSizeLimitReached(final Checkpoint cp) throws IOException {
         // when size limit reached, we get the previous checkpoint from snapshot mem-table.
         // at this point, we are safer to schedule a checkpoint, since the entries added before
         // this checkpoint already written to entry logger.

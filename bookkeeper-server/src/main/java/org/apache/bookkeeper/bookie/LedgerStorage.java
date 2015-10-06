@@ -26,7 +26,7 @@ import java.nio.ByteBuffer;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 
 /**
  * Interface for storing ledger data
@@ -142,6 +142,6 @@ interface LedgerStorage {
      *          Check Point
      * @throws IOException
      */
-    void checkpoint(CheckPoint checkpoint) throws IOException;
+    void checkpoint(Checkpoint checkpoint) throws IOException;
 
 }

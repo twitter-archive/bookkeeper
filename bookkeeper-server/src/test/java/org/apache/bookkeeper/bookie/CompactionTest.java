@@ -245,15 +245,15 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         baseConf.setMinorCompactionInterval(120000);
         baseConf.setMajorCompactionInterval(240000);
         LedgerDirsManager dirManager = new LedgerDirsManager(baseConf, tmpDirs.toArray(new File[tmpDirs.size()]));
-        CheckpointProgress cp = new CheckpointProgress() {
+        CheckpointSource cp = new CheckpointSource() {
             @Override
-            public CheckPoint requestCheckpoint() {
+            public Checkpoint requestCheckpoint() {
                 // Do nothing.
                 return null;
             }
 
             @Override
-            public void startCheckpoint(CheckPoint checkPoint) {
+            public void startCheckpoint(Checkpoint checkPoint) {
                 // Do nothing.
             }
         };
@@ -437,9 +437,9 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         File tmpDir = createTempDir("compaction", "compactionSafety");
         File curDir = Bookie.getCurrentDirectory(tmpDir);
         Bookie.checkDirectoryStructure(curDir);
-        conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+        conf.setLedgerDirNames(new String[]{tmpDir.toString()});
 
-        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_LENGTH + 3 * (4+ENTRY_SIZE));
+        conf.setEntryLogSizeLimit(EntryLogger.LOGFILE_HEADER_LENGTH + 3 * (4 + ENTRY_SIZE));
         conf.setGcWaitTime(100);
         conf.setMinorCompactionThreshold(0.7f);
         conf.setMajorCompactionThreshold(0.0f);
@@ -447,14 +447,14 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         conf.setMajorCompactionInterval(10);
         conf.setPageLimit(1);
 
-        CheckpointProgress checkpointProgress = new CheckpointProgress() {
+        CheckpointSource checkpointProgress = new CheckpointSource() {
             AtomicInteger idGen = new AtomicInteger(0);
-            class MyCheckpoint implements CheckPoint {
+            class MyCheckpoint implements Checkpoint {
 
                 int id = idGen.incrementAndGet();
                 @Override
-                public int compareTo(CheckPoint o) {
-                    if (o == CheckPoint.MAX) {
+                public int compareTo(Checkpoint o) {
+                    if (o == Checkpoint.MAX) {
                         return -1;
                     }
                     return id - ((MyCheckpoint)o).id;
@@ -466,12 +466,12 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
             }
 
             @Override
-            public CheckPoint requestCheckpoint() {
+            public Checkpoint requestCheckpoint() {
                 return new MyCheckpoint();
             }
 
             @Override
-            public void startCheckpoint(CheckPoint checkpoint) {
+            public void startCheckpoint(Checkpoint checkpoint) {
 
             }
         };
@@ -586,14 +586,14 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         final Set<Long> ledgers = Collections
                 .newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
         ActiveLedgerManager manager = getActiveLedgerManager(ledgers);
-        CheckpointProgress checkpointSource = new CheckpointProgress() {
+        CheckpointSource checkpointSource = new CheckpointSource() {
             @Override
-            public CheckPoint requestCheckpoint() {
+            public Checkpoint requestCheckpoint() {
                 return null;
             }
 
             @Override
-            public void startCheckpoint(CheckPoint checkpoint) {
+            public void startCheckpoint(Checkpoint checkpoint) {
                 // no-op
             }
         };

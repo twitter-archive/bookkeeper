@@ -30,7 +30,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
@@ -126,7 +126,7 @@ public class LedgerCacheTest extends TestCase {
                     while (true) {
                         try {
                             sleep(flushInterval);
-                            bookie.getSyncThread().checkPoint(CheckPoint.MAX);
+                            bookie.getSyncThread().checkPoint(Checkpoint.MAX);
                             ledgerCache.flushLedger(true);
                         } catch (InterruptedException ie) {
                             // killed by teardown

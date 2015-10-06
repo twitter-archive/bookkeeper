@@ -20,7 +20,7 @@
 package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -50,20 +50,20 @@ public class EntryMemTable {
      * Entry skip list
      */
     static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
-        final CheckPoint cp;
-        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(CheckPoint.MAX) {
+        final Checkpoint cp;
+        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(Checkpoint.MAX) {
             @Override
             public boolean isEmpty() {
                 return true;
             }
         };
 
-        EntrySkipList(final CheckPoint cp) {
+        EntrySkipList(final Checkpoint cp) {
             super(EntryKey.COMPARATOR);
             this.cp = cp;
         }
 
-        int compareTo(final CheckPoint cp) {
+        int compareTo(final Checkpoint cp) {
             return this.cp.compareTo(cp);
         }
 
@@ -90,7 +90,7 @@ public class EntryMemTable {
     volatile EntrySkipList snapshot;
 
     final ServerConfiguration conf;
-    final CheckpointProgress progress;
+    final CheckpointSource progress;
 
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -117,7 +117,7 @@ public class EntryMemTable {
     * @param conf Server configuration
     */
     public EntryMemTable(final ServerConfiguration conf,
-                         final CheckpointProgress progress,
+                         final CheckpointSource progress,
                          final StatsLogger statsLogger) {
         this.progress = progress;
         this.kvmap = newSkipList();
@@ -145,8 +145,8 @@ public class EntryMemTable {
         }
     }
 
-    CheckPoint snapshot() throws IOException {
-        return snapshot(CheckPoint.MAX);
+    Checkpoint snapshot() throws IOException {
+        return snapshot(Checkpoint.MAX);
     }
 
     /**
@@ -158,8 +158,8 @@ public class EntryMemTable {
      * @return checkpoint of the snapshot, null means no snapshot
      * @throws IOException
      */
-    CheckPoint snapshot(CheckPoint oldCp) throws IOException {
-        CheckPoint cp = null;
+    Checkpoint snapshot(Checkpoint oldCp) throws IOException {
+        Checkpoint cp = null;
         // No-op if snapshot currently has entries
         if (this.snapshot.isEmpty() &&
                 this.kvmap.compareTo(oldCp) < 0) {
@@ -194,7 +194,7 @@ public class EntryMemTable {
      * Flush snapshot and clear it.
      */
     long flush(final SkipListFlusher flusher) throws IOException {
-        return flushSnapshot(flusher, CheckPoint.MAX);
+        return flushSnapshot(flusher, Checkpoint.MAX);
     }
 
     /**
@@ -203,7 +203,7 @@ public class EntryMemTable {
      * @param checkpoint
      *          all data before this checkpoint need to be flushed.
      */
-    public long flush(SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
+    public long flush(SkipListFlusher flusher, Checkpoint checkpoint) throws IOException {
         long size = flushSnapshot(flusher, checkpoint);
         if (null != snapshot(checkpoint)) {
             size += flushSnapshot(flusher, checkpoint);
@@ -215,7 +215,7 @@ public class EntryMemTable {
      * Flush snapshot and clear it iff its data is before checkpoint.
      * Only this function change non-empty this.snapshot.
      */
-    private long flushSnapshot(final SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
+    private long flushSnapshot(final SkipListFlusher flusher, Checkpoint checkpoint) throws IOException {
         long size = 0;
         if (this.snapshot.compareTo(checkpoint) < 0) {
             long ledger, ledgerGC = -1;
@@ -283,7 +283,7 @@ public class EntryMemTable {
         long size = 0;
         final long startTimeNanos = MathUtils.nowInNano();
         if (isSizeLimitReached()) {
-            CheckPoint cp = snapshot();
+            Checkpoint cp = snapshot();
             if (null != cp) {
                 cb.onSizeLimitReached(cp);
             } else {

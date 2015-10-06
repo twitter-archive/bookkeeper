@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.EntryLogger.EntryLogListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -51,7 +51,7 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
 
     protected EntryLogger entryLogger;
     protected LedgerCache ledgerCache;
-    private final CheckpointProgress checkPointer;
+    private final CheckpointSource checkPointer;
     // This is the thread that garbage collects the entry logs that do not
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
@@ -70,7 +70,7 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
                                     ActiveLedgerManager activeLedgerManager,
                                     LedgerDirsManager ledgerDirsManager,
                                     LedgerDirsManager indexDirsManager,
-                                    CheckpointProgress checkPointer,
+                                    CheckpointSource checkPointer,
                                     StatsLogger statsLogger)
             throws IOException {
         this.checkPointer = checkPointer;
@@ -288,7 +288,7 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     }
 
     @Override
-    public void checkpoint(CheckPoint checkpoint) throws IOException {
+    public void checkpoint(Checkpoint checkpoint) throws IOException {
         // Ignore checkpoint, since for interleaved ledger storage, we need just checkpoint unflushed.
         //
         // we don't need to check somethingwritten since checkpoint
@@ -333,7 +333,7 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     public void onRotateEntryLog() {
         // for interleaved ledger storage, we request a checkpoint when rotating a entry log file.
         if (null != checkPointer) {
-            CheckPoint checkpoint = checkPointer.requestCheckpoint();
+            Checkpoint checkpoint = checkPointer.requestCheckpoint();
             checkPointer.startCheckpoint(checkpoint);
         }
     }

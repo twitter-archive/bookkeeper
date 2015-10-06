@@ -22,17 +22,17 @@ import java.io.IOException;
 /**
  * Interface to communicate checkpoint progress.
  */
-public interface CheckpointProgress {
+public interface CheckpointSource {
 
     /**
      * A checkpoint presented a time point. All entries added before this checkpoint are already persisted.
      */
-    public static interface CheckPoint extends Comparable<CheckPoint> {
+    public static interface Checkpoint extends Comparable<Checkpoint> {
 
-        public static final CheckPoint MAX = new CheckPoint() {
+        public static final Checkpoint MAX = new Checkpoint() {
 
             @Override
-            public int compareTo(CheckPoint o) {
+            public int compareTo(Checkpoint o) {
                 if (o == MAX) {
                     return 0;
                 }
@@ -48,7 +48,7 @@ public interface CheckpointProgress {
             public boolean equals(Object o) {
                 return this == o;
             }
-            
+
         };
         /**
          * Tell checkpoint progress that the checkpoint is completed.
@@ -65,7 +65,7 @@ public interface CheckpointProgress {
      * Request a checkpoint.
      * @return checkpoint.
      */
-    public CheckPoint requestCheckpoint();
+    public Checkpoint requestCheckpoint();
 
     /**
      * Start checkpointing for the given <i>checkpoint</i>
@@ -73,5 +73,5 @@ public interface CheckpointProgress {
      * @param checkpoint
      *          Check point.
      */
-    public void startCheckpoint(CheckPoint checkpoint);
+    public void startCheckpoint(Checkpoint checkpoint);
 }
