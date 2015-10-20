@@ -28,6 +28,7 @@ public class TestBKConfiguration {
         confReturn.setJournalFlushWhenQueueEmpty(true);
         confReturn.setEntryLogWriteLedgersMapEnabled(true);
         confReturn.setEntryLogReadLedgersMapEnabled(true);
+        confReturn.setCheckpointInterval(100);
         return confReturn;
     }
 

@@ -499,10 +499,10 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         // Check the type of storage.
         if (conf.getSortedLedgerStorageEnabled()) {
             ledgerStorage = new SortedLedgerStorage(conf, activeLedgerManager,
-                ledgerDirsManager, indexDirsManager, syncThread, statsLogger);
+                ledgerDirsManager, indexDirsManager, journal, statsLogger);
         } else {
             ledgerStorage = new InterleavedLedgerStorage(conf, activeLedgerManager,
-                ledgerDirsManager, indexDirsManager, syncThread, statsLogger);
+                ledgerDirsManager, indexDirsManager, journal, statsLogger);
         }
         ledgerStorage.registerListener(this);
 
@@ -565,7 +565,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
 
         // Do a fully flush after journal replay
         try {
-            syncThread.flush().get();
+            syncThread.requestFlush().get();
         } catch (InterruptedException e) {
             LOG.warn("Interrupting the fully flush after replaying journals : ", e);
             Thread.currentThread().interrupt();

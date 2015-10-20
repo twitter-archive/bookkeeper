@@ -126,7 +126,7 @@ public class LedgerCacheTest extends TestCase {
                     while (true) {
                         try {
                             sleep(flushInterval);
-                            bookie.getSyncThread().checkPoint(Checkpoint.MAX);
+                            bookie.getSyncThread().checkpoint(Checkpoint.MAX);
                             ledgerCache.flushLedger(true);
                         } catch (InterruptedException ie) {
                             // killed by teardown

@@ -40,8 +40,19 @@ public interface CheckpointSource {
             }
 
             @Override
-            public void checkpointComplete(boolean compact) throws IOException {
-                // do nothing
+            public boolean equals(Object o) {
+                return this == o;
+            }
+
+        };
+
+        public static final Checkpoint MIN = new Checkpoint() {
+            @Override
+            public int compareTo(Checkpoint o) {
+                if (o == MIN) {
+                    return 0;
+                }
+                return -1;
             }
 
             @Override
@@ -50,28 +61,25 @@ public interface CheckpointSource {
             }
 
         };
-        /**
-         * Tell checkpoint progress that the checkpoint is completed.
-         * If <code>compact</code> is true, the implementation could compact
-         * to reduce size of data containing old checkpoints.
-         *
-         * @param compact
-         *          Flag to compact old checkpoints.
-         */
-        public void checkpointComplete(boolean compact) throws IOException;
+
     }
 
     /**
-     * Request a checkpoint.
+     * Request a new a checkpoint.
+     *
      * @return checkpoint.
      */
-    public Checkpoint requestCheckpoint();
+    public Checkpoint newCheckpoint();
 
     /**
-     * Start checkpointing for the given <i>checkpoint</i>
+     * Tell checkpoint source that the checkpoint is completed.
+     * If <code>compact</code> is true, the implementation could compact
+     * to reduce size of data containing old checkpoints.
      *
      * @param checkpoint
-     *          Check point.
+     *          The checkpoint that has been completed
+     * @param compact
+     *          Flag to compact old checkpoints.
      */
-    public void startCheckpoint(Checkpoint checkpoint);
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException;
 }

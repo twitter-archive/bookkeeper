@@ -102,7 +102,7 @@ public class EntryMemTable {
     SkipListArena allocator;
 
     private EntrySkipList newSkipList() {
-        return new EntrySkipList(progress.requestCheckpoint());
+        return new EntrySkipList(progress.newCheckpoint());
     }
 
     // Stats

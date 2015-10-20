@@ -56,7 +56,7 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 /**
  * Provide journal related management.
  */
-class Journal extends BookieCriticalThread {
+class Journal extends BookieCriticalThread implements CheckpointSource {
 
     static Logger LOG = LoggerFactory.getLogger(Journal.class);
 
@@ -100,46 +100,19 @@ class Journal extends BookieCriticalThread {
      * A wrapper over log mark to provide a checkpoint for users of journal
      * to do checkpointing.
      */
-    public class LogMarkCheckpoint implements Checkpoint {
+    private static class LogMarkCheckpoint implements Checkpoint {
         final LastLogMark mark;
 
         public LogMarkCheckpoint(LastLogMark checkpoint) {
             this.mark = checkpoint;
         }
 
-        /**
-         * Telling journal a checkpoint is finished.
-         *
-         * @throws IOException
-         */
-        @Override
-        public void checkpointComplete(boolean compact) throws IOException {
-            mark.rollLog(mark);
-            if (compact) {
-                // list the journals that have been marked
-                List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
-                // keep MAX_BACKUP_JOURNALS journal files before marked journal
-                if (logs.size() >= maxBackupJournals) {
-                    int maxIdx = logs.size() - maxBackupJournals;
-                    for (int i=0; i<maxIdx; i++) {
-                        long id = logs.get(i);
-                        // make sure the journal id is smaller than marked journal id
-                        if (id < mark.getCurMark().getLogFileId()) {
-                            File journalFile = new File(journalDirectory, Long.toHexString(id) + ".txn");
-                            if (!journalFile.delete()) {
-                                LOG.warn("Could not delete old journal file {}", journalFile);
-                            }
-                            LOG.info("garbage collected journal " + journalFile.getName());
-                        }
-                    }
-                }
-            }
-        }
-
         @Override
         public int compareTo(Checkpoint o) {
             if (o == Checkpoint.MAX) {
                 return -1;
+            } else if (o == Checkpoint.MIN) {
+                return 1;
             }
             return mark.getCurMark().compare(((LogMarkCheckpoint) o).mark.getCurMark());
         }
@@ -639,8 +612,39 @@ class Journal extends BookieCriticalThread {
      * before checkpoint are persisted, a <i>checkpoint</i> will be returned
      * to application. Application could use <i>checkpoint</i> to do its logic.
      */
-    public Checkpoint requestCheckpoint() {
+    @Override
+    public Checkpoint newCheckpoint() {
         return new LogMarkCheckpoint(lastLogMark.markLog());
+    }
+
+    @Override
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact) throws IOException {
+        if (!(checkpoint instanceof LogMarkCheckpoint)) {
+            return; // we didn't create this checkpoint, so dont do anything with it
+        }
+        LogMarkCheckpoint lmcheckpoint = (LogMarkCheckpoint)checkpoint;
+        LastLogMark mark = lmcheckpoint.mark;
+
+        mark.rollLog(mark);
+        if (compact) {
+            // list the journals that have been marked
+            List<Long> logs = listJournalIds(journalDirectory, new JournalRollingFilter(mark));
+            // keep MAX_BACKUP_JOURNALS journal files before marked journal
+            if (logs.size() >= maxBackupJournals) {
+                int maxIdx = logs.size() - maxBackupJournals;
+                for (int i=0; i<maxIdx; i++) {
+                    long id = logs.get(i);
+                    // make sure the journal id is smaller than marked journal id
+                    if (id < mark.getCurMark().getLogFileId()) {
+                        File journalFile = new File(journalDirectory, Long.toHexString(id) + ".txn");
+                        if (!journalFile.delete()) {
+                            LOG.warn("Could not delete old journal file {}", journalFile);
+                        }
+                        LOG.info("garbage collected journal " + journalFile.getName());
+                    }
+                }
+            }
+        }
     }
 
     /**

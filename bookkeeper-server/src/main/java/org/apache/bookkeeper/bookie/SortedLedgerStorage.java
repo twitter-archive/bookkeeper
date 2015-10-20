@@ -45,7 +45,6 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
 
     private final EntryMemTable memTable;
     private final ScheduledExecutorService scheduler;
-    private final CheckpointSource checkpointer;
 
     // Stats
     private final Counter memtableReadEntryCounter;
@@ -57,17 +56,16 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                                ActiveLedgerManager activeLedgerManager,
                                LedgerDirsManager ledgerDirsManager,
                                LedgerDirsManager indexDirsManager,
-                               final CheckpointSource progress,
+                               final CheckpointSource checkpointSource,
                                StatsLogger statsLogger)
                                        throws IOException {
-        super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, null, statsLogger);
-        this.memTable = new EntryMemTable(conf, progress, statsLogger);
+        super(conf, activeLedgerManager, ledgerDirsManager, indexDirsManager, checkpointSource, statsLogger);
+        this.memTable = new EntryMemTable(conf, checkpointSource, statsLogger);
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder()
                         .setThreadFactory(new DaemonThreadFactory((Thread.NORM_PRIORITY + Thread.MAX_PRIORITY)/2))
                         .setNameFormat("SortedLedgerStorageExecutor-%d")
                         .build());
-        this.checkpointer = progress;
         // Stats
         this.memtableReadEntryCounter = statsLogger.getCounter(NUM_ENTRIES_READ_FROM_MEMTABLE);
         this.memtableReadBytesCounter = statsLogger.getCounter(NUM_BYTES_READ_FROM_MEMTABLE);
@@ -168,9 +166,14 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
     }
 
     @Override
-    public void checkpoint(final Checkpoint checkpoint) throws IOException {
+    public Checkpoint checkpoint(final Checkpoint checkpoint) throws IOException {
+        Checkpoint lastCheckpoint = checkpointHolder.getLastCheckpoint();
+        // if checkpoint is less than last checkpoint, we don't need to do checkpoint again.
+        if (lastCheckpoint.compareTo(checkpoint) > 0) {
+            return lastCheckpoint;
+        }
         memTable.flush(this, checkpoint);
-        super.checkpoint(checkpoint);
+        return super.checkpoint(checkpoint);
     }
 
     @Override
@@ -212,10 +215,7 @@ public class SortedLedgerStorage extends InterleavedLedgerStorage
                     // storage is writing to.
                     if (entryLogger.reachEntryLogLimit(0) || logIdAfterFlush != logIdBeforeFlush) {
                         entryLogger.rollLog();
-                        checkpointer.startCheckpoint(cp);
-                        LOG.info(
-                                "Rolling entry logger since it reached size limitation and start checkpointing at {}.",
-                                cp);
+                        LOG.info("Rolling entry logger since it reached size limitation.");
                     }
                 } catch (IOException e) {
                     // TODO: if we failed to flush data, we should switch the bookie back to readonly mode

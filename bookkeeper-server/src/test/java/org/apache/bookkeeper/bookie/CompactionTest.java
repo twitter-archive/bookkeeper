@@ -247,14 +247,15 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         LedgerDirsManager dirManager = new LedgerDirsManager(baseConf, tmpDirs.toArray(new File[tmpDirs.size()]));
         CheckpointSource cp = new CheckpointSource() {
             @Override
-            public Checkpoint requestCheckpoint() {
+            public Checkpoint newCheckpoint() {
                 // Do nothing.
                 return null;
             }
 
             @Override
-            public void startCheckpoint(Checkpoint checkPoint) {
-                // Do nothing.
+            public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+                    throws IOException {
+                // Do nothing
             }
         };
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage(baseConf,
@@ -450,29 +451,26 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         CheckpointSource checkpointProgress = new CheckpointSource() {
             AtomicInteger idGen = new AtomicInteger(0);
             class MyCheckpoint implements Checkpoint {
-
                 int id = idGen.incrementAndGet();
                 @Override
                 public int compareTo(Checkpoint o) {
                     if (o == Checkpoint.MAX) {
                         return -1;
+                    } else if (o == Checkpoint.MIN) {
+                        return 1;
                     }
                     return id - ((MyCheckpoint)o).id;
-                }
-
-                @Override
-                public void checkpointComplete(boolean compact) throws IOException {
                 }
             }
 
             @Override
-            public Checkpoint requestCheckpoint() {
+            public Checkpoint newCheckpoint() {
                 return new MyCheckpoint();
             }
 
             @Override
-            public void startCheckpoint(Checkpoint checkpoint) {
-
+            public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+                    throws IOException {
             }
         };
 
@@ -588,13 +586,13 @@ abstract class CompactionTest extends BookKeeperClusterTestCase {
         ActiveLedgerManager manager = getActiveLedgerManager(ledgers);
         CheckpointSource checkpointSource = new CheckpointSource() {
             @Override
-            public Checkpoint requestCheckpoint() {
+            public Checkpoint newCheckpoint() {
                 return null;
             }
 
             @Override
-            public void startCheckpoint(Checkpoint checkpoint) {
-                // no-op
+            public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+                    throws IOException {
             }
         };
         InterleavedLedgerStorage storage = new InterleavedLedgerStorage(conf,

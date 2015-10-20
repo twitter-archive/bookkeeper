@@ -81,7 +81,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync
-        syncThread.checkPoint(Checkpoint.MAX);
+        syncThread.requestFlush().get();
 
         // restart bookies
         restartBookies();
@@ -123,7 +123,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync
-        syncThread.checkPoint(Checkpoint.MAX);
+        syncThread.requestFlush().get();
 
         syncThread.suspendSync();
 
@@ -138,7 +138,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // wait for sync again
-        syncThread.checkPoint(Checkpoint.MAX);
+        syncThread.requestFlush().get();
 
         // restart bookies
         restartBookies();
@@ -194,6 +194,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         fc.truncate(fc.size() - sizeToTruncate);
         fc.close();
 
+        syncThread.disableCheckpoint();
         syncThread.resumeSync();
 
         // restart bookies
@@ -270,8 +271,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         }
 
         for (BookieServer bookieServer : bs) {
-            Checkpoint cp = bookieServer.getBookie().getSyncThread().requestCheckpoint();
-            bookieServer.getBookie().getSyncThread().checkPoint(cp);
+            bookieServer.getBookie().getSyncThread().requestFlush().get();
         }
 
         lh.close();

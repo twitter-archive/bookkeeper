@@ -49,9 +49,31 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     final static Logger LOG = LoggerFactory.getLogger(InterleavedLedgerStorage.class);
 
+    // Hold the last checkpoint
+    protected static class CheckpointHolder {
+        Checkpoint lastCheckpoint = Checkpoint.MAX;
+
+        protected synchronized void setNextCheckpoint(Checkpoint cp) {
+            if (Checkpoint.MAX.equals(lastCheckpoint) || lastCheckpoint.compareTo(cp) < 0) {
+                lastCheckpoint = cp;
+            }
+        }
+
+        protected synchronized void clearLastCheckpoint(Checkpoint done) {
+            if (0 == lastCheckpoint.compareTo(done)) {
+                lastCheckpoint = Checkpoint.MAX;
+            }
+        }
+
+        protected synchronized Checkpoint getLastCheckpoint() {
+            return lastCheckpoint;
+        }
+    }
+
     protected EntryLogger entryLogger;
     protected LedgerCache ledgerCache;
-    private final CheckpointSource checkPointer;
+    private final CheckpointSource checkpointSource;
+    protected final CheckpointHolder checkpointHolder = new CheckpointHolder();
     // This is the thread that garbage collects the entry logs that do not
     // contain any active ledgers in them; and compacts the entry logs that
     // has lower remaining percentage to reclaim disk space.
@@ -70,10 +92,10 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
                                     ActiveLedgerManager activeLedgerManager,
                                     LedgerDirsManager ledgerDirsManager,
                                     LedgerDirsManager indexDirsManager,
-                                    CheckpointSource checkPointer,
+                                    CheckpointSource checkpointSource,
                                     StatsLogger statsLogger)
             throws IOException {
-        this.checkPointer = checkPointer;
+        this.checkpointSource = checkpointSource;
         entryLogger = new EntryLogger(conf, ledgerDirsManager, this, statsLogger);
         ledgerCache = new LedgerCacheImpl(conf, activeLedgerManager, indexDirsManager, statsLogger);
         gcThread = new GarbageCollectorThread(conf, ledgerCache, entryLogger, this,
@@ -288,14 +310,21 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     }
 
     @Override
-    public void checkpoint(Checkpoint checkpoint) throws IOException {
-        // Ignore checkpoint, since for interleaved ledger storage, we need just checkpoint unflushed.
-        //
+    public Checkpoint checkpoint(Checkpoint checkpoint) throws IOException {
+        Checkpoint lastCheckpoint = checkpointHolder.getLastCheckpoint();
+        // if checkpoint is less than last checkpoint, we don't need to do checkpoint again.
+        if (lastCheckpoint.compareTo(checkpoint) > 0) {
+            return lastCheckpoint;
+        }
         // we don't need to check somethingwritten since checkpoint
         // is scheduled when rotate an entry logger file. and we could
         // not set somethingWritten to false after checkpoint, since
         // current entry logger file isn't flushed yet.
         flushOptional(true, true);
+        // after the ledger storage finished checkpointing, try to clear the done checkpoint
+
+        checkpointHolder.clearLastCheckpoint(lastCheckpoint);
+        return lastCheckpoint;
     }
 
     @Override
@@ -332,9 +361,10 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     @Override
     public void onRotateEntryLog() {
         // for interleaved ledger storage, we request a checkpoint when rotating a entry log file.
-        if (null != checkPointer) {
-            Checkpoint checkpoint = checkPointer.requestCheckpoint();
-            checkPointer.startCheckpoint(checkpoint);
+        // the checkpoint represent the point that all the entries added before this point are already
+        // in ledger storage and ready to be synced to disk.
+        if (null != checkpointSource) {
+            checkpointHolder.setNextCheckpoint(checkpointSource.newCheckpoint());
         }
     }
 }

@@ -50,6 +50,8 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Gc Parameters
     protected final static String GC_WAIT_TIME = "gcWaitTime";
     protected final static String GC_INITIAL_WAIT_TIME = "gcInitialWaitTime";
+    // Sync Parameters
+    protected final static String CHECKPOINT_INTERVAL = "checkpointInterval";
     // Bookie death watch interval
     protected final static String DEATH_WATCH_INTERVAL = "bookieDeathWatchInterval";
     // Ledger Cache Parameters
@@ -258,6 +260,27 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setGcInitialWaitTime(long gcWaitTime) {
         this.setProperty(GC_INITIAL_WAIT_TIME, gcWaitTime);
+        return this;
+    }
+
+    /**
+     * Get checkpoint interval (in millis)
+     *
+     * @return checkpoint interval in millis
+     */
+    public int getCheckpointInterval() {
+        return this.getInt(CHECKPOINT_INTERVAL, 10000);
+    }
+
+    /**
+     * Set checkpoint interval (in millis)
+     *
+     * @param checkpointInterval
+     *          Checkpoint Interval
+     * @return server configuration
+     */
+    public ServerConfiguration setCheckpointInterval(int checkpointInterval) {
+        this.setProperty(CHECKPOINT_INTERVAL, checkpointInterval);
         return this;
     }
 

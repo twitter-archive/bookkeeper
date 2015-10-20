@@ -135,13 +135,16 @@ interface LedgerStorage {
     void flush() throws IOException;
 
     /**
-     * Flushes the data in the storage to make a checkpoint. Once this is
-     * called, it means that data added before the checkpoint is persisted.
+     * Ask the ledger storage to sync data until the given <i>checkpoint</i>.
+     * The ledger storage implementation do checkpoint and return the real checkpoint
+     * that it finished. The returned checkpoint indicates that all entries added
+     * before that point already persist.
      *
      * @param checkpoint
-     *          Check Point
+     *          Check Point that {@link CheckpointSource} proposed.
      * @throws IOException
+     * @return the checkpoint that the ledger storage finished
      */
-    void checkpoint(Checkpoint checkpoint) throws IOException;
+    Checkpoint checkpoint(Checkpoint checkpoint) throws IOException;
 
 }

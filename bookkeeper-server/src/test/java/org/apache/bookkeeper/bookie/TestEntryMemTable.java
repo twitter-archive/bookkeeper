@@ -40,13 +40,13 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
     private TestCheckPoint curCheckpoint = new TestCheckPoint(0, 0);
 
     @Override
-    public Checkpoint requestCheckpoint() {
+    public Checkpoint newCheckpoint() {
         return curCheckpoint;
     }
 
     @Override
-    public void startCheckpoint(Checkpoint checkpoint) {
-        // DO NOTHING
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+            throws IOException {
     }
 
     @Before
@@ -259,11 +259,6 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
                 return -1;
             }
             return mark.compare(((TestCheckPoint)o).mark);
-        }
-
-        @Override
-        public void checkpointComplete(boolean compact) throws IOException {
-            // do nothing
         }
 
     }

@@ -1,18 +1,21 @@
 package org.apache.bookkeeper.bookie;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerDirsManager.NoWritableLedgerDirException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * SyncThread is a background thread which flushes ledger index pages periodically.
@@ -37,117 +40,118 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </p>
  */
 @VisibleForTesting
-public class SyncThread extends BookieCriticalThread implements CheckpointSource {
+public class SyncThread {
     private final static Logger LOG = LoggerFactory.getLogger(SyncThread.class);
 
-    /**
-     * Sync Action Representing a CheckPoint or a Flush.
-     */
-    class SyncAction implements Callable<Boolean> {
-        // sync ledger storage up to this checkpoint
-        final Checkpoint checkpoint;
-        // is the sync request a fully flush request
-        final boolean isFlush;
-        boolean completed = false;
-
-        SyncAction(Checkpoint cp, boolean isFlush) {
-            this.checkpoint = cp;
-            this.isFlush = isFlush;
-        }
-
-        @Override
-        public Boolean call() {
-            boolean flushFailed = false;
-            try {
-                if (!isFlush) {
-                    ledgerStorage.checkpoint(checkpoint);
-                } else {
-                    ledgerStorage.flush();
-                }
-            } catch (NoWritableLedgerDirException e) {
-                LOG.error("No writeable ledger directories when flushing ledger storage : ", e);
-                flushFailed = true;
-                dirsListener.allDisksFull();
-            } catch (IOException e) {
-                LOG.error("Exception flushing ledger storage : ", e);
-                flushFailed = true;
-            }
-
-            // if flush failed, we should not roll last mark, otherwise we would
-            // have some ledgers are not flushed and their journal entries were lost
-            if (!flushFailed) {
-                try {
-                    checkpoint.checkpointComplete(true);
-                    completed = true;
-                } catch (IOException e) {
-                    LOG.error("Exception on completing checkpoint " + checkpoint + " : ", e);
-                    // treat it as disks full so bookie would transition to readonly mode
-                    dirsListener.allDisksFull();
-                }
-            }
-            return completed;
-        }
-    }
-
-    /**
-     * Properly I should change SyncThread to an executor, which is a more natural way for
-     * callback on sync requests.
-     */
-    static class SyncRequest extends FutureTask<Boolean> {
-
-        final SyncAction action;
-
-        public SyncRequest(SyncAction action) {
-            super(action);
-            this.action = action;
-        }
-    }
-
-    volatile boolean running = true;
-    // flag to ensure sync thread will not be interrupted during flush
-    final AtomicBoolean flushing = new AtomicBoolean(false);
-    final LinkedBlockingQueue<SyncRequest> syncRequests =
-            new LinkedBlockingQueue<SyncRequest>();
-
+    final ScheduledExecutorService executor;
+    final int checkpointInterval;
     final LedgerStorage ledgerStorage;
     final LedgerDirsListener dirsListener;
-    final Journal journal;
+    final CheckpointSource checkpointSource;
 
     private final Object suspensionLock = new Object();
     private boolean suspended = false;
+    private boolean disableCheckpoint = false;
 
     public SyncThread(ServerConfiguration conf,
                       LedgerDirsListener dirsListener,
                       LedgerStorage ledgerStorage,
-                      Journal journal) {
-        super("SyncThread");
+                      CheckpointSource checkpointSource) {
         this.dirsListener = dirsListener;
         this.ledgerStorage = ledgerStorage;
-        this.journal = journal;
+        this.checkpointSource = checkpointSource;
+        ThreadFactoryBuilder tfb = new ThreadFactoryBuilder()
+                .setNameFormat("SyncThread-" + conf.getBookiePort() + "-%d");
+        this.executor = Executors.newSingleThreadScheduledExecutor(tfb.build());
+        this.checkpointInterval = conf.getCheckpointInterval();
+        LOG.debug("Checkpoint Interval : {}", checkpointInterval);
     }
 
-    private Future<Boolean> offerSyncRequest(SyncAction action) {
-        SyncRequest request = new SyncRequest(action);
-        syncRequests.offer(request);
-        return request;
+    void start() {
+        executor.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    synchronized (suspensionLock) {
+                        while (suspended) {
+                            try {
+                                suspensionLock.wait();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                continue;
+                            }
+                        }
+                    }
+                    if (!disableCheckpoint) {
+                        checkpoint(checkpointSource.newCheckpoint());
+                    }
+                } catch (Throwable t) {
+                    LOG.error("Exception in SyncThread", t);
+                    dirsListener.fatalError();
+                }
+            }
+        }, checkpointInterval, checkpointInterval, TimeUnit.MILLISECONDS);
     }
 
-    /**
-     * flush data up to given logMark and roll log if success
-     * @param checkpoint
-     */
+    public Future<Void> requestFlush() {
+        return executor.submit(new Callable<Void>() {
+            @Override
+            public Void call() throws Exception {
+                try {
+                    flush();
+                } catch (Throwable t) {
+                    LOG.error("Exception flushing ledgers ", t);
+                }
+                return null;
+            }
+        });
+    }
+
+    private void flush() {
+        Checkpoint checkpoint = checkpointSource.newCheckpoint();
+        try {
+            ledgerStorage.flush();
+        } catch (NoWritableLedgerDirException e) {
+            LOG.error("No writeable ledger directories", e);
+            dirsListener.allDisksFull();
+            return;
+        } catch (IOException e) {
+            LOG.error("Exception flushing ledgers", e);
+            return;
+        }
+
+        if (disableCheckpoint) {
+            return;
+        }
+
+        LOG.info("Flush ledger storage at checkpoint {}.", checkpoint);
+        try {
+            checkpointSource.checkpointComplete(checkpoint, false);
+        } catch (IOException e) {
+            LOG.error("Exception marking checkpoint as complete", e);
+            dirsListener.allDisksFull();
+        }
+    }
+
     @VisibleForTesting
-    public void checkPoint(final Checkpoint checkpoint) {
-        new SyncAction(checkpoint, !running).call();
-    }
+    public void checkpoint(Checkpoint checkpoint) {
+        try {
+            checkpoint = ledgerStorage.checkpoint(checkpoint);
+        } catch (NoWritableLedgerDirException e) {
+            LOG.error("No writeable ledger directories", e);
+            dirsListener.allDisksFull();
+            return;
+        } catch (IOException e) {
+            LOG.error("Exception flushing ledgers", e);
+            return;
+        }
 
-    /**
-     * flush on current state.
-     */
-    Future<Boolean> flush() {
-        Checkpoint cp = requestCheckpoint();
-        LOG.info("Flush ledger storage at checkpoint {}.", cp);
-        return offerSyncRequest(new SyncAction(cp, true));
+        try {
+            checkpointSource.checkpointComplete(checkpoint, true);
+        } catch (IOException e) {
+            LOG.error("Exception marking checkpoint as complete", e);
+            dirsListener.allDisksFull();
+        }
     }
 
     /**
@@ -171,63 +175,23 @@ public class SyncThread extends BookieCriticalThread implements CheckpointSource
         }
     }
 
-    @Override
-    public void run() {
-        while(running) {
-            SyncRequest request;
-            try {
-                request = syncRequests.take();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue;
-            }
-
-            synchronized (suspensionLock) {
-                while (suspended) {
-                    try {
-                        suspensionLock.wait();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        continue;
-                    }
-                }
-            }
-
-            // try to mark flushing flag to check if interrupted
-            if (!flushing.compareAndSet(false, true)) {
-                // set flushing flag failed, means flushing is true now
-                // indicates another thread wants to interrupt sync thread to exit
-                break;
-            }
-
-            // run the sync request.
-            request.run();
-
-            flushing.set(false);
-        }
+    @VisibleForTesting
+    public void disableCheckpoint() {
+        disableCheckpoint = true;
     }
 
     // shutdown sync thread
     void shutdown() throws InterruptedException {
         LOG.info("Shutting down SyncThread.");
-        // Wake up and finish sync thread
-        running = false;
-        flushing.compareAndSet(false, true);
-        Checkpoint cp = requestCheckpoint();
-        startCheckpoint(cp);
-        this.join();
-
+        requestFlush();
+        executor.shutdown();
+        long start = MathUtils.now();
+        while (!executor.awaitTermination(5, TimeUnit.MINUTES)) {
+            long now = MathUtils.now();
+            LOG.info("SyncThread taking a long time to shutdown. Has taken {}"
+                    + " seconds so far", TimeUnit.SECONDS.convert(now - start, TimeUnit.MILLISECONDS));
+        }
         LOG.info("Finished shutting down SyncThread.");
-    }
-
-    @Override
-    public Checkpoint requestCheckpoint() {
-        return journal.requestCheckpoint();
-    }
-
-    @Override
-    public void startCheckpoint(Checkpoint checkpoint) {
-        offerSyncRequest(new SyncAction(checkpoint, !running));
     }
 
 }

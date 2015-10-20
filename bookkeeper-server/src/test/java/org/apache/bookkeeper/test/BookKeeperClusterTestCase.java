@@ -397,7 +397,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public void checkpointBookies() {
         for (BookieServer server : bs) {
-            server.getBookie().getSyncThread().checkPoint(Checkpoint.MAX);
+            server.getBookie().getSyncThread().checkpoint(Checkpoint.MAX);
         }
     }
 
