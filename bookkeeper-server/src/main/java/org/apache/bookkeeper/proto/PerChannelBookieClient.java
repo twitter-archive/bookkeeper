@@ -386,7 +386,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
         final CompletionKey completionKey = new CompletionKey(txnId, OperationType.ADD_ENTRY);
         completionObjects.put(completionKey,
                 new AddCompletion(statsLogger, cb, ctx, ledgerId, entryId,
-                                  scheduleTimeout(completionKey, conf.getAddEntryTimeout())));
+                                  scheduleTimeout(completionKey, conf.getAddEntryTimeout()), entrySize));
 
         // Build the request and calculate the total size to be included in the packet.
         BKPacketHeader.Builder headerBuilder = BKPacketHeader.newBuilder()
@@ -980,7 +980,7 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
 
         public AddCompletion(final StatsLogger statsLogger, final WriteCallback originalCallback,
                              final Object originalCtx, final long ledgerId, final long entryId,
-                             final Timeout timeout) {
+                             final Timeout timeout, final int entrySize) {
             super(BookKeeperClientStats.CHANNEL_ADD_ENTRY, originalCtx, ledgerId, entryId, timeout);
             this.cb = new WriteCallback() {
                 @Override
@@ -989,9 +989,13 @@ public class PerChannelBookieClient extends SimpleChannelHandler implements Chan
                     if (rc != BKException.Code.OK) {
                         statsLogger.getOpStatsLogger(BookKeeperClientStats.CHANNEL_ADD_ENTRY)
                             .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+                        statsLogger.getOpStatsLogger(BookKeeperClientStats.CHANNEL_ADD_ENTRY_BYTES)
+                            .registerFailedEvent(entrySize);
                     } else {
                         statsLogger.getOpStatsLogger(BookKeeperClientStats.CHANNEL_ADD_ENTRY)
                             .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+                        statsLogger.getOpStatsLogger(BookKeeperClientStats.CHANNEL_ADD_ENTRY_BYTES)
+                            .registerSuccessfulEvent(entrySize);
                     }
                     originalCallback.writeComplete(rc, ledgerId, entryId, addr, originalCtx);
                 }

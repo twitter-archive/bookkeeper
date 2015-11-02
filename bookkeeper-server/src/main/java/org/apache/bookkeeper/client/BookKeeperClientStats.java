@@ -42,6 +42,8 @@ public interface BookKeeperClientStats {
     public final static String ADD_COMPLETE = "ADD_COMPLETE";
     public final static String TIMEOUT_ADD_ENTRY = "TIMEOUT_ADD_ENTRY";
     public final static String NUM_ADDS_SUBMITTED_PER_CALLBACK = "NUM_ADDS_SUBMITTED_PER_CALLBACK";
+    public final static String ADD_ENTRY_BYTES = "ADD_ENTRY_BYTES";
+
     // Read Entry Stats
     public final static String READ_ENTRY = "READ_ENTRY";
     public final static String READ_LAST_CONFIRMED = "READ_LAST_CONFIRMED";
@@ -66,6 +68,7 @@ public interface BookKeeperClientStats {
     public final static String CHANNEL_SCOPE = "per_channel_bookie_client";
 
     public final static String CHANNEL_ADD_ENTRY = "ADD_ENTRY";
+    public final static String CHANNEL_ADD_ENTRY_BYTES = "ADD_ENTRY_BYTES";
     public final static String CHANNEL_NETTY_TIMEOUT_ADD_ENTRY = "NETTY_TIMEOUT_ADD_ENTRY";
     public final static String CHANNEL_READ_ENTRY = "READ_ENTRY";
     public final static String CHANNEL_READ_ENTRY_AND_FENCE = "READ_ENTRY_AND_FENCE";
