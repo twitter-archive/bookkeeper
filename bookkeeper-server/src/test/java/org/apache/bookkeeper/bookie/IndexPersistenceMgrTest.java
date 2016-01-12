@@ -242,4 +242,107 @@ public class IndexPersistenceMgrTest {
             }
         }
     }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoReadBeforeWrite() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+            // get the file info for read
+            try {
+                indexPersistenceMgr.getFileInfo(lid, null);
+                fail("Should fail get file info for reading if the file doesn't exist");
+            } catch (Bookie.NoLedgerException nle) {
+                // exepcted
+            }
+            assertEquals(0, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(0, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(0, indexPersistenceMgr.fileInfoMap.size());
+
+            FileInfo writeFileInfo = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, writeFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoWriteBeforeRead() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+
+            FileInfo writeFileInfo = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, writeFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+
+            FileInfo readFileInfo = indexPersistenceMgr.getFileInfo(lid, null);
+            assertEquals(2, readFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testReadFileInfoCacheEviction() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+
+            for (int i = 0; i < 3; i++) {
+                indexPersistenceMgr.getFileInfo(lid+i, masterKey);
+            }
+
+            indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.fileInfoMap.size());
+
+            // trigger file info eviction on read file info cache
+            for (int i = 1; i <= 2; i++) {
+                indexPersistenceMgr.getFileInfo(lid + i, null);
+            }
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(3, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid+1);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid+2);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
 }

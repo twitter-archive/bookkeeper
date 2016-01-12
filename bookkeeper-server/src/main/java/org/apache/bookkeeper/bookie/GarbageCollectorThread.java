@@ -274,7 +274,8 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                         try {
                             ledgerCache.putEntryOffset(o.ledger, o.entry, o.offset);
                         } catch (Bookie.NoLedgerException nle) {
-                            LOG.info("Ledger {} is found deleted during compaction, skipping compacting its entries.");
+                            LOG.info("Ledger {} is found deleted during compaction, skipping compacting its entries.",
+                                    o.ledger);
                             deletedLedgers.add(o.ledger);
                         }
                     }
