@@ -1,21 +1,22 @@
 package org.apache.bookkeeper.shims.zk;
 
-import org.apache.zookeeper.server.NIOServerCnxn;
+import org.apache.zookeeper.server.NIOServerCnxnFactory;
 import org.apache.zookeeper.server.ZooKeeperServer;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 
-public class ZooKeeperServerShim33 implements ZooKeeperServerShim {
+class ZooKeeperServerShimImpl implements ZooKeeperServerShim {
 
     ZooKeeperServer zks = null;
-    NIOServerCnxn.Factory serverFactory = null;
+    NIOServerCnxnFactory serverFactory = null;
 
     @Override
     public void initialize(File snapDir, File logDir, int zkPort, int maxCC) throws IOException {
         zks = new ZooKeeperServer(snapDir, logDir, ZooKeeperServer.DEFAULT_TICK_TIME);
-        serverFactory = new NIOServerCnxn.Factory(new InetSocketAddress(zkPort), maxCC);
+        serverFactory = new NIOServerCnxnFactory();
+        serverFactory.configure(new InetSocketAddress(zkPort), maxCC);
     }
 
     @Override

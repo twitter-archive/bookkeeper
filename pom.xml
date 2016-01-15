@@ -50,7 +50,6 @@
     <module>hedwig-server</module>
     <module>hedwig-protocol</module>
     -->
-    <module>bookkeeper-shims</module>
     <module>bookkeeper-stats</module>
     <module>bookkeeper-server</module>
     <module>bookkeeper-benchmark</module>
