@@ -573,9 +573,9 @@ public class ZooKeeperClient extends ZooKeeper implements Watcher {
             void zkRun() {
                 ZooKeeper zkHandle = zk.get();
                 if (null == zkHandle) {
-                    ZooKeeperClient.super.multi(ops, multiCb, context);
+                    ZooKeeperClient.super.multi(ops, multiCb, worker);
                 } else {
-                    zkHandle.multi(ops, multiCb, context);
+                    zkHandle.multi(ops, multiCb, worker);
                 }
             }
 
