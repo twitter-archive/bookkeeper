@@ -312,7 +312,7 @@ public class BookieJournalTest {
             lenBuff.flip();
             bc.write(lenBuff);
             bc.write(packet);
-            Journal.writePaddingBytes(jc, paddingBuff);
+            Journal.writePaddingBytes(jc, paddingBuff, JournalChannel.SECTOR_SIZE);
         }
         // write fence key
         ByteBuffer packet = generateFenceEntry(1);
@@ -321,7 +321,7 @@ public class BookieJournalTest {
         lenBuf.flip();
         bc.write(lenBuf);
         bc.write(packet);
-        Journal.writePaddingBytes(jc, paddingBuff);
+        Journal.writePaddingBytes(jc, paddingBuff, JournalChannel.SECTOR_SIZE);
         bc.flush(true);
         updateJournalVersion(jc, JournalChannel.V5);
         return jc;

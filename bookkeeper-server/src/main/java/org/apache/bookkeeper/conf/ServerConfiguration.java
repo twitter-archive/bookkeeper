@@ -71,7 +71,9 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String JOURNAL_REMOVE_FROM_PAGE_CACHE = "journalRemoveFromPageCache";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
+    protected final static String JOURNAL_ALIGNMENT_SIZE = "journalAlignmentSize";
     protected final static String NUM_JOURNAL_CALLBACK_THREADS = "numJournalCallbackThreads";
+    protected final static String JOURNAL_FORMAT_VERSION_TO_WRITE = "journalFormatVersionToWrite";
     // Bookie Parameters
     protected final static String BOOKIE_PORT = "bookiePort";
     protected final static String JOURNAL_DIR = "journalDirectory";
@@ -465,6 +467,50 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setMaxBackupJournals(int maxBackupJournals) {
         this.setProperty(MAX_BACKUP_JOURNALS, Integer.toString(maxBackupJournals));
+        return this;
+    }
+
+
+    /**
+     * All the journal writes and commits should be aligned to given size. If not,
+     * zeros will be padded to align to given size.
+     *
+     * @return journal alignment size
+     */
+    public int getJournalAlignmentSize() {
+        return this.getInt(JOURNAL_ALIGNMENT_SIZE, 512);
+    }
+
+    /**
+     * Set journal alignment size.
+     *
+     * @param size
+     *          journal alignment size.
+     * @return server configuration.
+     */
+    public ServerConfiguration setJournalAlignmentSize(int size) {
+        this.setProperty(JOURNAL_ALIGNMENT_SIZE, size);
+        return this;
+    }
+
+    /**
+     * Get journal format version to write.
+     *
+     * @return journal format version to write.
+     */
+    public int getJournalFormatVersionToWrite() {
+        return this.getInt(JOURNAL_FORMAT_VERSION_TO_WRITE, 5);
+    }
+
+    /**
+     * Set journal format version to write.
+     *
+     * @param version
+     *          journal format version to write.
+     * @return server configuration.
+     */
+    public ServerConfiguration setJournalFormatVersionToWrite(int version) {
+        this.setProperty(JOURNAL_FORMAT_VERSION_TO_WRITE, version);
         return this;
     }
 

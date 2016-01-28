@@ -471,12 +471,12 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
 
     final static int PADDING_MASK = -0x100;
 
-    static void writePaddingBytes(JournalChannel jc, ByteBuffer paddingBuffer) throws IOException {
-        int bytesToAlign = (int) (jc.bc.position() % JournalChannel.SECTOR_SIZE);
+    static void writePaddingBytes(JournalChannel jc, ByteBuffer paddingBuffer, int journalAlignSize) throws IOException {
+        int bytesToAlign = (int) (jc.bc.position() % journalAlignSize);
         if (0 != bytesToAlign) {
-            int paddingBytes = JournalChannel.SECTOR_SIZE - bytesToAlign;
+            int paddingBytes = journalAlignSize - bytesToAlign;
             if (paddingBytes < 8) {
-                paddingBytes = JournalChannel.SECTOR_SIZE - (8 - paddingBytes);
+                paddingBytes = journalAlignSize - (8 - paddingBytes);
             } else {
                 paddingBytes -= 8;
             }
@@ -521,6 +521,10 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
     private final boolean flushWhenQueueEmpty;
     // should we hint the filesystem to remove pages from cache after force write
     private final boolean removePagesFromCache;
+    // journal align size
+    private final int journalAlignmentSize;
+    // journal format version to write
+    private final int journalFormatVersionToWrite;
 
     private final LastLogMark lastLogMark = new LastLogMark(0, 0);
 
@@ -569,6 +573,8 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
         this.maxGroupWaitInMSec = conf.getJournalMaxGroupWaitMSec();
         this.bufferedWritesThreshold = conf.getJournalBufferedWritesThreshold();
         this.bufferedEntriesThreshold = conf.getJournalBufferedEntriesThreshold();
+        this.journalAlignmentSize = conf.getJournalAlignmentSize();
+        this.journalFormatVersionToWrite = conf.getJournalFormatVersionToWrite();
         this.cbThreadPool = OrderedSafeExecutor.newBuilder()
                 .name("BookieJournal")
                 .numThreads(conf.getNumJournalCallbackThreads())
@@ -804,7 +810,7 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
     public void run() {
         LinkedList<QueueEntry> toFlush = new LinkedList<QueueEntry>();
         ByteBuffer lenBuff = ByteBuffer.allocate(4);
-        ByteBuffer paddingBuff = ByteBuffer.allocate(2 * JournalChannel.SECTOR_SIZE);
+        ByteBuffer paddingBuff = ByteBuffer.allocate(2 * journalAlignmentSize);
         ZeroBuffer.put(paddingBuff);
         JournalChannel logFile = null;
         forceWriteThread.start();
@@ -832,7 +838,9 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
                                         logId,
                                         journalPreAllocSize,
                                         journalWriteBufferSize,
+                                        journalAlignmentSize,
                                         removePagesFromCache,
+                                        journalFormatVersionToWrite,
                                         statsLogger);
                     journalCreationLatencyStats.registerSuccessfulEvent(
                             journalCreationWatcher.stop().elapsed(TimeUnit.MICROSECONDS));
@@ -885,7 +893,9 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
                             long prevFlushPosition = lastFlushPosition;
 
                             journalFlushWatcher.reset().start();
-                            writePaddingBytes(logFile, paddingBuff);
+                            if (journalFormatVersionToWrite > JournalChannel.V5) {
+                                writePaddingBytes(logFile, paddingBuff, journalAlignmentSize);
+                            }
                             bc.flush(false);
                             lastFlushPosition = bc.position();
 
