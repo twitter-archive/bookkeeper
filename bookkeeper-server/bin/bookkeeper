@@ -84,11 +84,13 @@ if [ -z "${BUILT_JAR}" ] && [ -z "${BOOKIE_JAR}" ]; then
     fi
 fi
 
-if [ -e "$BUILT_JAR" ]; then
-    BOOKIE_JAR=$BUILT_JAR
-else
-    echo "Could not find bookkeeper jar."
-    exit 1
+if [ -e "${BUILT_JAR}" ]; then
+  BOOKIE_JAR="${BUILT_JAR}"
+fi
+
+if [ ! -e "${BOOKIE_JAR}" ]; then
+  echo "Could not find bookkeeper jar."
+  exit 1
 fi
 
 bookkeeper_help() {
