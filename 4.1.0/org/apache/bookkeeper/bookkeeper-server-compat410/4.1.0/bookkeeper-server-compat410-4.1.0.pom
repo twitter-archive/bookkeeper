@@ -24,9 +24,9 @@
     <version>4.3.4-TWTTR</version>
   </parent>
   <groupId>org.apache.bookkeeper</groupId>
-  <artifactId>bookkeeper-server-compat400</artifactId>
-  <version>4.0.0</version>
-  <name>bookkeeper-server-compat400</name>
+  <artifactId>bookkeeper-server-compat410</artifactId>
+  <version>4.1.0</version>
+  <name>bookkeeper-server-compat410</name>
   <url>http://maven.apache.org</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -35,7 +35,7 @@
     <dependency>
       <groupId>org.apache.bookkeeper</groupId>
       <artifactId>bookkeeper-server</artifactId>
-      <version>4.0.0</version>
+      <version>4.1.0</version>
     </dependency>
   </dependencies>
   <build>
@@ -64,15 +64,24 @@
               </artifactSet>
               <relocations>
                 <relocation>
-                  <pattern>org.apache</pattern>
-                  <shadedPattern>org.apache.bk_v4_0_0</shadedPattern>
-                  <excludes>
-                    <exclude>org.apache.log4j</exclude>
-                  </excludes>
+                  <pattern>org.apache.commons</pattern>
+                  <shadedPattern>org.apache.bk_v4_1_0.commons</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.bookkeeper</pattern>
+                  <shadedPattern>org.apache.bk_v4_1_0.bookkeeper</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.zookeeper</pattern>
+                  <shadedPattern>org.apache.bk_v4_1_0.bookkeeper</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.apache.jute</pattern>
+                  <shadedPattern>org.apache.bk_v4_1_0.jute</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.jboss</pattern>
-                  <shadedPattern>org.jboss.bk_v4_0_0</shadedPattern>
+                  <shadedPattern>org.jboss.bk_v4_1_0</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>
