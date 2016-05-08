@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.apache.bookkeeper.stats</groupId>
+  <artifactId>twitter-finagle-provider</artifactId>
+  <versioning>
+    <release>4.3.4-TWTTR</release>
+    <versions>
+      <version>4.3.4-TWTTR</version>
+    </versions>
+    <lastUpdated>20160508073400</lastUpdated>
+  </versioning>
+</metadata>
