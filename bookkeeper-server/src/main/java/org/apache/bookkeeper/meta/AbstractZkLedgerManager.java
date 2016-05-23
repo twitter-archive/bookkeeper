@@ -299,7 +299,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
     }
 
     @Override
-    public void unregisterLedgerMetadataListener(long ledgerId, LedgerMetadataListener listener) {
+    public void unregisterLedgerMetadataListener(final long ledgerId, LedgerMetadataListener listener) {
         Set<LedgerMetadataListener> listenerSet = listeners.get(ledgerId);
         if (listenerSet != null) {
             synchronized (listenerSet) {
@@ -307,6 +307,19 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     LOG.info("Unregistered ledger metadata listener {} on ledger {}.", listener, ledgerId);
                 }
                 if (listenerSet.isEmpty()) {
+                    // Best-effort to remove watcher.
+                    zk.removeWatches(getLedgerPath(ledgerId), AbstractZkLedgerManager.this, WatcherType.Data, true,
+                            new VoidCallback() {
+                                @Override
+                                public void processResult(int rc, String path, Object ctx) {
+                                    if (KeeperException.Code.OK.intValue() == rc) {
+                                        LOG.debug("Successfully removed watcher from ledger {}", ledgerId);
+                                    } else {
+                                        LOG.debug("Encountered error on removing watcher from ledger {} : {}",
+                                                ledgerId, KeeperException.Code.get(rc));
+                                    }
+                                }
+                            }, null);
                     listeners.remove(ledgerId, listenerSet);
                 }
             }
