@@ -28,6 +28,7 @@ import java.io.FileNotFoundException;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -55,6 +56,7 @@ import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.net.DNS;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -327,8 +329,24 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
      */
     public static BookieSocketAddress getBookieAddress(ServerConfiguration conf)
             throws UnknownHostException {
-        return new BookieSocketAddress(InetAddress.getLocalHost()
-                .getHostAddress(), conf.getBookiePort());
+            String iface = conf.getListeningInterface();
+            if (iface == null) {
+                iface = "default";
+            }
+            InetSocketAddress inetAddr = new InetSocketAddress(DNS.getDefaultHost(iface), conf.getBookiePort());
+            String hostAddress = inetAddr.getAddress().getHostAddress();
+            if (conf.getUseHostNameAsBookieID()) {
+                hostAddress = inetAddr.getAddress().getCanonicalHostName();
+            }
+            BookieSocketAddress addr =
+                    new BookieSocketAddress(hostAddress, conf.getBookiePort());
+            if (addr.getSocketAddress().getAddress().isLoopbackAddress()
+                    && !conf.getAllowLoopback()) {
+                throw new UnknownHostException("Trying to listen on loopback address, "
+                        + addr + " but this is forbidden by default "
+                        + "(see ServerConfiguration#getAllowLoopback())");
+            }
+            return addr;
     }
 
     private String getInstanceId(ZooKeeper zk) throws KeeperException,
