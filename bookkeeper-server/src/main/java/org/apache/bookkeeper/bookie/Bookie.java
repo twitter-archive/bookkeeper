@@ -444,8 +444,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
     }
 
     private String getMyId() throws UnknownHostException {
-        return InetAddress.getLocalHost().getHostAddress() + ":"
-                + conf.getBookiePort();
+        return Bookie.getBookieAddress(conf).toString();
     }
 
     void readJournal() throws IOException, BookieException {
