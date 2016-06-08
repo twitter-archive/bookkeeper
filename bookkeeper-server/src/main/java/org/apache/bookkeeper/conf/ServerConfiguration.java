@@ -115,11 +115,15 @@ public class ServerConfiguration extends AbstractConfiguration {
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
-
+    // Whether the bookie should use its hostname or ipaddress for the
+    // registration.
+    protected final static String USE_HOST_NAME_AS_BOOKIE_ID = "useHostNameAsBookieID";
     protected final static String SORTED_LEDGER_STORAGE_ENABLED = "sortedLedgerStorageEnabled";
     protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
     protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
     protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
+    protected final static String LISTENING_INTERFACE = "listeningInterface";
+    protected final static String ALLOW_LOOPBACK = "allowLoopback";
 
     /**
      * Construct a default configuration object
@@ -1542,6 +1546,31 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Get whether bookie is using hostname for registration and in ledger
+     * metadata. Defaults to false.
+     *
+     * @return true, then bookie will be registered with its hostname and
+     *         hostname will be used in ledger metadata. Otherwise bookie will
+     *         use its ipaddress
+     */
+    public boolean getUseHostNameAsBookieID() {
+        return getBoolean(USE_HOST_NAME_AS_BOOKIE_ID, false);
+    }
+
+    /**
+     * Configure the bookie to use its hostname to register with the
+     * co-ordination service(eg: zookeeper) and in ledger metadata
+     *
+     * @see #getUseHostNameAsBookieID
+     * @param useHostName
+     *            whether to use hostname for registration and in ledgermetadata
+     * @return server configuration
+     */
+    public ServerConfiguration setUseHostNameAsBookieID(boolean useHostName) {
+        setProperty(USE_HOST_NAME_AS_BOOKIE_ID, useHostName);
+        return this;
+    }
+    /**
      * Get default time interval for auditor marking a bookie as "stale" to re-replicate.
      *
      * @see #setAuditorStaleBookieInterval(long)
@@ -1576,4 +1605,61 @@ public class ServerConfiguration extends AbstractConfiguration {
         return getBoolean(AUTO_RECOVERY_DAEMON_ENABLED, false);
     }
 
+    /**
+     * Get the network interface that the bookie should
+     * listen for connections on. If this is null, then the bookie
+     * will listen for connections on all interfaces.
+     *
+     * @return the network interface to listen on, e.g. eth0, or
+     *         null if none is specified
+     */
+    public String getListeningInterface() {
+        return this.getString(LISTENING_INTERFACE);
+    }
+
+    /**
+     * Set the network interface that the bookie should listen on.
+     * If not set, the bookie will listen on all interfaces.
+     *
+     * @param iface the interface to listen on
+     */
+    public ServerConfiguration setListeningInterface(String iface) {
+        this.setProperty(LISTENING_INTERFACE, iface);
+        return this;
+    }
+
+    /**
+     * Is the bookie allowed to use a loopback interface as its primary
+     * interface(i.e. the interface it uses to establish its identity)?
+     *
+     * By default, loopback interfaces are not allowed as the primary
+     * interface.
+     *
+     * Using a loopback interface as the primary interface usually indicates
+     * a configuration error. For example, its fairly common in some VPS setups
+     * to not configure a hostname, or to have the hostname resolve to
+     * 127.0.0.1. If this is the case, then all bookies in the cluster will
+     * establish their identities as 127.0.0.1:3181, and only one will be able
+     * to join the cluster. For VPSs configured like this, you should explicitly
+     * set the listening interface.
+     *
+     * @see #setListeningInterface(String)
+     * @return whether a loopback interface can be used as the primary interface
+     */
+    public boolean getAllowLoopback() {
+        return this.getBoolean(ALLOW_LOOPBACK, false);
+    }
+
+    /**
+     * Configure the bookie to allow loopback interfaces to be used
+     * as the primary bookie interface.
+     *
+     * @see #getAllowLoopback
+     * @param allow whether to allow loopback interfaces
+     * @return server configuration
+     */
+    public ServerConfiguration setAllowLoopback(boolean allow) {
+        this.setProperty(ALLOW_LOOPBACK, allow);
+        return this;
+    }
 }
