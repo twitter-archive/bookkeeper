@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.apache.bookkeeper</groupId>
+  <artifactId>bookkeeper-benchmark</artifactId>
+  <versioning>
+    <release>4.3.5-TWTTR-OSS</release>
+    <versions>
+      <version>4.3.5-TWTTR-OSS</version>
+    </versions>
+    <lastUpdated>20160618063346</lastUpdated>
+  </versioning>
+</metadata>
