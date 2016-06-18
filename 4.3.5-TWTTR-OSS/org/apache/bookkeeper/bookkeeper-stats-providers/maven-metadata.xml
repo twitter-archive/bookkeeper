@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.apache.bookkeeper</groupId>
+  <artifactId>bookkeeper-stats-providers</artifactId>
+  <versioning>
+    <release>4.3.5-TWTTR-OSS</release>
+    <versions>
+      <version>4.3.5-TWTTR-OSS</version>
+    </versions>
+    <lastUpdated>20160618063649</lastUpdated>
+  </versioning>
+</metadata>
