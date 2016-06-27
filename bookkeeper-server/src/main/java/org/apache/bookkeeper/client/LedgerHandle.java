@@ -20,23 +20,12 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.security.GeneralSecurityException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.util.concurrent.RateLimiter;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
@@ -58,10 +47,14 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
-import com.google.common.util.concurrent.RateLimiter;
+import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Ledger handle contains ledger metadata and is used to access the read and
@@ -598,7 +591,26 @@ public class LedgerHandle {
     public void asyncAddEntry(final byte[] data, final int offset, final int length,
                               final AddCallback cb, final Object ctx) {
         PendingAddOp op = new PendingAddOp(LedgerHandle.this, cb, ctx);
-        doAsyncAddEntry(op, data, offset, length, cb, ctx);
+        doAsyncAddEntry(op, ByteBuffer.wrap(data, offset, length), cb, ctx);
+    }
+
+
+    /**
+     * Add entry asynchronously to an open ledger, using a bytebuffer.
+     *
+     * @param data
+     *          ByteBuffer to be written
+     * @param cb
+     *          object implementing callbackinterface
+     * @param ctx
+     *          some control object
+     * @throws ArrayIndexOutOfBoundsException if offset or length is negative or
+     *          offset and length sum to a value higher than the length of data.
+     */
+    public void asyncAddEntry(final ByteBuffer data,
+                              final AddCallback cb, final Object ctx) {
+        PendingAddOp op = new PendingAddOp(LedgerHandle.this, cb, ctx);
+        doAsyncAddEntry(op, data, cb, ctx);
     }
 
     /**
@@ -613,17 +625,11 @@ public class LedgerHandle {
     void asyncRecoveryAddEntry(final byte[] data, final int offset, final int length,
                                final AddCallback cb, final Object ctx) {
         PendingAddOp op = new PendingAddOp(LedgerHandle.this, cb, ctx).enableRecoveryAdd();
-        doAsyncAddEntry(op, data, offset, length, cb, ctx);
+        doAsyncAddEntry(op, ByteBuffer.wrap(data, offset, length), cb, ctx);
     }
 
-    private void doAsyncAddEntry(final PendingAddOp op, final byte[] data, final int offset, final int length,
+    private void doAsyncAddEntry(final PendingAddOp op, final ByteBuffer data,
                                  final AddCallback cb, final Object ctx) {
-        if (offset < 0 || length < 0
-                || (offset + length) > data.length) {
-            throw new ArrayIndexOutOfBoundsException(
-                "Invalid values for offset("+offset
-                +") or length("+length+")");
-        }
         throttler.acquire();
 
         final long entryId;
@@ -670,8 +676,8 @@ public class LedgerHandle {
                 @Override
                 public void safeRun() {
                     ChannelBuffer toSend = macManager.computeDigestAndPackageForSending(
-                                               entryId, getLastAddConfirmed(), currentLength, data, offset, length);
-                    op.initiate(toSend, length);
+                                               entryId, getLastAddConfirmed(), currentLength, data );
+                    op.initiate(toSend, data.limit());
                 }
                 @Override
                 public String toString() {

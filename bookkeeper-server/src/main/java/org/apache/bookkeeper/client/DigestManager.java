@@ -18,16 +18,16 @@ package org.apache.bookkeeper.client;
  * limitations under the License.
  */
 
-import java.nio.ByteBuffer;
-import java.security.GeneralSecurityException;
-
 import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.jboss.netty.buffer.ChannelBuffers;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
 
 /**
  * This class takes an entry, attaches a digest to it and packages it with relevant
@@ -45,11 +45,12 @@ abstract class DigestManager {
 
     abstract int getMacCodeLength();
 
-    void update(byte[] data) {
-        update(data, 0, data.length);
-    }
+    /*void update(ByteBuffer data) {
+        update(data, 0, data.limit());
+    }*/
 
-    abstract void update(byte[] data, int offset, int length);
+   // abstract void update(byte[] data, int offset, int length);
+    abstract void update(ByteBuffer data);
     abstract byte[] getValueAndReset();
 
     final int macCodeLength;
@@ -80,7 +81,8 @@ abstract class DigestManager {
      * @return
      */
 
-    public ChannelBuffer computeDigestAndPackageForSending(long entryId, long lastAddConfirmed, long length, byte[] data, int doffset, int dlength) {
+    public ChannelBuffer computeDigestAndPackageForSending(long entryId, long lastAddConfirmed, long length,
+                                                           ByteBuffer data) {
 
         byte[] bufferArray = new byte[METADATA_LENGTH + macCodeLength];
         ByteBuffer buffer = ByteBuffer.wrap(bufferArray);
@@ -90,8 +92,8 @@ abstract class DigestManager {
         buffer.putLong(length);
         buffer.flip();
 
-        update(buffer.array(), 0, METADATA_LENGTH);
-        update(data, doffset, dlength);
+        update(buffer);
+        update(data);
         byte[] digest = getValueAndReset();
 
         buffer.limit(buffer.capacity());
@@ -99,7 +101,7 @@ abstract class DigestManager {
         buffer.put(digest);
         buffer.flip();
 
-        return ChannelBuffers.wrappedBuffer(ChannelBuffers.wrappedBuffer(buffer), ChannelBuffers.wrappedBuffer(data, doffset, dlength));
+        return ChannelBuffers.wrappedBuffer(ChannelBuffers.wrappedBuffer(buffer), ChannelBuffers.wrappedBuffer(data));
     }
 
     private void verifyDigest(ChannelBuffer dataReceived) throws BKDigestMatchException {
@@ -123,10 +125,14 @@ abstract class DigestManager {
                     this.getClass().getName(), dataReceived.readableBytes());
             throw new BKDigestMatchException();
         }
-        update(dataReceivedBuffer.array(), dataReceivedBuffer.position(), METADATA_LENGTH);
+
+        dataReceivedBuffer.limit(dataReceivedBuffer.position() + METADATA_LENGTH);
+        update(dataReceivedBuffer);
 
         int offset = METADATA_LENGTH + macCodeLength;
-        update(dataReceivedBuffer.array(), dataReceivedBuffer.position() + offset, dataReceived.readableBytes() - offset);
+        dataReceivedBuffer.position(dataReceivedBuffer.position() + offset);
+        dataReceivedBuffer.limit( dataReceived.readableBytes() - offset);
+        update(dataReceivedBuffer);
         digest = getValueAndReset();
 
         for (int i = 0; i < digest.length; i++) {

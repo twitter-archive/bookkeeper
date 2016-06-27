@@ -561,7 +561,7 @@ public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
             length += data.length;
             ChannelBuffer toSend =
                     lh.macManager.computeDigestAndPackageForSending(
-                            entryId, lac, length, data, 0, data.length);
+                            entryId, lac, length, ByteBuffer.wrap(data));
             int bid = (int) (entryId % 5);
             final CountDownLatch addLatch = new CountDownLatch(1);
             final AtomicBoolean addSuccess = new AtomicBoolean(false);

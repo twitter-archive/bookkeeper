@@ -18,15 +18,15 @@ package org.apache.bookkeeper.client;
 * limitations under the License.
 */
 
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -78,8 +78,8 @@ class MacDigestManager extends DigestManager {
     }
 
     @Override
-    void update(byte[] data, int offset, int length) {
-        mac.get().update(data, offset, length);
+    void update(ByteBuffer data) {
+        mac.get().update(data);
     }
 
 

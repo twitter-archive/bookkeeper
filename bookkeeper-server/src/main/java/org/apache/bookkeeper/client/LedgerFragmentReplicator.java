@@ -19,17 +19,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.util.ArrayList;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
@@ -41,6 +30,11 @@ import org.apache.zookeeper.AsyncCallback;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This is the helper class for replicating the fragments from one bookie to
@@ -288,7 +282,7 @@ public class LedgerFragmentReplicator {
                     ChannelBuffer toSend = lh.getDigestManager()
                             .computeDigestAndPackageForSending(entryId,
                                     lh.getLastAddConfirmed(), entry.getLength(),
-                                    data, 0, data.length);
+                                    ByteBuffer.wrap(data));
                     bkc.getBookieClient().addEntry(newBookie, lh.getId(),
                             lh.getLedgerKey(), entryId, toSend,
                             multiWriteCallback, null, BookieProtocol.FLAG_RECOVERY_ADD);
