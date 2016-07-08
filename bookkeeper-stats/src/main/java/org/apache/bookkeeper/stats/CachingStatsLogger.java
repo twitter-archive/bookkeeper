@@ -18,6 +18,25 @@ public class CachingStatsLogger implements StatsLogger {
     }
 
     @Override
+    public int hashCode() {
+        return underlying.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof CachingStatsLogger)) {
+            return false;
+        }
+        CachingStatsLogger another = (CachingStatsLogger) obj;
+        return underlying.equals(another.underlying);
+    }
+
+    @Override
+    public String toString() {
+        return underlying.toString();
+    }
+
+    @Override
     public OpStatsLogger getOpStatsLogger(String name) {
         OpStatsLogger opStatsLogger = opStatsLoggers.get(name);
         if (null == opStatsLogger) {
@@ -45,6 +64,11 @@ public class CachingStatsLogger implements StatsLogger {
     }
 
     @Override
+    public <T extends Number> void unregisterGauge(String name, Gauge<T> gauge) {
+        underlying.unregisterGauge(name, gauge);
+    }
+
+    @Override
     public StatsLogger scope(String name) {
         StatsLogger statsLogger = scopeStatsLoggers.get(name);
         if (null == statsLogger) {
@@ -53,5 +77,10 @@ public class CachingStatsLogger implements StatsLogger {
             statsLogger = (null == oldStatsLogger) ? newStatsLogger : oldStatsLogger;
         }
         return statsLogger;
+    }
+
+    @Override
+    public void removeScope(String name, StatsLogger statsLogger) {
+        scopeStatsLoggers.remove(name, statsLogger);
     }
 }

@@ -26,12 +26,17 @@ import org.apache.bookkeeper.stats.StatsLogger;
 import scala.collection.Seq;
 
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 
 public class FinagleStatsLoggerImpl implements StatsLogger {
     final private StatsReceiver stats;
+    // keep the references for finagle gauges. they are destroyed when the stats logger is destroyed.
+    final Map<Gauge, com.twitter.finagle.stats.Gauge> finagleGauges;
 
     public FinagleStatsLoggerImpl(final StatsReceiver stats) {
         this.stats = stats;
+        this.finagleGauges = new HashMap<Gauge, com.twitter.finagle.stats.Gauge>();
     }
 
     @Override
@@ -48,7 +53,16 @@ public class FinagleStatsLoggerImpl implements StatsLogger {
     public <T extends Number> void registerGauge(final String name, final Gauge<T> gauge) {
         // This is done to inter-op with Scala Seq
         final Seq<String> gaugeName = scala.collection.JavaConversions.asScalaBuffer(Arrays.asList(name)).toList();
-        this.stats.provideGauge(gaugeName, gaugeProvider(gauge));
+        synchronized (finagleGauges) {
+            finagleGauges.put(gauge, this.stats.addGauge(gaugeName, gaugeProvider(gauge)));
+        }
+    }
+
+    @Override
+    public <T extends Number> void unregisterGauge(String name, Gauge<T> gauge) {
+        synchronized (finagleGauges) {
+            finagleGauges.remove(gauge);
+        }
     }
 
     private <T extends Number> Function0<Object> gaugeProvider(final Gauge<T> gauge) {
@@ -63,5 +77,10 @@ public class FinagleStatsLoggerImpl implements StatsLogger {
     @Override
     public StatsLogger scope(String name) {
         return new FinagleStatsLoggerImpl(this.stats.scope(name));
+    }
+
+    @Override
+    public void removeScope(String name, StatsLogger statsLogger) {
+        // no-op
     }
 }

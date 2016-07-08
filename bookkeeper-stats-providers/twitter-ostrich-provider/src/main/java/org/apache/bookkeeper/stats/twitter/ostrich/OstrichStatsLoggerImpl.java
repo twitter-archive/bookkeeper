@@ -41,6 +41,11 @@ class OstrichStatsLoggerImpl implements StatsLogger {
         ostrichProvider.addGauge(getStatName(statName), gaugeFunc);
     }
 
+    @Override
+    public <T extends Number> void unregisterGauge(String statName, Gauge<T> gauge) {
+        ostrichProvider.clearGauge(getStatName(statName));
+    }
+
     private String getStatName(String statName) {
         return String.format("%s/%s", scope, statName);
     }
@@ -50,4 +55,8 @@ class OstrichStatsLoggerImpl implements StatsLogger {
         return new OstrichStatsLoggerImpl(getStatName(scope), ostrichProvider);
     }
 
+    @Override
+    public void removeScope(String name, StatsLogger statsLogger) {
+        // no-op
+    }
 }

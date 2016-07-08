@@ -38,19 +38,32 @@ public class TwitterStatsLoggerImpl implements StatsLogger {
         });
     }
 
+    @Override
+    public <T extends Number> void unregisterGauge(String name, Gauge<T> gauge) {
+        // no-op
+    }
+
     private String getStatName(String statName) {
         return (name + "_" + statName).toLowerCase();
     }
 
-    @Override
-    public StatsLogger scope(String scope) {
+    private String getScopeName(String scope) {
         String scopeName;
         if (0 == name.length()) {
             scopeName = scope;
         } else {
             scopeName = name + "_" + scope;
         }
-        return new TwitterStatsLoggerImpl(scopeName);
+        return scopeName;
     }
 
+    @Override
+    public StatsLogger scope(String scope) {
+        return new TwitterStatsLoggerImpl(getScopeName(scope));
+    }
+
+    @Override
+    public void removeScope(String name, StatsLogger statsLogger) {
+        // no-op
+    }
 }
