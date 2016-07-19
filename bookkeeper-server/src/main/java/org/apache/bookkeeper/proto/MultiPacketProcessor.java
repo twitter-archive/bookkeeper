@@ -17,8 +17,11 @@
  */
 package org.apache.bookkeeper.proto;
 
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.DigestManager;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
@@ -31,6 +34,7 @@ import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.channel.Channel;
 import org.jboss.netty.util.HashedWheelTimer;
 
+import java.security.GeneralSecurityException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -80,9 +84,15 @@ public class MultiPacketProcessor implements RequestProcessor {
     // Stats
     protected final StatsLogger statsLogger;
 
+    /**
+     * Digest manager used for validating ledger digest before persisting.
+     */
+    final Optional<DigestManager> macManager;
+
     public MultiPacketProcessor(ServerConfiguration serverCfg,
                                 Bookie bookie,
-                                StatsLogger statsLogger) {
+                                StatsLogger statsLogger)
+            throws GeneralSecurityException {
         this.serverCfg = serverCfg;
         this.bookie = bookie;
         this.statsLogger = statsLogger;
@@ -101,6 +111,15 @@ public class MultiPacketProcessor implements RequestProcessor {
                 new ThreadFactoryBuilder().setNameFormat("BookieRequestTimer-%d").build(),
                 this.serverCfg.getRequestTimerTickDurationMs(),
                 TimeUnit.MILLISECONDS, this.serverCfg.getRequestTimerNumTicks());
+
+        if (serverCfg.isCRC32VerifyEnabled()) {
+            this.macManager = Optional.of(DigestManager.instantiate(
+                    -1, // ledger id - not used by verify
+                    new byte[0], // password not used by crc32
+                    BookKeeper.DigestType.CRC32));
+        } else {
+            this.macManager = Optional.absent();
+        }
     }
 
     private ExecutorService createExecutor(int numThreads, String nameFormat, String scope) {
@@ -149,7 +168,7 @@ public class MultiPacketProcessor implements RequestProcessor {
             BKPacketHeader header = request.getHeader();
             switch (header.getOperation()) {
             case ADD_ENTRY:
-                processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie, statsLogger));
+                processAddRequest(channel, new WriteEntryProcessorV3(request, channel, bookie, statsLogger, macManager));
                 break;
             case READ_ENTRY:
                 ExecutorService fenceThreadPool =

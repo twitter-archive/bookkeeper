@@ -125,6 +125,9 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String LISTENING_INTERFACE = "listeningInterface";
     protected final static String ALLOW_LOOPBACK = "allowLoopback";
 
+    // Should server assume add-entry includes crc32 checksum, and verify it?
+    protected final static String CRC32_VERIFY_ENABLED = "crc32VerifyEnabled";
+
     /**
      * Construct a default configuration object
      */
@@ -1603,6 +1606,21 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public boolean isAutoRecoveryDaemonEnabled() {
         return getBoolean(AUTO_RECOVERY_DAEMON_ENABLED, false);
+    }
+
+    /**
+     * Temporary flag to force crc32 checksum verification on add entry.
+     */
+    public ServerConfiguration setCRC32VerifyEnabled(boolean enabled) {
+        setProperty(CRC32_VERIFY_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Temporary flag to force crc32 checksum verification on add entry.
+     */
+    public boolean isCRC32VerifyEnabled() {
+        return getBoolean(CRC32_VERIFY_ENABLED, false);
     }
 
     /**

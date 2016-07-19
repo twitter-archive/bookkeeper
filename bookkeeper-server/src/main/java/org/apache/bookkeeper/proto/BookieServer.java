@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.UnknownHostException;
+import java.security.GeneralSecurityException;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieCriticalThread;
@@ -77,12 +78,12 @@ public class BookieServer {
     protected final StatsLogger statsLogger;
 
     public BookieServer(ServerConfiguration conf)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         this(conf, NullStatsLogger.INSTANCE);
     }
 
     public BookieServer(ServerConfiguration conf, StatsLogger statsLogger)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         this.conf = conf;
         this.statsLogger = statsLogger;
 
@@ -112,7 +113,7 @@ public class BookieServer {
     }
 
     protected Bookie newBookie(ServerConfiguration conf)
-        throws IOException, KeeperException, InterruptedException, BookieException {
+        throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         return new Bookie(conf, statsLogger.scope(SERVER_SCOPE));
     }
 
