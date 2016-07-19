@@ -28,6 +28,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
 
 import java.io.File;
 import java.io.IOException;
@@ -68,7 +69,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
      */
     @Test
     public void testCleanStart() throws Exception {
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory(false))
             .setLedgerDirNames(new String[] { newDirectory(false) })
@@ -87,7 +88,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
      */
     @Test
     public void testBadJournalCookie() throws Exception {
-        ServerConfiguration conf1 = new ServerConfiguration()
+        ServerConfiguration conf1 = TestBKConfiguration.newServerConfiguration()
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() })
             .setBookiePort(bookiePort);
@@ -96,7 +97,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
 
         String journalDir = newDirectory();
         String ledgerDir = newDirectory();
-        ServerConfiguration conf2 = new ServerConfiguration()
+        ServerConfiguration conf2 = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir })
@@ -123,7 +124,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         String[] ledgerDirs = new String[] {
             newDirectory(), newDirectory(), newDirectory() };
         String journalDir = newDirectory();
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(ledgerDirs)
@@ -164,7 +165,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
     public void testDirectoryAdded() throws Exception {
         String ledgerDir0 = newDirectory();
         String journalDir = newDirectory();
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir0 })
@@ -196,7 +197,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
     public void testDirectoryCleared() throws Exception {
         String ledgerDir0 = newDirectory();
         String journalDir = newDirectory();
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir)
             .setLedgerDirNames(new String[] { ledgerDir0 , newDirectory() })
@@ -221,7 +222,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
      */
     @Test
     public void testBookiePortChanged() throws Exception {
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
@@ -247,7 +248,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
      */
     @Test
     public void testNewBookieStartingWithAnotherBookiesPort() throws Exception {
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
@@ -256,7 +257,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         b.start();
         b.shutdown();
 
-        conf = new ServerConfiguration()
+        conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(newDirectory())
             .setLedgerDirNames(new String[] { newDirectory() , newDirectory() })
@@ -281,7 +282,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         // Format the BK Metadata and generate INSTANCEID
         BookKeeperAdmin.format(adminConf, false, true);
 
-        ServerConfiguration bookieConf = new ServerConfiguration()
+        ServerConfiguration bookieConf = TestBKConfiguration.newServerConfiguration()
                 .setZkServers(zkUtil.getZooKeeperConnectString())
                 .setJournalDirName(newDirectory(false))
                 .setLedgerDirNames(new String[] { newDirectory(false) })
@@ -316,7 +317,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         tmpDirs.add(journalDir);
         File ledgerDir = newV2LedgerDirectory();
         tmpDirs.add(ledgerDir);
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() })
@@ -340,7 +341,7 @@ public class CookieTest extends BookKeeperClusterTestCase {
         tmpDirs.add(journalDir);
         File ledgerDir = newV1LedgerDirectory();
         tmpDirs.add(ledgerDir);
-        ServerConfiguration conf = new ServerConfiguration()
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
             .setZkServers(zkUtil.getZooKeeperConnectString())
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[]{ledgerDir.getPath()})

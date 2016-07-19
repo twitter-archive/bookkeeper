@@ -165,7 +165,7 @@ public class EntryLogTest {
         Bookie.checkDirectoryStructure(curDir);
 
         int gcWaitTime = 1000;
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setGcWaitTime(gcWaitTime);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
         Bookie bookie = newBookie(conf);
@@ -218,7 +218,7 @@ public class EntryLogTest {
         File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
         Bookie.checkDirectoryStructure(curLedgerDir);
 
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
 
         LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
@@ -251,7 +251,7 @@ public class EntryLogTest {
         File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
         Bookie.checkDirectoryStructure(curLedgerDir);
 
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
 
         LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
@@ -301,7 +301,7 @@ public class EntryLogTest {
         File curDir = Bookie.getCurrentDirectory(tmpDir);
         Bookie.checkDirectoryStructure(curDir);
 
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
         Bookie bookie = newBookie(conf);
         // create some entries
@@ -361,7 +361,7 @@ public class EntryLogTest {
     public void testEntryLoggerShouldThrowFNFEIfDirectoriesDoesNotExist()
             throws Exception {
         File tmpDir = createTempDir("bkTest", ".dir");
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] { tmpDir.toString() });
         EntryLogger entryLogger = null;
         try {
@@ -380,7 +380,7 @@ public class EntryLogTest {
     @Test(timeout = 60000, expected = Bookie.NoEntryException.class)
     public void testFileNotFoundOnReadingEntries() throws Exception {
         File ledgerDir = createTempDir("EntryLogTest", ".dir");
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] { ledgerDir.getAbsolutePath() });
         Bookie bookie = newBookie(conf);
         EntryLogger entryLogger = new EntryLogger(conf, bookie.getLedgerDirsManager());
@@ -395,7 +395,7 @@ public class EntryLogTest {
     public void testAddEntryFailureOnDiskFull() throws Exception {
         File ledgerDir1 = createTempDir("bkTest", ".dir");
         File ledgerDir2 = createTempDir("bkTest", ".dir");
-        ServerConfiguration conf = new ServerConfiguration();
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
         conf.setLedgerDirNames(new String[] { ledgerDir1.getAbsolutePath(),
                 ledgerDir2.getAbsolutePath() });
         Bookie bookie = newBookie(conf);

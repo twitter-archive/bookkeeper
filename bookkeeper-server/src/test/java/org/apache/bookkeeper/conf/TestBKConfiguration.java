@@ -29,6 +29,7 @@ public class TestBKConfiguration {
         confReturn.setEntryLogWriteLedgersMapEnabled(true);
         confReturn.setEntryLogReadLedgersMapEnabled(true);
         confReturn.setCheckpointInterval(100);
+        confReturn.setAllowLoopback(true);
         return confReturn;
     }
 

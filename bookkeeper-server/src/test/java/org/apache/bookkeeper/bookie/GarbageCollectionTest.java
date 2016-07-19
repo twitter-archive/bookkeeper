@@ -125,6 +125,7 @@ public class GarbageCollectionTest extends BookKeeperClusterTestCase {
         LOG.info("Deleted ledger {}.", lh.getId());
 
         ServerConfiguration newConf = new ServerConfiguration(baseConf);
+        newConf.setAllowLoopback(true);
         newConf.setBookiePort(killConf.getBookiePort());
         newConf.setZkServers(killConf.getZkServers());
         newConf.setJournalDirName(killConf.getJournalDirName());
