@@ -36,7 +36,7 @@ import org.jboss.netty.buffer.ChannelBuffers;
  * for the packet. Currently 2 types of digests are supported: MAC (based on SHA-1) and CRC32
  */
 
-abstract class DigestManager {
+public abstract class DigestManager {
     static final Logger logger = LoggerFactory.getLogger(DigestManager.class);
 
     static final int METADATA_LENGTH = 32;
@@ -59,7 +59,7 @@ abstract class DigestManager {
         macCodeLength = getMacCodeLength();
     }
 
-    static DigestManager instantiate(long ledgerId, byte[] passwd, DigestType digestType) throws GeneralSecurityException {
+    public static DigestManager instantiate(long ledgerId, byte[] passwd, DigestType digestType) throws GeneralSecurityException {
         switch(digestType) {
         case MAC:
             return new MacDigestManager(ledgerId, passwd);
@@ -102,15 +102,15 @@ abstract class DigestManager {
         return ChannelBuffers.wrappedBuffer(ChannelBuffers.wrappedBuffer(buffer), ChannelBuffers.wrappedBuffer(data, doffset, dlength));
     }
 
-    private void verifyDigest(ChannelBuffer dataReceived) throws BKDigestMatchException {
-        verifyDigest(LedgerHandle.INVALID_ENTRY_ID, dataReceived, true);
+    private void verifyDigest(long ledgerId, ChannelBuffer dataReceived) throws BKDigestMatchException {
+        verifyDigest(ledgerId, LedgerHandle.INVALID_ENTRY_ID, dataReceived, true);
     }
 
-    private void verifyDigest(long entryId, ChannelBuffer dataReceived) throws BKDigestMatchException {
-        verifyDigest(entryId, dataReceived, false);
+    public void verifyDigest(long ledgerId, long entryId, ChannelBuffer dataReceived) throws BKDigestMatchException {
+        verifyDigest(ledgerId, entryId, dataReceived, false);
     }
 
-    private void verifyDigest(long entryId, ChannelBuffer dataReceived, boolean skipEntryIdCheck)
+    private void verifyDigest(long ledgerId, long entryId, ChannelBuffer dataReceived, boolean skipEntryIdCheck)
             throws BKDigestMatchException {
 
         ByteBuffer dataReceivedBuffer = dataReceived.toByteBuffer();
@@ -123,10 +123,22 @@ abstract class DigestManager {
                     this.getClass().getName(), dataReceived.readableBytes());
             throw new BKDigestMatchException();
         }
-        update(dataReceivedBuffer.array(), dataReceivedBuffer.position(), METADATA_LENGTH);
+
+        final byte[] dataReceivedArray;
+        final int dataReceivedArrayPosition;
+        if (dataReceivedBuffer.hasArray()) {
+            dataReceivedArray = dataReceivedBuffer.array();
+            dataReceivedArrayPosition = dataReceivedBuffer.position();
+        } else {
+            ByteBuffer copiedDataReceivedBuffer = ChannelBuffers.copiedBuffer(dataReceivedBuffer).toByteBuffer();
+            dataReceivedArray = copiedDataReceivedBuffer.array();
+            dataReceivedArrayPosition = copiedDataReceivedBuffer.position();
+        }
+
+        update(dataReceivedArray, dataReceivedArrayPosition, METADATA_LENGTH);
 
         int offset = METADATA_LENGTH + macCodeLength;
-        update(dataReceivedBuffer.array(), dataReceivedBuffer.position() + offset, dataReceived.readableBytes() - offset);
+        update(dataReceivedArray, dataReceivedArrayPosition + offset, dataReceived.readableBytes() - offset);
         digest = getValueAndReset();
 
         for (int i = 0; i < digest.length; i++) {
@@ -163,7 +175,7 @@ abstract class DigestManager {
      */
     ChannelBufferInputStream verifyDigestAndReturnData(long entryId, ChannelBuffer dataReceived)
             throws BKDigestMatchException {
-        verifyDigest(entryId, dataReceived);
+        verifyDigest(ledgerId, entryId, dataReceived);
         dataReceived.readerIndex(METADATA_LENGTH + macCodeLength);
         return new ChannelBufferInputStream(dataReceived);
     }
@@ -180,7 +192,7 @@ abstract class DigestManager {
     }
 
     RecoveryData verifyDigestAndReturnLastConfirmed(ChannelBuffer dataReceived) throws BKDigestMatchException {
-        verifyDigest(dataReceived);
+        verifyDigest(ledgerId, dataReceived);
         dataReceived.readerIndex(8);
 
         dataReceived.readLong(); // skip unused entryId

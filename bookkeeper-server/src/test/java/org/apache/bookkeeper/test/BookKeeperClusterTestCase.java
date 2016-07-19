@@ -24,6 +24,7 @@ package org.apache.bookkeeper.test;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.security.GeneralSecurityException;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -388,7 +389,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws BookieException
      */
     public void restartBookies()
-            throws InterruptedException, IOException, KeeperException, BookieException {
+            throws InterruptedException, IOException, KeeperException, BookieException, GeneralSecurityException {
         restartBookies(null);
     }
 
@@ -414,7 +415,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws BookieException
      */
     public void restartBookies(ServerConfiguration newConf)
-        throws InterruptedException, IOException, KeeperException, BookieException {
+        throws InterruptedException, IOException, KeeperException, BookieException, GeneralSecurityException {
         // shut down bookie server
         for (BookieServer server : bs) {
             server.shutdown();
@@ -441,7 +442,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws IOException
      */
     public int startNewBookie()
-            throws IOException, InterruptedException, KeeperException, BookieException {
+            throws IOException, InterruptedException, KeeperException, BookieException, GeneralSecurityException {
         ServerConfiguration conf = newServerConfiguration();
         bsConfs.add(conf);
         bs.add(startBookie(conf));
@@ -458,12 +459,12 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      *
      */
     protected BookieServer startBookie(ServerConfiguration conf)
-            throws IOException, InterruptedException, KeeperException, BookieException {
+            throws IOException, InterruptedException, KeeperException, BookieException, GeneralSecurityException {
         return startBookie(conf, false);
     }
 
     protected BookieServer startBookie(ServerConfiguration conf, boolean readOnly)
-        throws IOException, InterruptedException, KeeperException, BookieException {
+        throws IOException, InterruptedException, KeeperException, BookieException, GeneralSecurityException {
         BookieServer server;
         if (readOnly) {
             server = new ReadOnlyBookieServer(conf);
@@ -502,7 +503,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * recovery for this bookie, if isAutoRecoveryEnabled is true.
      */
     protected BookieServer startBookie(ServerConfiguration conf, final Bookie b)
-            throws IOException, InterruptedException, KeeperException, BookieException {
+            throws IOException, InterruptedException, KeeperException, BookieException, GeneralSecurityException {
         BookieServer server = new BookieServer(conf) {
             @Override
             protected Bookie newBookie(ServerConfiguration conf) {

@@ -146,6 +146,8 @@ public interface BookKeeperServerStats {
     String GC_NUM_LEDGERS_DELETED = "GC_NUM_LEDGERS_DELETED";
     String GC_NUM_ENTRYLOGS_DELETED = "GC_NUM_ENTRYLOGS_DELETED";
     String GC_NUM_ENTRYLOGS_COMPACTED = "GC_NUM_ENTRYLOGS_COMPACTED";
+    /** Corruption counter **/
+    String ADD_ENTRY_DIGEST_FAILURE = "ADD_ENTRY_DIGEST_FAILURE";
 
     // Gauge
     /** Ledger Cache Gauges **/

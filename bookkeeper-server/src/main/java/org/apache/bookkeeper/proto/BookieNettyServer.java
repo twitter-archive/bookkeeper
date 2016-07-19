@@ -22,6 +22,7 @@ package org.apache.bookkeeper.proto;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.security.GeneralSecurityException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -72,7 +73,7 @@ class BookieNettyServer {
     BookieNettyServer(ServerConfiguration conf,
                       Bookie bookie,
                       StatsLogger statsLogger)
-            throws IOException, KeeperException, InterruptedException, BookieException  {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException  {
         this.conf = conf;
         this.bookie = bookie;
 

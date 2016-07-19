@@ -1,10 +1,15 @@
 package org.apache.bookkeeper.proto;
 
+import com.google.common.base.Optional;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.DigestManager;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.AddResponse;
@@ -13,6 +18,7 @@ import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,8 +28,11 @@ import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessorV3.class);
 
-    public WriteEntryProcessorV3(Request request, Channel channel, Bookie bookie, StatsLogger statsLogger) {
+    final Optional<DigestManager> macManager;
+
+    public WriteEntryProcessorV3(Request request, Channel channel, Bookie bookie, StatsLogger statsLogger, Optional<DigestManager> macManager) {
         super(request, channel, bookie, statsLogger);
+        this.macManager = macManager;
     }
 
     // Returns null if there is no exception thrown
@@ -88,6 +97,9 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
         byte[] masterKey = addRequest.getMasterKey().toByteArray();
         ByteBuffer entryToAdd = addRequest.getBody().asReadOnlyByteBuffer();
         try {
+            if (macManager.isPresent()) {
+                macManager.get().verifyDigest(ledgerId, entryId, ChannelBuffers.wrappedBuffer(entryToAdd));
+            }
             if (addRequest.hasFlag() && addRequest.getFlag().equals(AddRequest.Flag.RECOVERY_ADD)) {
                 bookie.recoveryAddEntry(entryToAdd, wcb, channel, masterKey);
             } else {
@@ -107,6 +119,9 @@ class WriteEntryProcessorV3 extends PacketProcessorBaseV3 {
             logger.error("Unauthorized access to ledger:" + ledgerId +
                     " while writing entry:" + entryId);
             status = StatusCode.EUA;
+        } catch (BKDigestMatchException e) {
+            statsLogger.getCounter(ADD_ENTRY_DIGEST_FAILURE).inc();
+            status = StatusCode.EBADREQ;
         } catch (Throwable t) {
             logger.error("Unexpected exception while writing {}@{} : ",
                     new Object[] { entryId, ledgerId, t });

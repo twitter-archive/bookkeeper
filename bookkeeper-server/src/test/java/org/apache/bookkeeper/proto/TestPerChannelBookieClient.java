@@ -23,11 +23,17 @@ package org.apache.bookkeeper.proto;
 
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 
 import com.google.common.base.Optional;
 
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.DigestManager;
+import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -164,15 +170,27 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         executor.shutdown();
     }
 
-    WriteCallback wrcb = new WriteCallback() {
+    private static class SimpleWriteCallback implements WriteCallback {
+        CountDownLatch done = new CountDownLatch(1);
+        AtomicInteger rcHolder = new AtomicInteger(-1);
         public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
-            if (ctx != null) {
-                synchronized (ctx) {
-                    ctx.notifyAll();
-                }
-            }
+            rcHolder.set(rc);
+            done.countDown();
         }
-    };
+        public int await() throws Exception {
+            done.await();
+            return rcHolder.get();
+        }
+    }
+
+    private static ChannelBuffer getDataAndDigest(long ledgerId, long entryId) throws Exception {
+        byte[] data = "keeper of books".getBytes("UTF-8");
+        DigestManager macManager =
+            DigestManager.instantiate(ledgerId, null /* Not used */, BookKeeper.DigestType.CRC32);
+        final ChannelBuffer dataAndDigest = macManager.computeDigestAndPackageForSending(
+            entryId, LedgerHandle.INVALID_ENTRY_ID, 0, data, 0, data.length);
+        return ChannelBuffers.copiedBuffer(dataAndDigest);
+    }
 
     /**
      * Just push a write through the async channel write path to ensure this config option is working.
@@ -186,25 +204,101 @@ public class TestPerChannelBookieClient extends BookKeeperClusterTestCase {
         OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
         final byte[] passwd = new byte[20];
         Arrays.fill(passwd, (byte) 'a');
-        final Object ctx = new Object();
         ClientConfiguration conf = new ClientConfiguration();
         conf.setWriteToChannelAsync(true);
 
+        final ChannelBuffer bb = getDataAndDigest(1, 1);
+
+        final SimpleWriteCallback wrcb = new SimpleWriteCallback();
         BookieSocketAddress addr = getBookie(0);
         PerChannelBookieClient client = new PerChannelBookieClient(
             conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE, Optional.<String>absent());
         client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
             @Override
             public void operationComplete(int rc, PerChannelBookieClient client) {
-                ChannelBuffer bb = ChannelBuffers.buffer(128);
-                client.addEntry(1, passwd, 1, bb, wrcb, ctx, BookieProtocol.FLAG_NONE);
+                client.addEntry(1, passwd, 1, bb, wrcb, null, BookieProtocol.FLAG_NONE);
             }
         });
-        synchronized (ctx) {
-            ctx.wait();
-        }
+
+        int rc = wrcb.await();
+        assertEquals(0, rc);
         client.close();
         channelFactory.releaseExternalResources();
         executor.shutdown();
+    }
+
+    @Test(timeout=60000)
+    public void testServerDigestWithGoodAndBadWrites() throws Exception {
+        BookieServer bookie = null;
+        try {
+            ServerConfiguration serverConf = newServerConfiguration();
+            serverConf.setCRC32VerifyEnabled(true);
+            bookie = startBookie(serverConf);
+            int rc = issueWriteWithOptionalCorruption(bookie, true);
+            assertEquals(-12, rc);
+            rc = issueWriteWithOptionalCorruption(bookie, false);
+            assertEquals(0, rc);
+        } finally {
+            if (null != bookie) {
+                killBookie(bookie.getLocalAddress());
+            }
+        }
+    }
+
+    @Test(timeout=60000)
+    public void testServerDigestDisabledWithGoodAndBadWrites() throws Exception {
+        BookieServer bookie = null;
+        try {
+            ServerConfiguration serverConf = newServerConfiguration();
+            serverConf.setCRC32VerifyEnabled(false);
+            bookie = startBookie(serverConf);
+            int rc = issueWriteWithOptionalCorruption(bookie, true);
+            assertEquals(0, rc);
+            rc = issueWriteWithOptionalCorruption(bookie, false);
+            assertEquals(0, rc);
+        } finally {
+            if (null != bookie) {
+                killBookie(bookie.getLocalAddress());
+            }
+        }
+    }
+
+    public int issueWriteWithOptionalCorruption(BookieServer bookie, boolean injectCorruption) throws Exception {
+        ClientSocketChannelFactory channelFactory
+            = new NioClientSocketChannelFactory(Executors.newCachedThreadPool(),
+                                                Executors.newCachedThreadPool());
+
+        OrderedSafeExecutor executor = new OrderedSafeExecutor(1);
+        final byte[] passwd = new byte[20];
+        Arrays.fill(passwd, (byte) 'a');
+        ClientConfiguration conf = new ClientConfiguration();
+
+        final long ledgerId = 1;
+        final long entryId = 1;
+        final ChannelBuffer toSend = getDataAndDigest(ledgerId, entryId);
+        if (injectCorruption) {
+            toSend.setByte(toSend.capacity() - 2, (byte)99);
+        }
+
+        final SimpleWriteCallback wrcb = new SimpleWriteCallback();
+
+        BookieSocketAddress addr = bookie.getLocalAddress();
+        PerChannelBookieClient client = new PerChannelBookieClient(
+            conf, executor, channelFactory, addr, null, NullStatsLogger.INSTANCE, Optional.<String>absent());
+        client.connectIfNeededAndDoOp(new GenericCallback<PerChannelBookieClient>() {
+            @Override
+            public void operationComplete(int rc, PerChannelBookieClient client) {
+                client.addEntry(
+                    ledgerId, passwd, entryId, toSend, wrcb, null, BookieProtocol.FLAG_NONE);
+            }
+        });
+
+        int rc = wrcb.await();
+
+        client.close();
+        channelFactory.releaseExternalResources();
+        executor.shutdown();
+
+        return rc;
     }
 }

@@ -24,6 +24,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -123,7 +124,7 @@ public class LocalBookKeeper {
     }
 
     private List<File> runBookies(ServerConfiguration baseConf, String dirSuffix)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         List<File> tempDirs = new ArrayList<File>();
         try {
             runBookies(baseConf, tempDirs, dirSuffix);
@@ -144,7 +145,7 @@ public class LocalBookKeeper {
     }
 
     private void runBookies(ServerConfiguration baseConf, List<File> tempDirs, String dirSuffix)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         LOG.info("Starting Bookie(s)");
         // Create Bookie Servers (B1, B2, B3)
 
@@ -214,20 +215,20 @@ public class LocalBookKeeper {
     }
 
     public static void startLocalBookies(String zkHost, int zkPort, int numBookies, boolean shouldStartZK, int initialBookiePort)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         ServerConfiguration conf = new ServerConfiguration();
         startLocalBookiesInternal(conf, zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort, true, "test");
     }
 
     public static void startLocalBookies(String zkHost, int zkPort, int numBookies, boolean shouldStartZK, int initialBookiePort,
                                          ServerConfiguration conf)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         startLocalBookiesInternal(conf, zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort, true, "test");
     }
 
     public static void startLocalBookies(String zkHost, int zkPort, int numBookies, boolean shouldStartZK, int initialBookiePort,
                                          String dirSuffix)
-        throws IOException, KeeperException, InterruptedException, BookieException {
+        throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         ServerConfiguration conf = new ServerConfiguration();
         startLocalBookiesInternal(conf, zkHost, zkPort, numBookies, shouldStartZK, initialBookiePort, true, dirSuffix);
     }
@@ -235,7 +236,7 @@ public class LocalBookKeeper {
     static void startLocalBookiesInternal(ServerConfiguration conf, String zkHost, int zkPort,
                                           int numBookies, boolean shouldStartZK, int initialBookiePort,
                                           boolean stopOnExit, String dirSuffix)
-        throws IOException, KeeperException, InterruptedException, BookieException {
+        throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         LocalBookKeeper lb = new LocalBookKeeper(numBookies, initialBookiePort, zkHost, zkPort);
 
         ZooKeeperServerShim zks = null;
@@ -278,7 +279,7 @@ public class LocalBookKeeper {
     }
 
     public static void main(String[] args)
-            throws IOException, KeeperException, InterruptedException, BookieException {
+            throws IOException, KeeperException, InterruptedException, BookieException, GeneralSecurityException {
         if(args.length < 1) {
             usage();
             System.exit(-1);
