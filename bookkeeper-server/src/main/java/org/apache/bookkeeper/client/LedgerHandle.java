@@ -778,15 +778,6 @@ public class LedgerHandle {
         new TryReadLastConfirmedOp(this, innercb, getLastAddConfirmed()).initiate();
     }
 
-    @Deprecated
-    public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
-        asyncReadLastConfirmedAndEntry(timeOutInMillis, false, cb, ctx);
-    }
-
-    @Deprecated
-    public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final boolean parallel, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
-        asyncReadLastConfirmedAndEntry(getLastAddConfirmed() + 1, timeOutInMillis, parallel, cb, ctx);
-    }
 
     /**
      * Asynchronous read next entry and the latest last add confirmed.

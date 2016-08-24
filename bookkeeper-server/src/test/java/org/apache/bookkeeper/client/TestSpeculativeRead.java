@@ -212,48 +212,48 @@ public class TestSpeculativeRead extends BaseTestCase {
         try {
             // read first entry, should complete faster than timeout
             // as bookie 0 has the entry
-            LatchCallback latch0 = new LatchCallback();
-            l.asyncReadEntries(0, 0, latch0, null);
-            latch0.expectSuccess(timeout/2);
+            LatchCallback firstReadComplete = new LatchCallback();
+            l.asyncReadEntries(0, 0, firstReadComplete, null);
+            firstReadComplete.expectSuccess(timeout/2);
 
             // second should have to hit two timeouts (bookie 1 & 2)
             // bookie 3 has the entry
-            LatchCallback latch1 = new LatchCallback();
-            l.asyncReadEntries(1, 1, latch1, null);
-            latch1.expectTimeout(timeout);
-            latch1.expectSuccess(timeout*2);
-            LOG.info("Timeout {} latch1 duration {}", timeout, latch1.getDuration());
+            LatchCallback secondReadComplete = new LatchCallback();
+            l.asyncReadEntries(1, 1, secondReadComplete, null);
+            secondReadComplete.expectTimeout(timeout);
+            secondReadComplete.expectSuccess(timeout*2);
+            LOG.info("Timeout {} latch1 duration {}", timeout, secondReadComplete.getDuration());
             assertTrue("should have taken longer than two timeouts, but less than 3",
-                       latch1.getDuration() >= timeout*2
-                       && latch1.getDuration() < timeout*3);
+                secondReadComplete.getDuration() >= timeout*2
+                       && secondReadComplete.getDuration() < timeout*3);
 
             // third should have to hit one timeouts (bookie 2)
             // bookie 3 has the entry
-            LatchCallback latch2 = new LatchCallback();
-            l.asyncReadEntries(2, 2, latch2, null);
-            latch2.expectTimeout(timeout/2);
-            latch2.expectSuccess(timeout);
-            LOG.info("Timeout {} latch2 duration {}", timeout, latch2.getDuration());
+            LatchCallback thirdReadComplete = new LatchCallback();
+            l.asyncReadEntries(2, 2, thirdReadComplete, null);
+            thirdReadComplete.expectTimeout(timeout/2);
+            thirdReadComplete.expectSuccess(timeout);
+            LOG.info("Timeout {} latch2 duration {}", timeout, thirdReadComplete.getDuration());
             assertTrue("should have taken longer than one timeout, but less than 2",
-                       latch2.getDuration() >= timeout
-                       && latch2.getDuration() < timeout*2);
+                thirdReadComplete.getDuration() >= timeout
+                       && thirdReadComplete.getDuration() < timeout*2);
 
             // fourth should have no timeout
             // bookie 3 has the entry
-            LatchCallback latch3 = new LatchCallback();
-            l.asyncReadEntries(3, 3, latch3, null);
-            latch3.expectSuccess(timeout/2);
+            LatchCallback fourthReadComplete = new LatchCallback();
+            l.asyncReadEntries(3, 3, fourthReadComplete, null);
+            fourthReadComplete.expectSuccess(timeout/2);
 
             // fifth should hit one timeout, (bookie 4)
             // bookie 0 has the entry
-            LatchCallback latch4 = new LatchCallback();
-            l.asyncReadEntries(4, 4, latch4, null);
-            latch4.expectTimeout(timeout/2);
-            latch4.expectSuccess(timeout);
-            LOG.info("Timeout {} latch4 duration {}", timeout, latch4.getDuration());
+            LatchCallback fifthReadComplete = new LatchCallback();
+            l.asyncReadEntries(4, 4, fifthReadComplete, null);
+            fifthReadComplete.expectTimeout(timeout/2);
+            fifthReadComplete.expectSuccess(timeout);
+            LOG.info("Timeout {} latch4 duration {}", timeout, fifthReadComplete.getDuration());
             assertTrue("should have taken longer than one timeout, but less than 2",
-                       latch4.getDuration() >= timeout
-                       && latch4.getDuration() < timeout*2);
+                fifthReadComplete.getDuration() >= timeout
+                       && fifthReadComplete.getDuration() < timeout*2);
 
         } finally {
             sleepLatch.countDown();
@@ -283,20 +283,20 @@ public class TestSpeculativeRead extends BaseTestCase {
         try {
             // read goes to first bookie, spec read timeout occurs,
             // goes to second
-            LatchCallback latch0 = new LatchCallback();
-            l.asyncReadEntries(0, 0, latch0, null);
-            latch0.expectTimeout(timeout);
+            LatchCallback firstReadComplete = new LatchCallback();
+            l.asyncReadEntries(0, 0, firstReadComplete, null);
+            firstReadComplete.expectTimeout(timeout);
 
             // wake up first bookie
             sleepLatch0.countDown();
-            latch0.expectSuccess(timeout/2);
+            firstReadComplete.expectSuccess(timeout/2);
 
             sleepLatch1.countDown();
 
             // check we can read next entry without issue
-            LatchCallback latch1 = new LatchCallback();
-            l.asyncReadEntries(1, 1, latch1, null);
-            latch1.expectSuccess(timeout/2);
+            LatchCallback secondReadComplete = new LatchCallback();
+            l.asyncReadEntries(1, 1, secondReadComplete, null);
+            secondReadComplete.expectSuccess(timeout/2);
 
         } finally {
             sleepLatch0.countDown();
@@ -327,9 +327,9 @@ public class TestSpeculativeRead extends BaseTestCase {
         secondHostOnly.set(1, true);
         PendingReadOp.LedgerEntryRequest req0 = null, req2 = null, req4 = null;
         try {
-            LatchCallback latch0 = new LatchCallback();
+            LatchCallback readComplete = new LatchCallback();
             PendingReadOp op = new PendingReadOp(l, bkspec.scheduler,
-                                                 0, 5, latch0, null);
+                                                 0, 5, readComplete, null);
 
             // if we've already heard from all hosts,
             // we only send the initial read
@@ -444,14 +444,14 @@ public class TestSpeculativeRead extends BaseTestCase {
         try {
             // second should have to hit two timeouts (bookie 1 & 2)
             // bookie 3 has the entry
-            LatchCallback latch1 = new LatchCallback();
-            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
-            latch1.expectTimeout(timeout);
-            latch1.expectSuccess(timeout*2);
-            LOG.info("Timeout {} latch1 duration {}", timeout, latch1.getDuration());
+            LatchCallback readComplete = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(entryId, 10000, false, readComplete, null);
+            readComplete.expectTimeout(timeout);
+            readComplete.expectSuccess(timeout*2);
+            LOG.info("Timeout {} latch1 duration {}", timeout, readComplete.getDuration());
             assertTrue("should have taken longer than two timeouts, but less than 3",
-                latch1.getDuration() >= timeout
-                    && latch1.getDuration() < timeout*2);
+                readComplete.getDuration() >= timeout
+                    && readComplete.getDuration() < timeout*2);
         } finally {
             sleepLatch.countDown();
             l.close();
@@ -486,15 +486,15 @@ public class TestSpeculativeRead extends BaseTestCase {
         try {
             // second should have to hit two timeouts (bookie 0 & 1)
             // bookie 2 has the entry
-            LatchCallback latch1 = new LatchCallback();
-            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
-            latch1.expectTimeout(timeout);
-            latch1.expectTimeout(timeout*2);
-            latch1.expectSuccess(timeout*2);
-            LOG.info("Timeout {} latch1 duration {}", timeout, latch1.getDuration());
+            LatchCallback readComplete = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(entryId, 10000, false, readComplete, null);
+            readComplete.expectTimeout(timeout);
+            readComplete.expectTimeout(timeout*2);
+            readComplete.expectSuccess(timeout*2);
+            LOG.info("Timeout {} latch1 duration {}", timeout, readComplete.getDuration());
             assertTrue("should have taken longer than two timeouts, but less than 3",
-                latch1.getDuration() >= timeout*3
-                    && latch1.getDuration() < timeout*4);
+                readComplete.getDuration() >= timeout*3
+                    && readComplete.getDuration() < timeout*4);
         } finally {
             sleepLatch.countDown();
             l.close();
@@ -514,7 +514,7 @@ public class TestSpeculativeRead extends BaseTestCase {
         BookKeeper bkspec = createClientForReadLAC(timeout);
 
         LedgerHandle l = bkspec.openLedgerNoRecovery(lh.getId(), digestType, passwd);
-
+        long nextEntryId = l.getLastAddConfirmed()+1;
         lh.addEntry("Data for test".getBytes());
 
         // sleep bookies
@@ -531,22 +531,22 @@ public class TestSpeculativeRead extends BaseTestCase {
         try {
             // read goes to first bookie, spec read timeout occurs,
             // goes to second
-            LatchCallback latch0 = new LatchCallback();
-            l.asyncReadLastConfirmedAndEntry(10000, latch0, null);
-            latch0.expectTimeout(timeout);
+            LatchCallback firstReadComplete = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(nextEntryId++, 10000, false, firstReadComplete, null);
+            firstReadComplete.expectTimeout(timeout);
 
             // wake up first bookie
             sleepLatch0.countDown();
-            latch0.expectSuccess(timeout/2);
+            firstReadComplete.expectSuccess(timeout/2);
 
             sleepLatch1.countDown();
 
             lh.addEntry("Data for test".getBytes());
 
             // check we can read next entry without issue
-            LatchCallback latch1 = new LatchCallback();
-            l.asyncReadLastConfirmedAndEntry(10000, latch1, null);
-            latch1.expectSuccess(timeout/2);
+            LatchCallback secondReadComplete = new LatchCallback();
+            l.asyncReadLastConfirmedAndEntry(nextEntryId++, 10000, false, secondReadComplete, null);
+            secondReadComplete.expectSuccess(timeout/2);
 
         } finally {
             sleepLatch0.countDown();
@@ -577,8 +577,8 @@ public class TestSpeculativeRead extends BaseTestCase {
         secondHostOnly.set(1, true);
         ReadLastConfirmedAndEntryOp.ReadLACAndEntryRequest req0 = null, req2 = null, req4 = null;
         try {
-            LatchCallback latch0 = new LatchCallback();
-            ReadLastConfirmedAndEntryOp op = new ReadLastConfirmedAndEntryOp(l, latch0,
+            LatchCallback firstReadComplete = new LatchCallback();
+            ReadLastConfirmedAndEntryOp op = new ReadLastConfirmedAndEntryOp(l, firstReadComplete,
                 5, 500, bkspec.scheduler);
 
             // if we've already heard from all hosts,
