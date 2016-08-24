@@ -226,8 +226,8 @@ public class TestZooKeeperClient extends TestCase {
         expireZooKeeperSession(client, timeout);
         List<String> children = client.getChildren(path, false, newStat);
         Assert.assertEquals(2, children.size());
-        Assert.assertEquals("children", children.get(0));
-        Assert.assertEquals("children2", children.get(1));
+        Assert.assertTrue(children.contains("children"));
+        Assert.assertTrue(children.contains("children2"));
         logger.info("Get children under znode " + path);
 
         expireZooKeeperSession(client, timeout);
