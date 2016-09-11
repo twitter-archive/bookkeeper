@@ -45,11 +45,6 @@ abstract class DigestManager {
 
     abstract int getMacCodeLength();
 
-    /*void update(ByteBuffer data) {
-        update(data, 0, data.limit());
-    }*/
-
-   // abstract void update(byte[] data, int offset, int length);
     abstract void update(ByteBuffer data);
     abstract byte[] getValueAndReset();
 
