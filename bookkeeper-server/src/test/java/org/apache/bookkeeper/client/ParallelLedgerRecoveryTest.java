@@ -350,7 +350,7 @@ public class ParallelLedgerRecoveryTest extends BookKeeperClusterTestCase {
         byte[] data = "recovery-on-entry-gap-gap".getBytes(UTF_8);
         ChannelBuffer toSend =
                 lh.macManager.computeDigestAndPackageForSending(
-                        entryId, lac, lh.getLength() + 100, data, 0, data.length);
+                        entryId, lac, lh.getLength() + 100, ByteBuffer.wrap(data));
         final CountDownLatch addLatch = new CountDownLatch(1);
         final AtomicBoolean addSuccess = new AtomicBoolean(false);
         LOG.info("Add entry {} with lac = {}", entryId, lac);

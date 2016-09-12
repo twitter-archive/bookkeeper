@@ -49,7 +49,7 @@ class CRC32DigestManager extends DigestManager {
     }
 
     @Override
-    void update(byte[] data, int offset, int length) {
-        crc.get().update(data, offset, length);
+    void update(ByteBuffer data) {
+        crc.get().update(data);
     }
 }
