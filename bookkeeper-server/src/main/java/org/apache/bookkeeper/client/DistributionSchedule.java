@@ -89,12 +89,18 @@ interface DistributionSchedule {
      */
     public interface QuorumCoverageSet {
         /**
-         * Add a bookie to the set, and check if all quorum in the set
-         * have had the action performed for it.
+         * Add a bookie to the result set
+         *
          * @param bookieIndexHeardFrom Bookie we've just heard from
+         */
+        void addBookie(int bookieIndexHeardFrom, int rc);
+
+        /**
+         * check if all quorum in the set have had the action performed for it.
+         *
          * @return whether all quorums have been covered
          */
-        public boolean addBookieAndCheckCovered(int bookieIndexHeardFrom);
+        boolean checkCovered();
     }
 
     public QuorumCoverageSet getCoverageSet();

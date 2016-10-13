@@ -87,27 +87,41 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
     }
 
     private class RRQuorumCoverageSet implements QuorumCoverageSet {
-        private final boolean[] covered = new boolean[ensembleSize];
+        private final int[] covered = new int[ensembleSize];
 
         private RRQuorumCoverageSet() {
             for (int i = 0; i < covered.length; i++) {
-                covered[i] = false;
+                covered[i] = BKException.Code.UNINITIALIZED;
             }
         }
 
-        public synchronized boolean addBookieAndCheckCovered(int bookieIndexHeardFrom) {
-            covered[bookieIndexHeardFrom] = true;
+        @Override
+        public synchronized void addBookie(int bookieIndexHeardFrom, int rc) {
+            covered[bookieIndexHeardFrom] = rc;
+        }
 
+        @Override
+        public synchronized boolean checkCovered() {
             // now check if there are any write quorums, with |ackQuorum| nodes available
             for (int i = 0; i < ensembleSize; i++) {
                 int nodesNotCovered = 0;
+                int nodesOkay = 0;
+                int nodesUninitialized = 0;
                 for (int j = 0; j < writeQuorumSize; j++) {
                     int nodeIndex = (i + j) % ensembleSize;
-                    if (!covered[nodeIndex]) {
+                    if (covered[nodeIndex] == BKException.Code.OK) {
+                        nodesOkay++;
+                    } else if (covered[nodeIndex] != BKException.Code.NoSuchEntryException &&
+                            covered[nodeIndex] != BKException.Code.NoSuchLedgerExistsException) {
                         nodesNotCovered++;
+                    } else if (covered[nodeIndex] == BKException.Code.UNINITIALIZED) {
+                        nodesUninitialized++;
                     }
                 }
-                if (nodesNotCovered >= ackQuorumSize) {
+                // if we haven't seen any OK responses and there are still nodes not heard from,
+                // let's wait until
+                if (nodesNotCovered >= ackQuorumSize ||
+                        (nodesOkay == 0 && nodesUninitialized > 0)) {
                     return false;
                 }
             }

@@ -113,10 +113,10 @@ public class RoundRobinDistributionScheduleTest {
         int errors = 0;
         for (Set<Integer> subset : subsets) {
             DistributionSchedule.QuorumCoverageSet covSet = schedule.getCoverageSet();
-            boolean covSetSays = false;
             for (Integer i : subset) {
-                covSetSays = covSet.addBookieAndCheckCovered(i);
+                covSet.addBookie(i, BKException.Code.OK);
             }
+            boolean covSetSays = covSet.checkCovered();
 
             boolean[] nodesAvailable = buildAvailable(ensemble, subset);
             boolean canGetAck = canGetAckQuorum(ensemble, writeQuorum, ackQuorum, nodesAvailable);
