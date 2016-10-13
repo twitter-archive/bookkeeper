@@ -93,6 +93,9 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
             final ChannelBuffer buffer, final Object ctx) {
         int bookieIndex = (Integer) ctx;
 
+        // add the response to coverage set
+        coverageSet.addBookie(bookieIndex, rc);
+
         numResponsesPending--;
         boolean heardValidResponse = false;
         if (rc == BKException.Code.OK) {
@@ -127,7 +130,7 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
 
         // other return codes dont count as valid responses
         if (heardValidResponse
-            && coverageSet.addBookieAndCheckCovered(bookieIndex)
+            && coverageSet.checkCovered()
             && !completed) {
             completed = true;
             LOG.debug("Read Complete with enough validResponses for ledger: {}, entry: {}",
