@@ -176,10 +176,10 @@ public class BookieServer {
         if (!running) {
             return;
         }
-        this.nettyServer.shutdown();
-
         exitCode = bookie.shutdown();
         running = false;
+        // shutdown netty after bookie is shutdown to prevent netty exception
+        this.nettyServer.shutdown();
     }
 
     public boolean isRunning() {
