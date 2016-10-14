@@ -21,6 +21,7 @@
 package org.apache.bookkeeper.test;
 
 import java.io.File;
+import java.net.InetAddress;
 import java.util.Enumeration;
 
 import org.apache.bookkeeper.bookie.Bookie;
@@ -32,6 +33,7 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.util.IOUtils;
+import org.apache.zookeeper.KeeperException;
 import org.junit.Test;
 
 /**
@@ -82,7 +84,6 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         assertTrue("Bookie should be running and converted to readonly mode",
                 bookie.isRunning() && bookie.isReadOnly());
 
-        // Now kill the other bookie and read entries from the readonly bookie
         killBookie(0);
 
         Enumeration<LedgerEntry> readEntries = ledger.readEntries(0, 9);
@@ -97,7 +98,7 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
     public void testBookieShouldTurnWritableFromReadOnly() throws Exception {
         killBookie(0);
         baseConf.setReadOnlyModeEnabled(true);
-        startNewBookie();
+        int readOnlyPort = startNewBookie();
         LedgerHandle ledger = bkc.createLedger(2, 2, DigestType.MAC,
                 "".getBytes());
 
@@ -127,6 +128,9 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         assertTrue("Bookie should be running and converted to readonly mode",
                 bookie.isRunning() && bookie.isReadOnly());
 
+        String pathToDelete = "/ledgers/available/" +
+            InetAddress.getLocalHost().getHostAddress() + ":" + readOnlyPort;
+        ensureBookieDeletedFromZK(pathToDelete);
         // refresh the bookkeeper client
         bkc.readBookiesBlocking();
         // should fail to create ledger
@@ -331,5 +335,17 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
         LOG.info("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
         assertTrue("Bookie should be running and not converted back to writable mode", bookie.isRunning()
                 && bookie.isReadOnly());
+    }
+
+    /**
+     * Make sure target bookie is deleted from Zookeeper
+     * @param zkHostPath
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    private void ensureBookieDeletedFromZK(String zkHostPath) throws KeeperException, InterruptedException {
+        while (null != bkc.getZkHandle().exists(zkHostPath,false)) {
+            Thread.sleep(100);
+        }
     }
 }
