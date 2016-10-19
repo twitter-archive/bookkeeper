@@ -27,7 +27,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -123,6 +122,8 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
     private volatile boolean running = false;
     // Flag identify whether it is in shutting down progress
     private volatile boolean shuttingdown = false;
+    // Bookie status
+    private BookieStatus bookieStatus = new BookieStatus();
 
     private int exitCode = ExitCode.OK;
 
@@ -132,7 +133,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
     private String zkBookieReadOnlyPath;
 
     final private AtomicBoolean zkRegistered = new AtomicBoolean(false);
-    final protected AtomicBoolean readOnly = new AtomicBoolean(false);
+    final protected AtomicBoolean forceReadOnly = new AtomicBoolean(false);
     // executor to manage the state changes for a bookie.
     final ExecutorService stateService = Executors.newSingleThreadExecutor(
             new ThreadFactoryBuilder().setNameFormat("BookieStateService-%d").build());
@@ -420,7 +421,13 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
 
                     @Override
                     public Number getSample() {
-                        return zkRegistered.get() ? (readOnly.get() ? 0 : 1) : -1;
+                        if(!zkRegistered.get()){
+                            return -1;
+                        } else if(forceReadOnly.get() || bookieStatus.isInReadOnlyMode()){
+                            return 0;
+                        } else {
+                            return 1;
+                        }
                     }
                 });
     }
@@ -603,6 +610,13 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
 
         ledgerStorage.start();
 
+        // check the bookie status to start with
+        if (forceReadOnly.get()) {
+            this.bookieStatus.setToReadOnlyMode();
+        } else if (conf.isPersistBookieStatusEnabled()) {
+            this.bookieStatus.readFromDirectories(ledgerDirsManager.getAllLedgerDirs());
+        }
+
         // set running here.
         // since bookie server use running as a flag to tell bookie server whether it is alive
         // if setting it in bookie thread, the watcher might run before bookie thread.
@@ -750,7 +764,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
     }
 
     protected void doRegisterBookie() throws IOException {
-        doRegisterBookie(readOnly.get() ? zkBookieReadOnlyPath : zkBookieRegPath);
+        doRegisterBookie(forceReadOnly.get() || bookieStatus.isInReadOnlyMode() ? zkBookieReadOnlyPath : zkBookieRegPath);
     }
 
     private void doRegisterBookie(final String regPath) throws IOException {
@@ -800,13 +814,18 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
 
     @VisibleForTesting
     public void doTransitionToWritableMode() {
-        if (shuttingdown) {
+        if (shuttingdown || forceReadOnly.get()) {
             return;
         }
-        if (!readOnly.compareAndSet(true, false)) {
+
+        if (!bookieStatus.setToWritableMode()) {
+            // do nothing if already in writable mode
             return;
         }
         LOG.info("Transitioning Bookie to Writable mode and will serve read/write requests.");
+        if (conf.isPersistBookieStatusEnabled()) {
+            bookieStatus.writeToDirectories(ledgerDirsManager.getAllLedgerDirs());
+        }
         // change zookeeper state only when using zookeeper
         if (null == zk) {
             return;
@@ -852,7 +871,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         if (shuttingdown) {
             return;
         }
-        if (!readOnly.compareAndSet(false, true)) {
+        if (!bookieStatus.setToReadOnlyMode()) {
             return;
         }
         if (!conf.isReadOnlyModeEnabled()) {
@@ -865,6 +884,10 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         }
         LOG.info("Transitioning Bookie to ReadOnly mode,"
                 + " and will serve only read requests from clients!");
+        // persist the bookie status if we enable this
+        if (conf.isPersistBookieStatusEnabled()) {
+            this.bookieStatus.writeToDirectories(ledgerDirsManager.getAllLedgerDirs());
+        }
         // change zookeeper state only when using zookeeper
         if (null == zk) {
             return;
@@ -905,7 +928,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
      * Check whether Bookie is writable
      */
     public boolean isReadOnly() {
-        return readOnly.get();
+        return forceReadOnly.get() || bookieStatus.isInReadOnlyMode();
     }
 
     /**

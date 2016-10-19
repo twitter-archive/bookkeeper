@@ -21,11 +21,18 @@
 package org.apache.bookkeeper.bookie;
 
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.net.BindException;
 import java.net.InetAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
+import org.apache.bookkeeper.proto.ReadOnlyBookieServer;
 import org.jboss.netty.channel.ChannelException;
 import junit.framework.Assert;
 
@@ -43,6 +50,9 @@ import org.apache.zookeeper.KeeperException;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.google.common.base.Charsets.UTF_8;
+import static org.apache.bookkeeper.util.BookKeeperConstants.BOOKIE_STATUS_FILENAME;
 
 /**
  * Testing bookie initialization cases
@@ -265,10 +275,10 @@ public class BookieInitializationTest extends BookKeeperClusterTestCase {
                 new String[] { tmpDir.getPath() });
         BookieServer bs1 = new BookieServer(conf);
         bs1.start();
-
+        BookieServer bs2 = null;
         // starting bk server with same conf
         try {
-            BookieServer bs2 = new BookieServer(conf);
+            bs2 = new BookieServer(conf);
             bs2.start();
             fail("Should throw BindException, as the bk server is already running!");
         } catch (ChannelException ce) {
@@ -276,6 +286,11 @@ public class BookieInitializationTest extends BookKeeperClusterTestCase {
                               ce.getCause() instanceof BindException);
             Assert.assertTrue("BKServer allowed duplicate startups!",
                     ce.getCause().getMessage().contains("Address already in use"));
+        } finally {
+            bs1.shutdown();
+            if (bs2 != null) {
+                bs2.shutdown();
+            }
         }
     }
 
@@ -350,10 +365,177 @@ public class BookieInitializationTest extends BookKeeperClusterTestCase {
         }
     }
 
+    /**
+     * Check bookie status should be able to persist on disk and retrieve when restart the bookie.
+     */
+    @Test(timeout = 10000)
+    public void testPersistBookieStatus() throws Exception {
+        // enable persistent bookie status
+        File tmpDir = createTempDir("bookie", "test");
+        final ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(tmpDir.getPath())
+            .setLedgerDirNames(new String[] { tmpDir.getPath() })
+            .setReadOnlyModeEnabled(true)
+            .setPersistBookieStatusEnabled(true);
+        BookieServer bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        Bookie bookie = bookieServer.getBookie();
+        assertFalse(bookie.isReadOnly());
+        // transition to readonly mode, bookie status should be persisted in ledger disks
+        bookie.doTransitionToReadOnlyMode();
+        assertTrue(bookie.isReadOnly());
+
+        // restart bookie should start in read only mode
+        bookieServer.shutdown();
+        bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        bookie = bookieServer.getBookie();
+        assertTrue(bookie.isReadOnly());
+        // transition to writable mode
+        bookie.doTransitionToWritableMode();
+        // restart bookie should start in writable mode
+        bookieServer.shutdown();
+        bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        bookie = bookieServer.getBookie();
+        assertFalse(bookie.isReadOnly());
+        bookieServer.shutdown();
+    }
+
+    /**
+     * Check when we start a ReadOnlyBookie, we should ignore bookie status
+     */
+    @Test(timeout = 10000)
+    public void testReadOnlyBookieShouldIgnoreBookieStatus() throws Exception {
+        File tmpDir = createTempDir("bookie", "test");
+        final ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(tmpDir.getPath())
+            .setLedgerDirNames(new String[] { tmpDir.getPath() })
+            .setReadOnlyModeEnabled(true)
+            .setPersistBookieStatusEnabled(true);
+        // start new bookie
+        BookieServer bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        Bookie bookie = bookieServer.getBookie();
+        // persist bookie status
+        bookie.doTransitionToReadOnlyMode();
+        bookie.doTransitionToWritableMode();
+        assertFalse(bookie.isReadOnly());
+        bookieServer.shutdown();
+        // start read only bookie
+        bookieServer = new ReadOnlyBookieServer(conf);
+        bookieServer.start();
+        bookie = bookieServer.getBookie();
+        assertTrue(bookie.isReadOnly());
+        // transition to writable should fail
+        bookie.doTransitionToWritableMode();
+        assertTrue(bookie.isReadOnly());
+        bookieServer.shutdown();
+    }
+
+    /**
+     * Check that if there's multiple bookie status copies, as long as not all of them are corrupted,
+     * the bookie status should be retrievable.
+     */
+    public void testRetrieveBookieStatusWhenStatusFileIsCorrupted() throws Exception {
+        File[] tmpLedgerDirs = new File[3];
+        String[] filePath = new String[tmpLedgerDirs.length];
+        for (int i = 0; i < tmpLedgerDirs.length; i++) {
+            tmpLedgerDirs[i] = createTempDir("bookie", "test" + i);
+            filePath[i] = tmpLedgerDirs[i].getPath();
+        }
+        final ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(filePath[0])
+            .setLedgerDirNames(filePath)
+            .setReadOnlyModeEnabled(true)
+            .setPersistBookieStatusEnabled(true);
+        // start a new bookie
+        BookieServer bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        // transition in to read only and persist the status on disk
+        Bookie bookie = bookieServer.getBookie();
+        assertFalse(bookie.isReadOnly());
+        bookie.doTransitionToReadOnlyMode();
+        assertTrue(bookie.isReadOnly());
+        // corrupt status file
+        List<File> ledgerDirs = bookie.getLedgerDirsManager().getAllLedgerDirs();
+        corrupteFile(new File(ledgerDirs.get(0), BOOKIE_STATUS_FILENAME));
+        corrupteFile(new File(ledgerDirs.get(1), BOOKIE_STATUS_FILENAME));
+        // restart the bookie should be in read only mode
+        bookieServer.shutdown();
+        bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        bookie = bookieServer.getBookie();
+        assertTrue(bookie.isReadOnly());
+        bookieServer.shutdown();
+    }
+
+    /**
+     * Check if the bookie would read the latest status if the status files are not consistent.
+     * @throws Exception
+     */
+    @Test(timeout = 10000)
+    public void testReadLatestBookieStatus() throws Exception {
+        File[] tmpLedgerDirs = new File[3];
+        String[] filePath = new String[tmpLedgerDirs.length];
+        for (int i = 0; i < tmpLedgerDirs.length; i++) {
+            tmpLedgerDirs[i] = createTempDir("bookie", "test" + i);
+            filePath[i] = tmpLedgerDirs[i].getPath();
+        }
+        final ServerConfiguration conf = TestBKConfiguration.newServerConfiguration()
+            .setZkServers(zkUtil.getZooKeeperConnectString())
+            .setJournalDirName(filePath[0])
+            .setLedgerDirNames(filePath)
+            .setReadOnlyModeEnabled(true)
+            .setPersistBookieStatusEnabled(true);
+        // start a new bookie
+        BookieServer bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        // transition in to read only and persist the status on disk
+        Bookie bookie = bookieServer.getBookie();
+        assertFalse(bookie.isReadOnly());
+        bookie.doTransitionToReadOnlyMode();
+        assertTrue(bookie.isReadOnly());
+        // Manually update a status file, so it becomes the latest
+        Thread.sleep(1);
+        BookieStatus status = new BookieStatus();
+        List<File> dirs = new ArrayList<File>();
+        dirs.add(bookie.getLedgerDirsManager().getAllLedgerDirs().get(0));
+        status.writeToDirectories(dirs);
+        // restart the bookie should start in writable state
+        bookieServer.shutdown();
+        bookieServer = new BookieServer(conf);
+        bookieServer.start();
+        bookie = bookieServer.getBookie();
+        assertFalse(bookie.isReadOnly());
+        bookieServer.shutdown();
+    }
+
+    private void corrupteFile(File file) throws IOException {
+        FileOutputStream fos = new FileOutputStream(file);
+        BufferedWriter bw = null;
+        try {
+            bw = new BufferedWriter(new OutputStreamWriter(fos, UTF_8));
+            byte[] bytes = new byte[64];
+            new Random().nextBytes(bytes);
+            bw.write(new String(bytes));
+        } finally {
+            if (bw != null) {
+                bw.close();
+            }
+            fos.close();
+        }
+    }
+
+
     private void createNewZKClient() throws Exception {
         // create a zookeeper client
         LOG.debug("Instantiate ZK Client");
         newzk = ZooKeeperClient.createConnectedZooKeeperClient(
                 zkUtil.getZooKeeperConnectString(), 10000);
     }
+
 }
