@@ -124,6 +124,7 @@ public class BookieServer {
         if (!this.bookie.isRunning()) {
             LOG.info("Bookie exit code : {}", bookie.getExitCode());
             exitCode = bookie.getExitCode();
+            this.nettyServer.shutdown();
             return;
         }
         if (isAutoRecoveryDaemonEnabled && this.autoRecoveryMain != null) {
@@ -279,7 +280,7 @@ public class BookieServer {
         LOG.info("Using configuration file " + confFile);
     }
 
-    private static Pair<ServerConfiguration, CommandLine> parseArgs(String[] args)
+    private static ServerConfiguration parseArgs(String[] args)
         throws IllegalArgumentException {
         try {
             BasicParser parser = new BasicParser();
@@ -292,17 +293,17 @@ public class BookieServer {
             ServerConfiguration conf = new ServerConfiguration();
             String[] leftArgs = cmdLine.getArgs();
 
+            if (cmdLine.hasOption("r")) {
+                conf.setStartReadOnlyBookie(true);
+            }
+
             if (cmdLine.hasOption('c')) {
                 if (null != leftArgs && leftArgs.length > 0) {
                     throw new IllegalArgumentException();
                 }
                 String confFile = cmdLine.getOptionValue("c");
                 loadConfFile(conf, confFile);
-                return Pair.of(conf, cmdLine);
-            }
-
-            if (cmdLine.hasOption("withAutoRecovery")) {
-                conf.setAutoRecoveryDaemonEnabled(true);
+                return conf;
             }
 
             if (cmdLine.hasOption("withAutoRecovery")) {
@@ -321,7 +322,7 @@ public class BookieServer {
             System.arraycopy(leftArgs, 3, ledgerDirNames, 0, ledgerDirNames.length);
             conf.setLedgerDirNames(ledgerDirNames);
 
-            return Pair.of(conf, cmdLine);
+            return conf;
         } catch (ParseException e) {
             LOG.error("Error parsing command line arguments : ", e);
             throw new IllegalArgumentException(e);
@@ -334,18 +335,15 @@ public class BookieServer {
      * @throws InterruptedException
      */
     public static void main(String[] args) {
-        Pair<ServerConfiguration, CommandLine> confAndCmdLine = null;
+        ServerConfiguration conf = null;
         try {
-            confAndCmdLine = parseArgs(args);
+            conf = parseArgs(args);
         } catch (IllegalArgumentException iae) {
             LOG.error("Error parsing command line arguments : ", iae);
             System.err.println(iae.getMessage());
             printUsage();
             System.exit(ExitCode.INVALID_CONF);
         }
-
-        ServerConfiguration conf = confAndCmdLine.getLeft();
-        boolean readOnly = confAndCmdLine.getRight().hasOption("r");
 
         StringBuilder sb = new StringBuilder();
         String[] ledgerDirNames = conf.getLedgerDirNames();
@@ -367,7 +365,7 @@ public class BookieServer {
             statsProvider.start(conf);
 
             final BookieServer bs;
-            if (readOnly) {
+            if (conf.isStartReadOnlyBookie()) {
                 bs = new ReadOnlyBookieServer(conf, statsProvider.getStatsLogger(""));
             } else {
                 bs = new BookieServer(conf, statsProvider.getStatsLogger(""));

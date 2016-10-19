@@ -11,8 +11,8 @@ public class ReadOnlyBookie extends Bookie {
     public ReadOnlyBookie(ServerConfiguration conf, StatsLogger statsLogger)
             throws IOException, KeeperException, InterruptedException, BookieException {
         super(conf, statsLogger);
-        this.readOnly.set(true);
-        LOG.info("Running bookie in readonly mode.");
+        this.forceReadOnly.set(true);
+        LOG.info("Running bookie in force readonly mode.");
     }
 
     @Override

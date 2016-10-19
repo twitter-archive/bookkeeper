@@ -92,6 +92,10 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String OPEN_LEDGER_REREPLICATION_GRACE_PERIOD = "openLedgerRereplicationGracePeriod";
     //ReadOnly mode support on all disk full
     protected final static String READ_ONLY_MODE_ENABLED = "readOnlyModeEnabled";
+    //Whether the bookie is force started in ReadOnly mode
+    protected final static String START_READ_ONLY_BOOKIE = "startReadOnlyBookie";
+    //Whether to persist the bookie status
+    protected final static String PERSIST_BOOKIE_STATUS_ENABLED = "persistBookieStatusEnabled";
     protected final static String DISK_USAGE_THRESHOLD = "diskUsageThreshold";
     protected final static String DISK_USAGE_WARN_THRESHOLD = "diskUsageWarnThreshold";
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
@@ -1287,6 +1291,49 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public boolean isReadOnlyModeEnabled() {
         return getBoolean(READ_ONLY_MODE_ENABLED, false);
+    }
+
+    /**
+     * Sets that whether force start a bookie in readonly mode
+     *
+     * @param enabled
+     *            - true if need to start a bookie in read only mode. Otherwise false.
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setStartReadOnlyBookie(boolean enabled) {
+        setProperty(START_READ_ONLY_BOOKIE, enabled);
+        return this;
+    }
+
+    /**
+     * Get whether the Bookie is force started in read only mode or not
+     *
+     * @return true - if need to start a bookie in read only mode. Otherwise false.
+     */
+    public boolean isStartReadOnlyBookie() {
+        return getBoolean(START_READ_ONLY_BOOKIE, false);
+    }
+
+    /**
+     * Whether to persist the bookie status so that when bookie server restart,
+     * it will continue using the previous status
+     *
+     * @param enabled
+     *            - true if persist the bookie status. Otherwise false.
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setPersistBookieStatusEnabled(boolean enabled) {
+        setProperty(PERSIST_BOOKIE_STATUS_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Get whether the Bookie is force started in read only mode or not
+     *
+     * @return true - if need to start a bookie in read only mode. Otherwise false.
+     */
+    public boolean isPersistBookieStatusEnabled() {
+        return getBoolean(PERSIST_BOOKIE_STATUS_ENABLED, false);
     }
 
     /**
