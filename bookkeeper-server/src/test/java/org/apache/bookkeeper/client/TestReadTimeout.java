@@ -21,12 +21,12 @@ package org.apache.bookkeeper.client;
  *
  */
 
-import java.net.InetSocketAddress;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import java.util.HashSet;
 import java.util.Set;
@@ -71,12 +71,12 @@ public class TestReadTimeout extends BookKeeperClusterTestCase {
             writelh.addEntry(tmp.getBytes());
         }
 
-        Set<InetSocketAddress> beforeSet = new HashSet<InetSocketAddress>();
-        for (InetSocketAddress addr : writelh.getLedgerMetadata().getEnsemble(numEntries)) {
+        Set<BookieSocketAddress> beforeSet = new HashSet<BookieSocketAddress>();
+        for (BookieSocketAddress addr : writelh.getLedgerMetadata().getEnsemble(numEntries)) {
             beforeSet.add(addr);
         }
 
-        final InetSocketAddress bookieToSleep
+        final BookieSocketAddress bookieToSleep
             = writelh.getLedgerMetadata().getEnsemble(numEntries).get(0);
         int sleeptime = baseClientConf.getReadTimeout()*3;
         CountDownLatch latch = sleepBookie(bookieToSleep, sleeptime);
@@ -92,8 +92,8 @@ public class TestReadTimeout extends BookKeeperClusterTestCase {
         Thread.sleep((baseClientConf.getReadTimeout()*3)*1000);
         Assert.assertTrue("Write request did not finish", completed.get());
 
-        Set<InetSocketAddress> afterSet = new HashSet<InetSocketAddress>();
-        for (InetSocketAddress addr : writelh.getLedgerMetadata().getEnsemble(numEntries+1)) {
+        Set<BookieSocketAddress> afterSet = new HashSet<BookieSocketAddress>();
+        for (BookieSocketAddress addr : writelh.getLedgerMetadata().getEnsemble(numEntries+1)) {
             afterSet.add(addr);
         }
         beforeSet.removeAll(afterSet);

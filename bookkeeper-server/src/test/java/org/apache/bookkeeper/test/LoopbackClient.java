@@ -22,11 +22,11 @@ package org.apache.bookkeeper.test;
  */
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.concurrent.Executors;
 
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieClient;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
@@ -68,7 +68,7 @@ class LoopbackClient implements WriteCallback {
         this.begin = begin;
     }
 
-    void write(long ledgerId, long entry, byte[] data, InetSocketAddress addr, WriteCallback cb, Object ctx)
+    void write(long ledgerId, long entry, byte[] data, BookieSocketAddress addr, WriteCallback cb, Object ctx)
             throws IOException, InterruptedException {
         LOG.info("Ledger id: " + ledgerId + ", Entry: " + entry);
         byte[] passwd = new byte[20];
@@ -78,7 +78,7 @@ class LoopbackClient implements WriteCallback {
     }
 
     @Override
-    public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+    public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
         Counter counter = (Counter) ctx;
         counter.increment();
     }
@@ -95,7 +95,7 @@ class LoopbackClient implements WriteCallback {
                 .newCachedThreadPool());
         OrderedSafeExecutor executor = new OrderedSafeExecutor(2);
         try {
-            InetSocketAddress addr = new InetSocketAddress("127.0.0.1", Integer.valueOf(args[2]).intValue());
+            BookieSocketAddress addr = new BookieSocketAddress("127.0.0.1", Integer.valueOf(args[2]).intValue());
             lb = new LoopbackClient(channelFactory, executor, begin, limit.intValue());
 
             for (int i = 0; i < limit; i++) {

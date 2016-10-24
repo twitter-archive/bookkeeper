@@ -26,6 +26,9 @@ public class TestBKConfiguration {
     public static ServerConfiguration newServerConfiguration() {
         ServerConfiguration confReturn = new ServerConfiguration();
         confReturn.setJournalFlushWhenQueueEmpty(true);
+        confReturn.setEntryLogWriteLedgersMapEnabled(true);
+        confReturn.setEntryLogReadLedgersMapEnabled(true);
+        confReturn.setCheckpointInterval(100);
         return confReturn;
     }
 

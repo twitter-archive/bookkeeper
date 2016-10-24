@@ -19,7 +19,6 @@ package org.apache.bookkeeper.meta;
  */
 
 import java.io.IOException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Set;
@@ -43,6 +42,8 @@ import org.apache.zookeeper.ZooKeeper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * Hierarchical Ledger Manager which manages ledger meta in zookeeper using 2-level hierarchical znodes.
@@ -106,13 +107,13 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
 
     @Override
     public void createLedger(final LedgerMetadata metadata, final GenericCallback<Long> ledgerCb) {
-        ZkUtils.createFullPathOptimistic(zk, idGenPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
+        ZkUtils.asyncCreateFullPathOptimistic(zk, idGenPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
             CreateMode.EPHEMERAL_SEQUENTIAL, new StringCallback() {
             @Override
             public void processResult(int rc, String path, Object ctx, final String idPathName) {
                 if (rc != KeeperException.Code.OK.intValue()) {
-                    LOG.error("Could not generate new ledger id",
-                              KeeperException.create(KeeperException.Code.get(rc), path));
+                    LOG.error("Could not generate new ledger id : path = {}, rc = {}",
+                            path, KeeperException.Code.get(rc));
                     ledgerCb.operationComplete(rc, null);
                     return;
                 }
@@ -123,7 +124,7 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                 try {
                     ledgerId = getLedgerIdFromGenPath(idPathName);
                 } catch (IOException e) {
-                    LOG.error("Could not extract ledger-id from id gen path:" + path, e);
+                    LOG.error("Could not extract ledger-id from id gen path {} : {}", path, e.getMessage());
                     ledgerCb.operationComplete(KeeperException.Code.SYSTEMERROR.intValue(), null);
                     return;
                 }
@@ -134,8 +135,8 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                     public void processResult(int rc, String path,
                             Object ctx, String name) {
                         if (rc != KeeperException.Code.OK.intValue()) {
-                            LOG.error("Could not create node for ledger",
-                                      KeeperException.create(KeeperException.Code.get(rc), path));
+                            LOG.error("Could not create node for ledger : path = {}, rc = {}",
+                                    path, KeeperException.Code.get(rc));
                             ledgerCb.operationComplete(rc, null);
                         } else {
                             // update version
@@ -144,18 +145,18 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                         }
                     }
                 };
-                ZkUtils.createFullPathOptimistic(zk, ledgerPath, metadata.serialize(),
+                ZkUtils.asyncCreateFullPathOptimistic(zk, ledgerPath, metadata.serialize(),
                     Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, scb, null);
                 // delete the znode for id generation
-                scheduler.submit(new Runnable() {
+                submitTask(new Runnable() {
                     @Override
                     public void run() {
                         zk.delete(idPathName, -1, new AsyncCallback.VoidCallback() {
                             @Override
                             public void processResult(int rc, String path, Object ctx) {
                                 if (rc != KeeperException.Code.OK.intValue()) {
-                                    LOG.warn("Exception during deleting znode for id generation : ",
-                                             KeeperException.create(KeeperException.Code.get(rc), path));
+                                    LOG.warn("Exception during deleting znode for id generation : path = {}, rc = {}",
+                                            path, KeeperException.Code.get(rc));
                                 } else {
                                     LOG.debug("Deleting znode for id generation : {}", idPathName);
                                 }
@@ -290,8 +291,8 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
             @Override
             public void processResult(int rc, String path, Object ctx) {
                 if (rc != Code.OK.intValue()) {
-                    LOG.error("Error syncing path " + path + " when getting its chidren: ",
-                              KeeperException.create(KeeperException.Code.get(rc), path));
+                    LOG.error("Error syncing path {} when getting its chidren: rc = {}",
+                            path, KeeperException.Code.get(rc));
                     finalCb.processResult(failureRc, null, context);
                     return;
                 }
@@ -301,8 +302,8 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                     public void processResult(int rc, String path, Object ctx,
                                               List<String> levelNodes) {
                         if (rc != Code.OK.intValue()) {
-                            LOG.error("Error polling hash nodes of " + path,
-                                      KeeperException.create(KeeperException.Code.get(rc), path));
+                            LOG.error("Error polling hash nodes of {} : rc = {}",
+                                    path, KeeperException.Code.get(rc));
                             finalCb.processResult(failureRc, null, context);
                             return;
                         }
@@ -337,8 +338,8 @@ public class HierarchicalLedgerManager extends AbstractZkLedgerManager {
                         doGcByLevel(gc, l1Node, l2Node, snapshot);
                     }
                 } catch (Exception e) {
-                    LOG.warn("Exception during garbage collecting ledgers for " + l1Node
-                             + " of " + ledgerRootPath, e);
+                    LOG.warn("Exception during garbage collecting ledgers for {} of {}",
+                            new Object[] { l1Node, ledgerRootPath, e });
                 }
             }
         } catch (Exception e) {

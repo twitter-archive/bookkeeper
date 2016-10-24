@@ -22,20 +22,24 @@ package org.apache.bookkeeper.replication;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
-import org.apache.bookkeeper.util.StringUtils;
+import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
@@ -49,6 +53,10 @@ import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
+import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_SCOPE;
+import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_WORKER_SCOPE;
+
 /**
  * Class to start/stop the AutoRecovery daemons Auditor and ReplicationWorker
  */
@@ -57,15 +65,22 @@ public class AutoRecoveryMain {
             .getLogger(AutoRecoveryMain.class);
 
     private ServerConfiguration conf;
-    private ZooKeeper zk;
+    ZooKeeper zk;
     AuditorElector auditorElector;
     ReplicationWorker replicationWorker;
     private AutoRecoveryDeathWatcher deathWatcher;
     private int exitCode;
     private volatile boolean shuttingDown = false;
+    private volatile boolean running = false;
 
     public AutoRecoveryMain(ServerConfiguration conf) throws IOException,
             InterruptedException, KeeperException, UnavailableException,
+            CompatibilityException {
+        this(conf, NullStatsLogger.INSTANCE);
+    }
+
+    public AutoRecoveryMain(ServerConfiguration conf, StatsLogger statsLogger)
+            throws IOException, InterruptedException, KeeperException, UnavailableException,
             CompatibilityException {
         this.conf = conf;
         Set<Watcher> watchers = new HashSet<Watcher>();
@@ -80,7 +95,7 @@ public class AutoRecoveryMain {
                 // Check for expired connection.
                 if (event.getState().equals(Watcher.Event.KeeperState.Expired)) {
                     LOG.error("ZK client connection to the ZK server has expired!");
-                    shutdown(ExitCode.ZK_EXPIRED);
+                    triggerShutdown(ExitCode.ZK_EXPIRED);
                 }
             }
         });
@@ -91,9 +106,10 @@ public class AutoRecoveryMain {
                 new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime,
                                                        Integer.MAX_VALUE));
         auditorElector = new AuditorElector(
-                StringUtils.addrToString(Bookie.getBookieAddress(conf)), conf, zk);
+                Bookie.getBookieAddress(conf).toString(), conf,
+                zk, statsLogger.scope(AUDITOR_SCOPE));
         replicationWorker = new ReplicationWorker(zk, conf,
-                Bookie.getBookieAddress(conf));
+                statsLogger.scope(REPLICATION_WORKER_SCOPE));
         deathWatcher = new AutoRecoveryDeathWatcher(this);
     }
 
@@ -101,9 +117,10 @@ public class AutoRecoveryMain {
      * Start daemons
      */
     public void start() throws UnavailableException {
-        auditorElector.doElection();
+        auditorElector.start();
         replicationWorker.start();
         deathWatcher.start();
+        running = true;
     }
 
     /*
@@ -111,6 +128,17 @@ public class AutoRecoveryMain {
      */
     public void join() throws InterruptedException {
         deathWatcher.join();
+    }
+
+    private void triggerShutdown(final int exitCode) {
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                shutdown(exitCode);
+            }
+        }, "Shutdown-AutoRecoveryMain-Thread");
+        t.setDaemon(true);
+        t.start();
     }
 
     /*
@@ -124,20 +152,30 @@ public class AutoRecoveryMain {
         if (shuttingDown) {
             return;
         }
+        LOG.info("Shutting down AutoRecovery");
         shuttingDown = true;
+        running = false;
         this.exitCode = exitCode;
         try {
             deathWatcher.interrupt();
             deathWatcher.join();
         } catch (InterruptedException e) {
-            // Ignore
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auto recovery", e);
         }
-        auditorElector.shutdown();
+
+        try {
+            auditorElector.shutdown();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auditor elector", e);
+        }
         replicationWorker.shutdown();
         try {
             zk.close();
         } catch (InterruptedException e) {
-            // Ignore
+            Thread.currentThread().interrupt();
+            LOG.warn("Interrupted shutting down auto recovery", e);
         }
     }
 
@@ -145,10 +183,20 @@ public class AutoRecoveryMain {
         return exitCode;
     }
 
+    @VisibleForTesting
+    public Auditor getAuditor() {
+        return auditorElector.getAuditor();
+    }
+
+    /** Is auto-recovery service running? */
+    public boolean isAutoRecoveryRunning() {
+        return running;
+    }
+
     /*
      * DeathWatcher for AutoRecovery daemons.
      */
-    private static class AutoRecoveryDeathWatcher extends Thread {
+    private static class AutoRecoveryDeathWatcher extends BookieCriticalThread {
         private int watchInterval;
         private AutoRecoveryMain autoRecoveryMain;
 
@@ -169,8 +217,8 @@ public class AutoRecoveryMain {
                 }
                 // If any one service not running, then shutdown peer.
                 if (!autoRecoveryMain.auditorElector.isRunning()
-                        || !autoRecoveryMain.replicationWorker.isRunning()) {
-                    autoRecoveryMain.shutdown();
+                    || !autoRecoveryMain.replicationWorker.isRunning()) {
+                    autoRecoveryMain.shutdown(ExitCode.SERVER_EXCEPTION);
                     break;
                 }
             }
@@ -252,14 +300,20 @@ public class AutoRecoveryMain {
             System.exit(ExitCode.INVALID_CONF);
         }
 
+        Stats.loadStatsProvider(conf);
+        final StatsProvider statsProvider = Stats.get();
+        statsProvider.start(conf);
         try {
-            final AutoRecoveryMain autoRecoveryMain = new AutoRecoveryMain(conf);
+            final AutoRecoveryMain autoRecoveryMain =
+                    new AutoRecoveryMain(conf, statsProvider.getStatsLogger(REPLICATION_SCOPE));
             autoRecoveryMain.start();
             Runtime.getRuntime().addShutdownHook(new Thread() {
                 @Override
                 public void run() {
                     autoRecoveryMain.shutdown();
                     LOG.info("Shutdown AutoRecoveryMain successfully");
+                    statsProvider.stop();
+                    LOG.info("Shutdown Stats Provider successfully");
                 }
             });
             LOG.info("Register shutdown hook successfully");

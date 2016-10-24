@@ -4,6 +4,8 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -18,6 +20,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 import static org.junit.Assert.*;
 import static com.google.common.base.Charsets.UTF_8;
 
@@ -66,15 +69,11 @@ public class IndexPersistenceMgrTest {
 
     @Before
     public void setUp() throws Exception {
-        txnDir = File.createTempFile("index-persistence-mgr", "txn");
-        txnDir.delete();
-        txnDir.mkdir();
-        ledgerDir = File.createTempFile("index-persistence-mgr", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        txnDir = IOUtils.createTempDir("index-persistence-mgr", "txn");
+        ledgerDir = IOUtils.createTempDir("index-persistence-mgr", "ledger");
         // create current dir
-        new File(txnDir, Bookie.CURRENT_DIR).mkdir();
-        new File(ledgerDir, Bookie.CURRENT_DIR).mkdir();
+        new File(txnDir, CURRENT_DIR).mkdir();
+        new File(ledgerDir, CURRENT_DIR).mkdir();
 
         conf = new ServerConfiguration();
         conf.setZkServers(null);
@@ -88,7 +87,7 @@ public class IndexPersistenceMgrTest {
 
         indexPersistenceMgr = new IndexPersistenceMgr(
                 conf.getPageSize(), conf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-                conf, activeLedgerManager, ledgerDirsManager);
+                conf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
     }
 
     @After
@@ -173,9 +172,177 @@ public class IndexPersistenceMgrTest {
 
         IndexPersistenceMgr newMgr = new IndexPersistenceMgr(
                 conf.getPageSize(), conf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
-                conf, activeLedgerManager, ledgerDirsManager);
+                conf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
         assertEquals("write", new String(newMgr.getFileInfo(lid, "fake".getBytes()).getMasterKey(), UTF_8));
         assertEquals("write", new String(newMgr.getFileInfo(lid, null).getMasterKey(), UTF_8));
         newMgr.close();
+    }
+
+    IndexPersistenceMgr getPersistenceManager(int cacheSize) throws Exception {
+
+        ServerConfiguration localConf = new ServerConfiguration();
+        localConf.addConfiguration(this.conf);
+        localConf.setOpenFileLimit(cacheSize);
+
+        return new IndexPersistenceMgr(
+            localConf.getPageSize(), localConf.getPageSize() / LedgerEntryPage.getIndexEntrySize(),
+            localConf, activeLedgerManager, ledgerDirsManager, NullStatsLogger.INSTANCE);
+    }
+
+    void fillCache(IndexPersistenceMgr indexPersistenceMgr, int numEntries) throws Exception {
+        for (long i = 0; i < numEntries; i++) {
+            indexPersistenceMgr.getFileInfo(i, masterKey);
+        }
+    }
+
+    final long lid = 1L;
+    final byte[] masterKey = "write".getBytes();
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoEvictPreExistingFile() throws Exception {
+
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(10);
+
+            // get file info and make sure the underlying file exists
+            FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            fi.checkOpen(true);
+            fi.setFenced();
+
+            // force evict by filling up cache
+            fillCache(indexPersistenceMgr, 20);
+
+            // now reload the file info from disk, state should have been flushed
+            fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(true, fi.isFenced());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoEvictNewFile() throws Exception {
+
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(10);
+
+            // get file info, but don't persist metadata right away
+            FileInfo fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            fi.setFenced();
+            fillCache(indexPersistenceMgr, 20);
+            fi = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(true, fi.isFenced());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoReadBeforeWrite() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+            // get the file info for read
+            try {
+                indexPersistenceMgr.getFileInfo(lid, null);
+                fail("Should fail get file info for reading if the file doesn't exist");
+            } catch (Bookie.NoLedgerException nle) {
+                // exepcted
+            }
+            assertEquals(0, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(0, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(0, indexPersistenceMgr.fileInfoMap.size());
+
+            FileInfo writeFileInfo = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, writeFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testGetFileInfoWriteBeforeRead() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+
+            FileInfo writeFileInfo = indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, writeFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+
+            FileInfo readFileInfo = indexPersistenceMgr.getFileInfo(lid, null);
+            assertEquals(2, readFileInfo.getUseCount());
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(1, indexPersistenceMgr.fileInfoMap.size());
+
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(2, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testReadFileInfoCacheEviction() throws Exception {
+        IndexPersistenceMgr indexPersistenceMgr = null;
+        try {
+            indexPersistenceMgr = getPersistenceManager(1);
+
+            for (int i = 0; i < 3; i++) {
+                indexPersistenceMgr.getFileInfo(lid+i, masterKey);
+            }
+
+            indexPersistenceMgr.getFileInfo(lid, masterKey);
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.fileInfoMap.size());
+
+            // trigger file info eviction on read file info cache
+            for (int i = 1; i <= 2; i++) {
+                indexPersistenceMgr.getFileInfo(lid + i, null);
+            }
+            assertEquals(1, indexPersistenceMgr.writeFileInfoCache.size());
+            assertEquals(2, indexPersistenceMgr.readFileInfoCache.size());
+            assertEquals(3, indexPersistenceMgr.fileInfoMap.size());
+
+            IndexPersistenceMgr.RefFileInfo fiRef = indexPersistenceMgr.fileInfoMap.get(lid);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid+1);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+            fiRef = indexPersistenceMgr.fileInfoMap.get(lid+2);
+            assertNotNull(fiRef);
+            assertEquals(1, fiRef.getCount());
+        } finally {
+            if (null != indexPersistenceMgr) {
+                indexPersistenceMgr.close();
+            }
+        }
     }
 }

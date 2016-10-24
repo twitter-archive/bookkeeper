@@ -6,12 +6,17 @@ import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
-import org.apache.bookkeeper.stats.BookkeeperStatsLogger;
 import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.StatsLogger;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.PENDINGS;
 
 public class MonitoredThreadPoolExecutor extends ThreadPoolExecutor {
 
-    public MonitoredThreadPoolExecutor(int numThreads, String nameFormat, BookkeeperStatsLogger statsLogger, Enum e) {
+    public MonitoredThreadPoolExecutor(int numThreads,
+                                       String nameFormat,
+                                       StatsLogger statsLogger,
+                                       String scope) {
         super(numThreads,
             numThreads,
             0L,
@@ -20,7 +25,7 @@ public class MonitoredThreadPoolExecutor extends ThreadPoolExecutor {
             new ThreadFactoryBuilder().setNameFormat(nameFormat).build());
 
         // outstanding requests
-        statsLogger.registerGauge(e, new Gauge<Number>() {
+        statsLogger.scope(scope).registerGauge(PENDINGS, new Gauge<Number>() {
             @Override
             public Number getDefaultValue() {
                 return 0;

@@ -18,9 +18,8 @@
 package org.apache.bookkeeper.client;
 
 import com.google.common.collect.ImmutableMap;
-import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 
-import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
@@ -58,8 +57,8 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
     @Override
     public AckSet getAckSet() {
         final HashSet<Integer> ackSet = new HashSet<Integer>();
-        final HashMap<Integer, InetSocketAddress> failureMap =
-                new HashMap<Integer, InetSocketAddress>();
+        final HashMap<Integer, BookieSocketAddress> failureMap =
+                new HashMap<Integer, BookieSocketAddress>();
         return new AckSet() {
             public boolean completeBookieAndCheck(int bookieIndexHeardFrom) {
                 failureMap.remove(bookieIndexHeardFrom);
@@ -68,52 +67,51 @@ class RoundRobinDistributionSchedule implements DistributionSchedule {
             }
 
             @Override
-            public boolean failBookieAndCheck(int bookieIndexHeardFrom, InetSocketAddress address) {
+            public boolean failBookieAndCheck(int bookieIndexHeardFrom, BookieSocketAddress address) {
                 ackSet.remove(bookieIndexHeardFrom);
                 failureMap.put(bookieIndexHeardFrom, address);
                 return failureMap.size() > (writeQuorumSize - ackQuorumSize);
             }
 
             @Override
-            public Map<Integer, InetSocketAddress> getFailedBookies() {
+            public Map<Integer, BookieSocketAddress> getFailedBookies() {
                 return ImmutableMap.copyOf(failureMap);
             }
 
-            public void removeBookie(int bookie) {
+            public boolean removeBookieAndCheck(int bookie) {
                 ackSet.remove(bookie);
                 failureMap.remove(bookie);
+                return ackSet.size() >= ackQuorumSize;
             }
         };
     }
 
     private class RRQuorumCoverageSet implements QuorumCoverageSet {
-        // covered[i] is true if the quorum starting at bookie index i has been
-        // covered by a recovery reply
-        private boolean[] covered = null;
-        private int numQuorumsUncovered;
+        private final boolean[] covered = new boolean[ensembleSize];
 
         private RRQuorumCoverageSet() {
-            covered = new boolean[ensembleSize];
-            numQuorumsUncovered = ensembleSize;
+            for (int i = 0; i < covered.length; i++) {
+                covered[i] = false;
+            }
         }
 
         public synchronized boolean addBookieAndCheckCovered(int bookieIndexHeardFrom) {
-            if (numQuorumsUncovered == 0) {
-                return true;
-            }
+            covered[bookieIndexHeardFrom] = true;
 
-            for (int i = 0; i < ackQuorumSize; i++) {
-                int quorumStartIndex = MathUtils.signSafeMod(bookieIndexHeardFrom - i, ensembleSize);
-                if (!covered[quorumStartIndex]) {
-                    covered[quorumStartIndex] = true;
-                    numQuorumsUncovered--;
-
-                    if (numQuorumsUncovered == 0) {
-                        return true;
+            // now check if there are any write quorums, with |ackQuorum| nodes available
+            for (int i = 0; i < ensembleSize; i++) {
+                int nodesNotCovered = 0;
+                for (int j = 0; j < writeQuorumSize; j++) {
+                    int nodeIndex = (i + j) % ensembleSize;
+                    if (!covered[nodeIndex]) {
+                        nodesNotCovered++;
                     }
                 }
+                if (nodesNotCovered >= ackQuorumSize) {
+                    return false;
+                }
             }
-            return false;
+            return true;
         }
     }
 

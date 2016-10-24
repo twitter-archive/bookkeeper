@@ -25,6 +25,7 @@ import java.net.InetAddress;
 import java.io.File;
 import java.util.HashSet;
 
+import org.apache.bookkeeper.util.IOUtils;
 import org.junit.Test;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -42,9 +43,7 @@ public class BookieZKExpireTest extends BookKeeperClusterTestCase {
     public void testBookieServerZKExpireBehaviour() throws Exception {
         BookieServer server = null;
         try {
-            File f = File.createTempFile("bookieserver", "test");
-            f.delete();
-            f.mkdir();
+            File f = createTempDir("bookieserver", "test");
 
             HashSet<Thread> threadset = new HashSet<Thread>();
             int threadCount = Thread.activeCount();
@@ -82,7 +81,6 @@ public class BookieZKExpireTest extends BookKeeperClusterTestCase {
             // allow watcher thread to run
             Thread.sleep(3000);
             assertTrue("Bookie should not shutdown on losing zk session", server.isBookieRunning());
-            assertTrue("Nio Server should not shutdown on losing zk session", server.isNioServerRunning());
             assertTrue("Bookie Server should not shutdown on losing zk session", server.isRunning());
             // check the existence of znode
             assertNotNull(zkUtil.getZooKeeperClient()

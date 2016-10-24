@@ -21,7 +21,6 @@
 
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -30,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.junit.Test;
@@ -61,7 +61,7 @@ public class SlowBookieTest extends BookKeeperClusterTestCase {
         }
         final CountDownLatch b0latch = new CountDownLatch(1);
         final CountDownLatch b1latch = new CountDownLatch(1);
-        List<InetSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
+        List<BookieSocketAddress> curEns = lh.getLedgerMetadata().currentEnsemble;
         try {
             sleepBookie(curEns.get(0), b0latch);
             for (int i = 0; i < 10; i++) {

@@ -23,8 +23,9 @@ package org.apache.bookkeeper.test;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -32,6 +33,7 @@ import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.junit.After;
 import org.junit.Before;
@@ -52,6 +54,14 @@ public class ConcurrentLedgerTest extends TestCase {
     int recvTimeout = 10000;
     Semaphore throttle;
     ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+    final List<File> tempDirs = new ArrayList<File>();
+
+    private File createTempDir(String prefix, String suffix, File parent) throws IOException {
+        File dir = File.createTempFile(prefix, suffix, parent);
+        dir.delete();
+        tempDirs.add(dir);
+        return dir;
+    }
 
     @Override
     @Before
@@ -64,11 +74,10 @@ public class ConcurrentLedgerTest extends TestCase {
         if (ledgerDirName != null) {
             ledgerDir = new File(ledgerDirName);
         }
-        File tmpFile = File.createTempFile("book", ".txn", txnDir);
-        tmpFile.delete();
+        File tmpFile = createTempDir("book", ".txn", txnDir);
         txnDir = new File(tmpFile.getParent(), tmpFile.getName()+".dir");
         txnDir.mkdirs();
-        tmpFile = File.createTempFile("book", ".ledger", ledgerDir);
+        tmpFile = createTempDir("book", ".ledger", ledgerDir);
         ledgerDir = new File(tmpFile.getParent(), tmpFile.getName()+".dir");
         ledgerDir.mkdirs();
 
@@ -77,6 +86,7 @@ public class ConcurrentLedgerTest extends TestCase {
         conf.setJournalDirName(txnDir.getPath());
         conf.setLedgerDirNames(new String[] { ledgerDir.getPath() });
         bookie = new Bookie(conf);
+        bookie.initialize();
         bookie.start();
     }
 
@@ -158,7 +168,7 @@ public class ConcurrentLedgerTest extends TestCase {
         WriteCallback cb = new WriteCallback() {
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
-            InetSocketAddress addr, Object ctx) {
+            BookieSocketAddress addr, Object ctx) {
                 AtomicInteger counter = (AtomicInteger)ctx;
                 counter.getAndIncrement();
                 throttle.release();

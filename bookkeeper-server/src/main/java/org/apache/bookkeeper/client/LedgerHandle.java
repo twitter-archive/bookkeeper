@@ -20,7 +20,6 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,21 +31,26 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Objects;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.TimedGenericCallback;
 import org.apache.bookkeeper.proto.DataFormats.LedgerMetadataFormat.State;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientCounter;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.apache.bookkeeper.util.SafeRunnable;
@@ -54,6 +58,9 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.util.concurrent.RateLimiter;
 
 /**
@@ -74,6 +81,7 @@ public class LedgerHandle {
     final DistributionSchedule distributionSchedule;
     final AtomicInteger refCount;
     final RateLimiter throttler;
+    final LoadingCache<BookieSocketAddress, Long> bookieFailureHistory;
 
     /**
      * Invalid entry id. This value is returned from methods which
@@ -82,7 +90,18 @@ public class LedgerHandle {
     final static public long INVALID_ENTRY_ID = BookieProtocol.INVALID_ENTRY_ID;
 
     final AtomicInteger blockAddCompletions = new AtomicInteger(0);
+    final AtomicInteger numEnsembleChanges = new AtomicInteger(0);
     final Queue<PendingAddOp> pendingAddOps = new ConcurrentLinkedQueue<PendingAddOp>();
+
+    // Stats
+    final OpStatsLogger closeOpLogger;
+    final OpStatsLogger deleteOpLogger;
+    final OpStatsLogger recoverOpLogger;
+    final Counter lacUpdateHitsCounter;
+    final Counter lacUpdateMissesCounter;
+    final Counter numOpenLedgersGauge;
+    final Counter numPendingAddsGauge;
+    final OpStatsLogger numSubmittedPerCallbackStatsLogger;
 
     LedgerHandle(BookKeeper bk, long ledgerId, LedgerMetadata metadata,
                  DigestType digestType, byte[] password)
@@ -105,14 +124,38 @@ public class LedgerHandle {
 
         macManager = DigestManager.instantiate(ledgerId, password, digestType);
         this.ledgerKey = MacDigestManager.genDigest("ledger", password);
-        distributionSchedule = new RoundRobinDistributionSchedule(
+        this.distributionSchedule = new RoundRobinDistributionSchedule(
                 metadata.getWriteQuorumSize(), metadata.getAckQuorumSize(), metadata.getEnsembleSize());
+        this.bookieFailureHistory = CacheBuilder.newBuilder().
+            expireAfterWrite(bk.getConf().getBookieFailureHistoryExpirationMSec(), TimeUnit.MILLISECONDS).build(new CacheLoader<BookieSocketAddress, Long>() {
+            public Long load(BookieSocketAddress key) {
+                return -1L;
+            }
+        });
+
+        // Stats
+        this.lacUpdateHitsCounter = bk.getStatsLogger().getCounter(BookKeeperClientStats.LAC_UPDATE_HITS);
+        this.lacUpdateMissesCounter = bk.getStatsLogger().getCounter(BookKeeperClientStats.LAC_UPDATE_MISSES);
+        this.numOpenLedgersGauge = bk.getStatsLogger().getCounter(BookKeeperClientStats.NUM_OPEN_LEDGERS);
+        this.numPendingAddsGauge = bk.getStatsLogger().getCounter(BookKeeperClientStats.NUM_PENDING_ADDS);
+        this.closeOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_CLOSE);
+        this.deleteOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_DELETE);
+        this.recoverOpLogger = bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER);
+        this.numSubmittedPerCallbackStatsLogger =
+                bk.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.NUM_ADDS_SUBMITTED_PER_CALLBACK);
     }
 
-    public void hintOpen() {
+    void hintOpen() {
         // Hint to the handle that an open operation was performed. This is so that the handle can handle refCounts accordingly.
         if (refCount.getAndIncrement() == 0) {
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).inc();
+            numOpenLedgersGauge.inc();
+        }
+    }
+
+    void hintClose() {
+        // Hint the handle is closed
+        if (refCount.decrementAndGet() == 0) {
+            numOpenLedgersGauge.dec();
         }
     }
 
@@ -256,10 +299,7 @@ public class LedgerHandle {
             @Override
             public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
                 if (rc == BKException.Code.OK) {
-                    if (refCount.decrementAndGet() == 0) {
-                        // Closed a ledger
-                        bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_OPEN_LEDGERS).dec();
-                    }
+                    hintClose();
                 }
                 origCb.closeComplete(rc, lh, origCtx);
             }
@@ -294,11 +334,9 @@ public class LedgerHandle {
             @Override
             public void closeComplete(int newRc, LedgerHandle newLh, Object newCtx) {
                 if (BKException.Code.OK == newRc) {
-                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
+                    closeOpLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
                 } else {
-                    getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_CLOSE)
-                        .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
+                    closeOpLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
                 }
                 finalCb.closeComplete(newRc, newLh, newCtx);
             }
@@ -306,16 +344,34 @@ public class LedgerHandle {
         bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
             @Override
             public void safeRun() {
+                List<PendingAddOp> pendingAdds;
                 if (isClosed()) {
-                    // if the metadata is already closed, we don't need to proceed the process
-                    // otherwise, it might end up encountering bad version error log messages when updating metadata
+                    // TODO: make ledger metadata immutable
+                    // Although the metadata is already closed, we don't need to proceed zookeeper metadata update, but
+                    // we still need to error out the pending add ops.
+                    //
+                    // There is a race condition a pending add op is enqueued, after a close op reset ledger metadata state
+                    // to unclosed to resolve metadata conflicts. If we don't error out these pending add ops, they would be
+                    // leak and never callback.
+                    //
+                    // The race condition happen in following sequence:
+                    // a) ledger L is fenced
+                    // b) write entry E encountered LedgerFencedException, trigger ledger close procedure
+                    // c) ledger close encountered metadata version exception and set ledger metadata back to open
+                    // d) writer tries to write entry E+1, since ledger metadata is still open (reset by c))
+                    // e) the close procedure in c) resolved the metadata conflicts and set ledger metadata to closed
+                    // f) writing entry E+1 encountered LedgerFencedException which will enter ledger close procedure
+                    // g) it would find that ledger metadata is closed, then it callbacks immediately without erroring out any pendings
+                    synchronized (LedgerHandle.this) {
+                        pendingAdds = drainPendingAddsToErrorOut();
+                    }
+                    errorOutPendingAdds(rc, pendingAdds);
                     cb.closeComplete(BKException.Code.LedgerClosedException, LedgerHandle.this, ctx);
                     return;
                 }
                 final long prevLastEntryId;
                 final long prevLength;
                 final State prevState;
-                List<PendingAddOp> pendingAdds;
 
                 synchronized(LedgerHandle.this) {
                     prevState = metadata.getState();
@@ -358,8 +414,8 @@ public class LedgerHandle {
                                 @Override
                                 public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
                                     if (newrc != BKException.Code.OK) {
-                                        LOG.error("Error reading new metadata from ledger " + ledgerId
-                                                  + " when closing, code=" + newrc);
+                                        LOG.error("Error reading new metadata from ledger {} when closing, code={}",
+                                                ledgerId, newrc);
                                         cb.closeComplete(rc, LedgerHandle.this, ctx);
                                     } else {
                                         metadata.setState(prevState);
@@ -381,7 +437,7 @@ public class LedgerHandle {
                                         } else {
                                             metadata.setLength(length);
                                             metadata.close(getLastAddConfirmed());
-                                            LOG.warn("Conditional update ledger metadata for ledger " + ledgerId + " failed.");
+                                            LOG.warn("Conditional update ledger metadata for ledger {} failed.", ledgerId);
                                             cb.closeComplete(rc, LedgerHandle.this, ctx);
                                         }
                                     }
@@ -392,7 +448,7 @@ public class LedgerHandle {
                                 }
                             });
                         } else if (rc != BKException.Code.OK) {
-                            LOG.error("Error update ledger metadata for ledger " + ledgerId + " : " + rc);
+                            LOG.error("Error update ledger metadata for ledger {} : {}", ledgerId, rc);
                             cb.closeComplete(rc, LedgerHandle.this, ctx);
                         } else {
                             cb.closeComplete(BKException.Code.OK, LedgerHandle.this, ctx);
@@ -585,20 +641,32 @@ public class LedgerHandle {
                 entryId = ++lastAddPushed;
                 currentLength = addToLength(length);
                 op.setEntryId(entryId);
-                bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).inc();
                 pendingAddOps.add(op);
             }
         }
 
         if (wasClosed) {
-            LOG.warn("Attempt to add to closed ledger: {}", ledgerId);
-            cb.addComplete(BKException.Code.LedgerClosedException,
-                           LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            // make sure the callback is triggered in main worker pool
+            try {
+                bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
+                    @Override
+                    public void safeRun() {
+                        LOG.warn("Attempt to add to closed ledger: {}", ledgerId);
+                        op.submitCallback(BKException.Code.LedgerClosedException);
+                    }
+                    @Override
+                    public String toString() {
+                        return String.format("AsyncAddEntryToClosedLedger(lid=%d)", ledgerId);
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                op.submitCallback(bk.getReturnRc(BKException.Code.InterruptedException));
+            }
             return;
         }
 
         try {
-            bk.mainWorkerPool.submit(new SafeRunnable() {
+            bk.mainWorkerPool.submitOrdered(ledgerId, new SafeRunnable() {
                 @Override
                 public void safeRun() {
                     ChannelBuffer toSend = macManager.computeDigestAndPackageForSending(
@@ -611,17 +679,16 @@ public class LedgerHandle {
                 }
             });
         } catch (RejectedExecutionException e) {
-            cb.addComplete(bk.getReturnRc(BKException.Code.InterruptedException),
-                    LedgerHandle.this, INVALID_ENTRY_ID, ctx);
+            op.submitCallback(bk.getReturnRc(BKException.Code.InterruptedException));
         }
     }
 
     synchronized void updateLastConfirmed(long lac, long len) {
         if (lac > lastAddConfirmed) {
             lastAddConfirmed = lac;
-            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_HITS).inc();
+            lacUpdateHitsCounter.inc();
         } else {
-            bk.getStatsLogger().getCounter(BookkeeperClientCounter.LAC_UPDATE_MISSES).inc();
+            lacUpdateMissesCounter.inc();
         }
         lastAddPushed = Math.max(lastAddPushed, lac);
         length = Math.max(length, len);
@@ -711,51 +778,72 @@ public class LedgerHandle {
         new TryReadLastConfirmedOp(this, innercb, getLastAddConfirmed()).initiate();
     }
 
-    public void asyncReadLastConfirmedLongPoll(final long timeOutInMillis, final ReadLastConfirmedCallback cb, final Object ctx) {
-        boolean isClosed;
-        long lastEntryId;
-        synchronized (this) {
-            isClosed = metadata.isClosed();
-            lastEntryId = metadata.getLastEntryId();
-        }
-        if (isClosed) {
-            cb.readLastConfirmedComplete(BKException.Code.OK, lastEntryId, ctx);
-            return;
-        }
-        ReadLastConfirmedOp.LastConfirmedDataCallback innercb = new ReadLastConfirmedOp.LastConfirmedDataCallback() {
-            AtomicBoolean completed = new AtomicBoolean(false);
-            @Override
-            public void readLastConfirmedDataComplete(int rc, DigestManager.RecoveryData data) {
-                if (rc == BKException.Code.OK) {
-                    updateLastConfirmed(data.lastAddConfirmed, data.length);
-                    if (completed.compareAndSet(false, true)) {
-                        cb.readLastConfirmedComplete(rc, data.lastAddConfirmed, ctx);
-                    }
-                } else {
-                    if (completed.compareAndSet(false, true)) {
-                        cb.readLastConfirmedComplete(rc, INVALID_ENTRY_ID, ctx);
-                    }
-                }
-            }
-        };
-        new ReadLastConfirmedLongPollOp(this, innercb, getLastAddConfirmed(), timeOutInMillis).initiate();
-    }
-
+    @Deprecated
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
         asyncReadLastConfirmedAndEntry(timeOutInMillis, false, cb, ctx);
     }
 
+    @Deprecated
     public void asyncReadLastConfirmedAndEntry(final long timeOutInMillis, final boolean parallel, final AsyncCallback.ReadLastConfirmedAndEntryCallback cb, final Object ctx) {
+        asyncReadLastConfirmedAndEntry(getLastAddConfirmed() + 1, timeOutInMillis, parallel, cb, ctx);
+    }
+
+    /**
+     * Asynchronous read next entry and the latest last add confirmed.
+     * If the next entryId is less than known last add confirmed, the call will read next entry directly.
+     * If the next entryId is ahead of known last add confirmed, the call will issue a long poll read
+     * to wait for the next entry <i>entryId</i>.
+     *
+     * The callback will return the latest last add confirmed and next entry if it is available within timeout period <i>timeOutInMillis</i>.
+     *
+     * @param entryId
+     *          next entry id to read
+     * @param timeOutInMillis
+     *          timeout period to wait for the entry id to be available (for long poll only)
+     * @param parallel
+     *          whether to issue the long poll reads in parallel
+     * @param cb
+     *          callback to return the result
+     * @param ctx
+     *          callback context
+     */
+    public void asyncReadLastConfirmedAndEntry(final long entryId,
+                                               final long timeOutInMillis,
+                                               final boolean parallel,
+                                               final AsyncCallback.ReadLastConfirmedAndEntryCallback cb,
+                                               final Object ctx) {
         boolean isClosed;
-        long lastEntryId;
+        long lac;
         synchronized (this) {
             isClosed = metadata.isClosed();
-            lastEntryId = metadata.getLastEntryId();
+            lac = metadata.getLastEntryId();
         }
         if (isClosed) {
-            cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, lastEntryId, null, ctx);
+            if (entryId > lac) {
+                cb.readLastConfirmedAndEntryComplete(BKException.Code.OK, lac, null, ctx);
+                return;
+            }
+        } else {
+            lac = getLastAddConfirmed();
+        }
+        if (entryId <= lac) {
+            asyncReadEntries(entryId, entryId, new ReadCallback() {
+                @Override
+                public void readComplete(int rc, LedgerHandle lh, Enumeration<LedgerEntry> seq, Object ctx) {
+                    if (BKException.Code.OK == rc) {
+                        if (seq.hasMoreElements()) {
+                            cb.readLastConfirmedAndEntryComplete(rc, getLastAddConfirmed(), seq.nextElement(), ctx);
+                        } else {
+                            cb.readLastConfirmedAndEntryComplete(rc, getLastAddConfirmed(), null, ctx);
+                        }
+                    } else {
+                        cb.readLastConfirmedAndEntryComplete(rc, INVALID_ENTRY_ID, null, ctx);
+                    }
+                }
+            }, ctx);
             return;
         }
+        // wait for entry <i>entryId</i>
         ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback innercb = new ReadLastConfirmedAndEntryOp.LastConfirmedAndEntryCallback() {
             AtomicBoolean completed = new AtomicBoolean(false);
             @Override
@@ -771,7 +859,7 @@ public class LedgerHandle {
                 }
             }
         };
-        new ReadLastConfirmedAndEntryOp(this, innercb, getLastAddConfirmed(), timeOutInMillis, bk.scheduler).parallelRead(parallel).initiate();
+        new ReadLastConfirmedAndEntryOp(this, innercb, entryId - 1, timeOutInMillis, bk.scheduler).parallelRead(parallel).initiate();
     }
 
     /**
@@ -881,7 +969,6 @@ public class LedgerHandle {
         PendingAddOp pendingAddOp;
         List<PendingAddOp> opsDrained = new ArrayList<PendingAddOp>(pendingAddOps.size());
         while ((pendingAddOp = pendingAddOps.poll()) != null) {
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
             addToLength(-pendingAddOp.entryLength);
             opsDrained.add(pendingAddOp);
         }
@@ -895,33 +982,36 @@ public class LedgerHandle {
     }
 
     void sendAddSuccessCallbacks() {
+        int numSuccesses = 0;
         // Start from the head of the queue and proceed while there are
         // entries that have had all their responses come back
         PendingAddOp pendingAddOp;
         while ((pendingAddOp = pendingAddOps.peek()) != null
                && blockAddCompletions.get() == 0) {
             if (!pendingAddOp.completed) {
-                return;
+                break;
             }
             pendingAddOps.remove();
-            bk.getStatsLogger().getCounter(BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_PENDING_ADD).dec();
             setLastAddConfirmed(pendingAddOp.entryId);
             pendingAddOp.submitCallback(BKException.Code.OK);
+            ++numSuccesses;
         }
-
+        numSubmittedPerCallbackStatsLogger.registerSuccessfulEvent(numSuccesses);
     }
 
-    EnsembleInfo replaceBookieInMetadata(final Map<Integer, InetSocketAddress> failedBookies)
+    EnsembleInfo replaceBookieInMetadata(final Map<Integer, BookieSocketAddress> failedBookies,
+                                         int ensembleChangeIdx)
             throws BKException.BKNotEnoughBookiesException {
-        final ArrayList<InetSocketAddress> newEnsemble = new ArrayList<InetSocketAddress>();
+        final ArrayList<BookieSocketAddress> newEnsemble = new ArrayList<BookieSocketAddress>();
         final long newEnsembleStartEntry = getLastAddConfirmed() + 1;
         final HashSet<Integer> replacedBookies = new HashSet<Integer>();
         synchronized (metadata) {
             newEnsemble.addAll(metadata.currentEnsemble);
-            for (Map.Entry<Integer, InetSocketAddress> entry : failedBookies.entrySet()) {
+            for (Map.Entry<Integer, BookieSocketAddress> entry : failedBookies.entrySet()) {
                 int idx = entry.getKey();
-                InetSocketAddress addr = entry.getValue();
-                LOG.info("Handling failure of bookie: {} index: {}", addr, idx);
+                BookieSocketAddress addr = entry.getValue();
+                LOG.info("[EnsembleChange-L{}-{}] : replacing bookie: {} index: {}",
+                        new Object[] { getId(), ensembleChangeIdx, addr, idx });
                 if (!newEnsemble.get(idx).equals(addr)) {
                     // ensemble has already changed, failure of this addr is immaterial
                     if (LOG.isDebugEnabled()) {
@@ -931,7 +1021,13 @@ public class LedgerHandle {
                     continue;
                 }
                 try {
-                    InetSocketAddress newBookie = bk.bookieWatcher.replaceBookie(newEnsemble, idx);
+                    BookieSocketAddress newBookie = bk.bookieWatcher.replaceBookie(
+                        metadata.getEnsembleSize(),
+                        metadata.getWriteQuorumSize(),
+                        metadata.getAckQuorumSize(),
+                        newEnsemble,
+                        idx,
+                        new HashSet<BookieSocketAddress>(failedBookies.values()));
                     newEnsemble.set(idx, newBookie);
                     replacedBookies.add(idx);
                 } catch (BKException.BKNotEnoughBookiesException e) {
@@ -943,31 +1039,39 @@ public class LedgerHandle {
                     }
                 }
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Changing ensemble from: {} to: {} for ledger: {} starting at entry: {}," +
-                        " failed bookies: {}, replaced bookies: {}",
-                          new Object[] { metadata.currentEnsemble, newEnsemble, ledgerId,
-                                  (getLastAddConfirmed() + 1), failedBookies, replacedBookies });
-            }
+            LOG.info("[EnsembleChange-L{}-{}] : changing ensemble from: {} to: {} starting at entry: {}," +
+                    " failed bookies: {}, replaced bookies: {}",
+                      new Object[] { ledgerId, ensembleChangeIdx, metadata.currentEnsemble, newEnsemble,
+                              (getLastAddConfirmed() + 1), failedBookies, replacedBookies });
             metadata.addEnsemble(newEnsembleStartEntry, newEnsemble);
         }
         return new EnsembleInfo(newEnsemble, failedBookies, replacedBookies);
     }
 
-    void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
-        blockAddCompletions.incrementAndGet();
+    void handleBookieFailure(final Map<Integer, BookieSocketAddress> failedBookies) {
+        int curBlockAddCompletions = blockAddCompletions.incrementAndGet();
+
+        if (bk.disableEnsembleChangeFeature.isAvailable()) {
+            blockAddCompletions.decrementAndGet();
+            LOG.debug("Ensemble change is disabled. Retry sending to failed bookies {} for ledger {}.", failedBookies, ledgerId);
+            unsetSuccessAndSendWriteRequest(failedBookies.keySet());
+            return;
+        }
+
+        int curNumEnsembleChanges = numEnsembleChanges.incrementAndGet();
 
         synchronized (metadata) {
             try {
-                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies, curNumEnsembleChanges);
                 if (ensembleInfo.replacedBookies.isEmpty()) {
                     blockAddCompletions.decrementAndGet();
                     return;
                 }
-                writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+                LOG.info("[EnsembleChange-L{}-{}] : writing new ensemble info = {}, block add completions = {}",
+                        new Object[] { getId(), curNumEnsembleChanges, ensembleInfo, curBlockAddCompletions });
+                writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo, curBlockAddCompletions, curNumEnsembleChanges));
             } catch (BKException.BKNotEnoughBookiesException e) {
-                LOG.error("Could not get additional bookie to "
-                          + "remake ensemble, closing ledger: " + ledgerId);
+                LOG.error("Could not get additional bookie to remake ensemble, closing ledger: {}", ledgerId);
                 handleUnrecoverableErrorDuringAdd(e.getCode());
                 return;
             }
@@ -976,16 +1080,25 @@ public class LedgerHandle {
 
     // Contains newly reformed ensemble, bookieIndex, failedBookieAddress
     static final class EnsembleInfo {
-        private final ArrayList<InetSocketAddress> newEnsemble;
-        private final Map<Integer, InetSocketAddress> failedBookies;
+        private final ArrayList<BookieSocketAddress> newEnsemble;
+        private final Map<Integer, BookieSocketAddress> failedBookies;
         final Set<Integer> replacedBookies;
 
-        public EnsembleInfo(ArrayList<InetSocketAddress> newEnsemble,
-                            Map<Integer, InetSocketAddress> failedBookies,
+        public EnsembleInfo(ArrayList<BookieSocketAddress> newEnsemble,
+                            Map<Integer, BookieSocketAddress> failedBookies,
                             Set<Integer> replacedBookies) {
             this.newEnsemble = newEnsemble;
             this.failedBookies = failedBookies;
             this.replacedBookies = replacedBookies;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Ensemble Info : failed bookies = ").append(failedBookies)
+                    .append(", replaced bookies = ").append(replacedBookies)
+                    .append(", new ensemble = ").append(newEnsemble);
+            return sb.toString();
         }
     }
 
@@ -996,10 +1109,16 @@ public class LedgerHandle {
      */
     private final class ChangeEnsembleCb extends OrderedSafeGenericCallback<Void> {
         private final EnsembleInfo ensembleInfo;
+        private final int curBlockAddCompletions;
+        private final int ensembleChangeIdx;
 
-        ChangeEnsembleCb(EnsembleInfo ensembleInfo) {
+        ChangeEnsembleCb(EnsembleInfo ensembleInfo,
+                         int curBlockAddCompletions,
+                         int ensembleChangeIdx) {
             super(bk.mainWorkerPool, ledgerId);
             this.ensembleInfo = ensembleInfo;
+            this.curBlockAddCompletions = curBlockAddCompletions;
+            this.ensembleChangeIdx = ensembleChangeIdx;
         }
 
         @Override
@@ -1008,22 +1127,28 @@ public class LedgerHandle {
                 // We changed the ensemble, but got a version exception. We
                 // should still consider this as an ensemble change
                 bk.getStatsLogger().getCounter(
-                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                        BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
+
+                LOG.info("[EnsembleChange-L{}-{}] : encountered version conflicts, re-read ledger metadata.",
+                        getId(), ensembleChangeIdx);
+
                 rereadMetadata(new ReReadLedgerMetadataCb(rc,
-                                       ensembleInfo));
+                                       ensembleInfo, curBlockAddCompletions, ensembleChangeIdx));
                 return;
             } else if (rc != BKException.Code.OK) {
-                LOG.error(
-                        "Could not persist ledger metadata while changing ensemble to: {}, closing ledger : {}.",
-                        ensembleInfo.newEnsemble, rc);
+                LOG.error("[EnsembleChange-L{}-{}] : could not persist ledger metadata : info = {}, closing ledger : {}.",
+                        new Object[] { getId(), ensembleChangeIdx, ensembleInfo, rc });
                 handleUnrecoverableErrorDuringAdd(rc);
                 return;
             }
-            blockAddCompletions.decrementAndGet();
+            int newBlockAddCompletions = blockAddCompletions.decrementAndGet();
+
+            LOG.info("[EnsembleChange-L{}-{}] : completed ensemble change, block add completion {} => {}",
+                    new Object[] { getId(), ensembleChangeIdx, curBlockAddCompletions, newBlockAddCompletions });
 
             // We've successfully changed an ensemble
             bk.getStatsLogger().getCounter(
-                    BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                    BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
             // the failed bookie has been replaced
             unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
         }
@@ -1041,24 +1166,32 @@ public class LedgerHandle {
     private final class ReReadLedgerMetadataCb extends OrderedSafeGenericCallback<LedgerMetadata> {
         private final int rc;
         private final EnsembleInfo ensembleInfo;
+        private final int curBlockAddCompletions;
+        private final int ensembleChangeIdx;
 
-        ReReadLedgerMetadataCb(int rc, EnsembleInfo ensembleInfo) {
+        ReReadLedgerMetadataCb(int rc,
+                               EnsembleInfo ensembleInfo,
+                               int curBlockAddCompletions,
+                               int ensembleChangeIdx) {
             super(bk.mainWorkerPool, ledgerId);
             this.rc = rc;
             this.ensembleInfo = ensembleInfo;
+            this.curBlockAddCompletions = curBlockAddCompletions;
+            this.ensembleChangeIdx = ensembleChangeIdx;
         }
 
         @Override
         public void safeOperationComplete(int newrc, LedgerMetadata newMeta) {
             if (newrc != BKException.Code.OK) {
-                LOG.error("Error reading new metadata from ledger "
-                        + "after changing ensemble, code=" + newrc);
+                LOG.error("[EnsembleChange-L{}-{}] : error re-reading metadata to address ensemble change conflicts," +
+                        " code=", new Object[] { ledgerId, ensembleChangeIdx, newrc });
                 handleUnrecoverableErrorDuringAdd(rc);
             } else {
                 if (!resolveConflict(newMeta)) {
-                    LOG.error("Could not resolve ledger metadata conflict while changing ensemble to: {},"
-                            + " old meta data is \n {} \n, new meta data is \n {}, closing ledger",
-                            new Object[] { ensembleInfo.newEnsemble, metadata, newMeta });
+                    LOG.error("[EnsembleChange-L{}-{}] : could not resolve ledger metadata conflict" +
+                            " while changing ensemble to: {}, local meta data is \n {} \n," +
+                            " zk meta data is \n {} \n, closing ledger",
+                            new Object[] { ledgerId, ensembleChangeIdx, ensembleInfo.newEnsemble, metadata, newMeta });
                     handleUnrecoverableErrorDuringAdd(rc);
                 }
             }
@@ -1084,8 +1217,13 @@ public class LedgerHandle {
          * </p>
          */
         private boolean resolveConflict(LedgerMetadata newMeta) {
+            LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts - local metadata = \n {} \n," +
+                    " zk metadata = \n {} \n", new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
             // make sure the ledger isn't closed by other ones.
             if (metadata.getState() != newMeta.getState()) {
+                LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts but state changed," +
+                        " local metadata = \n {} \n, zk metadata = \n {} \n",
+                        new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
                 return false;
             }
 
@@ -1097,6 +1235,9 @@ public class LedgerHandle {
             //           than the metadata changed by recovery.
             int diff = newMeta.getEnsembles().size() - metadata.getEnsembles().size();
             if (0 != diff) {
+                LOG.info("[EnsembleChange-L{}-{}] : resolving conflicts but ensembles have {} differences," +
+                        " local metadata = \n {} \n, zk metadata = \n {} \n",
+                        new Object[] { ledgerId, ensembleChangeIdx, diff, metadata, newMeta });
                 if (-1 == diff) {
                     // Case 1: metadata is changed by other ones (e.g. Recovery)
                     return updateMetadataIfPossible(newMeta);
@@ -1115,16 +1256,16 @@ public class LedgerHandle {
                 // If the in-memory data doesn't contains the failed bookie, it means the ensemble change
                 // didn't finish, so try to resolve conflicts with the metadata read from zookeeper and
                 // update ensemble changed metadata again.
-                if (areFailedBookiesReplaced(metadata, ensembleInfo)) {
-                    return updateMetadataIfPossible(newMeta);
-                }
+                return areFailedBookiesReplaced(metadata, ensembleInfo) && updateMetadataIfPossible(newMeta);
             } else {
                 // We've successfully changed an ensemble
                 bk.getStatsLogger().getCounter(
-                        BookkeeperClientStatsLogger.BookkeeperClientCounter.NUM_ENSEMBLE_CHANGE).inc();
+                        BookKeeperClientStats.NUM_ENSEMBLE_CHANGE).inc();
                 // the failed bookie has been replaced
-                blockAddCompletions.decrementAndGet();
+                int newBlockAddCompletions = blockAddCompletions.decrementAndGet();
                 unsetSuccessAndSendWriteRequest(ensembleInfo.replacedBookies);
+                LOG.info("[EnsembleChange-L{}-{}] : resolved conflicts, block add complectiosn {} => {}.",
+                        new Object[] { ledgerId, ensembleChangeIdx, curBlockAddCompletions, newBlockAddCompletions });
             }
             return true;
         }
@@ -1140,8 +1281,10 @@ public class LedgerHandle {
          */
         private boolean areFailedBookiesReplaced(LedgerMetadata newMeta, EnsembleInfo ensembleInfo) {
             boolean replaced = true;
-            for (Map.Entry<Integer, InetSocketAddress> entry : ensembleInfo.failedBookies.entrySet()) {
-                replaced = !newMeta.currentEnsemble.get(entry.getKey()).equals(entry.getValue());
+            for (Integer replacedBookieIdx : ensembleInfo.replacedBookies) {
+                BookieSocketAddress failedBookieAddr = ensembleInfo.failedBookies.get(replacedBookieIdx);
+                BookieSocketAddress replacedBookieAddr = newMeta.currentEnsemble.get(replacedBookieIdx);
+                replaced &= !Objects.equal(replacedBookieAddr, failedBookieAddr);
             }
             return replaced;
         }
@@ -1150,22 +1293,26 @@ public class LedgerHandle {
             // if the local metadata is newer than zookeeper metadata, it means that metadata is updated
             // again when it was trying re-reading the metatada, re-kick the reread again
             if (metadata.isNewerThan(newMeta)) {
+                LOG.info("[EnsembleChange-L{}-{}] : reread metadata because local metadata is newer.",
+                        new Object[] { ledgerId, ensembleChangeIdx });
                 rereadMetadata(this);
                 return true;
             }
             // make sure the metadata doesn't changed by other ones.
             if (metadata.isConflictWith(newMeta)) {
+                LOG.info("[EnsembleChange-L{}-{}] : metadata is conflicted, local metadata = \n {} \n," +
+                        " zk metadata = \n {} \n", new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
                 return false;
             }
-            LOG.info("Resolve ledger metadata conflict while changing ensemble to: {},"
-                    + " old meta data is \n {} \n, new meta data is \n {}.", new Object[] {
-                    ensembleInfo.newEnsemble, metadata, newMeta });
+            LOG.info("[EnsembleChange-L{}-{}] : resolved ledger metadata conflict and writing to zookeeper,"
+                    + " local meta data is \n {} \n, zk meta data is \n {}.",
+                    new Object[] { ledgerId, ensembleChangeIdx, metadata, newMeta });
             // update znode version
             metadata.setVersion(newMeta.getVersion());
             // merge ensemble infos from new meta except last ensemble
             // since they might be modified by recovery tool.
             metadata.mergeEnsembles(newMeta.getEnsembles());
-            writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo));
+            writeLedgerConfig(new ChangeEnsembleCb(ensembleInfo, curBlockAddCompletions, ensembleChangeIdx));
             return true;
         }
 
@@ -1183,18 +1330,48 @@ public class LedgerHandle {
         bk.getLedgerManager().readLedgerMetadata(ledgerId, cb);
     }
 
+    void registerOperationFailureOnBookie(BookieSocketAddress bookie, long entryId) {
+        if (bk.getConf().getEnableBookieFailureTracking()) {
+            bookieFailureHistory.put(bookie, entryId);
+        }
+    }
+
+
     void recover(GenericCallback<Void> finalCb) {
+        recover(finalCb, null, false);
+    }
+
+    /**
+     * Recover the ledger.
+     *
+     * @param finalCb
+     *          callback after recovery is done.
+     * @param listener
+     *          read entry listener on recovery reads.
+     * @param forceRecovery
+     *          force the recovery procedure even the ledger metadata shows the ledger is closed.
+     */
+    void recover(GenericCallback<Void> finalCb,
+                 final @VisibleForTesting BookkeeperInternalCallbacks.ReadEntryListener listener,
+                 final boolean forceRecovery) {
         final GenericCallback<Void> cb = new TimedGenericCallback<Void>(finalCb, BKException.Code.OK,
-                this.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.LEDGER_RECOVER));
+                this.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.LEDGER_RECOVER));
 
         boolean wasClosed = false;
         boolean wasInRecovery = false;
 
         synchronized (this) {
             if (metadata.isClosed()) {
-                lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
-                length = metadata.getLength();
-                wasClosed = true;
+                if (forceRecovery) {
+                    wasClosed = false;
+                    // mark the ledger back to in recovery state, so it would proceed ledger recovery again.
+                    wasInRecovery = false;
+                    metadata.markLedgerInRecovery();
+                } else {
+                    lastAddConfirmed = lastAddPushed = metadata.getLastEntryId();
+                    length = metadata.getLength();
+                    wasClosed = true;
+                }
             } else {
                 wasClosed = false;
                 if (metadata.isInRecovery()) {
@@ -1218,7 +1395,7 @@ public class LedgerHandle {
             new LedgerRecoveryOp(LedgerHandle.this, cb)
                         .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                         .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                        .setCouldClose(true)
+                        .setEntryListener(listener)
                         .initiate();
             return;
         }
@@ -1226,14 +1403,12 @@ public class LedgerHandle {
         final LedgerRecoveryOp recoveryOp = new LedgerRecoveryOp(LedgerHandle.this, cb)
                 .parallelRead(bk.getConf().getEnableParallelRecoveryRead())
                 .readBatchSize(bk.getConf().getRecoveryReadBatchSize())
-                .setCouldClose(false);
+                .setEntryListener(listener);
         // Issue the recovery op & update ledger config in parallel.
-        recoveryOp.initiate();
         writeLedgerConfig(new OrderedSafeGenericCallback<Void>(bk.mainWorkerPool, ledgerId) {
             @Override
             public void safeOperationComplete(final int rc, Void result) {
                 if (rc == BKException.Code.MetadataVersionException) {
-                    recoveryOp.cancel();
                     rereadMetadata(new OrderedSafeGenericCallback<LedgerMetadata>(bk.mainWorkerPool,
                                                                                   ledgerId) {
                         @Override
@@ -1242,7 +1417,7 @@ public class LedgerHandle {
                                 cb.operationComplete(rc, null);
                             } else {
                                 metadata = newMeta;
-                                recover(cb);
+                                recover(cb, listener, forceRecovery);
                             }
                         }
                         @Override
@@ -1251,9 +1426,11 @@ public class LedgerHandle {
                         }
                     });
                 } else if (rc == BKException.Code.OK) {
-                    recoveryOp.notifyClose();
+                    // we only could issue recovery operation after we successfully update the ledger state to in recovery
+                    // otherwise, it couldn't prevent us advancing last confirmed while the other writer is closing the ledger,
+                    // which will cause inconsistent last add confirmed on bookies & zookeeper metadata.
+                    recoveryOp.initiate();
                 } else {
-                    recoveryOp.cancel();
                     LOG.error("Error writing ledger config {} of ledger {}", rc, ledgerId);
                     cb.operationComplete(rc, null);
                 }
@@ -1265,7 +1442,7 @@ public class LedgerHandle {
         });
     }
 
-    public BookkeeperClientStatsLogger getStatsLogger() {
+    public StatsLogger getStatsLogger() {
         // We log everything to one client logger. So just return the stats logger for bk
         return bk.getStatsLogger();
     }
@@ -1276,7 +1453,7 @@ public class LedgerHandle {
         @Override
         public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
             if (rc != BKException.Code.OK) {
-                LOG.warn("Close failed: " + BKException.getMessage(rc));
+                LOG.warn("Close failed: {}", rc);
             }
             // noop
         }

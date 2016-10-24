@@ -21,7 +21,6 @@ package org.apache.bookkeeper.bookie;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -40,9 +39,12 @@ import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.util.EntryFormatter;
 import org.apache.bookkeeper.util.IOUtils;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.util.Tool;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.commons.configuration.Configuration;
@@ -54,9 +56,9 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.ParseException;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException;
 
-import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,6 +78,7 @@ public class BookieShell implements Tool {
     static final String CMD_READLOG = "readlog";
     static final String CMD_READJOURNAL = "readjournal";
     static final String CMD_LASTMARK = "lastmark";
+    static final String CMD_AUTORECOVERY = "autorecovery";
     static final String CMD_HELP = "help";
 
     final ServerConfiguration bkConf = new ServerConfiguration();
@@ -210,7 +213,7 @@ public class BookieShell implements Tool {
             boolean result = Bookie.format(conf, interactive, force);
             // remove cookie
             if (cmdLine.hasOption("d")) {
-                InetSocketAddress address = Bookie.getBookieAddress(conf);
+                BookieSocketAddress address = Bookie.getBookieAddress(conf);
                 ZooKeeperClient zkc =
                         ZooKeeperClient.createConnectedZooKeeperClient(conf.getZkServers(),
                                 conf.getZkTimeout());
@@ -282,7 +285,7 @@ public class BookieShell implements Tool {
 
             // Get bookies list
             final String[] bookieStrs = args[0].split(",");
-            final Set<InetSocketAddress> bookieAddrs = new HashSet<InetSocketAddress>();
+            final Set<BookieSocketAddress> bookieAddrs = new HashSet<BookieSocketAddress>();
             for (String bookieStr : bookieStrs) {
                 final String bookieStrParts[] = bookieStr.split(":");
                 if (bookieStrParts.length != 2) {
@@ -290,7 +293,7 @@ public class BookieShell implements Tool {
                             + bookieStr);
                     return -1;
                 }
-                bookieAddrs.add(new InetSocketAddress(bookieStrParts[0],
+                bookieAddrs.add(new BookieSocketAddress(bookieStrParts[0],
                         Integer.parseInt(bookieStrParts[1])));
             }
 
@@ -317,7 +320,7 @@ public class BookieShell implements Tool {
             }
         }
 
-        private int bkQuery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs)
+        private int bkQuery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs)
                 throws InterruptedException, BKException {
             SortedMap<Long, LedgerMetadata> ledgersContainBookies =
                     bkAdmin.getLedgersContainBookies(bookieAddrs);
@@ -337,14 +340,14 @@ public class BookieShell implements Tool {
             return 0;
         }
 
-        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<InetSocketAddress> bookiesToInspect) {
+        private Map<Long, Integer> inspectLedger(LedgerMetadata metadata, Set<BookieSocketAddress> bookiesToInspect) {
             Map<Long, Integer> numBookiesToReplacePerEnsemble = new TreeMap<Long, Integer>();
-            for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
-                ArrayList<InetSocketAddress> bookieList = ensemble.getValue();
+            for (Map.Entry<Long, ArrayList<BookieSocketAddress>> ensemble : metadata.getEnsembles().entrySet()) {
+                ArrayList<BookieSocketAddress> bookieList = ensemble.getValue();
                 System.out.print(ensemble.getKey() + ":\t");
                 int numBookiesToReplace = 0;
-                for (InetSocketAddress bookie: bookieList) {
-                    System.out.print(StringUtils.addrToString(bookie));
+                for (BookieSocketAddress bookie: bookieList) {
+                    System.out.print(bookie);
                     if (bookiesToInspect.contains(bookie)) {
                         System.out.print("*");
                         ++numBookiesToReplace;
@@ -359,24 +362,24 @@ public class BookieShell implements Tool {
             return numBookiesToReplacePerEnsemble;
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, long lid, Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(BookKeeperAdmin bkAdmin, long lid, Set<BookieSocketAddress> bookieAddrs,
                                boolean dryrun, boolean skipOpenLedgers, boolean removeCookies)
                 throws InterruptedException, BKException, KeeperException {
             bkAdmin.recoverBookieData(lid, bookieAddrs, dryrun, skipOpenLedgers);
             if (removeCookies) {
-                for (InetSocketAddress addr : bookieAddrs) {
+                for (BookieSocketAddress addr : bookieAddrs) {
                     Cookie.removeCookieForBookie(bkConf, bkAdmin.getZooKeeper(), addr);
                 }
             }
             return 0;
         }
 
-        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<InetSocketAddress> bookieAddrs,
+        private int bkRecovery(BookKeeperAdmin bkAdmin, Set<BookieSocketAddress> bookieAddrs,
                                boolean dryrun, boolean skipOpenLedgers, boolean removeCookies)
                 throws InterruptedException, BKException, KeeperException {
             bkAdmin.recoverBookieData(bookieAddrs, dryrun, skipOpenLedgers);
             if (removeCookies) {
-                for (InetSocketAddress addr : bookieAddrs) {
+                for (BookieSocketAddress addr : bookieAddrs) {
                     Cookie.removeCookieForBookie(bkConf, bkAdmin.getZooKeeper(), addr);
                 }
             }
@@ -481,8 +484,39 @@ public class BookieShell implements Tool {
                 String idString = name.split("\\.")[0];
                 logId = Long.parseLong(idString, 16);
             }
-            // scan entry log
-            scanEntryLog(logId, printMsg);
+            Long ledgerId = null;
+            Long entryId = null;
+            Long position = null;
+            if (leftArgs.length >= 4) {
+                try {
+                    ledgerId = Long.parseLong(leftArgs[1]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid ledger id : " + leftArgs[1]);
+                    printUsage();
+                    return -1;
+                }
+                try {
+                    entryId = Long.parseLong(leftArgs[2]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid entry id : " + leftArgs[2]);
+                    printUsage();
+                    return -1;
+                }
+                try {
+                    position = Long.parseLong(leftArgs[3]);
+                } catch (NumberFormatException nfe) {
+                    System.err.println("ERROR: invalid position : " + leftArgs[3]);
+                    printUsage();
+                    return -1;
+                }
+            }
+            if (null == position) {
+                // scan entry log
+                scanEntryLog(logId, printMsg);
+            } else {
+                System.out.println("lid=" + ledgerId + ", eid=" + entryId + ", pos=" + position);
+                readEntry(ledgerId, entryId, position, printMsg);
+            }
             return 0;
         }
 
@@ -493,7 +527,7 @@ public class BookieShell implements Tool {
 
         @Override
         String getUsage() {
-            return "readlog [-m] <entry_log_id | entry_log_file_name>";
+            return "readlog [-m] <entry_log_id | entry_log_file_name> [ledgerId entryId position]";
         }
 
         @Override
@@ -607,6 +641,76 @@ public class BookieShell implements Tool {
         }
     }
 
+    /**
+     * Command for administration of autorecovery
+     */
+    class AutoRecoveryCmd extends MyCommand {
+        Options opts = new Options();
+
+        public AutoRecoveryCmd() {
+            super(CMD_AUTORECOVERY);
+            opts.addOption("e", "enable", false,
+                           "Enable auto recovery of underreplicated ledgers");
+            opts.addOption("d", "disable", false,
+                           "Disable auto recovery of underreplicated ledgers");
+        }
+
+        @Override
+        Options getOptions() {
+            return opts;
+        }
+
+        @Override
+        String getDescription() {
+            return "Enable or disable autorecovery in the cluster.";
+        }
+
+        @Override
+        String getUsage() {
+            return "autorecovery [-enable|-disable]";
+        }
+
+        @Override
+        int runCmd(CommandLine cmdLine) throws Exception {
+            boolean disable = cmdLine.hasOption("d");
+            boolean enable = cmdLine.hasOption("e");
+
+            if ((!disable && !enable)
+                || (enable && disable)) {
+                LOG.error("One and only one of -enable and -disable must be specified");
+                printUsage();
+                return 1;
+            }
+            ZooKeeper zk = null;
+            try {
+                zk = ZooKeeperClient.createConnectedZooKeeperClient(bkConf.getZkServers(), bkConf.getZkTimeout());
+                LedgerManagerFactory mFactory = LedgerManagerFactory.newLedgerManagerFactory(bkConf, zk);
+                LedgerUnderreplicationManager underreplicationManager = mFactory.newLedgerUnderreplicationManager();
+                if (enable) {
+                    if (underreplicationManager.isLedgerReplicationEnabled()) {
+                        LOG.warn("Autorecovery already enabled. Doing nothing");
+                    } else {
+                        LOG.info("Enabling autorecovery");
+                        underreplicationManager.enableLedgerReplication();
+                    }
+                } else {
+                    if (!underreplicationManager.isLedgerReplicationEnabled()) {
+                        LOG.warn("Autorecovery already disabled. Doing nothing");
+                    } else {
+                        LOG.info("Disabling autorecovery");
+                        underreplicationManager.disableLedgerReplication();
+                    }
+                }
+            } finally {
+                if (zk != null) {
+                    zk.close();
+                }
+            }
+
+            return 0;
+        }
+    }
+
     final Map<String, Command> commands;
     {
         commands = new HashMap<String, Command>();
@@ -617,6 +721,7 @@ public class BookieShell implements Tool {
         commands.put(CMD_READLOG, new ReadLogCmd());
         commands.put(CMD_READJOURNAL, new ReadJournalCmd());
         commands.put(CMD_LASTMARK, new LastMarkCmd());
+        commands.put(CMD_AUTORECOVERY, new AutoRecoveryCmd());
         commands.put(CMD_HELP, new HelpCmd());
     }
 
@@ -626,7 +731,7 @@ public class BookieShell implements Tool {
         journalDirectory = Bookie.getCurrentDirectory(bkConf.getJournalDir());
         ledgerDirectories = Bookie.getCurrentDirectories(bkConf.getLedgerDirs());
         File[] idxDirs = bkConf.getIndexDirs();
-        indexDirectories = null != idxDirs ? idxDirs : ledgerDirectories;
+        indexDirectories = null != idxDirs ? Bookie.getCurrentDirectories(idxDirs) : ledgerDirectories;
         formatter = EntryFormatter.newEntryFormatter(bkConf, ENTRY_FORMATTER_CLASS);
         LOG.info("Using entry formatter " + formatter.getClass().getName());
         pageSize = bkConf.getPageSize();
@@ -639,9 +744,10 @@ public class BookieShell implements Tool {
         System.err.println("       metaformat   [-nonInteractive] [-force]");
         System.err.println("       bookieformat [-nonInteractive] [-force]");
         System.err.println("       recover      <bookieSrc> [bookieDest]");
-        System.err.println("       ledger      [-meta] <ledger_id>");
-        System.err.println("       readlog     [-msg] <entry_log_id|entry_log_file_name>");
-        System.err.println("       readjournal [-msg] <journal_id|journal_file_name>");
+        System.err.println("       ledger       [-meta] <ledger_id>");
+        System.err.println("       readlog      [-msg] <entry_log_id|entry_log_file_name>");
+        System.err.println("       readjournal  [-msg] <journal_id|journal_file_name>");
+        System.err.println("       autorecovery [-enable|-disable]");
         System.err.println("       lastmark");
         System.err.println("       help");
     }
@@ -754,9 +860,15 @@ public class BookieShell implements Tool {
         entryLogger.scanEntryLog(logId, scanner);
     }
 
+    protected byte[] readEntry(long ledgerId, long entryId, long position) throws IOException {
+        initEntryLogger();
+        return entryLogger.readEntry(ledgerId, entryId, position);
+    }
+
     private synchronized Journal getJournal() throws IOException {
         if (null == journal) {
-            journal = new Journal(bkConf, new LedgerDirsManager(bkConf, bkConf.getLedgerDirs()));
+            journal = new Journal(bkConf, new LedgerDirsManager(bkConf, bkConf.getLedgerDirs()),
+                    NullStatsLogger.INSTANCE);
         }
         return journal;
     }
@@ -799,6 +911,7 @@ public class BookieShell implements Tool {
             System.out.println("size : " + size + " (not aligned with 8, may be corrupted or under flushing now)");
         }
         System.out.println("entries     : " + (size / 8));
+        System.out.println("fenced      : " + fi.isFenced());
     }
 
     /**
@@ -830,7 +943,7 @@ public class BookieShell implements Tool {
                     } else {
                         long entryLogId = offset >> 32L;
                         long pos = offset & 0xffffffffL;
-                        System.out.println("entry " + curEntry + "\t:\t(log:" + entryLogId + ", pos: " + pos + ")");
+                        System.out.println("entry " + curEntry + "\t:\t(log:" + entryLogId + ", pos: " + pos + ", location: " + offset + ")");
                     }
                     ++curEntry;
                 }
@@ -846,6 +959,13 @@ public class BookieShell implements Tool {
                                  + ", the index file may be corrupted or last index page is not fully flushed yet : " + ie.getMessage());
             }
         }
+    }
+
+    protected void readEntry(long ledgerId, long entryId, long position, boolean printMsg) throws Exception {
+        System.out.println("Entry(lid=" + ledgerId + ", eid=" + entryId + "), logId=" + (position >> 32));
+        byte[] data = readEntry(ledgerId, entryId, position);
+        ByteBuffer entryBuf = ByteBuffer.wrap(data);
+        formatEntry(position & 0xffffffffL, entryBuf, printMsg);
     }
 
     /**
@@ -929,8 +1049,9 @@ public class BookieShell implements Tool {
         }
         // process a data entry
         long lastAddConfirmed = recBuff.getLong();
+        long length = recBuff.getLong();
         System.out.println("Type:           DATA");
-        System.out.println("LastConfirmed:  " + lastAddConfirmed);
+        System.out.println("LastConfirmed:  " + lastAddConfirmed + ", Length: " + length);
         if (!printMsg) {
             System.out.println();
             return;

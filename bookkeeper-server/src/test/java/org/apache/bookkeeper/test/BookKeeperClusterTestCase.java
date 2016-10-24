@@ -24,21 +24,30 @@ package org.apache.bookkeeper.test;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 
 import junit.framework.TestCase;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.client.BookKeeperTestClient;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.proto.ReadOnlyBookieServer;
+import org.apache.bookkeeper.replication.AutoRecoveryMain;
+import org.apache.bookkeeper.replication.Auditor;
+import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
+import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.util.IOUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -46,6 +55,8 @@ import org.junit.After;
 import org.junit.Before;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * A class runs several bookie servers for testing.
@@ -67,6 +78,10 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
 
     protected ServerConfiguration baseConf = TestBKConfiguration.newServerConfiguration();
     protected ClientConfiguration baseClientConf = TestBKConfiguration.newClientConfiguration();
+
+    private Map<BookieServer, AutoRecoveryMain> autoRecoveryProcesses = new HashMap<BookieServer, AutoRecoveryMain>();
+
+    private boolean isAutoRecoveryEnabled;
 
     public BookKeeperClusterTestCase(int numBookies) {
         this.numBookies = numBookies;
@@ -95,7 +110,15 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         stopBKCluster();
         // stop zookeeper service
         stopZKCluster();
+        // cleanup temp dirs
+        cleanupTempDirs();
         LOG.info("Tearing down test {}", getName());
+    }
+
+    protected File createTempDir(String prefix, String suffix) throws IOException {
+        File dir = IOUtils.createTempDir(prefix, suffix + getName());
+        tmpDirs.add(dir);
+        return dir;
     }
 
     /**
@@ -118,7 +141,8 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Start cluster
+     * Start cluster. Also, starts the auto recovery process for each bookie, if
+     * isAutoRecoveryEnabled is true.
      *
      * @throws Exception
      */
@@ -135,7 +159,8 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Stop cluster
+     * Stop cluster. Also, stops all the auto recovery processes for the bookie
+     * cluster, if isAutoRecoveryEnabled is true.
      *
      * @throws Exception
      */
@@ -146,18 +171,24 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
 
         for (BookieServer server : bs) {
             server.shutdown();
+            AutoRecoveryMain autoRecovery = autoRecoveryProcesses.get(server);
+            if (autoRecovery != null && isAutoRecoveryEnabled()) {
+                autoRecovery.shutdown();
+                LOG.debug("Shutdown auto recovery for bookieserver:"
+                        + server.getLocalAddress());
+            }
         }
+        bs.clear();
+    }
 
+    protected void cleanupTempDirs() throws Exception {
         for (File f : tmpDirs) {
             FileUtils.deleteDirectory(f);
         }
     }
 
     protected ServerConfiguration newServerConfiguration() throws IOException {
-        File f = File.createTempFile("bookie", "test");
-        tmpDirs.add(f);
-        f.delete();
-        f.mkdir();
+        File f = createTempDir("bookie", getName());
 
         int port = PortManager.nextFreePort();
         return newServerConfiguration(port, zkUtil.getZooKeeperConnectString(),
@@ -193,7 +224,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     /**
      * Get bookie address for bookie at index
      */
-    public InetSocketAddress getBookie(int index) throws IllegalArgumentException {
+    public BookieSocketAddress getBookie(int index) throws IllegalArgumentException {
         if (bs.size() <= index || index < 0) {
             throw new IllegalArgumentException("Invalid index, there are only " + bs.size()
                                                + " bookies. Asked for " + index);
@@ -202,14 +233,15 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Kill a bookie by its socket address
+     * Kill a bookie by its socket address. Also, stops the autorecovery process
+     * for the corresponding bookie server, if isAutoRecoveryEnabled is true.
      *
      * @param addr
-     *          Socket Address
+     *            Socket Address
      * @return the configuration of killed bookie
      * @throws InterruptedException
      */
-    public ServerConfiguration killBookie(InetSocketAddress addr) throws InterruptedException {
+    public ServerConfiguration killBookie(BookieSocketAddress addr) throws InterruptedException {
         BookieServer toRemove = null;
         int toRemoveIndex = 0;
         for (BookieServer server : bs) {
@@ -221,6 +253,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
             ++toRemoveIndex;
         }
         if (toRemove != null) {
+            stopAutoRecoveryService(toRemove);
             bs.remove(toRemove);
             return bsConfs.remove(toRemoveIndex);
         }
@@ -228,10 +261,28 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Kill a bookie by index
+     * Set the bookie identified by its socket address to readonly
+     *
+     * @param addr
+     *          Socket Address
+     * @return the configuration of killed bookie
+     * @throws InterruptedException
+     */
+    public void setBookieToReadOnly(BookieSocketAddress addr) throws InterruptedException {
+        for (BookieServer server : bs) {
+            if (server.getLocalAddress().equals(addr)) {
+                server.getBookie().doTransitionToReadOnlyMode();
+                break;
+            }
+        }
+    }
+
+    /**
+     * Kill a bookie by index. Also, stops the respective auto recovery process
+     * for this bookie, if isAutoRecoveryEnabled is true.
      *
      * @param index
-     *          Bookie Index
+     *            Bookie Index
      * @return the configuration of killed bookie
      * @throws InterruptedException
      * @throws IOException
@@ -242,6 +293,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         }
         BookieServer server = bs.get(index);
         server.shutdown();
+        stopAutoRecoveryService(server);
         bs.remove(server);
         return bsConfs.remove(index);
     }
@@ -257,7 +309,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws InterruptedException
      * @throws IOException
      */
-    public CountDownLatch sleepBookie(InetSocketAddress addr, final int seconds)
+    public CountDownLatch sleepBookie(BookieSocketAddress addr, final int seconds)
             throws InterruptedException, IOException {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {
@@ -292,15 +344,26 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      * @throws InterruptedException
      * @throws IOException
      */
-    public void sleepBookie(InetSocketAddress addr, final CountDownLatch l)
+    public void sleepBookie(BookieSocketAddress addr, final CountDownLatch l)
+            throws InterruptedException, IOException {
+        final CountDownLatch suspendLatch = new CountDownLatch(1);
+        sleepBookie(addr, l, suspendLatch);
+        suspendLatch.await();
+    }
+
+    public void sleepBookie(BookieSocketAddress addr, final CountDownLatch l, final CountDownLatch suspendLatch)
             throws InterruptedException, IOException {
         for (final BookieServer bookie : bs) {
             if (bookie.getLocalAddress().equals(addr)) {
+                LOG.info("Sleep bookie {}.", addr);
                 Thread sleeper = new Thread() {
                     @Override
                     public void run() {
                         try {
                             bookie.suspendProcessing();
+                            if (null != suspendLatch) {
+                                suspendLatch.countDown();
+                            }
                             l.await();
                             bookie.resumeProcessing();
                         } catch (Exception e) {
@@ -316,7 +379,8 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Restart bookie servers
+     * Restart bookie servers. Also restarts all the respective auto recovery
+     * process, if isAutoRecoveryEnabled is true.
      *
      * @throws InterruptedException
      * @throws IOException
@@ -333,16 +397,17 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     public void checkpointBookies() {
         for (BookieServer server : bs) {
-            server.getBookie().getSyncThread().checkPoint(CheckPoint.MAX);
+            server.getBookie().getSyncThread().checkpoint(Checkpoint.MAX);
         }
     }
 
 
     /**
-     * Restart bookie servers using new configuration settings
+     * Restart bookie servers using new configuration settings. Also restart the
+     * respective auto recovery process, if isAutoRecoveryEnabled is true.
      *
      * @param newConf
-     *          New Configuration Settings
+     *            New Configuration Settings
      * @throws InterruptedException
      * @throws IOException
      * @throws KeeperException
@@ -353,6 +418,7 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         // shut down bookie server
         for (BookieServer server : bs) {
             server.shutdown();
+            stopAutoRecoveryService(server);
         }
         bs.clear();
         Thread.sleep(1000);
@@ -369,7 +435,8 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
 
     /**
      * Helper method to startup a new bookie server with the indicated port
-     * number
+     * number. Also, starts the auto recovery process, if the
+     * isAutoRecoveryEnabled is set true.
      *
      * @throws IOException
      */
@@ -383,7 +450,8 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
     }
 
     /**
-     * Helper method to startup a bookie server using a configuration object
+     * Helper method to startup a bookie server using a configuration object.
+     * Also, starts the auto recovery process if isAutoRecoveryEnabled is true.
      *
      * @param conf
      *            Server Configuration Object
@@ -391,22 +459,47 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
      */
     protected BookieServer startBookie(ServerConfiguration conf)
             throws IOException, InterruptedException, KeeperException, BookieException {
-        BookieServer server = new BookieServer(conf);
+        return startBookie(conf, false);
+    }
+
+    protected BookieServer startBookie(ServerConfiguration conf, boolean readOnly)
+        throws IOException, InterruptedException, KeeperException, BookieException {
+        BookieServer server;
+        if (readOnly) {
+            server = new ReadOnlyBookieServer(conf);
+        } else {
+            server = new BookieServer(conf);
+        }
         server.start();
 
         int port = conf.getBookiePort();
-        while(bkc.getZkHandle().exists("/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port, false) == null) {
+        String zkHostPath;
+        if (readOnly) {
+            zkHostPath = "/ledgers/available/" + READONLY + "/"
+                    + InetAddress.getLocalHost().getHostAddress() + ":" + port;
+        } else {
+            zkHostPath = "/ledgers/available/" + InetAddress.getLocalHost().getHostAddress() + ":" + port;
+        }
+        while(bkc.getZkHandle().exists(zkHostPath, false) == null) {
             Thread.sleep(500);
         }
 
         bkc.readBookiesBlocking();
-        LOG.info("New bookie on port " + port + " has been created.");
+        LOG.info("New bookie (readonly = {}) on port {} has been created.", readOnly, port);
 
+        try {
+            startAutoRecovery(server, conf);
+        } catch (CompatibilityException ce) {
+            LOG.error("Exception while starting AutoRecovery!", ce);
+        } catch (UnavailableException ue) {
+            LOG.error("Exception while starting AutoRecovery!", ue);
+        }
         return server;
     }
 
     /**
-     * Start a bookie with the given bookie instance.
+     * Start a bookie with the given bookie instance. Also, starts the auto
+     * recovery for this bookie, if isAutoRecoveryEnabled is true.
      */
     protected BookieServer startBookie(ServerConfiguration conf, final Bookie b)
             throws IOException, InterruptedException, KeeperException, BookieException {
@@ -425,8 +518,111 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
 
         bkc.readBookiesBlocking();
         LOG.info("New bookie on port " + port + " has been created.");
-
+        try {
+            startAutoRecovery(server, conf);
+        } catch (CompatibilityException ce) {
+            LOG.error("Exception while starting AutoRecovery!", ce);
+        } catch (UnavailableException ue) {
+            LOG.error("Exception while starting AutoRecovery!", ue);
+        }
         return server;
     }
 
+    /**
+     * Flags used to enable/disable the auto recovery process. If it is enabled,
+     * starting the bookie server will starts the auto recovery process for that
+     * bookie. Also, stopping bookie will stops the respective auto recovery
+     * process.
+     *
+     * @param isAutoRecoveryEnabled
+     *            Value true will enable the auto recovery process. Value false
+     *            will disable the auto recovery process
+     */
+    public void setAutoRecoveryEnabled(boolean isAutoRecoveryEnabled) {
+        this.isAutoRecoveryEnabled = isAutoRecoveryEnabled;
+    }
+
+    /**
+     * Flag used to check whether auto recovery process is enabled/disabled. By
+     * default the flag is false.
+     *
+     * @return true, if the auto recovery is enabled. Otherwise return false.
+     */
+    public boolean isAutoRecoveryEnabled() {
+        return isAutoRecoveryEnabled;
+    }
+
+    private void startAutoRecovery(BookieServer bserver,
+            ServerConfiguration conf) throws CompatibilityException,
+            KeeperException, InterruptedException, IOException,
+            UnavailableException {
+        if (isAutoRecoveryEnabled()) {
+            AutoRecoveryMain autoRecoveryProcess = new AutoRecoveryMain(conf);
+            autoRecoveryProcess.start();
+            autoRecoveryProcesses.put(bserver, autoRecoveryProcess);
+            LOG.debug("Starting Auditor Recovery for the bookie:"
+                    + bserver.getLocalAddress());
+        }
+    }
+
+    private void stopAutoRecoveryService(BookieServer toRemove) {
+        AutoRecoveryMain autoRecoveryMain = autoRecoveryProcesses
+                .remove(toRemove);
+        if (null != autoRecoveryMain && isAutoRecoveryEnabled()) {
+            autoRecoveryMain.shutdown();
+            LOG.debug("Shutdown auto recovery for bookieserver:"
+                    + toRemove.getLocalAddress());
+        }
+    }
+
+    /**
+     * Will starts the auto recovery process for the bookie servers. One auto
+     * recovery process per each bookie server, if isAutoRecoveryEnabled is
+     * enabled.
+     *
+     * @throws CompatibilityException
+     *             - Compatibility error
+     * @throws KeeperException
+     *             - ZK exception
+     * @throws InterruptedException
+     *             - interrupted exception
+     * @throws IOException
+     *             - IOException
+     * @throws UnavailableException
+     *             - replication service has become unavailable
+     */
+    public void startReplicationService() throws CompatibilityException,
+            KeeperException, InterruptedException, IOException,
+            UnavailableException {
+        int index = -1;
+        for (BookieServer bserver : bs) {
+            startAutoRecovery(bserver, bsConfs.get(++index));
+        }
+    }
+
+    /**
+     * Will stops all the auto recovery processes for the bookie cluster, if
+     * isAutoRecoveryEnabled is true.
+     */
+    public void stopReplicationService() {
+        if(false == isAutoRecoveryEnabled()){
+            return;
+        }
+        for (Entry<BookieServer, AutoRecoveryMain> autoRecoveryProcess : autoRecoveryProcesses
+                .entrySet()) {
+            autoRecoveryProcess.getValue().shutdown();
+            LOG.debug("Shutdown Auditor Recovery for the bookie:"
+                    + autoRecoveryProcess.getKey().getLocalAddress());
+        }
+    }
+
+    public Auditor getAuditor() throws Exception {
+        for (AutoRecoveryMain p : autoRecoveryProcesses.values()) {
+            Auditor a = p.getAuditor();
+            if (a != null) {
+                return a;
+            }
+        }
+        throw new Exception("No auditor found");
+    }
 }

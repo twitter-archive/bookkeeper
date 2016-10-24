@@ -18,10 +18,14 @@
 package org.apache.bookkeeper.client;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.bookie.Bookie;
@@ -30,11 +34,16 @@ import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.test.TestCallbacks.AddCallbackFuture;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.google.common.base.Charsets.UTF_8;
 
 /**
  * This class tests the ledger close logic.
@@ -86,14 +95,52 @@ public class LedgerCloseTest extends BookKeeperClusterTestCase {
     @Test(timeout = 60000)
     public void testLedgerCloseDuringUnrecoverableErrors() throws Exception {
         int numEntries = 3;
+        LedgerHandle lh = bkc.createLedger(3, 3, 3, digestType, "".getBytes());
+        verifyMetadataConsistency(numEntries, lh);
+    }
+
+    @Test(timeout = 60000)
+    public void testLedgerCheckerShouldnotSelectInvalidLastFragments() throws Exception {
+        int numEntries = 10;
+        LedgerHandle lh = bkc.createLedger(3, 3, 3, digestType, "".getBytes());
+        // Add some entries before bookie failures
+        for (int i = 0; i < numEntries; i++) {
+            lh.addEntry("data".getBytes());
+        }
+        numEntries = 4; // add n*ensemleSize+1 entries async after bookies
+                        // failed.
+        verifyMetadataConsistency(numEntries, lh);
+
+        LedgerChecker checker = new LedgerChecker(bkc);
+        CheckerCallback cb = new CheckerCallback();
+        checker.checkLedger(lh, cb);
+        Set<LedgerFragment> result = cb.waitAndGetResult();
+        assertEquals("No fragments should be selected", 0, result.size());
+    }
+
+    class CheckerCallback implements GenericCallback<Set<LedgerFragment>> {
+        private Set<LedgerFragment> result = null;
+        private CountDownLatch latch = new CountDownLatch(1);
+
+        public void operationComplete(int rc, Set<LedgerFragment> result) {
+            this.result = result;
+            latch.countDown();
+        }
+
+        Set<LedgerFragment> waitAndGetResult() throws InterruptedException {
+            latch.await();
+            return result;
+        }
+    }
+
+    private void verifyMetadataConsistency(int numEntries, LedgerHandle lh)
+            throws Exception {
         final CountDownLatch addDoneLatch = new CountDownLatch(1);
         final CountDownLatch deadIOLatch = new CountDownLatch(1);
         final CountDownLatch recoverDoneLatch = new CountDownLatch(1);
         final CountDownLatch failedLatch = new CountDownLatch(1);
-
-        LedgerHandle lh = bkc.createLedger(3, 3, 3, digestType, "".getBytes());
         // kill first bookie to replace with a unauthorize bookie
-        InetSocketAddress bookie = lh.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie = lh.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf = killBookie(bookie);
         // replace a unauthorize bookie
         startUnauthorizedBookie(conf, addDoneLatch);
@@ -182,5 +229,36 @@ public class LedgerCloseTest extends BookKeeperClusterTestCase {
         };
         bsConfs.add(conf);
         bs.add(startBookie(conf, dBookie));
+    }
+
+    @Test(timeout = 60000)
+    public void testAllWritesAreCompletedOnClosedLedger() throws Exception {
+        for (int i = 0; i < 100; i++) {
+            LOG.info("Iteration {}", i);
+
+            List<AddCallbackFuture> futures = new ArrayList<AddCallbackFuture>();
+            LedgerHandle w = bkc.createLedger(DigestType.CRC32, new byte[0]);
+            AddCallbackFuture f = new AddCallbackFuture(0L);
+            w.asyncAddEntry("foobar".getBytes(UTF_8), f, null);
+            f.get();
+
+            LedgerHandle r = bkc.openLedger(w.getId(), DigestType.CRC32, new byte[0]);
+            for (int j = 0; j < 100; j++) {
+                AddCallbackFuture f1 = new AddCallbackFuture(1L + j);
+                w.asyncAddEntry("foobar".getBytes(), f1, null);
+                futures.add(f1);
+            }
+
+            for (AddCallbackFuture f2: futures) {
+                try {
+                    f2.get(10, TimeUnit.SECONDS);
+                } catch (ExecutionException ee) {
+                    // we don't care about errors
+                } catch (TimeoutException te) {
+                    LOG.error("Error on waiting completing entry {} : ", f2.getExpectedEntryId(), te);
+                    fail("Should succeed on waiting completing entry " + f2.getExpectedEntryId());
+                }
+            }
+        }
     }
 }

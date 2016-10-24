@@ -17,71 +17,69 @@
  */
 package org.apache.bookkeeper.proto;
 
-import java.nio.ByteBuffer;
+import java.util.concurrent.TimeUnit;
+import com.google.common.base.Stopwatch;
 
 import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.proto.BookieProtocol.Request;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.ChannelFutureListener;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
+
 abstract class PacketProcessorBase extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBase.class);
-    final ByteBuffer packet;
-    final Cnxn srcConn;
+    final Request request;
+    final Channel channel;
     final Bookie bookie;
+    final OpStatsLogger channelWriteOpStatsLogger;
+    protected final Stopwatch enqueueStopwatch;
+    protected final StatsLogger statsLogger;
 
-    // The following members should be populated by a child class before calling
-    // buildResponse(int rc)
-    protected PacketHeader header;
-    protected long ledgerId;
-    protected long entryId;
-    protected long enqueueNanos;
-
-    PacketProcessorBase(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
-        this.packet = packet;
-        this.srcConn = srcConn;
+    PacketProcessorBase(Request request,
+                        Channel channel,
+                        Bookie bookie,
+                        StatsLogger statsLogger) {
+        this.request = request;
+        this.channel = channel;
         this.bookie = bookie;
-        this.enqueueNanos = MathUtils.nowInNano();
+        this.enqueueStopwatch = Stopwatch.createStarted();
+        this.statsLogger = statsLogger;
+        this.channelWriteOpStatsLogger = statsLogger.getOpStatsLogger(CHANNEL_WRITE);
     }
 
-    protected void sendResponse(int rc, Enum statOp, ByteBuffer...response) {
-        srcConn.sendResponse(response);
-        if (BookieProtocol.EOK == rc) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
-        } else {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
-        }
+    protected void sendResponse(final int rc, final OpStatsLogger statsLogger, Object response) {
+        final Stopwatch writeStopwatch = Stopwatch.createStarted();
+        channel.write(response).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+
+                long writeMicros = writeStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (!channelFuture.isSuccess()) {
+                    channelWriteOpStatsLogger.registerFailedEvent(writeMicros);
+                } else {
+                    channelWriteOpStatsLogger.registerSuccessfulEvent(writeMicros);
+                }
+
+                long requestMicros = enqueueStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (BookieProtocol.EOK == rc) {
+                    statsLogger.registerSuccessfulEvent(requestMicros);
+                } else {
+                    statsLogger.registerFailedEvent(requestMicros);
+                }
+            }
+        });
     }
 
-    // Builds a response packet without the actual entry.
-    public static ByteBuffer buildResponse(int rc, byte version, byte opCode, long ledgerId, long entryId) {
-        ByteBuffer response = ByteBuffer.allocate(24);
-        response.putInt(new BookieProtocol.PacketHeader(version, opCode, (short)0).toInt());
-        response.putInt(rc);
-        response.putLong(ledgerId);
-        response.putLong(entryId);
-        response.flip();
-        return response;
-    }
-
-    /**
-     * This is a helper function to build a response for this request. Ensure
-     * that the various values are populated before calling this function.
-     * @param rc
-     * @return
-     */
-    public ByteBuffer buildResponse(int rc) {
-        return buildResponse(rc, header.getVersion(), header.getOpCode(), ledgerId, entryId);
-    }
-
-    public boolean isVersionCompatible(PacketHeader header) {
-        byte version = header.getVersion();
+    public boolean isVersionCompatible(Request request) {
+        byte version = request.getProtocolVersion();
         if (version < BookieProtocol.LOWEST_COMPAT_PROTOCOL_VERSION
                 || version > BookieProtocol.CURRENT_PROTOCOL_VERSION) {
             logger.error("Invalid protocol version. Expected something between " +

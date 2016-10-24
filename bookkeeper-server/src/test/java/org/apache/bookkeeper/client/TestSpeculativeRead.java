@@ -1,5 +1,3 @@
-package org.apache.bookkeeper.client;
-
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,24 +18,21 @@ package org.apache.bookkeeper.client;
  * under the License.
  *
  */
+package org.apache.bookkeeper.client;
 
-import org.junit.*;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.BitSet;
 import java.util.Enumeration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
+
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.LedgerEntry;
-import org.apache.bookkeeper.client.BookKeeper;
-import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.test.BaseTestCase;
 
+import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -167,7 +162,7 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         // sleep second bookie
         CountDownLatch sleepLatch = new CountDownLatch(1);
-        InetSocketAddress second = lnospec.getLedgerMetadata().getEnsembles().get(0L).get(1);
+        BookieSocketAddress second = lnospec.getLedgerMetadata().getEnsembles().get(0L).get(1);
         sleepBookie(second, sleepLatch);
 
         try {
@@ -322,11 +317,14 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
 
-        ArrayList<InetSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
-        Set<InetSocketAddress> allHosts = new HashSet(ensemble);
-        Set<InetSocketAddress> noHost = new HashSet();
-        Set<InetSocketAddress> secondHostOnly = new HashSet();
-        secondHostOnly.add(ensemble.get(1));
+        ArrayList<BookieSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
+        BitSet allHosts = new BitSet(ensemble.size());
+        for (int i = 0; i < ensemble.size(); i++) {
+            allHosts.set(i, true);
+        }
+        BitSet noHost = new BitSet(ensemble.size());
+        BitSet secondHostOnly = new BitSet(ensemble.size());
+        secondHostOnly.set(1, true);
         PendingReadOp.LedgerEntryRequest req0 = null, req2 = null, req4 = null;
         try {
             LatchCallback latch0 = new LatchCallback();
@@ -409,8 +407,8 @@ public class TestSpeculativeRead extends BaseTestCase {
             // read last confirmed
             LatchCallback nospeccb = new LatchCallback();
             LatchCallback speccb = new LatchCallback();
-            lnospec.asyncReadLastConfirmedAndEntry(10000, nospeccb, null);
-            lspec.asyncReadLastConfirmedAndEntry(10000, speccb, null);
+            lnospec.asyncReadLastConfirmedAndEntry(lnospec.getLastAddConfirmed() + 1, 10000, false, nospeccb, null);
+            lspec.asyncReadLastConfirmedAndEntry(lnospec.getLastAddConfirmed() + 1, 10000, false, speccb, null);
             speccb.expectSuccess(2 * timeOut);
             nospeccb.expectTimeout(2 * timeOut);
         } finally {
@@ -569,11 +567,14 @@ public class TestSpeculativeRead extends BaseTestCase {
 
         LedgerHandle l = bkspec.openLedger(id, digestType, passwd);
 
-        ArrayList<InetSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
-        Set<InetSocketAddress> allHosts = new HashSet(ensemble);
-        Set<InetSocketAddress> noHost = new HashSet();
-        Set<InetSocketAddress> secondHostOnly = new HashSet();
-        secondHostOnly.add(ensemble.get(1));
+        ArrayList<BookieSocketAddress> ensemble = l.getLedgerMetadata().getEnsembles().get(0L);
+        BitSet allHosts = new BitSet(ensemble.size());
+        for (int i = 0; i < ensemble.size(); i++) {
+            allHosts.set(i, true);
+        }
+        BitSet noHost = new BitSet(ensemble.size());
+        BitSet secondHostOnly = new BitSet(ensemble.size());
+        secondHostOnly.set(1, true);
         ReadLastConfirmedAndEntryOp.ReadLACAndEntryRequest req0 = null, req2 = null, req4 = null;
         try {
             LatchCallback latch0 = new LatchCallback();

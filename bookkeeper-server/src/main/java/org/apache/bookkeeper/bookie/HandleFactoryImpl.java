@@ -21,20 +21,30 @@
 
 package org.apache.bookkeeper.bookie;
 
+import org.apache.bookkeeper.stats.StatsLogger;
+
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-class HandleFactoryImpl implements HandleFactory {
-    ConcurrentMap<Long, LedgerDescriptor> ledgers = new ConcurrentHashMap<Long, LedgerDescriptor>();
-    ConcurrentMap<Long, LedgerDescriptor> readOnlyLedgers
+class HandleFactoryImpl implements HandleFactory, LedgerStorageListener {
+    final ConcurrentMap<Long, LedgerDescriptor> ledgers = new ConcurrentHashMap<Long, LedgerDescriptor>();
+    final ConcurrentMap<Long, LedgerDescriptor> readOnlyLedgers
         = new ConcurrentHashMap<Long, LedgerDescriptor>();
 
     final LedgerStorage ledgerStorage;
+    final StatsLogger statsLogger;
 
-    HandleFactoryImpl(LedgerStorage ledgerStorage) {
+    HandleFactoryImpl(LedgerStorage ledgerStorage, StatsLogger statsLogger) {
         this.ledgerStorage = ledgerStorage;
+        this.ledgerStorage.registerListener(this);
+        this.statsLogger = statsLogger;
+    }
+
+    @Override
+    public void onLedgerDeleted(long ledgerId) {
+        ledgers.remove(ledgerId);
+        readOnlyLedgers.remove(ledgerId);
     }
 
     @Override
@@ -45,7 +55,8 @@ class HandleFactoryImpl implements HandleFactory {
             // LedgerDescriptor#create sets the master key in the ledger storage, calling it
             // twice on the same ledgerId is safe because it eventually puts a value in the ledger cache
             // that guarantees synchronized access across all cached entries.
-            handle = ledgers.putIfAbsent(ledgerId, LedgerDescriptor.create(masterKey, ledgerId, ledgerStorage));
+            handle = ledgers.putIfAbsent(ledgerId,
+                    LedgerDescriptor.create(masterKey, ledgerId, ledgerStorage, statsLogger));
             if (null == handle) {
                 handle = ledgers.get(ledgerId);
             }
@@ -59,7 +70,8 @@ class HandleFactoryImpl implements HandleFactory {
             throws IOException, Bookie.NoLedgerException {
         LedgerDescriptor handle = null;
         if (null == (handle = readOnlyLedgers.get(ledgerId))) {
-            handle = readOnlyLedgers.putIfAbsent(ledgerId, LedgerDescriptor.createReadOnly(ledgerId, ledgerStorage));
+            handle = readOnlyLedgers.putIfAbsent(ledgerId,
+                    LedgerDescriptor.createReadOnly(ledgerId, ledgerStorage, statsLogger));
             if (null == handle) {
                 handle = readOnlyLedgers.get(ledgerId);
             }

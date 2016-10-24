@@ -21,7 +21,6 @@
 package org.apache.bookkeeper.client;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Enumeration;
 import java.util.concurrent.CountDownLatch;
@@ -35,25 +34,30 @@ import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
-import org.apache.bookkeeper.test.BaseTestCase;
+import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.zookeeper.KeeperException;
+import org.jboss.netty.buffer.ChannelBuffer;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static com.google.common.base.Charsets.UTF_8;
+
 /**
  * This unit test tests ledger recovery.
  */
-public class LedgerRecoveryTest extends BaseTestCase {
+public class LedgerRecoveryTest extends BookKeeperClusterTestCase {
     static Logger LOG = LoggerFactory.getLogger(LedgerRecoveryTest.class);
 
     DigestType digestType;
 
-    public LedgerRecoveryTest(DigestType digestType) {
+    public LedgerRecoveryTest() {
         super(3);
-        this.digestType = digestType;
+        this.digestType = DigestType.CRC32;
     }
 
     private void testInternal(int numEntries) throws Exception {
@@ -87,7 +91,6 @@ public class LedgerRecoveryTest extends BaseTestCase {
     @Test
     public void testLedgerRecovery() throws Exception {
         testInternal(100);
-
     }
 
     @Test
@@ -181,7 +184,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
         // kill first bookie server to start a fake one to simulate a slow bookie
         // and failed to add entry on crash
         // until write succeed
-        InetSocketAddress host = beforelh.getLedgerMetadata().currentEnsemble.get(slowBookieIdx);
+        BookieSocketAddress host = beforelh.getLedgerMetadata().currentEnsemble.get(slowBookieIdx);
         ServerConfiguration conf = killBookie(host);
 
         Bookie fakeBookie = new Bookie(conf) {
@@ -255,7 +258,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
         bs.add(startBookie(conf, deadBookie1));
 
         // kill first bookie server
-        InetSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
 
         // Try to recover and fence the ledger after killing one bookie in the
@@ -270,7 +273,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
         // restart the first server, kill the second
         bsConfs.add(conf1);
         bs.add(startBookie(conf1));
-        InetSocketAddress bookie2 = lhbefore.getLedgerMetadata().currentEnsemble.get(1);
+        BookieSocketAddress bookie2 = lhbefore.getLedgerMetadata().currentEnsemble.get(1);
         ServerConfiguration conf2 = killBookie(bookie2);
 
         // using async, because this could trigger an assertion
@@ -336,7 +339,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
         bs.add(startBookie(conf, deadBookie1));
 
         // kill first bookie server
-        InetSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lhbefore.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
 
         // Try to recover and fence the ledger after killing one bookie in the
@@ -388,9 +391,9 @@ public class LedgerRecoveryTest extends BaseTestCase {
             fail("Failed to add " + numEntries + " to ledger handle " + lh.getId());
         }
         // kill first 2 bookies to replace bookies
-        InetSocketAddress bookie1 = lh.getLedgerMetadata().currentEnsemble.get(0);
+        BookieSocketAddress bookie1 = lh.getLedgerMetadata().currentEnsemble.get(0);
         ServerConfiguration conf1 = killBookie(bookie1);
-        InetSocketAddress bookie2 = lh.getLedgerMetadata().currentEnsemble.get(1);
+        BookieSocketAddress bookie2 = lh.getLedgerMetadata().currentEnsemble.get(1);
         ServerConfiguration conf2 = killBookie(bookie2);
 
         // replace these two bookies
@@ -478,7 +481,7 @@ public class LedgerRecoveryTest extends BaseTestCase {
                 success.set(BKException.Code.OK == rc);
                 recoverLatch.countDown();
             }
-        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize()).setCouldClose(true);
+        }).parallelRead(true).readBatchSize(newConf.getRecoveryReadBatchSize());
         recoveryOp.initiate();
         recoverLatch.await(10, TimeUnit.SECONDS);
         assertTrue(success.get());
@@ -497,5 +500,136 @@ public class LedgerRecoveryTest extends BaseTestCase {
         assertEquals(numEntries, numReads);
 
         newBk.close();
+    }
+
+    static class FakeSlowBookie extends Bookie {
+
+        final AtomicBoolean shouldFailRead;
+        final long expectedEntryId;
+        boolean alreadyFailRead = false;
+
+        public FakeSlowBookie(ServerConfiguration conf, long expectedEntryId, AtomicBoolean shouldFailRead)
+                throws IOException, KeeperException, InterruptedException, BookieException {
+            super(conf);
+            this.expectedEntryId = expectedEntryId;
+            this.shouldFailRead = shouldFailRead;
+        }
+
+        @Override
+        public ByteBuffer readEntry(long ledgerId, long entryId)
+                throws IOException, NoLedgerException {
+            if (shouldFailRead.get() && !alreadyFailRead && expectedEntryId == entryId) {
+                alreadyFailRead = true;
+                throw new IOException("Read Exception on entry " + entryId);
+            }
+            return super.readEntry(ledgerId, entryId);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testRecoveryOnBookieHandleNotAvailable() throws Exception {
+        byte[] passwd = "recovery-on-bookie-handle-not-available".getBytes(UTF_8);
+
+        ClientConfiguration newConf = new ClientConfiguration();
+        newConf.addConfiguration(baseClientConf);
+        newConf.setEnableParallelRecoveryRead(true);
+        newConf.setRecoveryReadBatchSize(5);
+        BookKeeper newBk = new BookKeeper(newConf);
+
+        final AtomicBoolean shouldFailRead = new AtomicBoolean(true);
+
+        // start additional 3 bookies
+        stopAllBookies();
+        for (int i = 0; i < 5; i++) {
+            ServerConfiguration conf = newServerConfiguration();
+            Bookie b = new FakeSlowBookie(conf, 10L, shouldFailRead);
+            bs.add(startBookie(conf, b));
+            bsConfs.add(conf);
+        }
+
+        // create a ledger to write some data.
+        LedgerHandle lh = newBk.createLedger(5, 5, 3, digestType, passwd);
+        for (int i = 0; i < 10; i++) {
+            lh.addEntry(("" + i).getBytes(UTF_8));
+        }
+
+        // simulate ledger write failure on concurrent writes
+        long lac = lh.getLastAddConfirmed();
+        long length = lh.getLength();
+        for (long entryId = 10L; entryId < 15L; entryId++) {
+            byte[] data = ("" + entryId).getBytes(UTF_8);
+            length += data.length;
+            ChannelBuffer toSend =
+                    lh.macManager.computeDigestAndPackageForSending(
+                            entryId, lac, length, data, 0, data.length);
+            int bid = (int) (entryId % 5);
+            final CountDownLatch addLatch = new CountDownLatch(1);
+            final AtomicBoolean addSuccess = new AtomicBoolean(false);
+            LOG.info("Add entry {} with lac = {}", entryId, lac);
+            lh.bk.bookieClient.addEntry(lh.metadata.currentEnsemble.get(bid), lh.getId(), lh.ledgerKey, entryId, toSend,
+                    new WriteCallback() {
+                        @Override
+                        public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
+                            addSuccess.set(BKException.Code.OK == rc);
+                            addLatch.countDown();
+                        }
+                    }, 0, BookieProtocol.FLAG_NONE);
+            addLatch.await();
+            assertTrue("Add entry " + entryId + " should succeed", addSuccess.get());
+        }
+
+        final LedgerHandle recoverLh =
+                newBk.openLedgerNoRecovery(lh.getId(), digestType, passwd);
+
+        final CountDownLatch listenerLatch = new CountDownLatch(1);
+        // listener on recover procedure to ensure the recovery reads are completed.
+        final BookkeeperInternalCallbacks.ReadEntryListener recoverListener = new BookkeeperInternalCallbacks.ReadEntryListener() {
+            @Override
+            public void onEntryComplete(int rc, LedgerHandle lh, LedgerEntry entry, Object ctx) {
+                if (entry.getEntryId() >= 14L) {
+                    listenerLatch.countDown();
+                }
+            }
+        };
+
+        LOG.info("Recover the ledger when bookie are temporarily unavailable");
+
+        final CountDownLatch recoverLatch = new CountDownLatch(1);
+        final AtomicInteger recoverRc = new AtomicInteger(-12345);
+        recoverLh.recover(new BookkeeperInternalCallbacks.GenericCallback<Void>() {
+            @Override
+            public void operationComplete(int rc, Void result) {
+                recoverRc.set(rc);
+                recoverLatch.countDown();
+            }
+        }, recoverListener, false);
+        recoverLatch.await();
+        assertEquals("Recovery should fail due to one bookie isn't available",
+                     BKException.Code.ReadException, recoverRc.get());
+
+        // wait for all outstanding recovery reads to be completed
+        listenerLatch.await();
+
+        shouldFailRead.set(false);
+
+        LOG.info("Recover the ledger when all bookies are available");
+
+        final LedgerHandle newRecoverLh =
+                newBk.openLedger(lh.getId(), digestType, passwd);
+
+        killBookie(lh.getLedgerMetadata().currentEnsemble.get(0));
+
+        Enumeration<LedgerEntry> entries = newRecoverLh.readEntries(10L, 10L);
+        int readCount = 0;
+        long expectedEid = 10L;
+        while (entries.hasMoreElements()) {
+            LedgerEntry entry = entries.nextElement();
+            assertEquals(expectedEid, entry.getEntryId());
+            byte[] data = entry.getEntry();
+            assertEquals(expectedEid, Long.parseLong(new String(data, UTF_8)));
+            ++expectedEid;
+            ++readCount;
+        }
+        assertEquals(1, readCount);
     }
 }

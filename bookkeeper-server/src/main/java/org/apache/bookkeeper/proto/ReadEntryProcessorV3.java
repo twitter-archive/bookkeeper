@@ -1,263 +1,243 @@
 package org.apache.bookkeeper.proto;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import com.google.common.base.Stopwatch;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.ByteString;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.jboss.netty.util.HashedWheelTimer;
-import org.jboss.netty.util.Timeout;
-import org.jboss.netty.util.TimerTask;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadRequest;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
+import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.jboss.netty.channel.Channel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.Observable;
-import java.util.Observer;
-import java.util.concurrent.ExecutorService;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
-class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
-    private long lastPhaseStartTimeNanos;
-    private final HashedWheelTimer requestTimer;
-    private final ExecutorService fenceThreadPool;
-    private final ExecutorService longPollThreadPool;
-    private Long previousLAC = null;
-    private Timeout expirationTimerTask = null;
-    private Future<?> deferredTask = null;
-    private SettableFuture<Boolean> fenceResult = null;
+class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
+
     private final static Logger logger = LoggerFactory.getLogger(ReadEntryProcessorV3.class);
 
+    protected Stopwatch lastPhaseStartTime;
+    private final ExecutorService fenceThreadPool;
+
+    private SettableFuture<Boolean> fenceResult = null;
+
+    protected final ReadRequest readRequest;
+    protected final long ledgerId;
+    protected final long entryId;
+
+    // Stats
+    protected final StatsLogger statsLogger;
+    protected final OpStatsLogger readStats;
+    protected final OpStatsLogger reqStats;
+
     public ReadEntryProcessorV3(Request request,
-                                Cnxn srcConn,
+                                Channel channel,
                                 Bookie bookie,
                                 ExecutorService fenceThreadPool,
-                                ExecutorService longPollThreadPool,
-                                HashedWheelTimer requestTimer) {
-        super(request, srcConn, bookie);
+                                StatsLogger statsLogger) {
+        super(request, channel, bookie, statsLogger);
+        this.readRequest = request.getReadRequest();
+        this.ledgerId = readRequest.getLedgerId();
+        this.entryId = readRequest.getEntryId();
+        this.statsLogger = statsLogger;
+        if (RequestUtils.isFenceRequest(this.readRequest)) {
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_READ);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_REQUEST);
+        } else if (readRequest.hasPreviousLAC()) {
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY_LONG_POLL_READ);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_LONG_POLL_REQUEST);
+        } else {
+            this.readStats = statsLogger.getOpStatsLogger(READ_ENTRY);
+            this.reqStats = statsLogger.getOpStatsLogger(READ_ENTRY_REQUEST);
+        }
+
         this.fenceThreadPool = fenceThreadPool;
-        this.longPollThreadPool = longPollThreadPool;
-        this.requestTimer = requestTimer;
-        lastPhaseStartTimeNanos = enqueueNanos;
+        lastPhaseStartTime = Stopwatch.createStarted();
     }
 
-    private ReadResponse getReadResponse() {
-        final long startTimeNanos = MathUtils.nowInNano();
-        final ReadRequest readRequest = request.getReadRequest();
-        long ledgerId = readRequest.getLedgerId();
-        long entryId = readRequest.getEntryId();
+    protected Long getPreviousLAC() {
+        if (readRequest.hasPreviousLAC()) {
+            return readRequest.getPreviousLAC();
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Handle read result for fence read.
+     *
+     * @param entryBody
+     *          read result
+     * @param readResponseBuilder
+     *          read response builder
+     * @param entryId
+     *          entry id
+     * @param startTimeSw
+     *          timer for the read request
+     */
+    protected void handleReadResultForFenceRead(
+            final ByteBuffer entryBody,
+            final ReadResponse.Builder readResponseBuilder,
+            final long entryId,
+            final Stopwatch startTimeSw) {
+        // reset last phase start time to measure fence result waiting time
+        lastPhaseStartTime.reset().start();
+        if (null != fenceThreadPool) {
+            Futures.addCallback(fenceResult, new FutureCallback<Boolean>() {
+                @Override
+                public void onSuccess(Boolean result) {
+                    sendFenceResponse(readResponseBuilder, entryBody, result, startTimeSw);
+                }
+
+                @Override
+                public void onFailure(Throwable t) {
+                    logger.error("Fence request for ledgerId {} entryId {} encountered exception",
+                            new Object[] { ledgerId, entryId, t });
+                    sendFenceResponse(readResponseBuilder, entryBody, false, startTimeSw);
+                }
+            }, fenceThreadPool);
+        } else {
+            boolean success = false;
+            try {
+                success = fenceResult.get(1000, TimeUnit.MILLISECONDS);
+            } catch (Throwable t) {
+                logger.error("Fence request for ledgerId {} entryId {} encountered exception : ",
+                        new Object[]{ readRequest.getLedgerId(), readRequest.getEntryId(), t });
+            }
+            sendFenceResponse(readResponseBuilder, entryBody, success, startTimeSw);
+        }
+    }
+
+    /**
+     * Read a specific entry.
+     *
+     * @param readResponseBuilder
+     *          read response builder.
+     * @param entryId
+     *          entry to read
+     * @param startTimeSw
+     *          stop watch to measure the read operation.
+     * @return read response or null if it is a fence read operation.
+     * @throws IOException
+     */
+    protected ReadResponse readEntry(ReadResponse.Builder readResponseBuilder,
+                                     long entryId,
+                                     Stopwatch startTimeSw)
+            throws IOException {
+        return readEntry(readResponseBuilder, entryId, false, startTimeSw);
+    }
+
+    /**
+     * Read a specific entry.
+     *
+     * @param readResponseBuilder
+     *          read response builder.
+     * @param entryId
+     *          entry to read
+     * @param startTimeSw
+     *          stop watch to measure the read operation.
+     * @return read response or null if it is a fence read operation.
+     * @throws IOException
+     */
+    protected ReadResponse readEntry(ReadResponse.Builder readResponseBuilder,
+                                     long entryId,
+                                     boolean readLACPiggyBack,
+                                     Stopwatch startTimeSw)
+            throws IOException {
+        final ByteBuffer entryBody = bookie.readEntry(ledgerId, entryId);
+        if (null != fenceResult) {
+            handleReadResultForFenceRead(entryBody, readResponseBuilder, entryId, startTimeSw);
+            return null;
+        } else {
+            readResponseBuilder.setBody(ByteString.copyFrom(entryBody));
+            if (readLACPiggyBack) {
+                readResponseBuilder.setEntryId(entryId);
+            } else {
+                long knownLAC = bookie.readLastAddConfirmed(ledgerId);
+                readResponseBuilder.setMaxLAC(knownLAC);
+            }
+            registerSuccessfulEvent(readStats, startTimeSw);
+            readResponseBuilder.setStatus(StatusCode.EOK);
+            return readResponseBuilder.build();
+        }
+    }
+
+    protected ReadResponse getReadResponse() {
+        final Stopwatch startTimeSw = Stopwatch.createStarted();
 
         final ReadResponse.Builder readResponse = ReadResponse.newBuilder()
                 .setLedgerId(ledgerId)
                 .setEntryId(entryId);
-
-        if (!isVersionCompatible()) {
-            readResponse.setStatus(StatusCode.EBADVERSION);
-            return readResponse.build();
-        }
-
-        StatusCode status = StatusCode.EBADREQ;
-        final ByteBuffer entryBody;
-        boolean readLACPiggyBack = false;
         try {
-            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
-                logger.warn("Ledger fence request received for ledger:" + ledgerId + " from address:" + srcConn.getPeerName());
-                // TODO: Move this to a different request which definitely has the master key.
+            // handle fence reqest
+            if (RequestUtils.isFenceRequest(readRequest)) {
+                logger.info("Ledger fence request received for ledger: {} from address: {}", ledgerId,
+                        channel.getRemoteAddress());
                 if (!readRequest.hasMasterKey()) {
-                    logger.error("Fence ledger request received without master key for ledger:" + ledgerId +
-                            " from address:" + srcConn.getRemoteAddress());
+                    logger.error(
+                            "Fence ledger request received without master key for ledger:{} from address: {}",
+                            ledgerId, channel.getRemoteAddress());
                     throw BookieException.create(BookieException.Code.UnauthorizedAccessException);
                 } else {
                     byte[] masterKey = readRequest.getMasterKey().toByteArray();
                     fenceResult = bookie.fenceLedger(ledgerId, masterKey);
                 }
             }
-            if ((null == previousLAC) && (null == fenceResult) && (readRequest.hasPreviousLAC())) {
-                previousLAC = readRequest.getPreviousLAC();
-                logger.trace("Waiting For LAC Update {}", previousLAC);
-                final Observable observable = bookie.waitForLastAddConfirmedUpdate(ledgerId,
-                    readRequest.getPreviousLAC(), this);
-
-                if (null != observable) {
-                    ServerStatsProvider
-                        .getStatsLoggerInstance()
-                        .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_PRE_WAIT)
-                        .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-
-                    lastPhaseStartTimeNanos = MathUtils.nowInNano();
-
-                    if (readRequest.hasTimeOut()) {
-                        logger.trace("Waiting For LAC Update {}: Timeout {}", previousLAC, readRequest.getTimeOut());
-                        synchronized (this) {
-                            expirationTimerTask = requestTimer.newTimeout(new TimerTask() {
-                                @Override
-                                public void run(Timeout timeout) throws Exception {
-                                    // When the timeout expires just get whatever is the current
-                                    // readLastConfirmed
-                                    ReadEntryProcessorV3.this.scheduleDeferredRead(observable, true);
-                                }
-                            }, readRequest.getTimeOut(), TimeUnit.MILLISECONDS);
-                        }
-                    }
-                    return null;
-                }
-            } else {
-                if (logger.isTraceEnabled()) {
-                    logger.trace("previousLAC: {} fenceResult: {} hasPreviousLAC: {}",
-                        new Object[]{previousLAC, fenceResult, readRequest.hasPreviousLAC()});
-                }
-            }
-
-            boolean shouldReadEntry = true;
-
-            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.ENTRY_PIGGYBACK)) {
-                if(!readRequest.hasPreviousLAC() || (BookieProtocol.LAST_ADD_CONFIRMED != entryId)) {
-                    // This is not a valid request - client bug?
-                    logger.error("Incorrect read request, entry piggyback requested incorrectly for ledgerId {} entryId {}", ledgerId, entryId);
-                    status = StatusCode.EBADREQ;
-                    shouldReadEntry = false;
-                } else {
-                    long knownLAC = bookie.readLastAddConfirmed(ledgerId);
-                    readResponse.setMaxLAC(knownLAC);
-                    if (knownLAC > previousLAC) {
-                        readLACPiggyBack = true;
-                        entryId = previousLAC + 1;
-                        readResponse.setMaxLAC(knownLAC);
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("ReadLAC Piggy Back reading entry:{} from ledger: {}", entryId, ledgerId);
-                        }
-                    } else {
-                        status = StatusCode.EOK;
-                        shouldReadEntry = false;
-                    }
-                }
-            }
-
-            if (shouldReadEntry) {
-                entryBody = bookie.readEntry(ledgerId, entryId);
-                if (null != fenceResult) {
-                    if (null != fenceThreadPool) {
-                        Futures.addCallback(fenceResult, new FutureCallback<Boolean>() {
-                            @Override
-                            public void onSuccess(Boolean result) {
-                                sendFenceResponse(readResponse, entryBody, result);
-                            }
-
-                            @Override
-                            public void onFailure(Throwable t) {
-                                logger.error("Fence request for ledgerId "+ readRequest.getLedgerId() + " entryId " + readRequest.getEntryId() + " encountered exception", t);
-                                sendFenceResponse(readResponse, entryBody, false);
-                            }
-                        }, fenceThreadPool);
-
-                        lastPhaseStartTimeNanos = MathUtils.nowInNano();
-
-                        ServerStatsProvider
-                            .getStatsLoggerInstance()
-                            .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_FENCE_READ)
-                            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-
-                        return null;
-                    } else {
-                        try {
-                            getFenceResponse(readResponse, entryBody,
-                                             fenceResult.get(1000, TimeUnit.MILLISECONDS));
-                            status = StatusCode.EOK;
-                        } catch (Throwable t) {
-                            logger.error("Fence request for ledgerId {} entryId {} encountered exception : ",
-                                         new Object[] { readRequest.getLedgerId(), readRequest.getEntryId(), t });
-                            getFenceResponse(readResponse, entryBody, false);
-                            status = StatusCode.EIO;
-                        }
-                    }
-                } else {
-                    readResponse.setBody(ByteString.copyFrom(entryBody));
-                    if (readLACPiggyBack) {
-                        readResponse.setEntryId(entryId);
-                    } else {
-                        long knownLAC = bookie.readLastAddConfirmed(ledgerId);
-                        readResponse.setMaxLAC(knownLAC);
-                    }
-                    status = StatusCode.EOK;
-                }
-            }
+            return readEntry(readResponse, entryId, startTimeSw);
         } catch (Bookie.NoLedgerException e) {
-            status = StatusCode.ENOLEDGER;
-            logger.error("No ledger found while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
-        } catch (Bookie.NoEntryException e) {
-            // piggy back is best effort and this request can fail genuinely because of striping
-            // entries across the ensemble
-            if (readLACPiggyBack) {
-                ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                    BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_LAST_ENTRY_NOENTRY_ERROR)
-                    .inc();
-                status = StatusCode.EOK;
+            if (readRequest.hasFlag() && readRequest.getFlag().equals(ReadRequest.Flag.FENCE_LEDGER)) {
+                logger.info("No ledger found reading entry {} when fencing ledger {}", entryId, ledgerId);
             } else {
-                status = StatusCode.ENOENTRY;
+                logger.info("No ledger found while reading entry: {} from ledger: {}", entryId, ledgerId);
             }
+            return buildResponse(readResponse, StatusCode.ENOLEDGER, startTimeSw);
+        } catch (Bookie.NoEntryException e) {
             if (logger.isDebugEnabled()) {
-                logger.debug("No entry found while reading entry:" + entryId + " from ledger:" +
-                        ledgerId);
+                logger.debug("No entry found while reading entry: {} from ledger: {}", entryId, ledgerId);
             }
+            return buildResponse(readResponse, StatusCode.ENOENTRY, startTimeSw);
         } catch (IOException e) {
-            status = StatusCode.EIO;
-            logger.error("IOException while reading entry:" + entryId + " from ledger:" +
-                    ledgerId);
+            logger.error("IOException while reading entry: {} from ledger: {}", entryId, ledgerId);
+            return buildResponse(readResponse, StatusCode.EIO, startTimeSw);
         } catch (BookieException e) {
-            logger.error("Unauthorized access to ledger:" + ledgerId + " while reading entry:" + entryId + " in request " +
-                    "from address:" + srcConn.getPeerName());
-            status = StatusCode.EUA;
+            logger.error(
+                    "Unauthorized access to ledger:{} while reading entry:{} in request from address: {}",
+                    new Object[] { ledgerId, entryId, channel.getRemoteAddress() });
+            return buildResponse(readResponse, StatusCode.EUA, startTimeSw);
         }
-
-        Enum op = BookkeeperServerOp.READ_ENTRY;
-        if (null != fenceResult) {
-            op = BookkeeperServerOp.READ_ENTRY_FENCE_READ;
-        } else if (readRequest.hasPreviousLAC()) {
-            op = BookkeeperServerOp.READ_ENTRY_LONG_POLL_READ;
-        }
-        if (status.equals(StatusCode.EOK)) {
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(op)
-                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-        } else {
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(op)
-                .registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-        }
-
-        // Finally set status and return. The body would have been updated if
-        // a read went through.
-        readResponse.setStatus(status);
-        return readResponse.build();
-
     }
 
     @Override
     public void safeRun() {
-        ServerStatsProvider
-            .getStatsLoggerInstance()
-            .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_SCHEDULING_DELAY)
-            .registerSuccessfulEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
+        registerSuccessfulEvent(statsLogger.getOpStatsLogger(READ_ENTRY_SCHEDULING_DELAY), enqueueStopwatch);
 
+        if (!isVersionCompatible()) {
+            ReadResponse readResponse = ReadResponse.newBuilder()
+                    .setLedgerId(ledgerId)
+                    .setEntryId(entryId)
+                    .setStatus(StatusCode.EBADVERSION)
+                    .build();
+            sendResponse(readResponse);
+            return;
+        }
+
+        executeOp();
+    }
+
+    protected void executeOp() {
         ReadResponse readResponse = getReadResponse();
         if (null != readResponse) {
             sendResponse(readResponse);
@@ -268,79 +248,61 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 implements Observer {
         StatusCode status;
         if (!fenceResult) {
             status = StatusCode.EIO;
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_FENCE_WAIT)
-                .registerFailedEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
+            registerFailedEvent(statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_WAIT), lastPhaseStartTime);
         } else {
             status = StatusCode.EOK;
             readResponse.setBody(ByteString.copyFrom(entryBody));
-            ServerStatsProvider
-                .getStatsLoggerInstance()
-                .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_FENCE_WAIT)
-                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
+            registerSuccessfulEvent(statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_WAIT), lastPhaseStartTime);
         }
-
         readResponse.setStatus(status);
     }
 
-    private void sendFenceResponse(ReadResponse.Builder readResponse, ByteBuffer entryBody, boolean fenceResult) {
+    private void sendFenceResponse(ReadResponse.Builder readResponse,
+                                   ByteBuffer entryBody,
+                                   boolean fenceResult,
+                                   Stopwatch startTimeSw) {
+        // build the fence read response
         getFenceResponse(readResponse, entryBody, fenceResult);
+        // register fence read stat
+        registerEvent(!fenceResult, statsLogger.getOpStatsLogger(READ_ENTRY_FENCE_READ), startTimeSw);
+        // send the fence read response
         sendResponse(readResponse.build());
     }
 
-    private void sendResponse(ReadResponse readResponse) {
+    protected ReadResponse buildResponse(
+            ReadResponse.Builder readResponseBuilder,
+            StatusCode statusCode,
+            Stopwatch startTimeSw) {
+        registerEvent(!statusCode.equals(StatusCode.EOK), readStats, startTimeSw);
+        readResponseBuilder.setStatus(statusCode);
+        return readResponseBuilder.build();
+    }
+
+    protected void sendResponse(ReadResponse readResponse) {
         Response.Builder response = Response.newBuilder()
             .setHeader(getHeader())
             .setStatus(readResponse.getStatus())
             .setReadResponse(readResponse);
-        Enum op = BookkeeperServerOp.READ_ENTRY_REQUEST;
-        if (null != previousLAC) {
-            op = BookkeeperServerOp.READ_ENTRY_LONG_POLL_REQUEST;
-        } else if (null != fenceResult) {
-            op = BookkeeperServerOp.READ_ENTRY_FENCE_REQUEST;
-        }
-        sendResponse(response.getStatus(), op, encodeResponse(response.build()));
+        sendResponse(response.getStatus(), reqStats, response.build());
     }
 
-    private synchronized void scheduleDeferredRead(Observable observable, boolean timeout) {
-        if (null == deferredTask) {
-            if (logger.isTraceEnabled()) {
-                logger.trace("Deferred Task, expired: {}, request: {}", timeout, request);
-            }
-            observable.deleteObserver(this);
-            try {
-                deferredTask = longPollThreadPool.submit(this);
-            } catch (RejectedExecutionException exc) {
-                // If the threadPool has been shutdown, simply drop the task
-            }
-            if (null != expirationTimerTask) {
-                expirationTimerTask.cancel();
-            }
+    //
+    // Stats Methods
+    //
 
-            if (timeout) {
-                ServerStatsProvider
-                    .getStatsLoggerInstance()
-                    .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
-            } else {
-                ServerStatsProvider
-                    .getStatsLoggerInstance()
-                    .getOpStatsLogger(BookkeeperServerOp.READ_ENTRY_LONG_POLL_WAIT)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(lastPhaseStartTimeNanos));
-            }
-            lastPhaseStartTimeNanos = MathUtils.nowInNano();
-        }
+    protected void registerSuccessfulEvent(OpStatsLogger statsLogger, Stopwatch startTime) {
+        registerEvent(false, statsLogger, startTime);
     }
 
-    @Override
-    public void update(Observable observable, Object o) {
-        Long newLAC = (Long)o;
-        if (newLAC > previousLAC) {
-            if (logger.isTraceEnabled()) {
-                logger.trace("Last Add Confirmed Advanced to {} for request {}", newLAC, request);
-            }
-            scheduleDeferredRead(observable, false);
+    protected void registerFailedEvent(OpStatsLogger statsLogger, Stopwatch startTime) {
+        registerEvent(true, statsLogger, startTime);
+    }
+
+    protected void registerEvent(boolean failed, OpStatsLogger statsLogger, Stopwatch startTime) {
+        if (failed) {
+            statsLogger.registerFailedEvent(startTime.elapsed(TimeUnit.MICROSECONDS));
+        } else {
+            statsLogger.registerSuccessfulEvent(startTime.elapsed(TimeUnit.MICROSECONDS));
         }
     }
 }

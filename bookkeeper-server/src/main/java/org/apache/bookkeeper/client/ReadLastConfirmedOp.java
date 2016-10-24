@@ -21,7 +21,6 @@ import org.apache.bookkeeper.client.BKException.BKDigestMatchException;
 import org.apache.bookkeeper.client.DigestManager.RecoveryData;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookieProtocol;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,10 +80,10 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
     private void submitCallback(int rc) {
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED)
                     .registerFailedEvent(latencyMicros);
         } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED)
                     .registerSuccessfulEvent(latencyMicros);
         }
         cb.readLastConfirmedDataComplete(rc, maxRecoveredData);

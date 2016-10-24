@@ -21,13 +21,15 @@
 
 package org.apache.bookkeeper.proto;
 
-import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerMetadata;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.zookeeper.AsyncCallback;
@@ -66,7 +68,7 @@ public class BookkeeperInternalCallbacks {
     }
 
     public interface WriteCallback {
-        void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx);
+        void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx);
     }
 
     public interface GenericCallback<T> {
@@ -145,29 +147,59 @@ public class BookkeeperInternalCallbacks {
         // Final callback and the corresponding context to invoke
         final AsyncCallback.VoidCallback cb;
         final Object context;
+        final ExecutorService callbackExecutor;
         // This keeps track of how many operations have completed
         final AtomicInteger done = new AtomicInteger();
         // List of the exceptions from operations that completed unsuccessfully
         final LinkedBlockingQueue<Integer> exceptions = new LinkedBlockingQueue<Integer>();
 
-        public MultiCallback(int expected, AsyncCallback.VoidCallback cb, Object context, int successRc, int failureRc) {
+        public MultiCallback(int expected, AsyncCallback.VoidCallback cb, Object context,
+                             int successRc, int failureRc) {
+            this(expected, cb, context, successRc, failureRc, null);
+        }
+
+        public MultiCallback(int expected, AsyncCallback.VoidCallback cb, Object context,
+                             int successRc, int failureRc, ExecutorService callbackExecutor) {
             this.expected = expected;
             this.cb = cb;
             this.context = context;
             this.failureRc = failureRc;
             this.successRc = successRc;
+            this.callbackExecutor = callbackExecutor;
             if (expected == 0) {
-                cb.processResult(successRc, null, context);
+                callback();
             }
         }
 
         private void tick() {
             if (done.incrementAndGet() == expected) {
-                if (exceptions.isEmpty()) {
-                    cb.processResult(successRc, null, context);
-                } else {
-                    cb.processResult(failureRc, null, context);
+                callback();
+            }
+        }
+
+        private void callback() {
+            if (null != callbackExecutor) {
+                try {
+                    callbackExecutor.submit(new Runnable() {
+                        @Override
+                        public void run() {
+                            doCallback();
+                        }
+                    });
+                } catch (RejectedExecutionException ree) {
+                    // if the callback executor is shutdown, do callback in same thread
+                    doCallback();
                 }
+            } else {
+                doCallback();
+            }
+        }
+
+        private void doCallback() {
+            if (exceptions.isEmpty()) {
+                cb.processResult(successRc, null, context);
+            } else {
+                cb.processResult(failureRc, null, context);
             }
         }
 

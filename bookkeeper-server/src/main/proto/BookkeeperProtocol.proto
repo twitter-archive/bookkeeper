@@ -123,6 +123,7 @@ message ReadResponse {
     optional bytes body = 4;
     // Piggyback LAC
     optional int64 maxLAC = 5;
+    optional int64 lacUpdateTimestamp = 6;
 }
 
 message AddResponse {

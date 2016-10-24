@@ -29,6 +29,7 @@ import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKClientClosedException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
@@ -37,7 +38,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Enumeration;
 import java.util.Set;
@@ -556,10 +556,10 @@ public class BookKeeperCloseTest extends BookKeeperClusterTestCase {
         LedgerHandle lh3 = createLedgerWithEntries(bk, 100);
         lh3.close();
 
-        InetSocketAddress bookieToKill = getBookie(0);
+        BookieSocketAddress bookieToKill = getBookie(0);
         killBookie(bookieToKill);
         startNewBookie();
-        InetSocketAddress newBookie = getBookie(2);
+        BookieSocketAddress newBookie = getBookie(2);
 
         CheckerCb checkercb = new CheckerCb();
         LedgerChecker lc = new LedgerChecker(bk);
@@ -639,7 +639,7 @@ public class BookKeeperCloseTest extends BookKeeperClusterTestCase {
 
         try {
             bkadmin.replicateLedgerFragment(lh3,
-                    checkercb.getResult(10, TimeUnit.SECONDS).iterator().next(), newBookie);
+                    checkercb.getResult(10, TimeUnit.SECONDS).iterator().next());
             fail("Shouldn't be able to replicate with a closed client");
         } catch (BKException.BKClientClosedException cce) {
             // correct behaviour

@@ -28,11 +28,13 @@ import org.apache.bookkeeper.client.AsyncCallback.OpenCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadLastConfirmedCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN_RECOVERY;
 
 /**
  * Encapsulates the ledger open operation
@@ -50,6 +52,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     final DigestType digestType;
     boolean doRecovery = true;
     boolean administrativeOpen = false;
+    boolean forceRecovery = false;
     long startTime;
 
     /**
@@ -81,6 +84,18 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
         this.passwd = bk.getConf().getBookieRecoveryPasswd();
         this.digestType = bk.getConf().getBookieRecoveryDigestType();
         this.administrativeOpen = true;
+    }
+
+    /**
+     * Force recover ledger even ledger is already closed.
+     *
+     * @param enabled
+     *          force recover a ledger event it is already closed if the flag is set to true.
+     * @return ledger open operation.
+     */
+    public LedgerOpenOp forceRecovery(boolean enabled) {
+        this.forceRecovery = enabled;
+        return this;
     }
 
     /**
@@ -153,7 +168,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
             return;
         }
 
-        if (metadata.isClosed()) {
+        if (metadata.isClosed() && !forceRecovery) {
             // Ledger was closed properly
             openComplete(BKException.Code.OK, lh);
             return;
@@ -175,7 +190,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 public String toString() {
                     return String.format("Recover(%d)", ledgerId);
                 }
-            });
+            }, null, forceRecovery);
         } else {
             lh.asyncReadLastConfirmed(new ReadLastConfirmedCallback() {
                 @Override
@@ -196,12 +211,21 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
     }
 
     void openComplete(int rc, LedgerHandle lh) {
-        Enum statEnum = doRecovery ? BookkeeperClientOp.LEDGER_OPEN_RECOVERY : BookkeeperClientOp.LEDGER_OPEN;
+        String statName = doRecovery ? LEDGER_OPEN_RECOVERY : LEDGER_OPEN;
         if (BKException.Code.OK != rc) {
-            bk.getStatsLogger().getOpStatsLogger(statEnum)
+            bk.getStatsLogger().getOpStatsLogger(statName)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
+            // make sure we close the open ledger, since the ledger handle won't be used though
+            if (null != lh) {
+                lh.asyncClose(new AsyncCallback.CloseCallback() {
+                    @Override
+                    public void closeComplete(int rc, LedgerHandle lh, Object ctx) {
+                        // no-op
+                    }
+                }, null);
+            }
         } else {
-            bk.getStatsLogger().getOpStatsLogger(statEnum)
+            bk.getStatsLogger().getOpStatsLogger(statName)
                     .registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTime));
             if (null != lh) {
                 lh.hintOpen();

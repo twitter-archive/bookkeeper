@@ -53,6 +53,7 @@ import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.KeeperException;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * Application for upgrading the bookkeeper filesystem
@@ -107,7 +108,7 @@ public class FileSystemUpgrade {
 
     private static int detectPreviousVersion(File directory) throws IOException {
         String[] files = directory.list(BOOKIE_FILES_FILTER);
-        File v2versionFile = new File(directory, Cookie.VERSION_FILENAME);
+        File v2versionFile = new File(directory, VERSION_FILENAME);
         if (files.length == 0 && !v2versionFile.exists()) { // no old data, so we're ok
             return Cookie.CURRENT_COOKIE_LAYOUT_VERSION;
         }
@@ -185,7 +186,7 @@ public class FileSystemUpgrade {
                     continue;
                 }
                 try {
-                    File curDir = new File(d, Bookie.CURRENT_DIR);
+                    File curDir = new File(d, CURRENT_DIR);
                     File tmpDir = new File(d, "upgradeTmp." + System.nanoTime());
                     deferredMoves.put(curDir, tmpDir);
                     if (!tmpDir.mkdirs()) {
@@ -247,7 +248,7 @@ public class FileSystemUpgrade {
                 int version = detectPreviousVersion(d);
                 if (version < 3) {
                     if (version == 2) {
-                        File v2versionFile = new File(d, Cookie.VERSION_FILENAME);
+                        File v2versionFile = new File(d, VERSION_FILENAME);
                         if (!v2versionFile.delete()) {
                             LOG.warn("Could not delete old version file {}", v2versionFile);
                         }
@@ -284,7 +285,7 @@ public class FileSystemUpgrade {
                     int version = detectPreviousVersion(d);
 
                     if (version <= Cookie.CURRENT_COOKIE_LAYOUT_VERSION) {
-                        File curDir = new File(d, Bookie.CURRENT_DIR);
+                        File curDir = new File(d, CURRENT_DIR);
                         FileUtils.deleteDirectory(curDir);
                     } else {
                         throw new BookieException.UpgradeException(

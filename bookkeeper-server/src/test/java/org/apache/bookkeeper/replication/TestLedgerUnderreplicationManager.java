@@ -67,6 +67,8 @@ import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.TextFormat;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Test the zookeeper implementation of the ledger replication manager
  */
@@ -101,8 +103,7 @@ public class TestLedgerUnderreplicationManager {
                 zkUtil.getZooKeeperConnectString(), 10000);
         lmf1 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc1);
         lmf2 = LedgerManagerFactory.newLedgerManagerFactory(conf, zkc2);
-        basePath = conf.getZkLedgersRootPath() + '/'
-                + ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE;
+        basePath = conf.getZkLedgersRootPath() + '/' + UNDER_REPLICATION_NODE;
         urLedgerPath = basePath + "/ledgers";
     }
 
@@ -549,7 +550,7 @@ public class TestLedgerUnderreplicationManager {
                     LOG.debug("Recieved node creation event for the zNodePath:"
                             + event.getPath());
                 }
-                
+
             }});
         // getLedgerToRereplicate is waiting until enable rereplication
         Thread thread1 = new Thread() {
@@ -738,19 +739,8 @@ public class TestLedgerUnderreplicationManager {
 
     }
 
-    private String getParentZnodePath(String base, long ledgerId) {
-        String subdir1 = String.format("%04x", ledgerId >> 48 & 0xffff);
-        String subdir2 = String.format("%04x", ledgerId >> 32 & 0xffff);
-        String subdir3 = String.format("%04x", ledgerId >> 16 & 0xffff);
-        String subdir4 = String.format("%04x", ledgerId & 0xffff);
-
-        return String.format("%s/%s/%s/%s/%s", base, subdir1, subdir2, subdir3,
-                subdir4);
-    }
-
     private String getUrLedgerZnode(long ledgerId) {
-        return String.format("%s/urL%010d", getParentZnodePath(urLedgerPath,
-                ledgerId), ledgerId);
+        return ZkLedgerUnderreplicationManager.getUrLedgerZnode(urLedgerPath, ledgerId);
     }
 
     private void takeLedgerAndRelease(final LedgerUnderreplicationManager m,

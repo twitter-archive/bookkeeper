@@ -25,6 +25,8 @@ import java.io.RandomAccessFile;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.Arrays;
 
@@ -34,6 +36,8 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
 import org.apache.bookkeeper.util.IOUtils;
 import org.apache.bookkeeper.util.ZeroBuffer;
+import org.apache.commons.io.FileUtils;
+import org.junit.After;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.junit.Test;
@@ -43,6 +47,28 @@ public class BookieJournalTest {
     static Logger LOG = LoggerFactory.getLogger(BookieJournalTest.class);
 
     final Random r = new Random(System.currentTimeMillis());
+
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
+    final List<File> tempDirs = new ArrayList<File>();
+
+    File createTempDir(String prefix, String suffix) throws IOException {
+        File dir = IOUtils.createTempDir(prefix, suffix);
+        tempDirs.add(dir);
+        return dir;
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        for (File dir : tempDirs) {
+            FileUtils.deleteDirectory(dir);
+        }
+        tempDirs.clear();
+    }
 
     private void writeIndexFileForLedger(File indexDir, long ledgerId,
                                          byte[] masterKey)
@@ -286,7 +312,7 @@ public class BookieJournalTest {
             lenBuff.flip();
             bc.write(lenBuff);
             bc.write(packet);
-            Journal.writePaddingBytes(jc, paddingBuff);
+            Journal.writePaddingBytes(jc, paddingBuff, JournalChannel.SECTOR_SIZE);
         }
         // write fence key
         ByteBuffer packet = generateFenceEntry(1);
@@ -295,7 +321,7 @@ public class BookieJournalTest {
         lenBuf.flip();
         bc.write(lenBuf);
         bc.write(packet);
-        Journal.writePaddingBytes(jc, paddingBuff);
+        Journal.writePaddingBytes(jc, paddingBuff, JournalChannel.SECTOR_SIZE);
         bc.flush(true);
         updateJournalVersion(jc, JournalChannel.V5);
         return jc;
@@ -308,14 +334,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testPreV2Journal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writePreV2Journal(Bookie.getCurrentDirectory(journalDir), 100);
@@ -326,7 +348,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.readJournal();
 
         b.readEntry(1, 100);
@@ -342,14 +364,10 @@ public class BookieJournalTest {
 
     @Test
     public void testV4Journal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writeV4Journal(Bookie.getCurrentDirectory(journalDir), 100, "testPasswd".getBytes());
@@ -360,6 +378,7 @@ public class BookieJournalTest {
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
         Bookie b = new Bookie(conf);
+        b.initialize();
         b.readJournal();
 
         b.readEntry(1, 100);
@@ -376,14 +395,10 @@ public class BookieJournalTest {
 
     @Test
     public void testV5Journal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writeV5Journal(Bookie.getCurrentDirectory(journalDir), 2 * JournalChannel.SECTOR_SIZE,
@@ -395,6 +410,7 @@ public class BookieJournalTest {
                 .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
         Bookie b = new Bookie(conf);
+        b.initialize();
         b.readJournal();
 
         for (int i = 1; i <= 2 * JournalChannel.SECTOR_SIZE; i++) {
@@ -418,14 +434,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testAllJunkJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writeJunkJournal(Bookie.getCurrentDirectory(journalDir));
@@ -436,7 +448,7 @@ public class BookieJournalTest {
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
         Bookie b = null;
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
             fail("Shouldn't have been able to start without admin");
         } catch (Throwable t) {
             // correct behaviour
@@ -456,14 +468,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testEmptyJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writePreV2Journal(Bookie.getCurrentDirectory(journalDir), 0);
@@ -473,7 +481,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
     }
 
     /**
@@ -482,14 +490,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testHeaderOnlyJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         writeV2Journal(Bookie.getCurrentDirectory(journalDir), 0);
@@ -499,7 +503,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
     }
 
     /**
@@ -508,14 +512,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testJunkEndedJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         JournalChannel jc = writeV2Journal(Bookie.getCurrentDirectory(journalDir), 0);
@@ -531,7 +531,7 @@ public class BookieJournalTest {
 
         Bookie b = null;
         try {
-            b = new Bookie(conf);
+            b = newBookie(conf);
         } catch (Throwable t) {
             // correct behaviour
         }
@@ -547,14 +547,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testTruncatedInLenJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         JournalChannel jc = writeV2Journal(
@@ -573,7 +569,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.readJournal();
 
         b.readEntry(1, 99);
@@ -595,14 +591,10 @@ public class BookieJournalTest {
      */
     @Test
     public void testTruncatedInEntryJournal() throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         JournalChannel jc = writeV2Journal(
@@ -621,7 +613,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.readJournal();
         b.readEntry(1, 99);
 
@@ -668,14 +660,10 @@ public class BookieJournalTest {
      */
     private void testPartialFileInfoPreV3Journal(boolean truncateMasterKey)
         throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
         writePreV2Journal(Bookie.getCurrentDirectory(journalDir), 100);
@@ -689,13 +677,13 @@ public class BookieJournalTest {
 
         if (truncateMasterKey) {
             try {
-                Bookie b = new Bookie(conf);
+                Bookie b = newBookie(conf);
                 b.readJournal();
                 fail("Should not reach here!");
             } catch (IOException ie) {
             }
         } else {
-            Bookie b = new Bookie(conf);
+            Bookie b = newBookie(conf);
             b.readJournal();
             b.readEntry(1, 100);
             try {
@@ -728,14 +716,10 @@ public class BookieJournalTest {
      */
     private void testPartialFileInfoPostV3Journal(boolean truncateMasterKey)
         throws Exception {
-        File journalDir = File.createTempFile("bookie", "journal");
-        journalDir.delete();
-        journalDir.mkdir();
+        File journalDir = createTempDir("bookie", "journal");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(journalDir));
 
-        File ledgerDir = File.createTempFile("bookie", "ledger");
-        ledgerDir.delete();
-        ledgerDir.mkdir();
+        File ledgerDir = createTempDir("bookie", "ledger");
         Bookie.checkDirectoryStructure(Bookie.getCurrentDirectory(ledgerDir));
 
         byte[] masterKey = "testPasswd".getBytes();
@@ -749,7 +733,7 @@ public class BookieJournalTest {
             .setJournalDirName(journalDir.getPath())
             .setLedgerDirNames(new String[] { ledgerDir.getPath() });
 
-        Bookie b = new Bookie(conf);
+        Bookie b = newBookie(conf);
         b.readJournal();
         b.readEntry(1, 100);
         try {

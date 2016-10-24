@@ -23,12 +23,12 @@ package org.apache.bookkeeper.client;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.CloseCallback;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.LedgerMetadataListener;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.apache.bookkeeper.versioning.Version;
 
 import java.security.GeneralSecurityException;
-import java.net.InetSocketAddress;
 import java.util.Map;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -82,11 +82,13 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
     @Override
     public void close()
             throws InterruptedException, BKException {
+        hintClose();
         bk.getLedgerManager().unregisterLedgerMetadataListener(ledgerId, this);
     }
 
     @Override
     public void asyncClose(CloseCallback cb, Object ctx) {
+        hintClose();
         bk.getLedgerManager().unregisterLedgerMetadataListener(ledgerId, this);
         cb.closeComplete(BKException.Code.OK, this, ctx);
     }
@@ -118,11 +120,12 @@ class ReadOnlyLedgerHandle extends LedgerHandle implements LedgerMetadataListene
     }
 
     @Override
-    void handleBookieFailure(final Map<Integer, InetSocketAddress> failedBookies) {
+    void handleBookieFailure(final Map<Integer, BookieSocketAddress> failedBookies) {
         blockAddCompletions.incrementAndGet();
         synchronized (metadata) {
             try {
-                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies);
+                EnsembleInfo ensembleInfo = replaceBookieInMetadata(failedBookies,
+                        numEnsembleChanges.incrementAndGet());
                 if (ensembleInfo.replacedBookies.isEmpty()) {
                     blockAddCompletions.decrementAndGet();
                     return;

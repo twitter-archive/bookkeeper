@@ -62,7 +62,6 @@ public class TestReadLastConfirmedLongPoll extends BookKeeperClusterTestCase {
             }
         }, null);
         latch1.await();
-        TimeUnit.SECONDS.sleep(2);
         assertTrue(success.get());
         assertTrue(numCallbacks.get() == 1);
         assertEquals(numEntries - 3, readLh.getLastAddConfirmed());
@@ -70,9 +69,9 @@ public class TestReadLastConfirmedLongPoll extends BookKeeperClusterTestCase {
         success.set(false);
         numCallbacks.set(0);
         final CountDownLatch latch2 = new CountDownLatch(1);
-        readLh.asyncReadLastConfirmedLongPoll(1000, new AsyncCallback.ReadLastConfirmedCallback() {
+        readLh.asyncReadLastConfirmedAndEntry(1000, true, new AsyncCallback.ReadLastConfirmedAndEntryCallback() {
             @Override
-            public void readLastConfirmedComplete(int rc, long lastConfirmed, Object ctx) {
+            public void readLastConfirmedAndEntryComplete(int rc, long lastConfirmed, LedgerEntry entry, Object ctx) {
                 numCallbacks.incrementAndGet();
                 if (BKException.Code.OK == rc && lastConfirmed == (numEntries - 2)) {
                     success.set(true);
@@ -84,11 +83,30 @@ public class TestReadLastConfirmedLongPoll extends BookKeeperClusterTestCase {
         }, null);
         lh.addEntry(("data" + (numEntries - 1)).getBytes());
         latch2.await();
-        TimeUnit.SECONDS.sleep(2);
         assertTrue(success.get());
         assertTrue(numCallbacks.get() == 1);
         assertEquals(numEntries - 2, readLh.getLastAddConfirmed());
 
+        success.set(false);
+        numCallbacks.set(0);
+        final CountDownLatch latch3 = new CountDownLatch(1);
+        readLh.asyncReadLastConfirmedAndEntry(1000, false, new AsyncCallback.ReadLastConfirmedAndEntryCallback() {
+            @Override
+            public void readLastConfirmedAndEntryComplete(int rc, long lastConfirmed, LedgerEntry entry, Object ctx) {
+                numCallbacks.incrementAndGet();
+                if (BKException.Code.OK == rc && lastConfirmed == (numEntries - 1)) {
+                    success.set(true);
+                } else {
+                    success.set(false);
+                }
+                latch3.countDown();
+            }
+        }, null);
+        lh.addEntry(("data" + numEntries).getBytes());
+        latch3.await();
+        assertTrue(success.get());
+        assertTrue(numCallbacks.get() == 1);
+        assertEquals(numEntries - 1, readLh.getLastAddConfirmed());
         lh.close();
         readLh.close();
     }

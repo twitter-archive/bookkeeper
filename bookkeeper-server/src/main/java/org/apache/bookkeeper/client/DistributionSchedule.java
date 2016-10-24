@@ -17,7 +17,8 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+
 import java.util.List;
 import java.util.Map;
 
@@ -60,20 +61,20 @@ interface DistributionSchedule {
          *          bookie address
          * @return true if ack quorum is broken, false otherwise.
          */
-        public boolean failBookieAndCheck(int bookieIndexHeardFrom, InetSocketAddress address);
+        public boolean failBookieAndCheck(int bookieIndexHeardFrom, BookieSocketAddress address);
 
         /**
          * Return the list of bookies that already failed.
          *
          * @return the list of bookies that already failed.
          */
-        public Map<Integer, InetSocketAddress> getFailedBookies();
+        public Map<Integer, BookieSocketAddress> getFailedBookies();
 
         /**
          * Invalidate a previous bookie response.
          * Used for reissuing write requests.
          */
-        public void removeBookie(int bookie);
+        public boolean removeBookieAndCheck(int bookie);
     }
 
     /**

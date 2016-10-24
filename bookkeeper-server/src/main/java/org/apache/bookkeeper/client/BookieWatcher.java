@@ -19,22 +19,23 @@ package org.apache.bookkeeper.client;
  */
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.conf.ClientConfiguration;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.SafeRunnable;
-import org.apache.bookkeeper.util.StringUtils;
+import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.AsyncCallback.ChildrenCallback;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -45,6 +46,8 @@ import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * This class is responsible for maintaining a consistent view of what bookies
@@ -57,7 +60,7 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     static final Logger logger = LoggerFactory.getLogger(BookieWatcher.class);
 
     public static int ZK_CONNECT_BACKOFF_SEC = 1;
-    private static final Set<InetSocketAddress> EMPTY_SET = new HashSet<InetSocketAddress>();
+    private static final Set<BookieSocketAddress> EMPTY_SET = new HashSet<BookieSocketAddress>();
 
     // Bookie registration path in ZK
     private final String bookieRegistrationPath;
@@ -65,8 +68,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     final BookKeeper bk;
     final ScheduledExecutorService scheduler;
     final EnsemblePlacementPolicy placementPolicy;
+    final CopyOnWriteArraySet<BookiesListener> listeners =
+            new CopyOnWriteArraySet<BookiesListener>();
 
-    SafeRunnable reReadTask = new SafeRunnable() {
+    private final SafeRunnable reReadTask = new SafeRunnable() {
         @Override
         public void safeRun() {
             readBookies();
@@ -74,10 +79,11 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     };
     private final ReadOnlyBookieWatcher readOnlyBookieWatcher;
 
-    public BookieWatcher(ClientConfiguration conf,
-                         ScheduledExecutorService scheduler,
-                         EnsemblePlacementPolicy placementPolicy,
-                         BookKeeper bk) throws KeeperException, InterruptedException  {
+    BookieWatcher(ClientConfiguration conf,
+                  ScheduledExecutorService scheduler,
+                  EnsemblePlacementPolicy placementPolicy,
+                  BookKeeper bk)
+            throws KeeperException, InterruptedException  {
         this.bk = bk;
         // ZK bookie registration path
         this.bookieRegistrationPath = conf.getZkAvailableBookiesPath();
@@ -86,21 +92,56 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         readOnlyBookieWatcher = new ReadOnlyBookieWatcher(conf, bk);
     }
 
-    public Collection<InetSocketAddress> getBookies() {
+    void registerBookiesListener(final BookiesListener listener) {
+        listeners.add(listener);
+        readOnlyBookieWatcher.registerBookiesListener(listener);
+    }
+
+    Collection<BookieSocketAddress> getBookies() throws BKException {
         try {
             List<String> children = bk.getZkHandle().getChildren(this.bookieRegistrationPath, false);
+            children.remove(BookKeeperConstants.READONLY);
             return convertToBookieAddresses(children);
-        } catch (Exception e) {
-            logger.error("Failed to get bookies : ", e);
-            return new HashSet<InetSocketAddress>();
+        } catch (KeeperException ke) {
+            if (ZkUtils.isRecoverableException(ke)) {
+                logger.info("Encountered recoverable zookeeper exception on getting bookie list : code = {}", ke.code());
+            } else {
+                logger.error("Encountered zookeeper exception on getting bookie list : code = {}, message = {}",
+                        ke.code(), ke.getMessage());
+            }
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted reading bookie list", ie);
+            throw new BKException.BKInterruptedException();
         }
     }
 
-    public void readBookies() {
+    Collection<BookieSocketAddress> getReadOnlyBookies() throws BKException {
+        try {
+            readOnlyBookieWatcher.readROBookiesBlocking();
+        } catch (KeeperException ke) {
+            if (ZkUtils.isRecoverableException(ke)) {
+                logger.info("Encountered recoverable zookeeper exception on getting readonly bookie list : code = {}",
+                        ke.code());
+            } else {
+                logger.error("Encountered zookeeper exception on getting readonly bookie list : code = {}, message = {}",
+                        ke.code(), ke.getMessage());
+            }
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted reading bookie list : ", ie);
+            throw new BKException.BKInterruptedException();
+        }
+        return new HashSet<BookieSocketAddress>(readOnlyBookieWatcher.getReadOnlyBookies());
+    }
+
+    private void readBookies() {
         readBookies(this);
     }
 
-    public void readBookies(ChildrenCallback callback) {
+    private void readBookies(ChildrenCallback callback) {
         bk.getZkHandle().getChildren(this.bookieRegistrationPath, this, callback, null);
     }
 
@@ -113,25 +154,34 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     public void processResult(int rc, String path, Object ctx, List<String> children) {
 
         if (rc != KeeperException.Code.OK.intValue()) {
-            //logger.error("Error while reading bookies", KeeperException.create(Code.get(rc), path));
+            if (bk.closed) {
+                return;
+            }
             // try the read after a second again
             try {
                 scheduler.schedule(reReadTask, ZK_CONNECT_BACKOFF_SEC, TimeUnit.SECONDS);
             } catch (RejectedExecutionException ree) {
-                logger.warn("Failed to schedule reading bookies task : ", ree);
+                if (!bk.closed) {
+                    logger.warn("Failed to schedule reading bookies task (it might be because bookkeeper" +
+                            " client is closing): ", ree);
+                }
             }
             return;
         }
 
         // Just exclude the 'readonly' znode to exclude r-o bookies from
         // available nodes list.
-        children.remove(Bookie.READONLY);
+        children.remove(READONLY);
 
-        HashSet<InetSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
+        HashSet<BookieSocketAddress> newBookieAddrs = convertToBookieAddresses(children);
 
         synchronized (this) {
-            Set<InetSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
+            Set<BookieSocketAddress> readonlyBookies = readOnlyBookieWatcher.getReadOnlyBookies();
             placementPolicy.onClusterChanged(newBookieAddrs, readonlyBookies);
+        }
+
+        for (BookiesListener listener : listeners) {
+            listener.availableBookiesChanged(newBookieAddrs);
         }
 
         // we don't need to close clients here, because:
@@ -150,16 +200,16 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         // }
     }
 
-    private static HashSet<InetSocketAddress> convertToBookieAddresses(List<String> children) {
+    private static HashSet<BookieSocketAddress> convertToBookieAddresses(List<String> children) {
         // Read the bookie addresses into a set for efficient lookup
-        HashSet<InetSocketAddress> newBookieAddrs = new HashSet<InetSocketAddress>();
+        HashSet<BookieSocketAddress> newBookieAddrs = new HashSet<BookieSocketAddress>();
         for (String bookieAddrString : children) {
-            InetSocketAddress bookieAddr;
+            BookieSocketAddress bookieAddr;
             try {
-                bookieAddr = StringUtils.parseAddr(bookieAddrString);
+                bookieAddr = new BookieSocketAddress(bookieAddrString);
             } catch (IOException e) {
-                logger.error("Could not parse bookie address: " + bookieAddrString
-                        + ", ignoring this bookie : ", e);
+                logger.info("Could not parse bookie address: {}, ignoring this bookie : ",
+                        bookieAddrString, e);
                 continue;
             }
             newBookieAddrs.add(bookieAddr);
@@ -197,7 +247,9 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     }
 
     /**
-     * Wrapper over the {@link #getAdditionalBookies(Set, int)} method when there is no exclusion list (or exisiting bookies)
+     * Wrapper over the {@link org.apache.bookkeeper.client.EnsemblePlacementPolicy#newEnsemble(int, int, int,
+     * java.util.Set)} * method when there is no exclusion list (or exisiting bookies)
+     *
      * @param ensembleSize
      *          Ensemble Size
      * @param writeQuorumSize
@@ -205,21 +257,24 @@ class BookieWatcher implements Watcher, ChildrenCallback {
      * @return list of bookies for new ensemble.
      * @throws BKNotEnoughBookiesException
      */
-    public ArrayList<InetSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize)
+    public ArrayList<BookieSocketAddress> newEnsemble(int ensembleSize, int writeQuorumSize, int ackQuorumSize)
             throws BKNotEnoughBookiesException {
-        return placementPolicy.newEnsemble(ensembleSize, writeQuorumSize, EMPTY_SET);
+        return placementPolicy.newEnsemble(ensembleSize, writeQuorumSize, ackQuorumSize, EMPTY_SET);
     }
 
     /**
-     * Wrapper over the {@link #getAdditionalBookies(Set, int)} method when you just need 1 extra bookie
+     * Wrapper over the {@link org.apache.bookkeeper.client.EnsemblePlacementPolicy#replaceBookie(int, int, int,
+     * java.util.Collection, org.apache.bookkeeper.net.BookieSocketAddress, java.util.Set)} method when you just need 1 extra bookie
      * @param existingBookies
-     * @return
+     * @return replaced bookie
      * @throws BKNotEnoughBookiesException
      */
-    public InetSocketAddress replaceBookie(List<InetSocketAddress> existingBookies, int bookieIdx)
+    public BookieSocketAddress replaceBookie(int ensembleSize, int writeQuorumSize, int ackQuorumSize,
+                                             List<BookieSocketAddress> existingBookies,
+                                             int bookieIdx, Set<BookieSocketAddress> excludeBookies)
             throws BKNotEnoughBookiesException {
-        InetSocketAddress addr = existingBookies.get(bookieIdx);
-        return placementPolicy.replaceBookie(addr, new HashSet<InetSocketAddress>(existingBookies));
+        BookieSocketAddress addr = existingBookies.get(bookieIdx);
+        return placementPolicy.replaceBookie(ensembleSize, writeQuorumSize, ackQuorumSize, existingBookies, addr, excludeBookies);
     }
 
     /**
@@ -229,14 +284,17 @@ class BookieWatcher implements Watcher, ChildrenCallback {
     private static class ReadOnlyBookieWatcher implements Watcher, ChildrenCallback {
 
         private final static Logger LOG = LoggerFactory.getLogger(ReadOnlyBookieWatcher.class);
-        private HashSet<InetSocketAddress> readOnlyBookies = new HashSet<InetSocketAddress>();
+        private HashSet<BookieSocketAddress> readOnlyBookies = new HashSet<BookieSocketAddress>();
         private final BookKeeper bk;
         private final String readOnlyBookieRegPath;
+
+        final CopyOnWriteArraySet<BookiesListener> listeners =
+                new CopyOnWriteArraySet<BookiesListener>();
 
         public ReadOnlyBookieWatcher(ClientConfiguration conf, BookKeeper bk) throws KeeperException,
                 InterruptedException {
             this.bk = bk;
-            readOnlyBookieRegPath = conf.getZkAvailableBookiesPath() + "/" + Bookie.READONLY;
+            readOnlyBookieRegPath = conf.getZkAvailableBookiesPath() + "/" + READONLY;
             if (null == bk.getZkHandle().exists(readOnlyBookieRegPath, false)) {
                 try {
                     bk.getZkHandle().create(readOnlyBookieRegPath, new byte[0], Ids.OPEN_ACL_UNSAFE,
@@ -245,6 +303,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
                     // this node is just now created by someone.
                 }
             }
+        }
+
+        void registerBookiesListener(final BookiesListener listener) {
+            listeners.add(listener);
         }
 
         @Override
@@ -288,16 +350,25 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         @Override
         public void processResult(int rc, String path, Object ctx, List<String> children) {
             if (rc != Code.OK.intValue()) {
-                LOG.error("Not able to read readonly bookies : ", KeeperException.create(Code.get(rc)));
+                if (ZkUtils.isRecoverableException(rc)) {
+                    logger.info("Encountered recoverable zookeeper exception on reading readonly bookie list : code = {}", Code.get(rc));
+                } else {
+                    logger.error("Encountered zookeeper exception on reading readonly bookie list : code = {}",
+                            Code.get(rc));
+                }
                 return;
             }
 
-            HashSet<InetSocketAddress> newReadOnlyBookies = convertToBookieAddresses(children);
+            HashSet<BookieSocketAddress> newReadOnlyBookies = convertToBookieAddresses(children);
             readOnlyBookies = newReadOnlyBookies;
+
+            for (BookiesListener listener : listeners) {
+                listener.readOnlyBookiesChanged(newReadOnlyBookies);
+            }
         }
 
         // returns the readonly bookies
-        public HashSet<InetSocketAddress> getReadOnlyBookies() {
+        public HashSet<BookieSocketAddress> getReadOnlyBookies() {
             return readOnlyBookies;
         }
     }

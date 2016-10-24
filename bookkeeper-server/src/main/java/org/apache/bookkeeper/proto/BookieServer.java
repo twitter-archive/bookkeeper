@@ -20,15 +20,23 @@
  */
 package org.apache.bookkeeper.proto;
 
-import com.google.common.annotations.VisibleForTesting;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
+import java.net.UnknownHostException;
+
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.ExitCode;
 import org.apache.bookkeeper.conf.ServerConfiguration;
-import org.apache.bookkeeper.jmx.BKMBeanRegistry;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.replication.AutoRecoveryMain;
+import org.apache.bookkeeper.replication.ReplicationException;
 import org.apache.bookkeeper.stats.NullStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
 import org.apache.bookkeeper.stats.Stats;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.stats.StatsProvider;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -36,15 +44,15 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
-import java.net.UnknownHostException;
+import com.google.common.annotations.VisibleForTesting;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
+import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
 /**
  * Implements the server-side part of the BookKeeper protocol.
@@ -54,7 +62,7 @@ public class BookieServer {
     static Logger LOG = LoggerFactory.getLogger(BookieServer.class);
 
     final ServerConfiguration conf;
-    NIOServerFactory nioServerFactory;
+    final BookieNettyServer nettyServer;
     private volatile boolean running = false;
     Bookie bookie;
     DeathWatcher deathWatcher;
@@ -62,58 +70,83 @@ public class BookieServer {
     int exitCode = ExitCode.OK;
 
     // operation stats
-    final private StatsProvider statsProvider;
-    final BKStats bkStats = BKStats.getInstance();
-    final boolean isStatsEnabled;
-    protected BookieServerBean jmxBkServerBean;
+    AutoRecoveryMain autoRecoveryMain = null;
+    private boolean isAutoRecoveryDaemonEnabled;
+
+    // Stats
+    protected final StatsLogger statsLogger;
 
     public BookieServer(ServerConfiguration conf)
             throws IOException, KeeperException, InterruptedException, BookieException {
-        this.conf = conf;
-        this.statsProvider = ServerStatsProvider.initialize(conf);
-        isStatsEnabled = conf.isStatisticsEnabled();
+        this(conf, NullStatsLogger.INSTANCE);
+    }
 
+    public BookieServer(ServerConfiguration conf, StatsLogger statsLogger)
+            throws IOException, KeeperException, InterruptedException, BookieException {
+        this.conf = conf;
+        this.statsLogger = statsLogger;
+
+        // Restart sequence
+        // 1. First instantiate the server factory and bind to the port
+        //    --- if using ephemeral ports this is where a port will be picked and
+        //        used for rest of the startup
+        // 2. Initialise the bookie - using the port that the connection bound to
+        // 3. Set the packet processor in the server (this is only used after the server starts running
+        // 4. Start the bookie - read the journal, replay, recover
+        // 5. Start the server and accept connections
+        //
         this.bookie = newBookie(conf);
+        this.nettyServer = new BookieNettyServer(this.conf, this.bookie, statsLogger.scope(SERVER_SCOPE));
+        this.bookie.initialize();
+
+        isAutoRecoveryDaemonEnabled = conf.isAutoRecoveryDaemonEnabled();
+        if (isAutoRecoveryDaemonEnabled) {
+            try {
+                this.autoRecoveryMain = new AutoRecoveryMain(conf, statsLogger.scope(REPLICATION_SCOPE));
+            } catch (ReplicationException.UnavailableException e) {
+                throw new IOException("Failed to create auto recovery daemon : ", e);
+            } catch (ReplicationException.CompatibilityException e) {
+                throw new IOException("Failed to create auto recovery daemon : ", e);
+            }
+        }
     }
 
     protected Bookie newBookie(ServerConfiguration conf)
         throws IOException, KeeperException, InterruptedException, BookieException {
-        return new Bookie(conf);
+        return new Bookie(conf, statsLogger.scope(SERVER_SCOPE));
     }
 
     public void start() throws IOException {
-        bookie.start();
+        this.bookie.start();
 
         // fail fast, when bookie startup is not successful
         if (!this.bookie.isRunning()) {
+            LOG.info("Bookie exit code : {}", bookie.getExitCode());
             exitCode = bookie.getExitCode();
             return;
         }
+        if (isAutoRecoveryDaemonEnabled && this.autoRecoveryMain != null) {
+            try {
+                this.autoRecoveryMain.start();
+            } catch (ReplicationException.UnavailableException e) {
+                throw new IOException("Failed to start auto recovery daemon : ", e);
+            }
+        }
 
-        // start the nio server only after bookie is started, as the nio server only could
-        // accept requests after then. otherwise, it would cause client sending lots of
-        // request to this bookie but without being processing, which cause high read latency
-        nioServerFactory = new NIOServerFactory(conf,
-                new MultiPacketProcessor(this.conf, this.bookie),
-                Stats.get().getStatsLogger("nio_server"));
-        nioServerFactory.start();
-
-        // Start stats provider.
-        statsProvider.start(conf);
+        this.nettyServer.start();
 
         running = true;
         deathWatcher = new DeathWatcher(conf);
         deathWatcher.start();
-
-        // register jmx
-        registerJMX();
     }
 
-    public InetSocketAddress getLocalAddress() {
+    @VisibleForTesting
+    public BookieSocketAddress getLocalAddress() {
         try {
             return Bookie.getBookieAddress(conf);
         } catch (UnknownHostException uhe) {
-            return nioServerFactory.getLocalAddress();
+            InetSocketAddress localAddress = nettyServer.getLocalAddress();
+            return new BookieSocketAddress(localAddress.getHostName(), localAddress.getPort());
         }
     }
 
@@ -127,9 +160,7 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void suspendProcessing() {
-        if (null != nioServerFactory) {
-            nioServerFactory.suspendProcessing();
-        }
+        nettyServer.suspendProcessing();
     }
 
     /**
@@ -137,55 +168,21 @@ public class BookieServer {
      */
     @VisibleForTesting
     public void resumeProcessing() {
-        if (null != nioServerFactory) {
-            nioServerFactory.resumeProcessing();
-        }
+        nettyServer.resumeProcessing();
     }
 
     public synchronized void shutdown() {
         if (!running) {
             return;
         }
-        if (null != nioServerFactory) {
-            nioServerFactory.shutdown();
-        }
-
-        // Stop stats exporter.
-        statsProvider.stop();
+        this.nettyServer.shutdown();
 
         exitCode = bookie.shutdown();
         running = false;
-
-        // unregister JMX
-        unregisterJMX();
-    }
-
-    protected void registerJMX() {
-        try {
-            jmxBkServerBean = new BookieServerBean(conf, this);
-            BKMBeanRegistry.getInstance().register(jmxBkServerBean, null);
-
-            bookie.registerJMX(jmxBkServerBean);
-        } catch (Exception e) {
-            LOG.warn("Failed to register with JMX", e);
-            jmxBkServerBean = null;
-        }
-    }
-
-    protected void unregisterJMX() {
-        try {
-            bookie.unregisterJMX();
-            if (jmxBkServerBean != null) {
-                BKMBeanRegistry.getInstance().unregister(jmxBkServerBean);
-            }
-        } catch (Exception e) {
-            LOG.warn("Failed to unregister with JMX", e);
-        }
-        jmxBkServerBean = null;
     }
 
     public boolean isRunning() {
-        return bookie.isRunning() && isNioServerRunning() && running;
+        return bookie.isRunning() && nettyServer.isRunning() && running;
     }
 
     /**
@@ -198,18 +195,17 @@ public class BookieServer {
     }
 
     /**
-     * Whether nio server is running?
+     * Whether auto-recovery service running with Bookie?
      *
-     * @return true if nio server is running, otherwise return false
+     * @return true if auto-recovery service is running, otherwise return false
      */
-    public boolean isNioServerRunning() {
-        return null != nioServerFactory && nioServerFactory.isRunning();
+    public boolean isAutoRecoveryRunning() {
+        return this.autoRecoveryMain != null
+                && this.autoRecoveryMain.isAutoRecoveryRunning();
     }
 
     public void join() throws InterruptedException {
-        if (null != nioServerFactory) {
-            nioServerFactory.join();
-        }
+        bookie.join();
     }
 
     public int getExitCode() {
@@ -219,7 +215,7 @@ public class BookieServer {
     /**
      * A thread to watch whether bookie & nioserver is still alive
      */
-    class DeathWatcher extends Thread {
+    private class DeathWatcher extends BookieCriticalThread {
 
         final int watchInterval;
 
@@ -236,17 +232,25 @@ public class BookieServer {
                 } catch (InterruptedException ie) {
                     // do nothing
                 }
-                if (!isBookieRunning() || !isNioServerRunning()) {
+                if (!isBookieRunning()) {
                     shutdown();
                     break;
                 }
+                if (isAutoRecoveryDaemonEnabled && !isAutoRecoveryRunning()) {
+                    LOG.error("Autorecovery daemon has stopped. Please check the logs");
+                    isAutoRecoveryDaemonEnabled = false; // to avoid spamming the logs
+                }
             }
+            LOG.info("BookieDeathWatcher exited loop!");
         }
     }
 
     static final Options bkOpts = new Options();
     static {
         bkOpts.addOption("c", "conf", true, "Configuration for Bookie Server");
+        bkOpts.addOption("r", "readonly", false, "Running Bookie Server in ReadOnly mode");
+        bkOpts.addOption("withAutoRecovery", false,
+                "Start Autorecovery service Bookie server");
         bkOpts.addOption("h", "help", false, "Print help message");
     }
 
@@ -274,7 +278,7 @@ public class BookieServer {
         LOG.info("Using configuration file " + confFile);
     }
 
-    private static ServerConfiguration parseArgs(String[] args)
+    private static Pair<ServerConfiguration, CommandLine> parseArgs(String[] args)
         throws IllegalArgumentException {
         try {
             BasicParser parser = new BasicParser();
@@ -293,7 +297,15 @@ public class BookieServer {
                 }
                 String confFile = cmdLine.getOptionValue("c");
                 loadConfFile(conf, confFile);
-                return conf;
+                return Pair.of(conf, cmdLine);
+            }
+
+            if (cmdLine.hasOption("withAutoRecovery")) {
+                conf.setAutoRecoveryDaemonEnabled(true);
+            }
+
+            if (cmdLine.hasOption("withAutoRecovery")) {
+                conf.setAutoRecoveryDaemonEnabled(true);
             }
 
             if (leftArgs.length < 4) {
@@ -308,7 +320,7 @@ public class BookieServer {
             System.arraycopy(leftArgs, 3, ledgerDirNames, 0, ledgerDirNames.length);
             conf.setLedgerDirNames(ledgerDirNames);
 
-            return conf;
+            return Pair.of(conf, cmdLine);
         } catch (ParseException e) {
             LOG.error("Error parsing command line arguments : ", e);
             throw new IllegalArgumentException(e);
@@ -321,15 +333,18 @@ public class BookieServer {
      * @throws InterruptedException
      */
     public static void main(String[] args) {
-        ServerConfiguration conf = null;
+        Pair<ServerConfiguration, CommandLine> confAndCmdLine = null;
         try {
-            conf = parseArgs(args);
+            confAndCmdLine = parseArgs(args);
         } catch (IllegalArgumentException iae) {
             LOG.error("Error parsing command line arguments : ", iae);
             System.err.println(iae.getMessage());
             printUsage();
             System.exit(ExitCode.INVALID_CONF);
         }
+
+        ServerConfiguration conf = confAndCmdLine.getLeft();
+        boolean readOnly = confAndCmdLine.getRight().hasOption("r");
 
         StringBuilder sb = new StringBuilder();
         String[] ledgerDirNames = conf.getLedgerDirNames();
@@ -345,7 +360,17 @@ public class BookieServer {
                            conf.getBookiePort(), conf.getZkServers(),
                            conf.getJournalDirName(), sb);
         try {
-            final BookieServer bs = new BookieServer(conf);
+            // Initialize Stats Provider
+            Stats.loadStatsProvider(conf);
+            final StatsProvider statsProvider = Stats.get();
+            statsProvider.start(conf);
+
+            final BookieServer bs;
+            if (readOnly) {
+                bs = new ReadOnlyBookieServer(conf, statsProvider.getStatsLogger(""));
+            } else {
+                bs = new BookieServer(conf, statsProvider.getStatsLogger(""));
+            }
             bs.start();
             LOG.info(hello);
             Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -358,11 +383,11 @@ public class BookieServer {
             LOG.info("Register shutdown hook successfully");
             bs.join();
 
+            statsProvider.stop();
             System.exit(bs.getExitCode());
         } catch (Exception e) {
             LOG.error("Exception running bookie server : ", e);
             System.exit(ExitCode.SERVER_EXCEPTION);
         }
     }
-
 }

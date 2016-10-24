@@ -24,9 +24,9 @@ import java.util.Random;
 
 public class ExponentialBackoffRetryPolicy implements RetryPolicy {
 
-    private final Random random;
     private final int maxRetries;
     private final long baseBackoffTime;
+    private final Random random;
 
     public ExponentialBackoffRetryPolicy(long baseBackoffTime, int maxRetries) {
         this.maxRetries = maxRetries;
@@ -41,7 +41,7 @@ public class ExponentialBackoffRetryPolicy implements RetryPolicy {
 
     @Override
     public long nextRetryWaitTime(int retryCount, long elapsedRetryTime) {
-        return baseBackoffTime * Math.max(1, random.nextInt(1 << (retryCount + 1)));
+        return baseBackoffTime * Math.max(1, random.nextInt(Math.max(1, 1 << (retryCount + 1))));
     }
 
 }

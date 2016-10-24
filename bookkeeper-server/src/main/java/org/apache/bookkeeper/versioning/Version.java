@@ -30,6 +30,11 @@ public interface Version {
      */
     public static final Version NEW = new Version() {
         @Override
+        public String toString() {
+            return "NEW";
+        }
+
+        @Override
         public Occurred compare(Version v) {
             if (null == v) {
                 throw new NullPointerException("Version is not allowed to be null.");
@@ -38,6 +43,8 @@ public interface Version {
                 return Occurred.CONCURRENTLY;
             }
             return Occurred.BEFORE;
+
+
         }
     };
 
@@ -45,6 +52,11 @@ public interface Version {
      * Match any version.
      */
     public static final Version ANY = new Version() {
+        @Override
+        public String toString() {
+            return "ANY";
+        }
+
         @Override
         public Occurred compare(Version v) {
             if (null == v) {

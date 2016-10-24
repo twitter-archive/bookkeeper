@@ -28,6 +28,8 @@ import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * This class encapsulates ledger layout information that is persistently stored
  * in zookeeper. It provides parsing and serialization methods of such information.
@@ -36,8 +38,6 @@ import org.slf4j.LoggerFactory;
 class LedgerLayout {
     static final Logger LOG = LoggerFactory.getLogger(LedgerLayout.class);
 
-    // Znode name to store layout information
-    public static final String LAYOUT_ZNODE = "LAYOUT";
     // version of compability layout version
     public static final int LAYOUT_MIN_COMPAT_VERSION = 1;
     // version of ledger layout metadata
@@ -63,7 +63,7 @@ class LedgerLayout {
             } catch (KeeperException.NoNodeException nne) {
                 return null;
             }
-            
+
             return layout;
         } catch (InterruptedException ie) {
             throw new IOException(ie);
@@ -139,10 +139,10 @@ class LedgerLayout {
     /**
      * Store the ledger layout into zookeeper
      */
-    public void store(final ZooKeeper zk, String ledgersRoot) 
+    public void store(final ZooKeeper zk, String ledgersRoot)
             throws IOException, KeeperException, InterruptedException {
         String ledgersLayout = ledgersRoot + "/" + LAYOUT_ZNODE;
-        zk.create(ledgersLayout, serialize(), 
+        zk.create(ledgersLayout, serialize(),
                   Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
     }
 
@@ -191,7 +191,7 @@ class LedgerLayout {
             int layoutFormatVersion = new Integer(lines[0]);
             if (LAYOUT_FORMAT_VERSION < layoutFormatVersion ||
                 LAYOUT_MIN_COMPAT_VERSION > layoutFormatVersion) {
-                throw new IOException("Metadata version not compatible. Expected " 
+                throw new IOException("Metadata version not compatible. Expected "
                         + LAYOUT_FORMAT_VERSION + ", but got " + layoutFormatVersion);
             }
 

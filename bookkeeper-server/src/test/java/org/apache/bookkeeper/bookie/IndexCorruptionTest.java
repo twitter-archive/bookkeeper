@@ -26,7 +26,7 @@ import java.io.FileOutputStream;
 import java.nio.channels.FileChannel;
 import java.util.Enumeration;
 
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
@@ -62,7 +62,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
     public void testNoSuchLedger() throws Exception {
         LOG.debug("Testing NoSuchLedger");
 
-        Bookie.SyncThread syncThread = bs.get(0).getBookie().syncThread;
+        SyncThread syncThread = bs.get(0).getBookie().syncThread;
         syncThread.suspendSync();
         // Create a ledger
         LedgerHandle lh = bkc.createLedger(1, 1, digestType, "".getBytes());
@@ -81,7 +81,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync
-        syncThread.checkPoint(CheckPoint.MAX);
+        syncThread.requestFlush().get();
 
         // restart bookies
         restartBookies();
@@ -103,7 +103,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
     public void testEmptyIndexPage() throws Exception {
         LOG.debug("Testing EmptyIndexPage");
 
-        Bookie.SyncThread syncThread = bs.get(0).getBookie().syncThread;
+        SyncThread syncThread = bs.get(0).getBookie().syncThread;
         assertNotNull("Not found SyncThread.", syncThread);
 
         syncThread.suspendSync();
@@ -123,7 +123,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // trigger sync
-        syncThread.checkPoint(CheckPoint.MAX);
+        syncThread.requestFlush().get();
 
         syncThread.suspendSync();
 
@@ -138,7 +138,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         syncThread.resumeSync();
 
         // wait for sync again
-        syncThread.checkPoint(CheckPoint.MAX);
+        syncThread.requestFlush().get();
 
         // restart bookies
         restartBookies();
@@ -168,7 +168,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
     }
 
     void testPartialFlushedIndexPage(int sizeToTruncate) throws Exception {
-        Bookie.SyncThread syncThread = bs.get(0).getBookie().getSyncThread();
+        SyncThread syncThread = bs.get(0).getBookie().getSyncThread();
         assertNotNull("Not found SyncThread.", syncThread);
 
         // suspend sync thread
@@ -194,6 +194,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         fc.truncate(fc.size() - sizeToTruncate);
         fc.close();
 
+        syncThread.disableCheckpoint();
         syncThread.resumeSync();
 
         // restart bookies
@@ -270,8 +271,7 @@ public class IndexCorruptionTest extends BookKeeperClusterTestCase {
         }
 
         for (BookieServer bookieServer : bs) {
-            CheckPoint cp = bookieServer.getBookie().getSyncThread().requestCheckpoint();
-            bookieServer.getBookie().getSyncThread().checkPoint(cp);
+            bookieServer.getBookie().getSyncThread().requestFlush().get();
         }
 
         lh.close();

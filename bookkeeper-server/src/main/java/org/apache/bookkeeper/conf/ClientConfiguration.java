@@ -25,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.EnsemblePlacementPolicy;
 import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
+import org.apache.bookkeeper.util.BookKeeperConstants;
 import org.apache.bookkeeper.util.ReflectionUtils;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
@@ -57,19 +58,23 @@ public class ClientConfiguration extends AbstractConfiguration {
     protected final static String CLIENT_WRITEBUFFER_LOW_WATER_MARK = "clientWriteBufferLowWaterMark";
     protected final static String CLIENT_WRITEBUFFER_HIGH_WATER_MARK = "clientWriteBufferHighWaterMark";
     protected final static String NUM_CHANNELS_PER_BOOKIE = "numChannelsPerBookie";
+    protected final static String WRITE_TO_CHANNEL_ASYNC = "writeRequestToChannelAsync";
     // Read Parameters
     protected final static String READ_TIMEOUT = "readTimeout";
     protected final static String SPECULATIVE_READ_TIMEOUT = "speculativeReadTimeout";
     protected final static String FIRST_SPECULATIVE_READ_TIMEOUT = "firstSpeculativeReadTimeout";
     protected final static String MAX_SPECULATIVE_READ_TIMEOUT = "maxSpeculativeReadTimeout";
+    protected final static String SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER = "speculativeReadTimeoutBackoffMultiplier";
     protected final static String FIRST_SPECULATIVE_READ_LAC_TIMEOUT = "firstSpeculativeReadLACTimeout";
     protected final static String MAX_SPECULATIVE_READ_LAC_TIMEOUT = "maxSpeculativeReadLACTimeout";
+    protected final static String SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER = "speculativeReadLACTimeoutBackoffMultiplier";
     protected final static String ENABLE_PARALLEL_RECOVERY_READ = "enableParallelRecoveryRead";
     protected final static String RECOVERY_READ_BATCH_SIZE = "recoveryReadBatchSize";
     // Add Parameters
     protected final static String DELAY_ENSEMBLE_CHANGE = "delayEnsembleChange";
     // Timeout Setting
     protected final static String ADD_ENTRY_TIMEOUT_SEC = "addEntryTimeoutSec";
+    protected final static String ADD_ENTRY_QUORUM_TIMEOUT_SEC = "addEntryQuorumTimeoutSec";
     protected final static String READ_ENTRY_TIMEOUT_SEC = "readEntryTimeoutSec";
     protected final static String TIMEOUT_TASK_INTERVAL_MILLIS = "timeoutTaskIntervalMillis";
     protected final static String TIMEOUT_TIMER_TICK_DURATION_MS = "timeoutTimerTickDurationMs";
@@ -81,10 +86,19 @@ public class ClientConfiguration extends AbstractConfiguration {
 
     // Ensemble Placement Policy
     protected final static String ENSEMBLE_PLACEMENT_POLICY = "ensemblePlacementPolicy";
+    protected final static String NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS = "networkTopologyStabilizePeriodSeconds";
 
     // Stats
     protected final static String ENABLE_PER_HOST_STATS = "enablePerHostStats";
     protected final static String ENABLE_TASK_EXECUTION_STATS = "enableTaskExecutionStats";
+    protected final static String TASK_EXECUTION_WARN_TIME_MICROS = "taskExecutionWarnTimeMicros";
+
+    // Failure History Settings
+    protected final static String ENABLE_BOOKIE_FAILURE_TRACKING = "enableBookieFailureTracking";
+    protected final static String BOOKIE_FAILURE_HISTORY_EXPIRATION_MS = "bookieFailureHistoryExpirationMSec";
+
+    // Names of dynamic features
+    protected final static String DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME = "disableEnsembleChangeFeatureName";
 
     /**
      * Construct a default client-side configuration
@@ -325,6 +339,27 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Should write to channel in an executor thread.
+     *
+     * @return whether or not to write to channel in an executor thread.
+     */
+    public boolean getWriteToChannelAsync() {
+        return getBoolean(WRITE_TO_CHANNEL_ASYNC, false);
+    }
+
+    /**
+     * Set flag to write to channel in an executor thread.
+     *
+     * @param writeToChannelAsync
+     *          whether or not to write to channel in an executor thread.
+     * @return client configuration.
+     */
+    public ClientConfiguration setWriteToChannelAsync(boolean writeToChannelAsync) {
+        setProperty(WRITE_TO_CHANNEL_ASYNC, writeToChannelAsync);
+        return this;
+    }
+
+    /**
      * Get zookeeper servers to connect
      *
      * @return zookeeper servers
@@ -416,6 +451,29 @@ public class ClientConfiguration extends AbstractConfiguration {
      */
     public ClientConfiguration setAddEntryTimeout(int timeout) {
         setProperty(ADD_ENTRY_TIMEOUT_SEC, timeout);
+        return this;
+    }
+
+    /**
+     * Get the timeout for top-level add request. That is, the amount of time we should spend
+     * waiting for ack quorum.
+     *
+     * @return add entry ack quorum timeout.
+     */
+    public int getAddEntryQuorumTimeout() {
+        return getInt(ADD_ENTRY_QUORUM_TIMEOUT_SEC, -1);
+    }
+
+    /**
+     * Set timeout for top-level add entry request.
+     * @see #getAddEntryQuorumTimeout()
+     *
+     * @param timeout
+     *          The new add entry ack quorum timeout in seconds.
+     * @return client configuration.
+     */
+    public ClientConfiguration setAddEntryQuorumTimeout(int timeout) {
+        setProperty(ADD_ENTRY_QUORUM_TIMEOUT_SEC, timeout);
         return this;
     }
 
@@ -611,6 +669,48 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Multipler to use when determining time between successive speculative read requests
+     *
+     * @return speculative read timeout backoff multiplier.
+     */
+    public float getSpeculativeReadTimeoutBackoffMultiplier() {
+        return getFloat(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, 2.0f);
+    }
+
+    /**
+     * Set the multipler to use when determining time between successive speculative read requests
+     *
+     * @param speculativeReadTimeoutBackoffMultiplier
+     *          multipler to use when determining time between successive speculative read requests.
+     * @return client configuration.
+     */
+    public ClientConfiguration setSpeculativeReadTimeoutBackoffMultiplier(float speculativeReadTimeoutBackoffMultiplier) {
+        setProperty(SPECULATIVE_READ_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadTimeoutBackoffMultiplier);
+        return this;
+    }
+
+    /**
+     * Multipler to use when determining time between successive speculative read LAC requests
+     *
+     * @return speculative read LAC timeout backoff multiplier.
+     */
+    public float getSpeculativeReadLACTimeoutBackoffMultiplier() {
+        return getFloat(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, 2.0f);
+    }
+
+    /**
+     * Set the multipler to use when determining time between successive speculative read LAC requests
+     *
+     * @param speculativeReadLACTimeoutBackoffMultiplier
+     *          multipler to use when determining time between successive speculative read LAC requests.
+     * @return client configuration.
+     */
+    public ClientConfiguration setSpeculativeReadLACTimeoutBackoffMultiplier(float speculativeReadLACTimeoutBackoffMultiplier) {
+        setProperty(SPECULATIVE_READ_LAC_TIMEOUT_BACKOFF_MULTIPLIER, speculativeReadLACTimeoutBackoffMultiplier);
+        return this;
+    }
+
+    /**
      * Get the max speculative read timeout.
      *
      * @return max speculative read timeout.
@@ -630,6 +730,7 @@ public class ClientConfiguration extends AbstractConfiguration {
         setProperty(MAX_SPECULATIVE_READ_TIMEOUT, timeout);
         return this;
     }
+
 
     /**
      * Get the period of time after which the first speculative read last add confirmed and entry
@@ -716,6 +817,27 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Get the network topology stabilize period in seconds. if it is zero, this feature is turned off.
+     *
+     * @return network topology stabilize period in seconds.
+     */
+    public int getNetworkTopologyStabilizePeriodSeconds() {
+        return getInt(NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS, 0);
+    }
+
+    /**
+     * Set the network topology stabilize period in seconds.
+     *
+     * @see #getNetworkTopologyStabilizePeriodSeconds()
+     * @param seconds stabilize period in seconds
+     * @return client configuration.
+     */
+    public ClientConfiguration setNetworkTopologyStabilizePeriodSeconds(int seconds) {
+        setProperty(NETWORK_TOPOLOGY_STABILIZE_PERIOD_SECONDS, seconds);
+        return this;
+    }
+
+    /**
      * Whether to enable parallel reading in recovery read.
      *
      * @return true if enable parallel reading in recovery read. otherwise, return false.
@@ -763,7 +885,7 @@ public class ClientConfiguration extends AbstractConfiguration {
      * @return flag to enable/disable per host stats
      */
     public boolean getEnablePerHostStats() {
-        return getBoolean(ENABLE_PER_HOST_STATS, true);
+        return getBoolean(ENABLE_PER_HOST_STATS, false);
     }
 
     /**
@@ -800,6 +922,27 @@ public class ClientConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Get task execution duration which triggers a warning.
+     *
+     * @return time in microseconds which triggers a warning.
+     */
+    public long getTaskExecutionWarnTimeMicros() {
+        return getLong(TASK_EXECUTION_WARN_TIME_MICROS, TimeUnit.SECONDS.toMicros(1));
+    }
+
+    /**
+     * Set task execution duration which triggers a warning.
+     *
+     * @param warnTime
+     *          time in microseconds which triggers a warning.
+     * @return client configuration.
+     */
+    public ClientConfiguration setTaskExecutionWarnTimeMicros(long warnTime) {
+        setProperty(TASK_EXECUTION_WARN_TIME_MICROS, warnTime);
+        return this;
+    }
+
+    /**
      * Whether to delay ensemble change or not?
      *
      * @return true if to delay ensemble change, otherwise false.
@@ -825,4 +968,66 @@ public class ClientConfiguration extends AbstractConfiguration {
         return this;
     }
 
+    /**
+     * Whether to enable bookie failure tracking
+     *
+     * @return flag to enable/disable bookie failure tracking
+     */
+    public boolean getEnableBookieFailureTracking() {
+        return getBoolean(ENABLE_BOOKIE_FAILURE_TRACKING, true);
+    }
+
+    /**
+     * Enable/Disable bookie failure tracking.
+     *
+     * @param enabled
+     *          flag to enable/disable bookie failure tracking
+     * @return client configuration.
+     */
+    public ClientConfiguration setEnableBookieFailureTracking(boolean enabled) {
+        setProperty(ENABLE_BOOKIE_FAILURE_TRACKING, enabled);
+        return this;
+    }
+
+    /**
+     * Get the bookie failure tracking expiration timeout.
+     *
+     * @return bookie failure tracking expiration timeout.
+     */
+    public int getBookieFailureHistoryExpirationMSec() {
+        return getInt(BOOKIE_FAILURE_HISTORY_EXPIRATION_MS, 60000);
+    }
+
+    /**
+     * Set the bookie failure tracking expiration timeout.
+     *
+     * @param timeout
+     *          bookie failure tracking expiration timeout.
+     * @return client configuration.
+     */
+    public ClientConfiguration setBookieFailureHistoryExpirationMSec(int expirationMSec) {
+        setProperty(BOOKIE_FAILURE_HISTORY_EXPIRATION_MS, expirationMSec);
+        return this;
+    }
+
+    /**
+     * Get the name of the dynamic feature that disables ensemble change
+     *
+     * @return name of the dynamic feature that disables ensemble change
+     */
+    public String getDisableEnsembleChangeFeatureName() {
+        return getString(DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME, BookKeeperConstants.FEATURE_DISABLE_ENSEMBLE_CHANGE);
+    }
+
+    /**
+     * Set the name of the dynamic feature that disables ensemble change
+     *
+     * @param disableEnsembleChangeFeatureName
+     *          name of the dynamic feature that disables ensemble change
+     * @return client configuration.
+     */
+    public ClientConfiguration setDisableEnsembleChangeFeatureName(String disableEnsembleChangeFeatureName) {
+        setProperty(DISABLE_ENSEMBLE_CHANGE_FEATURE_NAME, disableEnsembleChangeFeatureName);
+        return this;
+    }
 }

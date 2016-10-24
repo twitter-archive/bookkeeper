@@ -39,6 +39,8 @@ import org.apache.zookeeper.ZooKeeper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Manage all ledgers in a single zk node.
  *
@@ -105,7 +107,7 @@ public class FlatLedgerManager extends AbstractZkLedgerManager {
                 }
             }
         };
-        ZkUtils.createFullPathOptimistic(zk, ledgerPrefix, metadata.serialize(),
+        ZkUtils.asyncCreateFullPathOptimistic(zk, ledgerPrefix, metadata.serialize(),
             Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT_SEQUENTIAL, scb, null);
     }
 

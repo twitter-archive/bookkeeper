@@ -19,6 +19,7 @@ package org.apache.bookkeeper.conf;
 
 import java.net.URL;
 
+import org.apache.bookkeeper.feature.Feature;
 import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.ConfigurationException;
@@ -30,6 +31,8 @@ import org.apache.bookkeeper.util.ReflectionUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * Abstract configuration
@@ -52,7 +55,6 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
     protected final static String LEDGER_MANAGER_FACTORY_CLASS = "ledgerManagerFactoryClass";
     protected final static String ZK_LEDGERS_ROOT_PATH = "zkLedgersRootPath";
     protected final static String ZK_REQUEST_RATE_LIMIT = "zkRequestRateLimit";
-    protected final static String AVAILABLE_NODE = "available";
     protected final static String REREPLICATION_ENTRY_BATCH_SIZE = "rereplicationEntryBatchSize";
     protected final static String ASYNC_PROCESS_LEDGERS_CONCURRENCY = "asyncProcessLedgersConcurrency";
 
@@ -233,5 +235,19 @@ public abstract class AbstractConfiguration extends CompositeConfiguration {
      */
     public int getAsyncProcessLedgersConcurrency() {
         return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 1);
+    }
+
+    @Deprecated
+    public void setFeature(String configProperty, Feature feature) {
+        setProperty(configProperty, feature);
+    }
+
+    @Deprecated
+    public Feature getFeature(String configProperty, Feature defaultValue) {
+        if (null == getProperty(configProperty)) {
+            return defaultValue;
+        } else {
+            return (Feature)getProperty(configProperty);
+        }
     }
 }

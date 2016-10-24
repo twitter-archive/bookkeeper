@@ -3734,6 +3734,10 @@ public final class BookkeeperProtocol {
     // optional int64 maxLAC = 5;
     boolean hasMaxLAC();
     long getMaxLAC();
+    
+    // optional int64 lacUpdateTimestamp = 6;
+    boolean hasLacUpdateTimestamp();
+    long getLacUpdateTimestamp();
   }
   public static final class ReadResponse extends
       com.google.protobuf.GeneratedMessage
@@ -3814,12 +3818,23 @@ public final class BookkeeperProtocol {
       return maxLAC_;
     }
     
+    // optional int64 lacUpdateTimestamp = 6;
+    public static final int LACUPDATETIMESTAMP_FIELD_NUMBER = 6;
+    private long lacUpdateTimestamp_;
+    public boolean hasLacUpdateTimestamp() {
+      return ((bitField0_ & 0x00000020) == 0x00000020);
+    }
+    public long getLacUpdateTimestamp() {
+      return lacUpdateTimestamp_;
+    }
+    
     private void initFields() {
       status_ = org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode.EOK;
       ledgerId_ = 0L;
       entryId_ = 0L;
       body_ = com.google.protobuf.ByteString.EMPTY;
       maxLAC_ = 0L;
+      lacUpdateTimestamp_ = 0L;
     }
     private byte memoizedIsInitialized = -1;
     public final boolean isInitialized() {
@@ -3860,6 +3875,9 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000010) == 0x00000010)) {
         output.writeInt64(5, maxLAC_);
       }
+      if (((bitField0_ & 0x00000020) == 0x00000020)) {
+        output.writeInt64(6, lacUpdateTimestamp_);
+      }
       getUnknownFields().writeTo(output);
     }
     
@@ -3888,6 +3906,10 @@ public final class BookkeeperProtocol {
       if (((bitField0_ & 0x00000010) == 0x00000010)) {
         size += com.google.protobuf.CodedOutputStream
           .computeInt64Size(5, maxLAC_);
+      }
+      if (((bitField0_ & 0x00000020) == 0x00000020)) {
+        size += com.google.protobuf.CodedOutputStream
+          .computeInt64Size(6, lacUpdateTimestamp_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSerializedSize = size;
@@ -4023,6 +4045,8 @@ public final class BookkeeperProtocol {
         bitField0_ = (bitField0_ & ~0x00000008);
         maxLAC_ = 0L;
         bitField0_ = (bitField0_ & ~0x00000010);
+        lacUpdateTimestamp_ = 0L;
+        bitField0_ = (bitField0_ & ~0x00000020);
         return this;
       }
       
@@ -4081,6 +4105,10 @@ public final class BookkeeperProtocol {
           to_bitField0_ |= 0x00000010;
         }
         result.maxLAC_ = maxLAC_;
+        if (((from_bitField0_ & 0x00000020) == 0x00000020)) {
+          to_bitField0_ |= 0x00000020;
+        }
+        result.lacUpdateTimestamp_ = lacUpdateTimestamp_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -4111,6 +4139,9 @@ public final class BookkeeperProtocol {
         }
         if (other.hasMaxLAC()) {
           setMaxLAC(other.getMaxLAC());
+        }
+        if (other.hasLacUpdateTimestamp()) {
+          setLacUpdateTimestamp(other.getLacUpdateTimestamp());
         }
         this.mergeUnknownFields(other.getUnknownFields());
         return this;
@@ -4184,6 +4215,11 @@ public final class BookkeeperProtocol {
             case 40: {
               bitField0_ |= 0x00000010;
               maxLAC_ = input.readInt64();
+              break;
+            }
+            case 48: {
+              bitField0_ |= 0x00000020;
+              lacUpdateTimestamp_ = input.readInt64();
               break;
             }
           }
@@ -4299,6 +4335,27 @@ public final class BookkeeperProtocol {
       public Builder clearMaxLAC() {
         bitField0_ = (bitField0_ & ~0x00000010);
         maxLAC_ = 0L;
+        onChanged();
+        return this;
+      }
+      
+      // optional int64 lacUpdateTimestamp = 6;
+      private long lacUpdateTimestamp_ ;
+      public boolean hasLacUpdateTimestamp() {
+        return ((bitField0_ & 0x00000020) == 0x00000020);
+      }
+      public long getLacUpdateTimestamp() {
+        return lacUpdateTimestamp_;
+      }
+      public Builder setLacUpdateTimestamp(long value) {
+        bitField0_ |= 0x00000020;
+        lacUpdateTimestamp_ = value;
+        onChanged();
+        return this;
+      }
+      public Builder clearLacUpdateTimestamp() {
+        bitField0_ = (bitField0_ & ~0x00000020);
+        lacUpdateTimestamp_ = 0L;
         onChanged();
         return this;
       }
@@ -4861,20 +4918,21 @@ public final class BookkeeperProtocol {
       "\n\006header\030\001 \002(\0132\017.BKPacketHeader\022\033\n\006statu" +
       "s\030\002 \002(\0162\013.StatusCode\022#\n\014readResponse\030d \001" +
       "(\0132\r.ReadResponse\022!\n\013addResponse\030e \001(\0132\014" +
-      ".AddResponse\"l\n\014ReadResponse\022\033\n\006status\030\001" +
-      " \002(\0162\013.StatusCode\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007e",
-      "ntryId\030\003 \002(\003\022\014\n\004body\030\004 \001(\014\022\016\n\006maxLAC\030\005 \001" +
-      "(\003\"M\n\013AddResponse\022\033\n\006status\030\001 \002(\0162\013.Stat" +
-      "usCode\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(" +
-      "\003*F\n\017ProtocolVersion\022\017\n\013VERSION_ONE\020\001\022\017\n" +
-      "\013VERSION_TWO\020\002\022\021\n\rVERSION_THREE\020\003*\206\001\n\nSt" +
-      "atusCode\022\007\n\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n\010ENO" +
-      "ENTRY\020\223\003\022\014\n\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020" +
-      "\366\003\022\020\n\013EBADVERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016\n\tER" +
-      "EADONLY\020\371\003*Y\n\rOperationType\022\016\n\nREAD_ENTR" +
-      "Y\020\001\022\r\n\tADD_ENTRY\020\002\022\024\n\020RANGE_READ_ENTRY\020\003",
-      "\022\023\n\017RANGE_ADD_ENTRY\020\004B\037\n\033org.apache.book" +
-      "keeper.protoH\001"
+      ".AddResponse\"\210\001\n\014ReadResponse\022\033\n\006status\030" +
+      "\001 \002(\0162\013.StatusCode\022\020\n\010ledgerId\030\002 \002(\003\022\017\n\007",
+      "entryId\030\003 \002(\003\022\014\n\004body\030\004 \001(\014\022\016\n\006maxLAC\030\005 " +
+      "\001(\003\022\032\n\022lacUpdateTimestamp\030\006 \001(\003\"M\n\013AddRe" +
+      "sponse\022\033\n\006status\030\001 \002(\0162\013.StatusCode\022\020\n\010l" +
+      "edgerId\030\002 \002(\003\022\017\n\007entryId\030\003 \002(\003*F\n\017Protoc" +
+      "olVersion\022\017\n\013VERSION_ONE\020\001\022\017\n\013VERSION_TW" +
+      "O\020\002\022\021\n\rVERSION_THREE\020\003*\206\001\n\nStatusCode\022\007\n" +
+      "\003EOK\020\000\022\016\n\tENOLEDGER\020\222\003\022\r\n\010ENOENTRY\020\223\003\022\014\n" +
+      "\007EBADREQ\020\224\003\022\010\n\003EIO\020\365\003\022\010\n\003EUA\020\366\003\022\020\n\013EBADV" +
+      "ERSION\020\367\003\022\014\n\007EFENCED\020\370\003\022\016\n\tEREADONLY\020\371\003*" +
+      "Y\n\rOperationType\022\016\n\nREAD_ENTRY\020\001\022\r\n\tADD_",
+      "ENTRY\020\002\022\024\n\020RANGE_READ_ENTRY\020\003\022\023\n\017RANGE_A" +
+      "DD_ENTRY\020\004B\037\n\033org.apache.bookkeeper.prot" +
+      "oH\001"
     };
     com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner assigner =
       new com.google.protobuf.Descriptors.FileDescriptor.InternalDescriptorAssigner() {
@@ -4926,7 +4984,7 @@ public final class BookkeeperProtocol {
           internal_static_ReadResponse_fieldAccessorTable = new
             com.google.protobuf.GeneratedMessage.FieldAccessorTable(
               internal_static_ReadResponse_descriptor,
-              new java.lang.String[] { "Status", "LedgerId", "EntryId", "Body", "MaxLAC", },
+              new java.lang.String[] { "Status", "LedgerId", "EntryId", "Body", "MaxLAC", "LacUpdateTimestamp", },
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.class,
               org.apache.bookkeeper.proto.BookkeeperProtocol.ReadResponse.Builder.class);
           internal_static_AddResponse_descriptor =

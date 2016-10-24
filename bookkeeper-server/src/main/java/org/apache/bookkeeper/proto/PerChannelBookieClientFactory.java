@@ -20,7 +20,7 @@
  */
 package org.apache.bookkeeper.proto;
 
-import java.net.InetSocketAddress;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 
 /**
  * Factory to create {@link org.apache.bookkeeper.proto.PerChannelBookieClient}.
@@ -33,5 +33,5 @@ interface PerChannelBookieClientFactory {
      *
      * @return the client connected to address.
      */
-    PerChannelBookieClient create(InetSocketAddress address);
+    PerChannelBookieClient create(BookieSocketAddress address);
 }

@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.ZooKeeperUtil;
+import org.apache.zookeeper.AsyncCallback.Create2Callback;
 import org.apache.zookeeper.AsyncCallback.Children2Callback;
 import org.apache.zookeeper.AsyncCallback.DataCallback;
 import org.apache.zookeeper.AsyncCallback.StatCallback;
@@ -219,9 +220,14 @@ public class TestZooKeeperClient extends TestCase {
         client.create(path + "/children", data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
         expireZooKeeperSession(client, timeout);
+        logger.info("Create children under znode " + path);
+        client.create(path + "/children2", data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT, new Stat());
+
+        expireZooKeeperSession(client, timeout);
         List<String> children = client.getChildren(path, false, newStat);
-        Assert.assertEquals(1, children.size());
+        Assert.assertEquals(2, children.size());
         Assert.assertEquals("children", children.get(0));
+        Assert.assertEquals("children2", children.get(1));
         logger.info("Get children under znode " + path);
 
         expireZooKeeperSession(client, timeout);
@@ -280,6 +286,23 @@ public class TestZooKeeperClient extends TestCase {
 
         }, null);
         createLatch.await();
+        logger.info("Created znode " + path);
+
+        expireZooKeeperSession(client, timeout);
+        logger.info("Create znode " + path);
+        final CountDownLatch create2Latch = new CountDownLatch(1);
+        client.create(path, data, Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT,
+                new Create2Callback() {
+
+            @Override
+            public void processResult(int rc, String path, Object ctx, String name, Stat stat) {
+                if (KeeperException.Code.NODEEXISTS.intValue() == rc) {
+                    create2Latch.countDown();
+                }
+            }
+
+        }, null);
+        create2Latch.await();
         logger.info("Created znode " + path);
 
         expireZooKeeperSession(client, timeout);

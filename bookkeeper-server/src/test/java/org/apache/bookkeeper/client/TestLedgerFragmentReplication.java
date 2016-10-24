@@ -20,7 +20,6 @@
 package org.apache.bookkeeper.client;
 
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.HashSet;
@@ -30,6 +29,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.junit.Test;
@@ -82,7 +82,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
+        BookieSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
                 .get(0L).get(0);
 
         LOG.info("Killing Bookie", replicaToKill);
@@ -93,7 +93,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie);
         LOG.info("New Bookie addr :" + newBkAddr);
         Set<LedgerFragment> result = getFragmentsToReplicate(lh);
@@ -103,17 +103,17 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         // 0-9 entries should be copy to new bookie
 
         for (LedgerFragment lf : result) {
-            admin.replicateLedgerFragment(lh, lf, newBkAddr);
+            admin.replicateLedgerFragment(lh, lf);
         }
 
         // Killing all bookies except newly replicated bookie
-        SortedMap<Long, ArrayList<InetSocketAddress>> allBookiesBeforeReplication = lh
+        SortedMap<Long, ArrayList<BookieSocketAddress>> allBookiesBeforeReplication = lh
                 .getLedgerMetadata().getEnsembles();
-        Set<Entry<Long, ArrayList<InetSocketAddress>>> entrySet = allBookiesBeforeReplication
+        Set<Entry<Long, ArrayList<BookieSocketAddress>>> entrySet = allBookiesBeforeReplication
                 .entrySet();
-        for (Entry<Long, ArrayList<InetSocketAddress>> entry : entrySet) {
-            ArrayList<InetSocketAddress> bookies = entry.getValue();
-            for (InetSocketAddress bookie : bookies) {
+        for (Entry<Long, ArrayList<BookieSocketAddress>> entry : entrySet) {
+            ArrayList<BookieSocketAddress> bookies = entry.getValue();
+            for (BookieSocketAddress bookie : bookies) {
                 if (newBkAddr.equals(bookie)) {
                     continue;
                 }
@@ -139,7 +139,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         for (int i = 0; i < 10; i++) {
             lh.addEntry(data);
         }
-        InetSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
+        BookieSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
                 .get(0L).get(0);
 
         startNewBookie();
@@ -151,14 +151,14 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
             lh.addEntry(data);
         }
 
-        InetSocketAddress replicaToKill2 = lh.getLedgerMetadata()
+        BookieSocketAddress replicaToKill2 = lh.getLedgerMetadata()
                 .getEnsembles().get(0L).get(1);
 
         int startNewBookie2 = startNewBookie();
         LOG.info("Killing Bookie", replicaToKill2);
         killBookie(replicaToKill2);
 
-        InetSocketAddress newBkAddr = new InetSocketAddress(InetAddress
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
                 .getLocalHost().getHostAddress(), startNewBookie2);
         LOG.info("New Bookie addr :" + newBkAddr);
         Set<LedgerFragment> result = getFragmentsToReplicate(lh);
@@ -169,11 +169,11 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         int unclosedCount = 0;
         for (LedgerFragment lf : result) {
             if (lf.isClosed()) {
-                admin.replicateLedgerFragment(lh, lf, newBkAddr);
+                admin.replicateLedgerFragment(lh, lf);
             } else {
                 unclosedCount++;
                 try {
-                    admin.replicateLedgerFragment(lh, lf, newBkAddr);
+                    admin.replicateLedgerFragment(lh, lf);
                     fail("Shouldn't be able to rereplicate unclosed ledger");
                 } catch (BKException bke) {
                     // correct behaviour
@@ -199,7 +199,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         }
 
         // Kill the first Bookie
-        InetSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
+        BookieSocketAddress replicaToKill = lh.getLedgerMetadata().getEnsembles()
                 .get(0L).get(0);
         killBookie(replicaToKill);
         LOG.info("Killed Bookie =" + replicaToKill);
@@ -215,12 +215,10 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
 
         Set<LedgerFragment> fragments = getFragmentsToReplicate(lh);
         BookKeeperAdmin admin = new BookKeeperAdmin(baseClientConf);
-        int startNewBookie = startNewBookie();
-        InetSocketAddress additionalBK = new InetSocketAddress(InetAddress
-                .getLocalHost().getHostAddress(), startNewBookie);
+        startNewBookie();
         for (LedgerFragment lf : fragments) {
             try {
-                admin.replicateLedgerFragment(lh, lf, additionalBK);
+                admin.replicateLedgerFragment(lh, lf);
             } catch (BKException.BKLedgerRecoveryException e) {
                 // expected
             }
@@ -237,7 +235,7 @@ public class TestLedgerFragmentReplication extends BookKeeperClusterTestCase {
         LedgerMetadata metadata = new LedgerMetadata(3, 3, 3, TEST_DIGEST_TYPE,
                 TEST_PSSWD) {
             @Override
-            ArrayList<InetSocketAddress> getEnsemble(long entryId) {
+            ArrayList<BookieSocketAddress> getEnsemble(long entryId) {
                 return null;
             }
 

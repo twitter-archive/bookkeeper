@@ -29,9 +29,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.AbstractConfiguration;
@@ -53,6 +53,8 @@ import org.apache.zookeeper.data.Stat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
+
 /**
  * Abstract ledger manager based on zookeeper, which provides common methods such as query zk nodes.
  */
@@ -62,11 +64,6 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
 
     static final int ZK_CONNECT_BACKOFF_MS_MIN = 200;
     static final int ZK_CONNECT_BACKOFF_MS_MAX = 2000;
-
-    // Ledger Node Prefix
-    static public final String LEDGER_NODE_PREFIX = "L";
-    static final String AVAILABLE_NODE = "available";
-    static final String COOKIES_NODE = "cookies";
 
     protected final AbstractConfiguration conf;
     protected final ZooKeeper zk;
@@ -79,7 +76,9 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
     protected final ConcurrentMap<Long, Set<LedgerMetadataListener>> listeners =
             new ConcurrentHashMap<Long, Set<LedgerMetadataListener>>();
     // we use this to prevent long stack chains from building up in callbacks
-    protected ScheduledExecutorService scheduler;
+    protected final ScheduledExecutorService scheduler;
+    protected final ReentrantReadWriteLock closeLock;
+    protected boolean closed = false;
 
     protected class ReadLedgerMetadataTask implements Runnable, GenericCallback<LedgerMetadata> {
 
@@ -108,7 +107,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                 final Set<LedgerMetadataListener> listenerSet = listeners.get(ledgerId);
                 if (null != listenerSet) {
                     LOG.debug("Ledger metadata is changed for {} : {}.", ledgerId, result);
-                    scheduler.submit(new Runnable() {
+                    submitTask(new Runnable() {
                         @Override
                         public void run() {
                             for (LedgerMetadataListener listener : listenerSet) {
@@ -132,10 +131,13 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     backOff = currentZKEBackOff;
                     // Double the backoff for the next retry up to the maximum allowed back off
                     currentZKEBackOff = Math.min(2 * currentZKEBackOff, ZK_CONNECT_BACKOFF_MS_MAX);
+                    LOG.info("Encountered zookeeper issue on reading ledger metadata of ledger {} : rc = {}." +
+                            " Retrying in {} ms.", new Object[] { ledgerId, rc, backOff });
+                } else {
+                    LOG.info("Failed on reading ledger metadata of ledger {} : rc = {}. Retrying in {} ms. ",
+                            new Object[] { ledgerId, rc, backOff });
                 }
-
-                LOG.warn("Failed on read ledger metadata of ledger {} : {}", ledgerId, rc);
-                scheduler.schedule(this, backOff, TimeUnit.MILLISECONDS);
+                scheduleTask(this, backOff);
             }
         }
     }
@@ -157,6 +159,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
         this.scheduler = Executors.newSingleThreadScheduledExecutor(
                 new ThreadFactoryBuilder().setNameFormat("bkc-zkledgermanager-%d").build()
         );
+        this.closeLock = new ReentrantReadWriteLock();
     }
 
     /**
@@ -178,17 +181,40 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
      */
     protected abstract long getLedgerId(String ledgerPath) throws IOException;
 
+    protected void submitTask(Runnable runnable) {
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            scheduler.submit(runnable);
+        } finally {
+            closeLock.readLock().unlock();
+        }
+    }
+
+    protected void scheduleTask(Runnable runnable, long delayMs) {
+        closeLock.readLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            scheduler.schedule(runnable, delayMs, TimeUnit.MILLISECONDS);
+        } finally {
+            closeLock.readLock().unlock();
+        }
+    }
+
     @Override
     public void process(WatchedEvent event) {
         LOG.debug("Received watched event {} from zookeeper based ledger manager.", event);
         if (Event.EventType.None == event.getType()) {
             if (Event.KeeperState.Expired == event.getState()) {
-                LOG.info("ZooKeeper client expired on ledger manager.");
                 Set<Long> keySet = new HashSet<Long>(listeners.keySet());
                 for (Long lid : keySet) {
-                    scheduler.submit(new ReadLedgerMetadataTask(lid));
-                    LOG.info("Re-read ledger metadata for {} after zookeeper session expired.", lid);
+                    submitTask(new ReadLedgerMetadataTask(lid));
                 }
+                LOG.info("Scheduled re-reading ledger metadata for {} ledgers after zookeeper session expired.", keySet.size());
             }
             return;
         }
@@ -307,14 +333,14 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                 }
 
                 if (rc == KeeperException.Code.SESSIONEXPIRED.intValue()) {
-                    LOG.warn("ZK session expired while reading metadata for ledger {}", ledgerId);
+                    LOG.info("ZK session expired while reading metadata for ledger {}", ledgerId);
                     readCb.operationComplete(BKException.Code.ZKException, null);
                     return;
                 }
 
                 if (rc != KeeperException.Code.OK.intValue()) {
-                    LOG.error("Could not read metadata for ledger: " + ledgerId,
-                              KeeperException.create(KeeperException.Code.get(rc), path));
+                    LOG.error("Could not read metadata for ledger {} : path = {}, rc = {}",
+                            new Object[] { ledgerId, path, KeeperException.Code.get(rc) });
                     readCb.operationComplete(BKException.Code.ZKException, null);
                     return;
                 }
@@ -323,7 +349,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                 try {
                     metadata = LedgerMetadata.parseConfig(data, new ZkVersion(stat.getVersion()));
                 } catch (IOException e) {
-                    LOG.error("Could not parse ledger metadata for ledger: " + ledgerId, e);
+                    LOG.error("Could not parse ledger metadata for ledger {} : {}", ledgerId, e.getMessage());
                     readCb.operationComplete(BKException.Code.ZKException, null);
                     return;
                 }
@@ -353,8 +379,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     metadata.setVersion(zv.setZnodeVersion(stat.getVersion()));
                     cb.operationComplete(BKException.Code.OK, null);
                 } else {
-                    LOG.warn("Conditional update ledger " + ledgerId + "'s metadata failed: ",
-                            KeeperException.Code.get(rc));
+                    LOG.warn("Conditional update ledger {}'s metadata failed: rc = {}",
+                            ledgerId, KeeperException.Code.get(rc));
                     cb.operationComplete(BKException.Code.ZKException, null);
                 }
             }
@@ -376,8 +402,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
             public void processResult(int rc, String path, Object ctx) {
                 LOG.debug("Sync node path {} return : {}", path, rc);
                 if (rc != Code.OK.intValue()) {
-                    LOG.error("ZK error syncing the ledgers node when getting children: ", KeeperException
-                            .create(KeeperException.Code.get(rc), path));
+                    LOG.error("ZK error syncing the ledgers node when getting children: path = {}, rc = {}",
+                            path, KeeperException.Code.get(rc));
                     getLedgersCallback.operationComplete(rc, null);
                     return;
                 }
@@ -394,8 +420,8 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
             @Override
             public void processResult(int rc, String path, Object ctx, List<String> ledgerNodes) {
                 if (rc != Code.OK.intValue()) {
-                    LOG.error("Error polling ZK for the available ledger nodes: ", KeeperException
-                            .create(KeeperException.Code.get(rc), path));
+                    LOG.error("Error polling ZK for the available ledger nodes: path = {}, rc = {}",
+                            path, KeeperException.Code.get(rc));
                     getLedgersCallback.operationComplete(rc, null);
                     return;
                 }
@@ -410,7 +436,7 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                         // convert the node path to ledger id according to different ledger manager implementation
                         allActiveLedgers.add(getLedgerId(path + "/" + ledgerNode));
                     } catch (IOException ie) {
-                        LOG.warn("Error extracting ledgerId from ZK ledger node: " + ledgerNode, ie);
+                        LOG.warn("Error extracting ledgerId from ZK ledger node {} : {}", ledgerNode, ie.getMessage());
                         // This is a pretty bad error as it indicates a ledger node in ZK
                         // has an incorrect format. For now just continue and consider
                         // this as a non-existent ledger.
@@ -538,10 +564,10 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
                     // succeed and continue
                     processLedgers(ledgersIter, processor, concurrency, finalCb, ctx, successRc, successRc);
                 }
-            }, ctx, successRc, failureRc);
+            }, ctx, successRc, failureRc, scheduler);
         } else {
             // reach the end
-            mcb = new MultiCallback(ledgersToProcess.size(), finalCb, ctx, successRc, failureRc);
+            mcb = new MultiCallback(ledgersToProcess.size(), finalCb, ctx, successRc, failureRc, scheduler);
         }
         for (Long ledger : ledgersToProcess) {
             processor.process(ledger, mcb);
@@ -557,10 +583,10 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
      */
     protected boolean isSpecialZnode(String znode) {
         if (AVAILABLE_NODE.equals(znode)
-                || COOKIES_NODE.equals(znode)
-                || LedgerLayout.LAYOUT_ZNODE.equals(znode)
-                || Bookie.INSTANCEID.equals(znode)
-                || ZkLedgerUnderreplicationManager.UNDER_REPLICATION_NODE
+                || COOKIE_NODE.equals(znode)
+                || LAYOUT_ZNODE.equals(znode)
+                || INSTANCEID.equals(znode)
+                || UNDER_REPLICATION_NODE
                         .equals(znode)) {
             return true;
         }
@@ -569,6 +595,15 @@ public abstract class AbstractZkLedgerManager implements LedgerManager, ActiveLe
 
     @Override
     public void close() {
+        closeLock.writeLock().lock();
+        try {
+            if (closed) {
+                return;
+            }
+            closed = true;
+        } finally {
+            closeLock.writeLock().unlock();
+        }
         try {
             scheduler.shutdown();
         } catch (Exception e) {

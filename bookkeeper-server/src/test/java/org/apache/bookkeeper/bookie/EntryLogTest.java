@@ -25,25 +25,41 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
-import junit.framework.TestCase;
-
-import org.apache.bookkeeper.bookie.GarbageCollectorThread.EntryLogMetadata;
-import org.apache.bookkeeper.bookie.GarbageCollectorThread.ExtractionScanner;
+import com.google.common.base.Optional;
+import org.apache.bookkeeper.bookie.EntryLogMetadataManager.EntryLogMetadata;
+import org.apache.bookkeeper.bookie.EntryLogger.ExtractionScanner;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.util.IOUtils;
+import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class EntryLogTest extends TestCase {
+import static org.junit.Assert.*;
+
+public class EntryLogTest {
     static Logger LOG = LoggerFactory.getLogger(EntryLogTest.class);
 
-    @Override
-    @Before
-    public void setUp() throws Exception {
+    final List<File> tempDirs = new ArrayList<File>();
+
+    File createTempDir(String prefix, String suffix) throws IOException {
+        File dir = IOUtils.createTempDir(prefix, suffix);
+        tempDirs.add(dir);
+        return dir;
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        for (File dir : tempDirs) {
+            FileUtils.deleteDirectory(dir);
+        }
+        tempDirs.clear();
     }
 
     private boolean verifyData(byte[] src, byte[] dst, int pos, int cap) {
@@ -55,9 +71,15 @@ public class EntryLogTest extends TestCase {
         return true;
     }
 
-    @Test
+    private static Bookie newBookie(ServerConfiguration conf) throws Exception {
+        Bookie b = new Bookie(conf);
+        b.initialize();
+        return b;
+    }
+
+    @Test(timeout = 60000)
     public void testBufferedReadChannel() throws Exception {
-        File tmpFile = File.createTempFile("bufferedReadTest", ".tmp");
+        File tmpFile = IOUtils.createTempFileAndDeleteOnExit("bufferedReadTest", ".tmp");
         RandomAccessFile raf = null;
         BufferedChannel bc = new BufferedChannel((raf = new RandomAccessFile(tmpFile, "rw")).getChannel(), 64);
         final int cap = 2048;
@@ -127,20 +149,18 @@ public class EntryLogTest extends TestCase {
         assertEquals(50, brc.read(dstBuff, cap - 50));
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testCorruptEntryLog() throws Exception {
         extractEntryLogMetadataFromCorruptedLog(false);
     }
 
-    @Test
+    @Test(timeout = 60000)
     public void testGcExtractEntryLogMetadataFromCorruptedLog() throws Exception {
         extractEntryLogMetadataFromCorruptedLog(true);
     }
 
     private void extractEntryLogMetadataFromCorruptedLog(boolean useGCExtracter) throws Exception {
-        File tmpDir = File.createTempFile("bkTest", ".dir");
-        tmpDir.delete();
-        tmpDir.mkdir();
+        File tmpDir = createTempDir("bkTest", ".dir");
         File curDir = Bookie.getCurrentDirectory(tmpDir);
         Bookie.checkDirectoryStructure(curDir);
 
@@ -148,12 +168,12 @@ public class EntryLogTest extends TestCase {
         ServerConfiguration conf = new ServerConfiguration();
         conf.setGcWaitTime(gcWaitTime);
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         // create some entries
         EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
-        logger.addEntry(generateEntry(1, 1));
-        logger.addEntry(generateEntry(3, 1));
-        logger.addEntry(generateEntry(2, 1));
+        logger.addEntry(1L, generateEntry(1, 1));
+        logger.addEntry(3L, generateEntry(3, 1));
+        logger.addEntry(2L, generateEntry(2, 1));
         logger.flush();
         // now lets truncate the file to corrupt the last entry, which simulates a partial write
         File f = new File(curDir, "0.log");
@@ -167,7 +187,7 @@ public class EntryLogTest extends TestCase {
         EntryLogMetadata meta = new EntryLogMetadata(0L);
         if (useGCExtracter) {
             // it should scan short-read entry log successfully.
-            meta = GarbageCollectorThread.extractMetaFromEntryLog(logger, 0);
+            meta = logger.extractEntryLogMetadata(0);
         } else {
             ExtractionScanner scanner = new ExtractionScanner(meta);
             try {
@@ -192,17 +212,98 @@ public class EntryLogTest extends TestCase {
         return bb;
     }
 
-    @Test
+    @Test(timeout = 60000)
+    public void testInitializeEntryLogNoWritableDirs() throws Exception {
+        File tmpLedgerDir = createTempDir("initializeEntryLogNoWritableDirs", "ledgers");
+        File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
+        Bookie.checkDirectoryStructure(curLedgerDir);
+
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
+
+        LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        dirsManager.addToFilledDirs(curLedgerDir);
+
+        try {
+            new EntryLogger(conf, dirsManager);
+            fail("Should fail initialize entry logger if there isn't writable dirs");
+        } catch (IOException ioe) {
+            // expected
+        }
+    }
+
+    static class TestEntryLogger extends EntryLogger {
+
+        public TestEntryLogger(ServerConfiguration conf, LedgerDirsManager ledgerDirsManager)
+                throws IOException {
+            super(conf, ledgerDirsManager);
+        }
+
+        @Override
+        protected void setLastLogId(File dir, long logId) throws IOException {
+            throw new IOException("Failed to write log id " + logId + " under dir " + dir);
+        }
+    }
+
+    @Test(timeout = 60000)
+    public void testWriteLogIdFailure() throws Exception {
+        File tmpLedgerDir = createTempDir("writeLogIdFailure", "ledgers");
+        File curLedgerDir = Bookie.getCurrentDirectory(tmpLedgerDir);
+        Bookie.checkDirectoryStructure(curLedgerDir);
+
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { tmpLedgerDir.toString() });
+
+        LedgerDirsManager dirsManager = new LedgerDirsManager(conf, conf.getLedgerDirs());
+        // create logs
+        int numLogs = 3;
+        int numEntries = 10;
+        long[][] positions = new long[2*numLogs][];
+        for (int i = 0; i < numLogs; i++) {
+            positions[i] = new long[numEntries];
+
+            EntryLogger entryLogger = new TestEntryLogger(conf, dirsManager);
+            for (int j = 0; j < numEntries; j++) {
+                positions[i][j] = entryLogger.addEntry(i, generateEntry(i, j));
+            }
+            entryLogger.flush();
+            entryLogger.shutdown();
+        }
+
+        EntryLogger newLogger = new TestEntryLogger(conf, dirsManager);
+        for (int i = 0; i < numLogs + 1; i++) {
+            File logFile = new File(curLedgerDir, Long.toHexString(i) + ".log");
+            assertTrue(logFile.exists());
+        }
+
+        for (int i=0; i<numLogs; i++) {
+            for (int j=0; j<numEntries; j++) {
+                String expectedValue = "ledger-" + i + "-" + j;
+                byte[] value = newLogger.readEntry(i, j, positions[i][j]);
+                ByteBuffer buf = ByteBuffer.wrap(value);
+                long ledgerId = buf.getLong();
+                long entryId = buf.getLong();
+                byte[] data = new byte[buf.remaining()];
+                buf.get(data);
+                assertEquals(i, ledgerId);
+                assertEquals(j, entryId);
+                assertEquals(expectedValue, new String(data));
+            }
+        }
+
+        File lastId = new File(curLedgerDir, "lastId");
+        assertFalse(lastId.exists());
+    }
+
+    @Test(timeout = 60000)
     public void testMissingLogId() throws Exception {
-        File tmpDir = File.createTempFile("entryLogTest", ".dir");
-        tmpDir.delete();
-        tmpDir.mkdir();
+        File tmpDir = createTempDir("entryLogTest", ".dir");
         File curDir = Bookie.getCurrentDirectory(tmpDir);
         Bookie.checkDirectoryStructure(curDir);
 
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] {tmpDir.toString()});
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         // create some entries
         int numLogs = 3;
         int numEntries = 10;
@@ -213,7 +314,7 @@ public class EntryLogTest extends TestCase {
             EntryLogger logger = new EntryLogger(conf,
                     bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(generateEntry(i, j));
+                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
             }
             logger.flush();
         }
@@ -228,7 +329,7 @@ public class EntryLogTest extends TestCase {
             EntryLogger logger = new EntryLogger(conf,
                     bookie.getLedgerDirsManager());
             for (int j=0; j<numEntries; j++) {
-                positions[i][j] = logger.addEntry(generateEntry(i, j));
+                positions[i][j] = logger.addEntry(i, generateEntry(i, j));
             }
             logger.flush();
         }
@@ -255,12 +356,11 @@ public class EntryLogTest extends TestCase {
         }
     }
 
-    @Test
+    @Test(timeout = 60000)
     /** Test that EntryLogger Should fail with FNFE, if entry logger directories does not exist*/
     public void testEntryLoggerShouldThrowFNFEIfDirectoriesDoesNotExist()
             throws Exception {
-        File tmpDir = File.createTempFile("bkTest", ".dir");
-        tmpDir.delete();
+        File tmpDir = createTempDir("bkTest", ".dir");
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] { tmpDir.toString() });
         EntryLogger entryLogger = null;
@@ -277,19 +377,28 @@ public class EntryLogTest extends TestCase {
         }
     }
 
+    @Test(timeout = 60000, expected = Bookie.NoEntryException.class)
+    public void testFileNotFoundOnReadingEntries() throws Exception {
+        File ledgerDir = createTempDir("EntryLogTest", ".dir");
+        ServerConfiguration conf = new ServerConfiguration();
+        conf.setLedgerDirNames(new String[] { ledgerDir.getAbsolutePath() });
+        Bookie bookie = newBookie(conf);
+        EntryLogger entryLogger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+        long pos = (9999L << 32L) | 9999L;
+        entryLogger.readEntry(1L, 0L, pos);
+    }
+
     /**
      * Test to verify the DiskFull during addEntry
      */
-    @Test
+    @Test(timeout = 60000)
     public void testAddEntryFailureOnDiskFull() throws Exception {
-        File ledgerDir1 = File.createTempFile("bkTest", ".dir");
-        ledgerDir1.delete();
-        File ledgerDir2 = File.createTempFile("bkTest", ".dir");
-        ledgerDir2.delete();
+        File ledgerDir1 = createTempDir("bkTest", ".dir");
+        File ledgerDir2 = createTempDir("bkTest", ".dir");
         ServerConfiguration conf = new ServerConfiguration();
         conf.setLedgerDirNames(new String[] { ledgerDir1.getAbsolutePath(),
                 ledgerDir2.getAbsolutePath() });
-        Bookie bookie = new Bookie(conf);
+        Bookie bookie = newBookie(conf);
         EntryLogger entryLogger = new EntryLogger(conf,
                 bookie.getLedgerDirsManager());
         InterleavedLedgerStorage ledgerStorage = ((InterleavedLedgerStorage) bookie.ledgerStorage);
@@ -312,9 +421,136 @@ public class EntryLogTest extends TestCase {
         Assert.assertTrue(0 == generateEntry(3, 1).compareTo(ledgerStorage.getEntry(3, 1)));
     }
 
-    @Override
-    @After
-    public void tearDown() throws Exception {
+    @Test(timeout=60000)
+    public void testGetLedgersMapFromIndex() throws Exception {
+        File tmpDir = createTempDir("bkTest", ".dir");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+
+        int gcWaitTime = 1000;
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        conf.setGcWaitTime(gcWaitTime);
+        conf.setLedgerDirNames(new String[] {tmpDir.toString()});
+        Bookie bookie = new Bookie(conf);
+        bookie.initialize();
+
+        // create some entries
+        EntryLogger logger = ((InterleavedLedgerStorage)bookie.ledgerStorage).entryLogger;
+        logger.addEntry(1, generateEntry(1, 1));
+        logger.addEntry(3, generateEntry(3, 1));
+        logger.addEntry(2, generateEntry(2, 1));
+        logger.addEntry(1, generateEntry(1, 2));
+        logger.rollLog();
+        logger.flush();
+
+        logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+        Optional<EntryLogMetadata> metaOptional = logger.extractEntryLogMetadataFromIndex(0L);
+        assertTrue(metaOptional.isPresent());
+        EntryLogMetadata meta = metaOptional.get();
+        LOG.info("Extracted Meta From Entry Log {}", meta);
+        assertEquals(60, meta.ledgersMap.get(1L).longValue());
+        assertEquals(30, meta.ledgersMap.get(2L).longValue());
+        assertEquals(30, meta.ledgersMap.get(3L).longValue());
+        assertNull(meta.ledgersMap.get(4L));
+        assertEquals(120, meta.getTotalSize());
+        assertEquals(120, meta.getRemainingSize());
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapOnV0EntryLog() throws Exception {
+        testGetLedgersMap(true, false, false, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedOffset() throws Exception {
+        testGetLedgersMap(false, true, false, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedTotalLedgers() throws Exception {
+        testGetLedgersMap(false, false, true, false, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapCorruptedLedgersMapEntry() throws Exception {
+        testGetLedgersMap(false, false, false, true, false);
+    }
+
+    @Test(timeout = 60000)
+    public void testGetLedgersMapMissingLedgersMapEntry() throws Exception {
+        testGetLedgersMap(false, false, false, false, true);
+    }
+
+    private void testGetLedgersMap(boolean writeAsV0Log,
+                                   boolean corruptedOffset,
+                                   boolean corruptedTotalLedgers,
+                                   boolean corruptedLedgersMapEntry,
+                                   boolean missingLedgersMapEntry) throws Exception {
+        File tmpDir = createTempDir("bkTest", ".dir");
+        File curDir = Bookie.getCurrentDirectory(tmpDir);
+        Bookie.checkDirectoryStructure(curDir);
+
+        int gcWaitTime = 1000;
+        ServerConfiguration conf = TestBKConfiguration.newServerConfiguration();
+        conf.setGcWaitTime(gcWaitTime);
+        conf.setLedgerDirNames(new String[] { tmpDir.toString() });
+        Bookie bookie = new Bookie(conf);
+        bookie.initialize();
+
+        // create some entries
+        EntryLogger logger = ((InterleavedLedgerStorage) bookie.ledgerStorage).entryLogger;
+        logger.addEntry(1, generateEntry(1, 1));
+        logger.addEntry(3, generateEntry(3, 1));
+        logger.addEntry(2, generateEntry(2, 1));
+        logger.addEntry(1, generateEntry(1, 2));
+        logger.rollLog();
+        logger.flush();
+
+        // Rewrite the entry log header to be on V0 format
+
+        File f = new File(curDir, "0.log");
+        RandomAccessFile raf = new RandomAccessFile(f, "rw");
+        try {
+            if (writeAsV0Log) {
+                raf.seek(0L);
+                // rewrite the header to v0
+                ByteBuffer buf = ByteBuffer.allocate(EntryLogger.LOGFILE_HEADER_LENGTH);
+                buf.put(EntryLogger.MAGIC_BYTES);
+                raf.write(buf.array());
+            } else {
+                if (corruptedLedgersMapEntry) {
+                    raf.setLength(raf.length() - 6);
+                } else if (missingLedgersMapEntry) {
+                    raf.setLength(raf.length() - 16);
+                } else if (corruptedTotalLedgers) {
+                    ByteBuffer buf = ByteBuffer.allocate(4);
+                    buf.putInt(99999);
+                    raf.seek(EntryLogger.HEADER_VERSION_LENGTH + 8);
+                    raf.write(buf.array());
+                } else if (corruptedOffset) {
+                    ByteBuffer buf = ByteBuffer.allocate(8);
+                    buf.putLong(999999);
+                    raf.seek(EntryLogger.HEADER_VERSION_LENGTH);
+                    raf.write(buf.array());
+                }
+            }
+        } finally {
+            raf.close();
+        }
+
+        // now see which ledgers are in the log
+        logger = new EntryLogger(conf, bookie.getLedgerDirsManager());
+
+        assertFalse(logger.extractEntryLogMetadataFromIndex(0L).isPresent());
+
+        EntryLogMetadata meta = logger.extractEntryLogMetadata(0L);
+        LOG.info("Extracted Meta From Entry Log {}", meta);
+        assertEquals(60, meta.ledgersMap.get(1L).longValue());
+        assertEquals(30, meta.ledgersMap.get(2L).longValue());
+        assertEquals(30, meta.ledgersMap.get(3L).longValue());
+        assertNull(meta.ledgersMap.get(4L));
+        assertEquals(120, meta.getTotalSize());
+        assertEquals(120, meta.getRemainingSize());
     }
 
 }

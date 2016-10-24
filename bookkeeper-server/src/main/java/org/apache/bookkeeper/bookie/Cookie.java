@@ -27,23 +27,20 @@ import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.StringReader;
-
-import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs.Ids;
 
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.proto.DataFormats.CookieFormat;
 
@@ -51,6 +48,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.TextFormat;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 /**
  * When a bookie starts for the first time it generates  a cookie, and stores
@@ -69,8 +68,6 @@ class Cookie {
     static Logger LOG = LoggerFactory.getLogger(Cookie.class);
 
     static final int CURRENT_COOKIE_LAYOUT_VERSION = 4;
-    static final String COOKIE_NODE = "cookies";
-    static final String VERSION_FILENAME = "VERSION";
     private int layoutVersion = 0;
     private String bookieHost = null;
     private String journalDir = null;
@@ -211,7 +208,7 @@ class Cookie {
             throws UnknownHostException {
         Cookie c = new Cookie();
         c.layoutVersion = CURRENT_COOKIE_LAYOUT_VERSION;
-        c.bookieHost = StringUtils.addrToString(Bookie.getBookieAddress(conf));
+        c.bookieHost = Bookie.getBookieAddress(conf).toString();
         c.journalDir = conf.getJournalDirName();
         StringBuilder b = new StringBuilder();
         String[] dirs = conf.getLedgerDirNames();
@@ -259,13 +256,13 @@ class Cookie {
         return getZkPath(conf, Bookie.getBookieAddress(conf));
     }
 
-    private static String getZkPath(ServerConfiguration conf, InetSocketAddress address) {
+    private static String getZkPath(ServerConfiguration conf, BookieSocketAddress address) {
         String bookieCookiePath = conf.getZkLedgersRootPath() + "/" + COOKIE_NODE;
-        return bookieCookiePath + "/" + StringUtils.addrToString(address);
+        return bookieCookiePath + "/" + address;
     }
 
     public static void removeCookieForBookie(ServerConfiguration conf, ZooKeeper zk,
-                                             InetSocketAddress address)
+                                             BookieSocketAddress address)
             throws KeeperException, InterruptedException {
         String zkPath = getZkPath(conf, address);
         zk.delete(zkPath, -1);

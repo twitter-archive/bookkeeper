@@ -33,6 +33,8 @@ import java.util.Observer;
  */
 interface LedgerCache extends Closeable {
 
+    void registerListener(LedgerStorageListener listener);
+
     boolean setFenced(long ledgerId) throws IOException;
     boolean isFenced(long ledgerId) throws IOException;
 
@@ -52,5 +54,4 @@ interface LedgerCache extends Closeable {
 
     void deleteLedger(long ledgerId) throws IOException;
 
-    LedgerCacheBean getJMXBean();
 }

@@ -26,20 +26,21 @@
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.apache.bookkeeper</groupId>
-  <version>4.2.6-TWTTR-SNAPSHOT</version>
+  <version>4.3.4-TWTTR-SNAPSHOT</version>
   <artifactId>bookkeeper</artifactId>
   <packaging>pom</packaging>
   <name>bookkeeper</name>
+  <inceptionYear>2011</inceptionYear>
   <distributionManagement>
     <repository>
       <id>artifactory-release</id>
       <name>Twitter Artifactory Releases</name>
-      <url>http://artifactory.local.twitter.com/libs-releases-local</url>
+      <url>https://artifactory.twitter.biz/libs-releases-local</url>
     </repository>
     <snapshotRepository>
       <id>artifactory-snapshot</id>
       <name>Twitter Artifactory Snapshots</name>
-      <url>http://artifactory.local.twitter.com/libs-snapshots-local</url>
+      <url>https://artifactory.twitter.biz/libs-snapshots-local</url>
     </snapshotRepository>
   </distributionManagement>
   <modules>
@@ -57,8 +58,12 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- ProtocolBuffer version -->
+    <protobuf.version>2.4.1</protobuf.version>
     <!-- Guava Version -->
     <guava.version>16.0</guava.version>
+    <netty.version>3.9.4.Final</netty.version>
+    <zookeeper.version>3.4.6</zookeeper.version>
   </properties>
   <url>http://zookeeper.apache.org/bookkeeper</url>
   <build>
@@ -144,6 +149,16 @@
   </build>
   <reporting>
     <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>cobertura-maven-plugin</artifactId>
+        <configuration>
+          <formats>
+            <format>html</format>
+            <format>xml</format>
+          </formats>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jxr-plugin</artifactId>

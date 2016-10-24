@@ -21,9 +21,6 @@
 
 package org.apache.bookkeeper.bookie;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -38,9 +35,6 @@ public class BufferedReadChannel extends BufferedChannelBase {
     protected ByteBuffer readBuffer;
     // The starting position of the data currently in the read buffer.
     protected long readBufferStartPosition = Long.MIN_VALUE;
-
-    long invocationCount = 0;
-    long cacheHitCount = 0;
 
     public BufferedReadChannel(FileChannel fileChannel, int readCapacity) throws IOException {
         super(fileChannel);
@@ -59,7 +53,6 @@ public class BufferedReadChannel extends BufferedChannelBase {
      * @throws IOException if I/O error occurs
      */
     synchronized public int read(ByteBuffer dest, long pos) throws IOException {
-        invocationCount++;
         long currentPosition = pos;
         long eof = validateAndGetFileChannel().size();
         // return -1 if the given position is greater than or equal to the file's current size.
@@ -76,7 +69,6 @@ public class BufferedReadChannel extends BufferedChannelBase {
                 rbDup.limit((int)(posInBuffer + bytesToCopy));
                 dest.put(rbDup);
                 currentPosition += bytesToCopy;
-                cacheHitCount++;
             } else if (currentPosition >= eof) {
                 // here we reached eof.
                 break;
@@ -100,13 +92,4 @@ public class BufferedReadChannel extends BufferedChannelBase {
         readBuffer.limit(0);
     }
 
-    @Override
-    protected void finalize () {
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.BUFFERED_READER_NUM_READ_REQUESTS)
-            .add(invocationCount);
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.BUFFERED_READER_NUM_READ_CACHE_HITS)
-            .add(cacheHitCount);
-    }
 }

@@ -24,9 +24,12 @@ package org.apache.bookkeeper.bookie;
 import java.io.IOException;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.concurrent.CopyOnWriteArraySet;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.ActiveLedgerManager;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,16 +46,28 @@ public class LedgerCacheImpl implements LedgerCache {
     final IndexPersistenceMgr indexPersistenceManager;
     final int pageSize;
     final int entriesPerPage;
+    final CopyOnWriteArraySet<LedgerStorageListener> listeners;
 
-    public LedgerCacheImpl(ServerConfiguration conf, ActiveLedgerManager alm, LedgerDirsManager ledgerDirsManager)
+    public LedgerCacheImpl(ServerConfiguration conf,
+                           ActiveLedgerManager alm,
+                           LedgerDirsManager ledgerDirsManager,
+                           StatsLogger statsLogger)
             throws IOException {
         this.pageSize = conf.getPageSize();
         this.entriesPerPage = pageSize / LedgerEntryPage.getIndexEntrySize();
-        this.indexPersistenceManager = new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager);
-        this.indexPageManager = new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager);
+        this.indexPersistenceManager =
+                new IndexPersistenceMgr(pageSize, entriesPerPage, conf, alm, ledgerDirsManager, statsLogger);
+        this.indexPageManager =
+                new IndexInMemPageMgr(pageSize, entriesPerPage, conf, indexPersistenceManager, statsLogger);
+        this.listeners = new CopyOnWriteArraySet<LedgerStorageListener>();
 
         LOG.info("maxMemory = {}", Runtime.getRuntime().maxMemory());
         LOG.info("PageSize is {}", pageSize);
+    }
+
+    @Override
+    public void registerListener(LedgerStorageListener listener) {
+        this.listeners.add(listener);
     }
 
     IndexInMemPageMgr getIndexPageManager() {
@@ -92,7 +107,8 @@ public class LedgerCacheImpl implements LedgerCache {
         return indexPageManager.getEntryOffset(ledger, entry);
     }
 
-    static final String getLedgerName(long ledgerId) {
+    @VisibleForTesting
+    public static final String getLedgerName(long ledgerId) {
         int parent = (int) (ledgerId & 0xff);
         int grandParent = (int) ((ledgerId & 0xff00) >> 8);
         StringBuilder sb = new StringBuilder();
@@ -132,6 +148,11 @@ public class LedgerCacheImpl implements LedgerCache {
 
         indexPageManager.removePagesForLedger(ledgerId);
         indexPersistenceManager.removeLedger(ledgerId);
+
+        // when a ledger is deleted, notify by listeners
+        for (LedgerStorageListener listener : listeners) {
+            listener.onLedgerDeleted(ledgerId);
+        }
     }
 
     @Override
@@ -157,41 +178,6 @@ public class LedgerCacheImpl implements LedgerCache {
     @Override
     public boolean ledgerExists(long ledgerId) throws IOException {
         return indexPersistenceManager.ledgerExists(ledgerId);
-    }
-
-    @Override
-    public LedgerCacheBean getJMXBean() {
-        return new LedgerCacheBean() {
-            @Override
-            public String getName() {
-                return "LedgerCache";
-            }
-
-            @Override
-            public boolean isHidden() {
-                return false;
-            }
-
-            @Override
-            public int getPageCount() {
-                return LedgerCacheImpl.this.indexPageManager.getNumUsedPages();
-            }
-
-            @Override
-            public int getPageSize() {
-                return LedgerCacheImpl.this.getPageSize();
-            }
-
-            @Override
-            public int getOpenFileLimit() {
-                return LedgerCacheImpl.this.indexPersistenceManager.getOpenFileLimit();
-            }
-
-            @Override
-            public int getNumOpenLedgers() {
-                return LedgerCacheImpl.this.indexPersistenceManager.getNumOpenLedgers();
-            }
-        };
     }
 
     @Override

@@ -30,6 +30,8 @@ import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.client.LedgerEntry;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.util.IOUtils;
 import org.junit.Test;
 
 /**
@@ -229,10 +231,8 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
 
         File[] ledgerDirs = new File[numOfLedgerDirs];
         for (int i = 0; i < numOfLedgerDirs; i++) {
-            File dir = File.createTempFile("bookie", "test");
+            File dir = createTempDir("bookie", "test");
             tmpDirs.add(dir);
-            dir.delete();
-            dir.mkdir();
             ledgerDirs[i] = dir;
         }
 
@@ -290,5 +290,46 @@ public class ReadOnlyBookieTest extends BookKeeperClusterTestCase {
             LedgerEntry entry = readEntries.nextElement();
             assertEquals("Entry should contain correct data", "data", new String(entry.getEntry()));
         }
+    }
+
+    @Test(timeout = 60000)
+    public void testReadOnlyBookieShouldNotTurnWritableFromReadOnly() throws Exception {
+        ServerConfiguration conf1 = killBookie(1);
+        conf1.setReadOnlyModeEnabled(true);
+        BookieServer bookieServer = startBookie(conf1, true);
+        bs.add(bookieServer);
+        bsConfs.add(conf1);
+
+        Bookie bookie = bookieServer.getBookie();
+        LedgerDirsManager ledgerDirsManager = bookie.getLedgerDirsManager();
+
+        LOG.info("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
+        assertTrue("Bookie should be running and converted to readonly mode",
+                bookie.isRunning() && bookie.isReadOnly());
+
+        // refresh the bookkeeper client
+        bkc.readBookiesBlocking();
+        // should fail to create ledger
+        try {
+            bkc.createLedger(2, 2, DigestType.MAC, "".getBytes());
+            fail("Should fail to create a ledger since there isn't enough bookies alive.");
+        } catch (BKException.BKNotEnoughBookiesException bke) {
+            // Expected.
+        }
+
+        File[] ledgerDirs = bsConfs.get(1).getLedgerDirs();
+        assertEquals("Only one ledger dir should be present", 1, ledgerDirs.length);
+        File testDir = new File(ledgerDirs[0], "current");
+        // Now add the current ledger dir to filled dirs list
+        ledgerDirsManager.addToFilledDirs(testDir);
+
+        // Now add the current ledger dir back to writable dirs list
+        ledgerDirsManager.addToWritableDirs(testDir, true);
+
+        Thread.sleep(2000);
+
+        LOG.info("bookie is running {}, readonly {}.", bookie.isRunning(), bookie.isReadOnly());
+        assertTrue("Bookie should be running and not converted back to writable mode", bookie.isRunning()
+                && bookie.isReadOnly());
     }
 }

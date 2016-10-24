@@ -17,18 +17,22 @@
  */
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.Map;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger.BookkeeperClientOp;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.util.Timeout;
+import org.jboss.netty.util.TimerTask;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This represents a pending add operation. When it has got success from all
@@ -39,7 +43,7 @@ import org.slf4j.LoggerFactory;
  *
  *
  */
-class PendingAddOp implements WriteCallback {
+class PendingAddOp implements WriteCallback, TimerTask {
     final static Logger LOG = LoggerFactory.getLogger(PendingAddOp.class);
 
     ChannelBuffer toSend;
@@ -55,14 +59,22 @@ class PendingAddOp implements WriteCallback {
     boolean isRecoveryAdd = false;
     long requestTimeNanos;
 
+    final int timeoutSec;
+    final boolean delayEnsembleChange;
+
+    Timeout timeout = null;
+
     PendingAddOp(LedgerHandle lh, AddCallback cb, Object ctx) {
         this.lh = lh;
         this.cb = cb;
         this.ctx = ctx;
         this.entryId = LedgerHandle.INVALID_ENTRY_ID;
 
-        ackSet = lh.distributionSchedule.getAckSet();
+        this.ackSet = lh.distributionSchedule.getAckSet();
 
+        this.timeoutSec = lh.bk.getConf().getAddEntryQuorumTimeout();
+        this.delayEnsembleChange = lh.bk.getConf().getDelayEnsembleChange();
+        this.lh.numPendingAddsGauge.inc();
     }
 
     /**
@@ -85,6 +97,33 @@ class PendingAddOp implements WriteCallback {
                 this, bookieIndex, flags);
     }
 
+    @Override
+    public void run(Timeout timeout) {
+        timeoutQuorumWait();
+    }
+
+    void timeoutQuorumWait() {
+        lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.TIMEOUT_ADD_ENTRY)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+        try {
+            lh.bk.mainWorkerPool.submitOrdered(lh.ledgerId, new SafeRunnable() {
+                @Override
+                public void safeRun() {
+                    if (completed) {
+                        return;
+                    }
+                    lh.handleUnrecoverableErrorDuringAdd(BKException.Code.AddEntryQuorumTimeoutException);
+                }
+                @Override
+                public String toString() {
+                    return String.format("AddEntryQuorumTimeout(lid=%d, eid=%d)", lh.ledgerId, entryId);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            LOG.warn("Timeout add entry quorum wait failed {} entry: {}", lh.ledgerId, entryId);
+        }
+    }
+
     void unsetSuccessAndSendWriteRequest(int bookieIndex) {
         if (toSend == null) {
             // this addOp hasn't yet had its mac computed. When the mac is
@@ -101,14 +140,19 @@ class PendingAddOp implements WriteCallback {
         // if we had already heard a success from this array index, need to
         // increment our number of responses that are pending, since we are
         // going to unset this success
-        ackSet.removeBookie(bookieIndex);
-        completed = false;
+        if (!ackSet.removeBookieAndCheck(bookieIndex)) {
+            // unset completed if this results in loss of ack quorum
+            completed = false;
+        }
 
         sendWriteRequest(bookieIndex);
     }
 
     void initiate(ChannelBuffer toSend, int entryLength) {
-        requestTimeNanos = MathUtils.nowInNano();
+        if (timeoutSec > 0) {
+            this.timeout = lh.bk.bookieClient.scheduleTimeout(this, timeoutSec, TimeUnit.SECONDS);
+        }
+        this.requestTimeNanos = MathUtils.nowInNano();
         this.toSend = toSend;
         this.entryLength = entryLength;
         for (int bookieIndex : lh.distributionSchedule.getWriteSet(entryId)) {
@@ -117,20 +161,41 @@ class PendingAddOp implements WriteCallback {
     }
 
     @Override
-    public void writeComplete(int rc, long ledgerId, long entryId, InetSocketAddress addr, Object ctx) {
+    public void writeComplete(int rc, long ledgerId, long entryId, BookieSocketAddress addr, Object ctx) {
         int bookieIndex = (Integer) ctx;
-
-        if (completed) {
-            // I am already finished, ignore incoming responses.
-            // otherwise, we might hit the following error handling logic, which might cause bad things.
-            return;
-        }
 
         if (!lh.metadata.currentEnsemble.get(bookieIndex).equals(addr)) {
             // ensemble has already changed, failure of this addr is immaterial
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Write did not succeed: " + ledgerId + ", " + entryId + ". But we have already fixed it.");
             }
+            return;
+        }
+
+        // must record all acks, even if complete (completion can be undone by an ensemble change)
+        boolean ackQuorum = false;
+        if (BKException.Code.OK == rc) {
+            ackQuorum = ackSet.completeBookieAndCheck(bookieIndex);
+        }
+
+        if (completed) {
+            // even the add operation is completed, but because we don't reset completed flag back to false when
+            // #unsetSuccessAndSendWriteRequest doesn't break ack quorum constraint. we still have current pending
+            // add op is completed but never callback. so do a check here to complete again.
+            //
+            // E.g. entry x is going to complete.
+            //
+            // 1) entry x + k hits a failure. lh.handleBookieFailure increases blockAddCompletions to 1, for ensemble change
+            // 2) entry x receives all responses, sets completed to true but fails to send success callback because
+            //    blockAddCompletions is 1
+            // 3) ensemble change completed. lh unset success starting from x to x+k, but since the unset doesn't break ackSet
+            //    constraint. #removeBookieAndCheck doesn't set completed back to false.
+            // 4) so when the retry request on new bookie completes, it finds the pending op is already completed.
+            //    we have to trigger #sendAddSuccessCallbacks
+            //
+            sendAddSuccessCallbacks();
+            // I am already finished, ignore incoming responses.
+            // otherwise, we might hit the following error handling logic, which might cause bad things.
             return;
         }
 
@@ -149,13 +214,13 @@ class PendingAddOp implements WriteCallback {
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         case BKException.Code.UnauthorizedAccessException:
-            LOG.warn("Unauthorized access exception on write: " + ledgerId + ", " + entryId);
+            LOG.warn("Unauthorized access exception on write: {}, {}", ledgerId, entryId);
             lh.handleUnrecoverableErrorDuringAdd(rc);
             return;
         default:
-            if (lh.bk.getConf().getDelayEnsembleChange()) {
-                if (ackSet.failBookieAndCheck(bookieIndex, addr)) {
-                    Map<Integer, InetSocketAddress> failedBookies = ackSet.getFailedBookies();
+            if (delayEnsembleChange) {
+                if (ackSet.failBookieAndCheck(bookieIndex, addr) || rc == BKException.Code.WriteOnReadOnlyBookieException) {
+                    Map<Integer, BookieSocketAddress> failedBookies = ackSet.getFailedBookies();
                     LOG.warn("Failed to write entry ({}, {}) to bookies {}, handling failures.",
                              new Object[] { ledgerId, entryId, failedBookies });
                     // we can't meet ack quorum requirement, trigger ensemble change.
@@ -175,26 +240,37 @@ class PendingAddOp implements WriteCallback {
             return;
         }
 
-        if (ackSet.completeBookieAndCheck(bookieIndex) && !completed) {
+        if (ackQuorum && !completed) {
             completed = true;
 
-            // do some quick checks to see if some adds may have finished. All
-            // this will be checked under locks again
-            if (lh.pendingAddOps.peek() == this) {
-                lh.sendAddSuccessCallbacks();
-            }
+            sendAddSuccessCallbacks();
         }
     }
 
+    void sendAddSuccessCallbacks() {
+        lh.sendAddSuccessCallbacks();
+    }
+
     void submitCallback(final int rc) {
-        if (rc != BKException.Code.OK) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
-        } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientOp.ADD_ENTRY)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+        if (null != timeout) {
+            timeout.cancel();
         }
+        if (rc != BKException.Code.OK) {
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY)
+                    .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY_BYTES)
+                    .registerFailedEvent(entryLength);
+        } else {
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY)
+                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(requestTimeNanos));
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY_BYTES)
+                    .registerSuccessfulEvent(entryLength);
+        }
+        long completeStartNanos = MathUtils.nowInNano();
         cb.addComplete(rc, lh, entryId, ctx);
+        lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_COMPLETE)
+                .registerSuccessfulEvent(MathUtils.elapsedMicroSec(completeStartNanos));
+        lh.numPendingAddsGauge.dec();
     }
 
     @Override

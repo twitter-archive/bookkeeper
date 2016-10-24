@@ -25,6 +25,8 @@ import com.google.common.annotations.Beta;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang.StringUtils;
 
+import static org.apache.bookkeeper.util.BookKeeperConstants.MAX_LOG_SIZE_LIMIT;
+
 /**
  * Configuration manages server-side settings
  */
@@ -32,13 +34,24 @@ public class ServerConfiguration extends AbstractConfiguration {
     // Entry Log Parameters
     protected final static String ENTRY_LOG_SIZE_LIMIT = "logSizeLimit";
     protected final static String ENTRY_LOG_FILE_PREALLOCATION_ENABLED = "entryLogFilePreallocationEnabled";
+    protected final static String ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED = "entryLogWriteLedgersMapEnabled";
+    protected final static String ENTRY_LOG_READ_LEDGERSMAP_ENABLED = "entryLogReadLedgersMapEnabled";
     protected final static String MINOR_COMPACTION_INTERVAL = "minorCompactionInterval";
     protected final static String MINOR_COMPACTION_THRESHOLD = "minorCompactionThreshold";
     protected final static String MAJOR_COMPACTION_INTERVAL = "majorCompactionInterval";
     protected final static String MAJOR_COMPACTION_THRESHOLD = "majorCompactionThreshold";
+    protected final static String IS_THROTTLE_BY_BYTES = "isThrottleByBytes";
+    protected final static String COMPACTION_MAX_OUTSTANDING_REQUESTS
+            = "compactionMaxOutstandingRequests";
+    protected final static String COMPACTION_RATE = "compactionRate";
+    protected final static String COMPACTION_RATE_BY_ENTRIES = "compactionRateByEntries";
+    protected final static String COMPACTION_RATE_BY_BYTES = "compactionRateByBytes";
 
     // Gc Parameters
     protected final static String GC_WAIT_TIME = "gcWaitTime";
+    protected final static String GC_INITIAL_WAIT_TIME = "gcInitialWaitTime";
+    // Sync Parameters
+    protected final static String CHECKPOINT_INTERVAL = "checkpointInterval";
     // Bookie death watch interval
     protected final static String DEATH_WATCH_INTERVAL = "bookieDeathWatchInterval";
     // Ledger Cache Parameters
@@ -58,7 +71,9 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String JOURNAL_REMOVE_FROM_PAGE_CACHE = "journalRemoveFromPageCache";
     protected final static String JOURNAL_PRE_ALLOC_SIZE = "journalPreAllocSizeMB";
     protected final static String JOURNAL_WRITE_BUFFER_SIZE = "journalWriteBufferSizeKB";
+    protected final static String JOURNAL_ALIGNMENT_SIZE = "journalAlignmentSize";
     protected final static String NUM_JOURNAL_CALLBACK_THREADS = "numJournalCallbackThreads";
+    protected final static String JOURNAL_FORMAT_VERSION_TO_WRITE = "journalFormatVersionToWrite";
     // Bookie Parameters
     protected final static String BOOKIE_PORT = "bookiePort";
     protected final static String JOURNAL_DIR = "journalDirectory";
@@ -66,6 +81,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String INDEX_DIRS = "indexDirectories";
     // NIO Parameters
     protected final static String SERVER_TCP_NODELAY = "serverTcpNoDelay";
+    protected final static String ALLOW_EPHEMERAL_PORTS = "allowEphemeralPorts";
     // Zookeeper Parameters
     protected final static String ZK_TIMEOUT = "zkTimeout";
     protected final static String ZK_SERVERS = "zkServers";
@@ -79,6 +95,10 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String DISK_USAGE_THRESHOLD = "diskUsageThreshold";
     protected final static String DISK_USAGE_WARN_THRESHOLD = "diskUsageWarnThreshold";
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
+    protected final static String AUDITOR_PERIODIC_CHECK_INTERVAL = "auditorPeriodicCheckInterval";
+    protected final static String AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL = "auditorPeriodicBookieCheckInterval";
+    protected final static String AUDITOR_STALE_BOOKIE_INTERVAL = "auditorStaleBookieInterval";
+    protected final static String AUTO_RECOVERY_DAEMON_ENABLED = "autoRecoveryDaemonEnabled";
 
     // Worker Thread parameters.
     protected final static String NUM_ADD_WORKER_THREADS = "numAddWorkerThreads";
@@ -89,18 +109,21 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String REQUEST_TIMER_TICK_DURATION_MILLISEC = "requestTimerTickDurationMs";
     protected final static String REQUEST_TIMER_NO_OF_TICKS = "requestTimerNumTicks";
 
-
     // Stats exporting
     protected final static String STATS_EXPORT = "statsExport";
     protected final static String STATS_HTTP_PORT = "statsHttpPort";
 
     protected final static String READ_BUFFER_SIZE = "readBufferSizeBytes";
     protected final static String WRITE_BUFFER_SIZE = "writeBufferSizeBytes";
-
+    // Whether the bookie should use its hostname or ipaddress for the
+    // registration.
+    protected final static String USE_HOST_NAME_AS_BOOKIE_ID = "useHostNameAsBookieID";
     protected final static String SORTED_LEDGER_STORAGE_ENABLED = "sortedLedgerStorageEnabled";
     protected final static String SKIP_LIST_SIZE_LIMIT = "skipListSizeLimit";
     protected final static String SKIP_LIST_CHUNK_SIZE_ENTRY = "skipListArenaChunkSize";
     protected final static String SKIP_LIST_MAX_ALLOC_ENTRY = "skipListArenaMaxAllocSize";
+    protected final static String LISTENING_INTERFACE = "listeningInterface";
+    protected final static String ALLOW_LOOPBACK = "allowLoopback";
 
     /**
      * Construct a default configuration object
@@ -162,6 +185,49 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Is writing ledgers map for entry log files enabled?
+     *
+     * @return true if writing ledgers map enabled. otherwise false.
+     */
+    public boolean isEntryLogWriteLedgersMapEnabled() {
+        return this.getBoolean(ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED, false);
+    }
+
+    /**
+     * Enable/Disable writing ledgers map for entry log.
+     *
+     * @param enabled
+     *          flag to enable/disable writing ledgers map.
+     * @return server configuration
+     */
+    public ServerConfiguration setEntryLogWriteLedgersMapEnabled(boolean enabled) {
+        this.setProperty(ENTRY_LOG_WRITE_LEDGERSMAP_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Is reading ledgers map from entry log files enabled?
+     *
+     * @return true if reading ledgers map enabled. otherwise false.
+     */
+    public boolean isEntryLogReadLedgersMapEnabled() {
+        return this.getBoolean(ENTRY_LOG_READ_LEDGERSMAP_ENABLED, false);
+    }
+
+    /**
+     * Enable/Disable reading ledgers map from entry log.
+     *
+     * @param enabled
+     *          flag to enable/disable reading ledgers map.
+     * @return server configuration
+     */
+    public ServerConfiguration setEntryLogReadLedgersMapEnabled(boolean enabled) {
+        this.setProperty(ENTRY_LOG_READ_LEDGERSMAP_ENABLED, enabled);
+        return this;
+    }
+
+
+    /**
      * Get Garbage collection wait time
      *
      * @return gc wait time
@@ -179,6 +245,48 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setGcWaitTime(long gcWaitTime) {
         this.setProperty(GC_WAIT_TIME, Long.toString(gcWaitTime));
+        return this;
+    }
+
+    /**
+     * Get initial wait time for kicking in garbage collection.
+     *
+     * @return gc wait time.
+     */
+    public long getGcInitialWaitTime() {
+        return this.getLong(GC_INITIAL_WAIT_TIME, getGcWaitTime());
+    }
+
+    /**
+     * Set initial wait time for kicking in garbage collection.
+     *
+     * @param gcWaitTime
+     *          gc wait time in millis.
+     * @return server configuration
+     */
+    public ServerConfiguration setGcInitialWaitTime(long gcWaitTime) {
+        this.setProperty(GC_INITIAL_WAIT_TIME, gcWaitTime);
+        return this;
+    }
+
+    /**
+     * Get checkpoint interval (in millis)
+     *
+     * @return checkpoint interval in millis
+     */
+    public int getCheckpointInterval() {
+        return this.getInt(CHECKPOINT_INTERVAL, 10000);
+    }
+
+    /**
+     * Set checkpoint interval (in millis)
+     *
+     * @param checkpointInterval
+     *          Checkpoint Interval
+     * @return server configuration
+     */
+    public ServerConfiguration setCheckpointInterval(int checkpointInterval) {
+        this.setProperty(CHECKPOINT_INTERVAL, checkpointInterval);
         return this;
     }
 
@@ -363,6 +471,50 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public ServerConfiguration setMaxBackupJournals(int maxBackupJournals) {
         this.setProperty(MAX_BACKUP_JOURNALS, Integer.toString(maxBackupJournals));
+        return this;
+    }
+
+
+    /**
+     * All the journal writes and commits should be aligned to given size. If not,
+     * zeros will be padded to align to given size.
+     *
+     * @return journal alignment size
+     */
+    public int getJournalAlignmentSize() {
+        return this.getInt(JOURNAL_ALIGNMENT_SIZE, 512);
+    }
+
+    /**
+     * Set journal alignment size.
+     *
+     * @param size
+     *          journal alignment size.
+     * @return server configuration.
+     */
+    public ServerConfiguration setJournalAlignmentSize(int size) {
+        this.setProperty(JOURNAL_ALIGNMENT_SIZE, size);
+        return this;
+    }
+
+    /**
+     * Get journal format version to write.
+     *
+     * @return journal format version to write.
+     */
+    public int getJournalFormatVersionToWrite() {
+        return this.getInt(JOURNAL_FORMAT_VERSION_TO_WRITE, 5);
+    }
+
+    /**
+     * Set journal format version to write.
+     *
+     * @param version
+     *          journal format version to write.
+     * @return server configuration.
+     */
+    public ServerConfiguration setJournalFormatVersionToWrite(int version) {
+        this.setProperty(JOURNAL_FORMAT_VERSION_TO_WRITE, version);
         return this;
     }
 
@@ -692,7 +844,7 @@ public class ServerConfiguration extends AbstractConfiguration {
      * @return threshold of major compaction
      */
     public double getMajorCompactionThreshold() {
-        return getDouble(MAJOR_COMPACTION_THRESHOLD, 0.8f);
+        return getDouble(MAJOR_COMPACTION_THRESHOLD, 0.6f);
     }
 
     /**
@@ -993,6 +1145,9 @@ public class ServerConfiguration extends AbstractConfiguration {
         if (getSkipListArenaChunkSize() < getSkipListArenaMaxAllocSize()) {
             throw new ConfigurationException("Arena max allocation size should be smaller than the chunk size.");
         }
+        if (getEntryLogSizeLimit() > MAX_LOG_SIZE_LIMIT) {
+            throw new ConfigurationException("Entry log file size should not be larger than " + MAX_LOG_SIZE_LIMIT);
+        }
     }
 
     /**
@@ -1183,11 +1338,328 @@ public class ServerConfiguration extends AbstractConfiguration {
     }
 
     /**
+     * Are we allowing Bookie to bind to ephemeral ports
+     *
+     * @return Ephemeral Ports setting
+     */
+    public boolean getAllowEphemeralPorts() {
+        return getBoolean(ALLOW_EPHEMERAL_PORTS, true);
+    }
+
+    /**
+     * Set ephemeral ports setting
+     *
+     * @param allowEphemeralPorts
+     *          Ephemeral Ports setting
+     * @return server configuration
+     */
+    public ServerConfiguration setAllowEphemeralPorts(boolean allowEphemeralPorts) {
+        setProperty(ALLOW_EPHEMERAL_PORTS, Boolean.toString(allowEphemeralPorts));
+        return this;
+    }
+
+    /**
      * Bookie Servers uses this for garbage collections. so set it to 0, which is the behavior
      * as before.
      */
     @Override
     public int getAsyncProcessLedgersConcurrency() {
         return getInt(ASYNC_PROCESS_LEDGERS_CONCURRENCY, 0);
+    }
+
+    /**
+     * Get whether use bytes to throttle garbage collector compaction or not
+     *
+     * @return true  - use Bytes,
+     *         false - use Entries.
+     */
+    public boolean getIsThrottleByBytes() {
+        return getBoolean(IS_THROTTLE_BY_BYTES, false);
+    }
+
+    /**
+     * Set whether use bytes to throttle garbage collector compaction or not
+     *
+     * @param byBytes true to use by bytes; false to use by entries
+     *
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setIsThrottleByBytes(boolean byBytes) {
+        setProperty(IS_THROTTLE_BY_BYTES, byBytes);
+        return this;
+    }
+
+    /**
+     * Get the maximum number of entries which can be compacted without flushing.
+     * Default is 100,000.
+     *
+     * @return the maximum number of unflushed entries
+     */
+    public int getCompactionMaxOutstandingRequests() {
+        return getInt(COMPACTION_MAX_OUTSTANDING_REQUESTS, 100000);
+    }
+
+    /**
+     * Set the maximum number of entries which can be compacted without flushing.
+     *
+     * When compacting, the entries are written to the entrylog and the new offsets
+     * are cached in memory. Once the entrylog is flushed the index is updated with
+     * the new offsets. This parameter controls the number of entries added to the
+     * entrylog before a flush is forced. A higher value for this parameter means
+     * more memory will be used for offsets. Each offset consists of 3 longs.
+     *
+     * This parameter should _not_ be modified unless you know what you're doing.
+     * The default is 100,000.
+     *
+     * @param maxOutstandingRequests number of entries to compact before flushing
+     *
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setCompactionMaxOutstandingRequests(int maxOutstandingRequests) {
+        setProperty(COMPACTION_MAX_OUTSTANDING_REQUESTS, maxOutstandingRequests);
+        return this;
+    }
+
+    /**
+     * Get the rate of compaction adds. Default is 1,000.
+     *
+     * @return rate of compaction (adds per second)
+     * @deprecated  replaced by {@link #getCompactionRateByEntries()}
+     */
+    @Deprecated
+    public int getCompactionRate() {
+        return getInt(COMPACTION_RATE, 1000);
+    }
+
+    /**
+     * Set the rate of compaction adds.
+     *
+     * @param rate rate of compaction adds (adds entries per second)
+     *
+     * @return ServerConfiguration
+     */
+    @Deprecated
+    public ServerConfiguration setCompactionRate(int rate) {
+        setProperty(COMPACTION_RATE, rate);
+        return this;
+    }
+
+    /**
+     * Get the rate of compaction adds. Default is 1,000.
+     *
+     * @return rate of compaction (adds entries per second)
+     */
+    public int getCompactionRateByEntries() {
+        return getInt(COMPACTION_RATE_BY_ENTRIES, getCompactionRate());
+    }
+
+    /**
+     * Set the rate of compaction adds.
+     *
+     * @param rate rate of compaction adds (adds entries per second)
+     *
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setCompactionRateByEntries(int rate) {
+        setProperty(COMPACTION_RATE_BY_ENTRIES, rate);
+        return this;
+    }
+
+    /**
+     * Get the rate of compaction adds. Default is 1,000,000.
+     *
+     * @return rate of compaction (adds bytes per second)
+     */
+    public int getCompactionRateByBytes() {
+        return getInt(COMPACTION_RATE_BY_BYTES, 1000000);
+    }
+
+    /**
+     * Set the rate of compaction adds.
+     *
+     * @param rate rate of compaction adds (adds bytes per second)
+     *
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setCompactionRateByBytes(int rate) {
+        setProperty(COMPACTION_RATE_BY_BYTES, rate);
+        return this;
+    }
+
+    /**
+     * Set the regularity at which the auditor will run a check
+     * of all ledgers. This should not be run very often, and at most,
+     * once a day.
+     *
+     * @param interval The interval in seconds. e.g. 86400 = 1 day, 604800 = 1 week
+     */
+    public void setAuditorPeriodicCheckInterval(long interval) {
+        setProperty(AUDITOR_PERIODIC_CHECK_INTERVAL, interval);
+    }
+
+    /**
+     * Get the regularity at which the auditor checks all ledgers.
+     * @return The interval in seconds
+     */
+    public long getAuditorPeriodicCheckInterval() {
+        return getLong(AUDITOR_PERIODIC_CHECK_INTERVAL, 604800);
+    }
+
+    /**
+     * Set the interval between auditor bookie checks.
+     * The auditor bookie check, checks ledger metadata to see which bookies
+     * contain entries for each ledger. If a bookie which should contain entries
+     * is unavailable, then the ledger containing that entry is marked for recovery.
+     * Setting this to 0 disabled the periodic check. Bookie checks will still
+     * run when a bookie fails.
+     *
+     * @param interval The period in seconds.
+     * @return server configuration
+     */
+    public ServerConfiguration setAuditorPeriodicBookieCheckInterval(long interval) {
+        setProperty(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get the interval between auditor bookie check runs.
+     * @see #setAuditorPeriodicBookieCheckInterval(long)
+     * @return the interval between bookie check runs, in seconds. Default is 84600 (= 1 day)
+     */
+    public long getAuditorPeriodicBookieCheckInterval() {
+        return getLong(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, 84600);
+    }
+
+    /**
+     * Default time interval for auditor marking a bookie as "stale", i.e. if the bookie has not
+     * registered itself to zookeeper for more than this time interval, the bookie will be marked
+     * and treated as lost bookie by default. The stale interval cannot be too small since otherwise
+     * this may cause too frequent (unnecessary) re-replications.
+     *
+     * @param interval
+     *          time interval for auditor marking a bookie as "stale", in seconds
+     * @return server configuration
+     */
+    public ServerConfiguration setAuditorStaleBookieInterval(long interval) {
+        setProperty(AUDITOR_STALE_BOOKIE_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get whether bookie is using hostname for registration and in ledger
+     * metadata. Defaults to false.
+     *
+     * @return true, then bookie will be registered with its hostname and
+     *         hostname will be used in ledger metadata. Otherwise bookie will
+     *         use its ipaddress
+     */
+    public boolean getUseHostNameAsBookieID() {
+        return getBoolean(USE_HOST_NAME_AS_BOOKIE_ID, false);
+    }
+
+    /**
+     * Configure the bookie to use its hostname to register with the
+     * co-ordination service(eg: zookeeper) and in ledger metadata
+     *
+     * @see #getUseHostNameAsBookieID
+     * @param useHostName
+     *            whether to use hostname for registration and in ledgermetadata
+     * @return server configuration
+     */
+    public ServerConfiguration setUseHostNameAsBookieID(boolean useHostName) {
+        setProperty(USE_HOST_NAME_AS_BOOKIE_ID, useHostName);
+        return this;
+    }
+    /**
+     * Get default time interval for auditor marking a bookie as "stale" to re-replicate.
+     *
+     * @see #setAuditorStaleBookieInterval(long)
+     *
+     * @return time interval for auditor marking a bookie as "stale", in seconds
+     */
+    public long getAuditorStaleBookieInterval() {
+        return getLong(AUDITOR_STALE_BOOKIE_INTERVAL, 1800);
+    }
+
+    /**
+     * Sets that whether the auto-recovery service can start along with Bookie
+     * server itself or not
+     *
+     * @param enabled
+     *            - true if need to start auto-recovery service. Otherwise
+     *            false.
+     * @return ServerConfiguration
+     */
+    public ServerConfiguration setAutoRecoveryDaemonEnabled(boolean enabled) {
+        setProperty(AUTO_RECOVERY_DAEMON_ENABLED, enabled);
+        return this;
+    }
+
+    /**
+     * Get whether the Bookie itself can start auto-recovery service also or not
+     *
+     * @return true - if Bookie should start auto-recovery service along with
+     *         it. false otherwise.
+     */
+    public boolean isAutoRecoveryDaemonEnabled() {
+        return getBoolean(AUTO_RECOVERY_DAEMON_ENABLED, false);
+    }
+
+    /**
+     * Get the network interface that the bookie should
+     * listen for connections on. If this is null, then the bookie
+     * will listen for connections on all interfaces.
+     *
+     * @return the network interface to listen on, e.g. eth0, or
+     *         null if none is specified
+     */
+    public String getListeningInterface() {
+        return this.getString(LISTENING_INTERFACE);
+    }
+
+    /**
+     * Set the network interface that the bookie should listen on.
+     * If not set, the bookie will listen on all interfaces.
+     *
+     * @param iface the interface to listen on
+     */
+    public ServerConfiguration setListeningInterface(String iface) {
+        this.setProperty(LISTENING_INTERFACE, iface);
+        return this;
+    }
+
+    /**
+     * Is the bookie allowed to use a loopback interface as its primary
+     * interface(i.e. the interface it uses to establish its identity)?
+     *
+     * By default, loopback interfaces are not allowed as the primary
+     * interface.
+     *
+     * Using a loopback interface as the primary interface usually indicates
+     * a configuration error. For example, its fairly common in some VPS setups
+     * to not configure a hostname, or to have the hostname resolve to
+     * 127.0.0.1. If this is the case, then all bookies in the cluster will
+     * establish their identities as 127.0.0.1:3181, and only one will be able
+     * to join the cluster. For VPSs configured like this, you should explicitly
+     * set the listening interface.
+     *
+     * @see #setListeningInterface(String)
+     * @return whether a loopback interface can be used as the primary interface
+     */
+    public boolean getAllowLoopback() {
+        return this.getBoolean(ALLOW_LOOPBACK, false);
+    }
+
+    /**
+     * Configure the bookie to allow loopback interfaces to be used
+     * as the primary bookie interface.
+     *
+     * @see #getAllowLoopback
+     * @param allow whether to allow loopback interfaces
+     * @return server configuration
+     */
+    public ServerConfiguration setAllowLoopback(boolean allow) {
+        this.setProperty(ALLOW_LOOPBACK, allow);
+        return this;
     }
 }

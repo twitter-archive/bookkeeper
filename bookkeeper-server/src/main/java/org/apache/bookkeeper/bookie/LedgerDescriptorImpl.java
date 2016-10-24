@@ -27,10 +27,13 @@ import java.util.Arrays;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Implements a ledger inside a bookie. In particular, it implements operations
@@ -44,10 +47,24 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
 
     final byte[] masterKey;
 
-    LedgerDescriptorImpl(byte[] masterKey, long ledgerId, LedgerStorage ledgerStorage) {
+    // Stats
+    final Counter writeBytesCounter;
+    final Counter readBytesCounter;
+    final OpStatsLogger addEntryBytesStats;
+    final OpStatsLogger readEntryBytesStats;
+
+    LedgerDescriptorImpl(byte[] masterKey,
+                         long ledgerId,
+                         LedgerStorage ledgerStorage,
+                         StatsLogger statsLogger) {
         this.masterKey = masterKey;
         this.ledgerId = ledgerId;
         this.ledgerStorage = ledgerStorage;
+        // Stats
+        this.writeBytesCounter = statsLogger.getCounter(WRITE_BYTES);
+        this.readBytesCounter = statsLogger.getCounter(READ_BYTES);
+        this.addEntryBytesStats = statsLogger.getOpStatsLogger(BOOKIE_ADD_ENTRY_BYTES);
+        this.readEntryBytesStats = statsLogger.getOpStatsLogger(BOOKIE_READ_ENTRY_BYTES);
     }
 
     @Override
@@ -81,19 +98,39 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
         }
         entry.rewind();
 
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.WRITE_BYTES)
-                .add(entry.remaining());
-        return ledgerStorage.addEntry(entry);
+        int dataSize = entry.remaining();
+        boolean success = false;
+        try {
+            long entryId =  ledgerStorage.addEntry(entry);
+            success = true;
+            return entryId;
+        } finally {
+            if (success) {
+                writeBytesCounter.add(dataSize);
+                addEntryBytesStats.registerSuccessfulEvent(dataSize);
+            } else {
+                addEntryBytesStats.registerFailedEvent(dataSize);
+            }
+        }
     }
 
     @Override
     ByteBuffer readEntry(long entryId) throws IOException {
-        ByteBuffer data = ledgerStorage.getEntry(ledgerId, entryId);
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                BookkeeperServerStatsLogger.BookkeeperServerCounter.READ_BYTES)
-                .add(data.remaining());
-        return data;
+        boolean success = false;
+        int dataSize = 0;
+        try {
+            ByteBuffer data = ledgerStorage.getEntry(ledgerId, entryId);
+            success = true;
+            dataSize = data.remaining();
+            return data;
+        } finally {
+            if (success) {
+                readBytesCounter.add(dataSize);
+                readEntryBytesStats.registerSuccessfulEvent(dataSize);
+            } else {
+                readEntryBytesStats.registerFailedEvent(dataSize);
+            }
+        }
     }
 
     @Override

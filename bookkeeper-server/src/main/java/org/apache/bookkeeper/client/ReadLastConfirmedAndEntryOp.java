@@ -1,36 +1,32 @@
 package org.apache.bookkeeper.client;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
+
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks;
-import org.apache.bookkeeper.stats.BookkeeperClientStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.util.SafeRunnable;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ReadLastConfirmedAndEntryOp extends SafeRunnable
-        implements BookkeeperInternalCallbacks.ReadEntryCallback {
+public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.ReadEntryCallback, SpeculativeRequestExectuor {
     static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedAndEntryOp.class);
 
-    int speculativeReadTimeout;
-    final int maxSpeculativeReadTimeout;
     final private ScheduledExecutorService scheduler;
     ReadLACAndEntryRequest request;
-    final Set<InetSocketAddress> heardFromHosts;
-    final Set<InetSocketAddress> emptyResponsesFromHosts;
+    final BitSet heardFromHostsBitSet;
+    final BitSet emptyResponsesFromHostsBitSet;
     final int maxMissedReadsAllowed;
     boolean parallelRead = false;
     final AtomicBoolean requestComplete = new AtomicBoolean(false);
@@ -42,7 +38,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
     private int numResponsesPending;
     private final int numEmptyResponsesAllowed;
     private volatile boolean hasValidResponse = false;
-    private final long prevLastAddConfirmed;
+    private final long prevEntryId;
     private long lastAddConfirmed;
     private long timeOutInMillis;
 
@@ -54,15 +50,17 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         int firstError = BKException.Code.OK;
         int numMissedEntryReads = 0;
 
-        final ArrayList<InetSocketAddress> ensemble;
+        final ArrayList<BookieSocketAddress> ensemble;
+        final List<Integer> writeSet;
         final List<Integer> orderedEnsemble;
 
-        ReadLACAndEntryRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        ReadLACAndEntryRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(lId, eId);
 
             this.ensemble = ensemble;
+            this.writeSet = lh.distributionSchedule.getWriteSet(entryId);
             this.orderedEnsemble = lh.bk.placementPolicy.reorderReadLACSequence(ensemble,
-                lh.distributionSchedule.getWriteSet(entryId));
+                writeSet, lh.bookieFailureHistory.asMap());
         }
 
         synchronized int getFirstError() {
@@ -77,6 +75,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         /**
          * Complete the read request from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that respond the read
          * @param buffer
@@ -84,12 +84,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @return return true if we managed to complete the entry;
          *         otherwise return false if the read entry is not complete or it is already completed before
          */
-        boolean complete(InetSocketAddress host, final ChannelBuffer buffer, long entryId) {
+        boolean complete(int bookieIndex, BookieSocketAddress host, final ChannelBuffer buffer, long entryId) {
             ChannelBufferInputStream is;
             try {
                 is = lh.macManager.verifyDigestAndReturnData(entryId, buffer);
             } catch (BKException.BKDigestMatchException e) {
-                logErrorAndReattemptRead(host, "Mac mismatch", BKException.Code.DigestMatchException);
+                logErrorAndReattemptRead(bookieIndex, host, "Mac mismatch", BKException.Code.DigestMatchException);
                 return false;
             }
 
@@ -141,10 +141,11 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             }
         }
 
-
         /**
          * Log error <i>errMsg</i> and reattempt read from <i>host</i>.
          *
+         * @param bookieIndex
+         *          bookie index
          * @param host
          *          host that just respond
          * @param errMsg
@@ -152,11 +153,17 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @param rc
          *          read result code
          */
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
             translateAndSetFirstError(rc);
 
             if (BKException.Code.NoSuchEntryException == rc ||
                 BKException.Code.NoSuchLedgerExistsException == rc) {
+                // Since we send all long poll requests to every available node, we should only
+                // treat these errors as failures if the node from which we received this is part of
+                // the writeSet
+                if (this.writeSet.contains(bookieIndex)) {
+                    lh.registerOperationFailureOnBookie(host, entryId);
+                }
                 ++numMissedEntryReads;
             }
 
@@ -170,11 +177,11 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * Send to next replica speculatively, if required and possible.
          * This returns the host we may have sent to for unit testing.
          *
-         * @param heardFromHosts
+         * @param heardFromHostsBitSet
          *      the set of hosts that we already received responses.
          * @return host we sent to if we sent. null otherwise.
          */
-        abstract InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts);
+        abstract BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet);
 
         /**
          * Whether the read request completed.
@@ -204,7 +211,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
 
         int numPendings;
 
-        ParallelReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        ParallelReadRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(ensemble, lId, eId);
             numPendings = orderedEnsemble.size();
         }
@@ -212,9 +219,9 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         @Override
         void read() {
             for (int bookieIndex : orderedEnsemble) {
-                InetSocketAddress to = ensemble.get(bookieIndex);
+                BookieSocketAddress to = ensemble.get(bookieIndex);
                 try {
-                    sendReadTo(to, this);
+                    sendReadTo(bookieIndex, to, this);
                 } catch (InterruptedException ie) {
                     LOG.error("Interrupted reading entry {} : ", this, ie);
                     Thread.currentThread().interrupt();
@@ -225,8 +232,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
             --numPendings;
             // if received all responses or this entry doesn't meet quorum write, complete the request.
             if (numMissedEntryReads > maxMissedReadsAllowed || numPendings == 0) {
@@ -240,7 +247,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFromHostsBitSet) {
             // no speculative read
             return null;
         }
@@ -254,7 +261,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         final BitSet erroredReplicas;
         final BitSet emptyResponseReplicas;
 
-        SequenceReadRequest(ArrayList<InetSocketAddress> ensemble, long lId, long eId) {
+        SequenceReadRequest(ArrayList<BookieSocketAddress> ensemble, long lId, long eId) {
             super(ensemble, lId, eId);
 
             this.sentReplicas = new BitSet(orderedEnsemble.size());
@@ -266,11 +273,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             return nextReplicaIndexToReadFrom;
         }
 
-        private int getReplicaIndex(InetSocketAddress host) {
-            int bookieIndex = ensemble.indexOf(host);
-            if (bookieIndex == -1) {
-                return NOT_FOUND;
-            }
+        private int getReplicaIndex(int bookieIndex) {
             return orderedEnsemble.indexOf(bookieIndex);
         }
 
@@ -280,17 +283,6 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             for (int i = 0; i < sentReplicas.length(); i++) {
                 if (sentReplicas.get(i)) {
                     b.set(orderedEnsemble.get(i));
-                }
-            }
-            return b;
-        }
-
-        private BitSet getHeardFromBitSet(Set<InetSocketAddress> heardFromHosts) {
-            BitSet b = new BitSet(ensemble.size());
-            for (InetSocketAddress i : heardFromHosts) {
-                int index = ensemble.indexOf(i);
-                if (index != -1) {
-                    b.set(index);
                 }
             }
             return b;
@@ -306,13 +298,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
          * @return host we sent to if we sent. null otherwise.
          */
         @Override
-        synchronized InetSocketAddress maybeSendSpeculativeRead(Set<InetSocketAddress> heardFromHosts) {
+        synchronized BookieSocketAddress maybeSendSpeculativeRead(BitSet heardFrom) {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 return null;
             }
 
             BitSet sentTo = getSentToBitSet();
-            BitSet heardFrom = getHeardFromBitSet(heardFromHosts);
             sentTo.and(heardFrom);
 
             // only send another read, if we have had no response at all (even for other entries)
@@ -329,7 +320,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             sendNextRead();
         }
 
-        synchronized InetSocketAddress sendNextRead() {
+        synchronized BookieSocketAddress sendNextRead() {
             if (nextReplicaIndexToReadFrom >= getLedgerMetadata().getEnsembleSize()) {
                 // we are done, the read has failed from all replicas, just fail the
                 // read
@@ -350,8 +341,8 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             nextReplicaIndexToReadFrom++;
 
             try {
-                InetSocketAddress to = ensemble.get(bookieIndex);
-                sendReadTo(to, this);
+                BookieSocketAddress to = ensemble.get(bookieIndex);
+                sendReadTo(bookieIndex, to, this);
                 sentReplicas.set(replica);
                 return to;
             } catch (InterruptedException ie) {
@@ -363,10 +354,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        synchronized void logErrorAndReattemptRead(InetSocketAddress host, String errMsg, int rc) {
-            super.logErrorAndReattemptRead(host, errMsg, rc);
+        synchronized void logErrorAndReattemptRead(int bookieIndex, BookieSocketAddress host, String errMsg, int rc) {
+            super.logErrorAndReattemptRead(bookieIndex, host, errMsg, rc);
 
-            int replica = getReplicaIndex(host);
+            int replica = getReplicaIndex(bookieIndex);
             if (replica == NOT_FOUND) {
                 LOG.error("Received error from a host which is not in the ensemble {} {}.", host, ensemble);
                 return;
@@ -384,10 +375,10 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         }
 
         @Override
-        boolean complete(InetSocketAddress host, ChannelBuffer buffer, long entryId) {
-            boolean completed = super.complete(host, buffer, entryId);
+        boolean complete(int bookieIndex, BookieSocketAddress host, ChannelBuffer buffer, long entryId) {
+            boolean completed = super.complete(bookieIndex, host, buffer, entryId);
             if (completed) {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.SPECULATIVES_PER_READ_LAC)
                         .registerSuccessfulEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
@@ -397,7 +388,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         boolean fail(int rc) {
             boolean completed = super.fail(rc);
             if (completed) {
-                lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.SPECULATIVES_PER_READ_LAC)
+                lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.SPECULATIVES_PER_READ_LAC)
                         .registerFailedEvent(getNextReplicaIndexToReadFrom());
             }
             return completed;
@@ -405,23 +396,25 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
     }
 
 
-    ReadLastConfirmedAndEntryOp(LedgerHandle lh, LastConfirmedAndEntryCallback cb,
-                                long lac, long timeOutInMillis, ScheduledExecutorService scheduler) {
+    ReadLastConfirmedAndEntryOp(LedgerHandle lh,
+                                LastConfirmedAndEntryCallback cb,
+                                long prevEntryId,
+                                long timeOutInMillis,
+                                ScheduledExecutorService scheduler) {
         this.lh = lh;
         this.cb = cb;
-        this.prevLastAddConfirmed = this.lastAddConfirmed = lac;
+        this.prevEntryId = prevEntryId;
+        this.lastAddConfirmed = lh.getLastAddConfirmed();
         this.timeOutInMillis = timeOutInMillis;
         this.numResponsesPending = 0;
         this.numEmptyResponsesAllowed = getLedgerMetadata().getWriteQuorumSize()
                 - getLedgerMetadata().getAckQuorumSize() + 1;
         this.requestTimeNano = MathUtils.nowInNano();
         this.scheduler = scheduler;
-        maxMissedReadsAllowed = getLedgerMetadata().getWriteQuorumSize()
+        maxMissedReadsAllowed = getLedgerMetadata().getEnsembleSize()
             - getLedgerMetadata().getAckQuorumSize();
-        speculativeReadTimeout = lh.bk.getConf().getFirstSpeculativeReadLACTimeout();
-        maxSpeculativeReadTimeout = lh.bk.getConf().getMaxSpeculativeReadLACTimeout();
-        heardFromHosts = new HashSet<InetSocketAddress>();
-        emptyResponsesFromHosts = new HashSet<InetSocketAddress>();
+        heardFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
+        emptyResponsesFromHostsBitSet = new BitSet(getLedgerMetadata().getEnsembleSize());
     }
 
     protected LedgerMetadata getLedgerMetadata() {
@@ -437,62 +430,48 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
      * Speculative Read Logic
      */
     @Override
-    public void safeRun() {
-        if (!requestComplete.get() && !request.isComplete()) {
-            if (null != request.maybeSendSpeculativeRead(heardFromHosts)) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
-                        new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHosts });
+    public ListenableFuture<Boolean> issueSpeculativeRequest() {
+        return lh.bk.mainWorkerPool.submitOrdered(lh.getId(), new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                if (!requestComplete.get() && !request.isComplete() &&
+                    (null != request.maybeSendSpeculativeRead(heardFromHostsBitSet))) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Send speculative ReadLAC {} for ledger {} (previousLAC: {}). Hosts heard are {}.",
+                            new Object[] {request, lh.getId(), lastAddConfirmed, heardFromHostsBitSet });
+                    }
+                    return true;
                 }
-                if (speculativeReadTimeout > 0) {
-                    speculativeReadTimeout = Math.min(maxSpeculativeReadTimeout, speculativeReadTimeout * 2);
-                    scheduleSpeculativeRead(speculativeReadTimeout);
-                }
+                return false;
             }
-        }
-    }
-
-    private void scheduleSpeculativeRead(final int speculativeReadTimeout) {
-        try {
-            scheduler.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    // let the speculative read running this same thread
-                    lh.bk.mainWorkerPool.submitOrdered(lh.getId(),
-                        ReadLastConfirmedAndEntryOp.this);
-                }
-            }, speculativeReadTimeout, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException re) {
-            LOG.warn("Failed to schedule speculative readLAC for ledger {} (lac = {}, speculativeReadTimeout = {}) : ",
-                    new Object[] { lh.getId(), lastAddConfirmed, speculativeReadTimeout, re });
-        }
+        });
     }
 
     public void initiate() {
-        if (speculativeReadTimeout > 0 && !parallelRead) {
-            scheduleSpeculativeRead(speculativeReadTimeout);
-        }
-
         if (parallelRead) {
-            request = new ParallelReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, lastAddConfirmed + 1);
+            request = new ParallelReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, prevEntryId + 1);
         } else {
-            request = new SequenceReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, lastAddConfirmed + 1);
+            request = new SequenceReadRequest(lh.metadata.currentEnsemble, lh.ledgerId, prevEntryId + 1);
         }
         request.read();
+
+        if (!parallelRead && lh.bk.getReadLACSpeculativeRequestPolicy().isPresent()) {
+            lh.bk.getReadLACSpeculativeRequestPolicy().get().initiateSpeculativeRequest(scheduler, this);
+        }
     }
 
-    void sendReadTo(InetSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
-        long previousLAC = lastAddConfirmed;
+    void sendReadTo(int bookieIndex, BookieSocketAddress to, ReadLACAndEntryRequest entry) throws InterruptedException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Calling Read LAC and Entry with {} and long polling interval {} on Bookie {} - Parallel {}", new Object[] {previousLAC, timeOutInMillis, to, parallelRead});
+            LOG.debug("Calling Read LAC and Entry with {} and long polling interval {} on Bookie {} - Parallel {}",
+                    new Object[] { prevEntryId, timeOutInMillis, to, parallelRead });
         }
         lh.bk.bookieClient.readEntryWaitForLACUpdate(to,
             lh.ledgerId,
             BookieProtocol.LAST_ADD_CONFIRMED,
-            previousLAC,
+            prevEntryId,
             timeOutInMillis,
             true,
-            this, new ReadLastConfirmedAndEntryContext(to));
+            this, new ReadLastConfirmedAndEntryContext(bookieIndex, to));
         this.numResponsesPending++;
     }
 
@@ -503,11 +482,14 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         public void readLastConfirmedAndEntryComplete(int rc, long lastAddConfirmed, LedgerEntry entry);
     }
 
-    private static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
-        final InetSocketAddress bookie;
+    public static class ReadLastConfirmedAndEntryContext implements BookkeeperInternalCallbacks.ReadEntryCallbackCtx {
+        final int bookieIndex;
+        final BookieSocketAddress bookie;
         long lac = LedgerHandle.INVALID_ENTRY_ID;
+        Optional<Long> lacUpdateTimestamp = Optional.absent();
 
-        ReadLastConfirmedAndEntryContext(InetSocketAddress bookie) {
+        ReadLastConfirmedAndEntryContext(int bookieIndex, BookieSocketAddress bookie) {
+            this.bookieIndex = bookieIndex;
             this.bookie = bookie;
         }
 
@@ -520,21 +502,31 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
         public long getLastAddConfirmed() {
             return lac;
         }
+
+        public Optional<Long> getLacUpdateTimestamp() {
+            return lacUpdateTimestamp;
+        }
+
+        public void setLacUpdateTimestamp(long lacUpdateTimestamp) {
+            this.lacUpdateTimestamp = Optional.of(lacUpdateTimestamp);
+        }
+
+
     }
 
     private void submitCallback(int rc, long lastAddConfirmed, LedgerEntry entry) {
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY)
                 .registerFailedEvent(latencyMicros);
         } else {
-            lh.getStatsLogger().getOpStatsLogger(BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY)
+            lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY)
                 .registerSuccessfulEvent(latencyMicros);
-            Enum op;
-            if (this.prevLastAddConfirmed < lastAddConfirmed) {
-                op = BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_HIT;
+            String op;
+            if (this.prevEntryId < lastAddConfirmed) {
+                op = BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY_HIT;
             } else {
-                op = BookkeeperClientStatsLogger.BookkeeperClientOp.READ_LAST_CONFIRMED_AND_ENTRY_MISS;
+                op = BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY_MISS;
             }
             lh.getStatsLogger().getOpStatsLogger(op).registerSuccessfulEvent(latencyMicros);
         }
@@ -548,12 +540,12 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
                 new Object[] { getClass().getName(), ledgerId, entryId, rc });
         }
         ReadLastConfirmedAndEntryContext rCtx = (ReadLastConfirmedAndEntryContext) ctx;
-        InetSocketAddress bookie = rCtx.bookie;
+        BookieSocketAddress bookie = rCtx.bookie;
         numResponsesPending--;
         if (BKException.Code.OK == rc) {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Received lastAddConfirmed (lac={}) from bookie({}) for (lid={}).",
-                    new Object[] { lastAddConfirmed, bookie, ledgerId });
+                    new Object[] { rCtx.getLastAddConfirmed(), bookie, ledgerId });
             }
 
             if (rCtx.getLastAddConfirmed() > lastAddConfirmed) {
@@ -564,19 +556,39 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             hasValidResponse = true;
 
             if (entryId != BookieProtocol.LAST_ADD_CONFIRMED) {
-                if (request.complete(bookie, buffer, entryId)) {
+                if (request.complete(rCtx.bookieIndex, bookie, buffer, entryId)) {
                     // callback immediately
+                    if (rCtx.getLacUpdateTimestamp().isPresent()) {
+                        long elapsedMicros = TimeUnit.MILLISECONDS.toMicros(System.currentTimeMillis() - rCtx.getLacUpdateTimestamp().get());
+                        elapsedMicros = Math.max(elapsedMicros, 0);
+                        lh.getStatsLogger().getOpStatsLogger(
+                            BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY_RESPONSE)
+                            .registerSuccessfulEvent(elapsedMicros);
+                    }
+
                     submitCallback(BKException.Code.OK, lastAddConfirmed, request);
                     requestComplete.set(true);
-                    heardFromHosts.add(bookie);
+                    heardFromHostsBitSet.set(rCtx.bookieIndex, true);
                 }
             } else {
-                LOG.debug("Empty Response {}, {}", ledgerId, lastAddConfirmed);
-                emptyResponsesFromHosts.add(bookie);
-                if (emptyResponsesFromHosts.size() >= numEmptyResponsesAllowed) {
+                emptyResponsesFromHostsBitSet.set(rCtx.bookieIndex, true);
+                if (lastAddConfirmed > prevEntryId) {
+                    // received advanced lac
+                    completeRequest();
+                } else if(emptyResponsesFromHostsBitSet.cardinality() >= numEmptyResponsesAllowed) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Completed readLACAndEntry(lid = {}, previousEntryId = {}) after received {} empty responses ('{}').",
+                                new Object[]{ledgerId, prevEntryId, emptyResponsesFromHostsBitSet.cardinality(), emptyResponsesFromHostsBitSet});
+                    }
                     completeRequest();
                 } else {
-                    request.logErrorAndReattemptRead(bookie, "Empty Response", rc);
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Received empty response for readLACAndEntry(lid = {}, previousEntryId = {}) from" +
+                                        " bookie {} @ {}, reattempting reading next bookie : lac = {}",
+                                new Object[]{ledgerId, prevEntryId, rCtx.bookieIndex,
+                                        rCtx.bookie, lastAddConfirmed});
+                    }
+                    request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Empty Response", rc);
                 }
                 return;
             }
@@ -584,7 +596,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
             submitCallback(rc, lastAddConfirmed, null);
             requestComplete.set(true);
         } else {
-            request.logErrorAndReattemptRead(bookie, "Error: " + BKException.getMessage(rc), rc);
+            request.logErrorAndReattemptRead(rCtx.bookieIndex, bookie, "Error: " + BKException.getMessage(rc), rc);
             return;
         }
 
@@ -607,7 +619,7 @@ public class ReadLastConfirmedAndEntryOp extends SafeRunnable
 
     @Override
     public String toString() {
-        return String.format("ReadLastConfirmedAndEntryOp(lid=%d, lac=%d])", lh.ledgerId, lastAddConfirmed);
+        return String.format("ReadLastConfirmedAndEntryOp(lid=%d, prevEntryId=%d])", lh.ledgerId, prevEntryId);
     }
 
 }

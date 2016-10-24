@@ -17,19 +17,20 @@
  */
 package org.apache.bookkeeper.proto;
 
+import java.io.IOException;
+
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-import org.apache.bookkeeper.proto.BookieProtocol.PacketHeader;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
+import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.proto.BookieProtocol.AddRequest;
+import org.apache.bookkeeper.proto.BookieProtocol.Request;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.jboss.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * Processes add entry requests
@@ -37,89 +38,77 @@ import java.nio.ByteBuffer;
 class WriteEntryProcessor extends PacketProcessorBase {
 
     private final static Logger logger = LoggerFactory.getLogger(WriteEntryProcessor.class);
-    private byte[] masterKey = new byte[BookieProtocol.MASTER_KEY_LENGTH];
 
-    WriteEntryProcessor(ByteBuffer packet, Cnxn srcConn, Bookie bookie) {
-        super(packet, srcConn, bookie);
+    public WriteEntryProcessor(Request request, Channel channel, Bookie bookie, StatsLogger statsLogger) {
+        super(request, channel, bookie, statsLogger);
     }
 
     @Override
     public void safeRun() {
         final long startTimeNanos = MathUtils.nowInNano();
-        header = PacketHeader.fromInt(packet.getInt());
-        packet.get(masterKey, 0, BookieProtocol.MASTER_KEY_LENGTH);
-        // We mark the packet's position because we need the ledgerId and entryId in case
-        // there is a version mis match and for logging.
-        packet.mark();
-        ledgerId = packet.getLong();
-        entryId = packet.getLong();
-        packet.reset();
         // Check the version.
-        if (!isVersionCompatible(header)) {
+        if (!isVersionCompatible(request)) {
             // The client and server versions are not compatible. Just return
             // an error.
             sendResponse(BookieProtocol.EBADVERSION,
-                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                         buildResponse(BookieProtocol.EBADVERSION));
+                         statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
+                         ResponseBuilder.buildErrorResponse(BookieProtocol.EBADVERSION, request));
             return;
         }
+        AddRequest add = (AddRequest) request;
         if (bookie.isReadOnly()) {
             logger.warn("BookieServer is running as readonly mode,"
                     + " so rejecting the request from the client!");
             sendResponse(BookieProtocol.EBADVERSION,
-                         BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                         buildResponse(BookieProtocol.EREADONLY));
+                         statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
+                         ResponseBuilder.buildErrorResponse(BookieProtocol.EREADONLY, add));
             return;
         }
-        short flags = header.getFlags();
         BookkeeperInternalCallbacks.WriteCallback wcb = new BookkeeperInternalCallbacks.WriteCallback() {
             @Override
             public void writeComplete(int rc, long ledgerId, long entryId,
-                                      InetSocketAddress addr, Object ctx) {
+                                      BookieSocketAddress addr, Object ctx) {
                 if (rc == BookieProtocol.EOK) {
-                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                    statsLogger.getOpStatsLogger(ADD_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 } else {
-                    ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                            .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                    statsLogger.getOpStatsLogger(ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
                 }
-                assert ledgerId == WriteEntryProcessor.this.ledgerId;
-                assert entryId == WriteEntryProcessor.this.entryId;
-                sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                             buildResponse(rc));
+                assert ledgerId == request.getLedgerId();
+                assert entryId == request.getEntryId();
+                sendResponse(rc, statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
+                             ResponseBuilder.buildAddResponse(request));
             }
         };
         int rc = BookieProtocol.EOK;
         try {
-            if ((flags & BookieProtocol.FLAG_RECOVERY_ADD) == BookieProtocol.FLAG_RECOVERY_ADD) {
-                bookie.recoveryAddEntry(packet.slice(), wcb, srcConn, masterKey);
+            if (add.isRecoveryAdd()) {
+                bookie.recoveryAddEntry(add.getDataAsByteBuffer(), wcb, channel, add.getMasterKey());
             } else {
-                bookie.addEntry(packet.slice(), wcb, srcConn, masterKey);
+                bookie.addEntry(add.getDataAsByteBuffer(), wcb, channel, add.getMasterKey());
             }
             rc = BookieProtocol.EOK;
         } catch (IOException e) {
-            logger.error("Error writing entry:" + entryId + " to ledger:" + ledgerId, e);
+            logger.error("Error writing {} : ", add, e);
             rc = BookieProtocol.EIO;
         } catch (BookieException.LedgerFencedException e) {
-            logger.error("Ledger fenced while writing entry:" + entryId +
-                    " to ledger:" + ledgerId);
+            logger.error("Ledger fenced while writing {}", add);
             rc = BookieProtocol.EFENCED;
         } catch (BookieException e) {
-            logger.error("Unauthorized access to ledger:" + ledgerId +
-                    " while writing entry:" + entryId);
+            logger.error("Unauthorized access to ledger:{} while writing entry: {}", add.getLedgerId(),
+                    add.getEntryId());
             rc = BookieProtocol.EUA;
         }
 
         if (rc != BookieProtocol.EOK) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                    .ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-            sendResponse(rc, BookkeeperServerOp.ADD_ENTRY_REQUEST,
-                         buildResponse(rc));
+            statsLogger.getOpStatsLogger(ADD_ENTRY).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+            sendResponse(rc, statsLogger.getOpStatsLogger(ADD_ENTRY_REQUEST),
+                         ResponseBuilder.buildErrorResponse(rc, add));
         }
     }
 
     @Override
     public String toString() {
-        return String.format("WriteEntry(%d, %d)", ledgerId, entryId);
+        return String.format("WriteEntry(%d, %d)",
+                             request.getLedgerId(), request.getEntryId());
     }
 }

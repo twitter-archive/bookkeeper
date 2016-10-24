@@ -27,30 +27,32 @@ import java.util.HashSet;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Test;
 import org.junit.Before;
 import java.nio.ByteBuffer;
 import java.util.Random;
 
-public class TestEntryMemTable implements CacheCallback, SkipListFlusher, CheckpointProgress {
+public class TestEntryMemTable implements CacheCallback, SkipListFlusher, CheckpointSource {
 
     private EntryMemTable memTable;
     private final Random random = new Random();
     private TestCheckPoint curCheckpoint = new TestCheckPoint(0, 0);
 
     @Override
-    public CheckPoint requestCheckpoint() {
+    public Checkpoint newCheckpoint() {
         return curCheckpoint;
     }
 
     @Override
-    public void startCheckpoint(CheckPoint checkpoint) {
-        // DO NOTHING
+    public void checkpointComplete(Checkpoint checkpoint, boolean compact)
+            throws IOException {
     }
 
     @Before
     public void setUp() throws Exception {
-        this.memTable = new EntryMemTable(TestBKConfiguration.newServerConfiguration(), this);
+        this.memTable = new EntryMemTable(TestBKConfiguration.newServerConfiguration(),
+                this, NullStatsLogger.INSTANCE);
     }
 
     @Test
@@ -93,7 +95,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
      * Process notification that cache size limit reached
      */
     @Override
-    public void onSizeLimitReached(CheckPoint cp) throws IOException {
+    public void onSizeLimitReached(Checkpoint cp) throws IOException {
         // No-op
     }
 
@@ -124,7 +126,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         for (EntryKeyValue kv : keyValues) {
             assertTrue(memTable.getEntry(kv.getLedgerId(), kv.getEntryId()).equals(kv));
         }
-        memTable.flush(this, CheckPoint.MAX);
+        memTable.flush(this, Checkpoint.MAX);
     }
 
     private class KVFLusher implements SkipListFlusher {
@@ -210,7 +212,7 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
             }
         }
 
-        memTable.flush(flusher, CheckPoint.MAX);
+        memTable.flush(flusher, Checkpoint.MAX);
         for (EntryKeyValue kv : keyValues) {
             assertTrue("kv " + kv.toString() + " was not flushed!", flushedKVs.contains(kv));
         }
@@ -236,10 +238,10 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
             }
         }
 
-        memTable.flush(flusher, CheckPoint.MAX);
+        memTable.flush(flusher, Checkpoint.MAX);
     }
 
-    private static class TestCheckPoint implements CheckPoint {
+    private static class TestCheckPoint implements Checkpoint {
 
         LogMark mark;
 
@@ -252,18 +254,13 @@ public class TestEntryMemTable implements CacheCallback, SkipListFlusher, Checkp
         }
 
         @Override
-        public int compareTo(CheckPoint o) {
-            if (CheckPoint.MAX == o) {
+        public int compareTo(Checkpoint o) {
+            if (Checkpoint.MAX == o) {
                 return -1;
             }
             return mark.compare(((TestCheckPoint)o).mark);
         }
 
-        @Override
-        public void checkpointComplete(boolean compact) throws IOException {
-            // do nothing
-        }
-        
     }
 }
 

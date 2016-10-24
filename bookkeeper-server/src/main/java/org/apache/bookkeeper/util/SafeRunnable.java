@@ -30,7 +30,7 @@ public abstract class SafeRunnable implements Runnable {
         try {
             safeRun();
         } catch(Throwable t) {
-            logger.error("Unexpected throwable caught ", t);
+            logger.error("Unexpected throwable caught at {} : ", this, t);
         }
     }
 

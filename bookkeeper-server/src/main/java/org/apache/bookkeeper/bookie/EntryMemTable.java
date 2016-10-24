@@ -20,23 +20,22 @@
 package org.apache.bookkeeper.bookie;
 
 import org.apache.bookkeeper.bookie.Bookie.NoLedgerException;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
+import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.stats.BookkeeperServerStatsLogger.BookkeeperServerOp;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
-import org.apache.bookkeeper.conf.ServerConfiguration;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 /**
  * The EntryMemTable holds in-memory representation to the entries not-yet flushed.
@@ -51,20 +50,20 @@ public class EntryMemTable {
      * Entry skip list
      */
     static class EntrySkipList extends ConcurrentSkipListMap<EntryKey, EntryKeyValue> {
-        final CheckPoint cp;
-        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(CheckPoint.MAX) {
+        final Checkpoint cp;
+        static final EntrySkipList EMPTY_VALUE = new EntrySkipList(Checkpoint.MAX) {
             @Override
             public boolean isEmpty() {
                 return true;
             }
         };
 
-        EntrySkipList(final CheckPoint cp) {
+        EntrySkipList(final Checkpoint cp) {
             super(EntryKey.COMPARATOR);
             this.cp = cp;
         }
 
-        int compareTo(final CheckPoint cp) {
+        int compareTo(final Checkpoint cp) {
             return this.cp.compareTo(cp);
         }
 
@@ -91,7 +90,7 @@ public class EntryMemTable {
     volatile EntrySkipList snapshot;
 
     final ServerConfiguration conf;
-    final CheckpointProgress progress;
+    final CheckpointSource progress;
 
     final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -103,14 +102,23 @@ public class EntryMemTable {
     SkipListArena allocator;
 
     private EntrySkipList newSkipList() {
-        return new EntrySkipList(progress.requestCheckpoint());
+        return new EntrySkipList(progress.newCheckpoint());
     }
+
+    // Stats
+    private final OpStatsLogger snapshotStats;
+    private final OpStatsLogger putEntryStats;
+    private final OpStatsLogger getEntryStats;
+    private final Counter flushBytesCounter;
+    private final Counter throttlingCounter;
 
     /**
     * Constructor.
     * @param conf Server configuration
     */
-    public EntryMemTable(final ServerConfiguration conf, final CheckpointProgress progress) {
+    public EntryMemTable(final ServerConfiguration conf,
+                         final CheckpointSource progress,
+                         final StatsLogger statsLogger) {
         this.progress = progress;
         this.kvmap = newSkipList();
         this.snapshot = EntrySkipList.EMPTY_VALUE;
@@ -119,6 +127,13 @@ public class EntryMemTable {
         this.allocator = new SkipListArena(conf);
         // skip list size limit
         this.skipListSizeLimit = conf.getSkipListSizeLimit();
+
+        // Stats
+        this.snapshotStats = statsLogger.getOpStatsLogger(SKIP_LIST_SNAPSHOT);
+        this.putEntryStats = statsLogger.getOpStatsLogger(SKIP_LIST_PUT_ENTRY);
+        this.getEntryStats = statsLogger.getOpStatsLogger(SKIP_LIST_GET_ENTRY);
+        this.flushBytesCounter = statsLogger.getCounter(SKIP_LIST_FLUSH_BYTES);
+        this.throttlingCounter = statsLogger.getCounter(SKIP_LIST_THROTTLING);
     }
 
     void dump() {
@@ -130,8 +145,8 @@ public class EntryMemTable {
         }
     }
 
-    CheckPoint snapshot() throws IOException {
-        return snapshot(CheckPoint.MAX);
+    Checkpoint snapshot() throws IOException {
+        return snapshot(Checkpoint.MAX);
     }
 
     /**
@@ -143,8 +158,8 @@ public class EntryMemTable {
      * @return checkpoint of the snapshot, null means no snapshot
      * @throws IOException
      */
-    CheckPoint snapshot(CheckPoint oldCp) throws IOException {
-        CheckPoint cp = null;
+    Checkpoint snapshot(Checkpoint oldCp) throws IOException {
+        Checkpoint cp = null;
         // No-op if snapshot currently has entries
         if (this.snapshot.isEmpty() &&
                 this.kvmap.compareTo(oldCp) < 0) {
@@ -167,11 +182,9 @@ public class EntryMemTable {
             }
 
             if (null != cp) {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                snapshotStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } else {
-                ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                        .SKIP_LIST_SNAPSHOT).registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+                snapshotStats.registerFailedEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             }
         }
         return cp;
@@ -181,7 +194,7 @@ public class EntryMemTable {
      * Flush snapshot and clear it.
      */
     long flush(final SkipListFlusher flusher) throws IOException {
-        return flushSnapshot(flusher, CheckPoint.MAX);
+        return flushSnapshot(flusher, Checkpoint.MAX);
     }
 
     /**
@@ -190,7 +203,7 @@ public class EntryMemTable {
      * @param checkpoint
      *          all data before this checkpoint need to be flushed.
      */
-    public long flush(SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
+    public long flush(SkipListFlusher flusher, Checkpoint checkpoint) throws IOException {
         long size = flushSnapshot(flusher, checkpoint);
         if (null != snapshot(checkpoint)) {
             size += flushSnapshot(flusher, checkpoint);
@@ -202,7 +215,7 @@ public class EntryMemTable {
      * Flush snapshot and clear it iff its data is before checkpoint.
      * Only this function change non-empty this.snapshot.
      */
-    private long flushSnapshot(final SkipListFlusher flusher, CheckPoint checkpoint) throws IOException {
+    private long flushSnapshot(final SkipListFlusher flusher, Checkpoint checkpoint) throws IOException {
         long size = 0;
         if (this.snapshot.compareTo(checkpoint) < 0) {
             long ledger, ledgerGC = -1;
@@ -221,8 +234,7 @@ public class EntryMemTable {
                             }
                         }
                     }
-                    ServerStatsProvider.getStatsLoggerInstance().getCounter(
-                            BookkeeperServerStatsLogger.BookkeeperServerCounter.SKIP_LIST_FLUSH_BYTES).add(size);
+                    flushBytesCounter.add(size);
                     clearSnapshot(keyValues);
                 }
             }
@@ -258,8 +270,7 @@ public class EntryMemTable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getCounter(BookkeeperServerStatsLogger.BookkeeperServerCounter
-                .SKIP_LIST_THROTTLING).inc();
+        throttlingCounter.inc();
     }
 
     /**
@@ -272,7 +283,7 @@ public class EntryMemTable {
         long size = 0;
         final long startTimeNanos = MathUtils.nowInNano();
         if (isSizeLimitReached()) {
-            CheckPoint cp = snapshot();
+            Checkpoint cp = snapshot();
             if (null != cp) {
                 cb.onSizeLimitReached(cp);
             } else {
@@ -288,8 +299,7 @@ public class EntryMemTable {
             this.lock.readLock().unlock();
         }
 
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_PUT_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        putEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return size;
     }
 
@@ -357,9 +367,7 @@ public class EntryMemTable {
         } finally {
             this.lock.readLock().unlock();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
-
+        getEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
         return value;
     }
 
@@ -381,8 +389,7 @@ public class EntryMemTable {
         } finally {
             this.lock.readLock().unlock();
         }
-        ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(BookkeeperServerOp
-                .SKIP_LIST_GET_ENTRY).registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
+        getEntryStats.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
 
         if (result == null || result.getLedgerId() != ledgerId) {
             return null;

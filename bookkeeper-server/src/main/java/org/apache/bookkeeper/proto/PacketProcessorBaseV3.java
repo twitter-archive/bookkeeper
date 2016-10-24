@@ -1,55 +1,75 @@
 package org.apache.bookkeeper.proto;
 
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Stopwatch;
+
 import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.stats.ServerStatsProvider;
-import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.SafeRunnable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.bookkeeper.proto.NIOServerFactory.Cnxn;
-
 import org.apache.bookkeeper.proto.BookkeeperProtocol.BKPacketHeader;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.ProtocolVersion;
-import org.apache.bookkeeper.proto.BookkeeperProtocol.Response;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.Request;
 import org.apache.bookkeeper.proto.BookkeeperProtocol.StatusCode;
 
-import java.nio.ByteBuffer;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelFuture;
+import org.jboss.netty.channel.ChannelFutureListener;
+
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 
 abstract class PacketProcessorBaseV3 extends SafeRunnable {
     private final static Logger logger = LoggerFactory.getLogger(PacketProcessorBaseV3.class);
     final Request request;
-    final Cnxn srcConn;
+    final Channel channel;
     final Bookie  bookie;
-    protected long enqueueNanos;
+    final OpStatsLogger channelWriteOpStatsLogger;
+    protected final Stopwatch enqueueStopwatch;
+    protected final StatsLogger statsLogger;
 
-    PacketProcessorBaseV3(Request request, Cnxn srcConn, Bookie bookie) {
+    PacketProcessorBaseV3(Request request,
+                          Channel channel,
+                          Bookie bookie,
+                          StatsLogger statsLogger) {
         this.request = request;
-        this.srcConn = srcConn;
+        this.channel = channel;
         this.bookie = bookie;
-        this.enqueueNanos = MathUtils.nowInNano();
+        this.statsLogger = statsLogger;
+        this.channelWriteOpStatsLogger = statsLogger.getOpStatsLogger(CHANNEL_WRITE);
+        this.enqueueStopwatch = Stopwatch.createStarted();
     }
 
-    protected void sendResponse(StatusCode code, Enum statOp, ByteBuffer...response) {
-        srcConn.sendResponse(response);
-        if (StatusCode.EOK == code) {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerSuccessfulEvent(MathUtils.elapsedMicroSec(enqueueNanos));
-        } else {
-            ServerStatsProvider.getStatsLoggerInstance().getOpStatsLogger(statOp)
-                    .registerFailedEvent(MathUtils.elapsedMicroSec(enqueueNanos));
-        }
+    protected void sendResponse(final StatusCode code, final OpStatsLogger statsLogger, Object response) {
+        final Stopwatch writeStopwatch = Stopwatch.createStarted();
+        channel.write(response).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture channelFuture) throws Exception {
+
+                long writeMicros = writeStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (!channelFuture.isSuccess()) {
+                    channelWriteOpStatsLogger.registerFailedEvent(writeMicros);
+                } else {
+                    channelWriteOpStatsLogger.registerSuccessfulEvent(writeMicros);
+                }
+
+                long requestMicros = enqueueStopwatch.elapsed(TimeUnit.MICROSECONDS);
+                if (StatusCode.EOK == code) {
+                    statsLogger.registerSuccessfulEvent(requestMicros);
+                } else {
+                    statsLogger.registerFailedEvent(requestMicros);
+                }
+            }
+        });
     }
 
     protected boolean isVersionCompatible() {
         // TODO: Change this to include LOWEST_COMPAT
         // For now we just support version 3
         return this.request.getHeader().getVersion().equals(ProtocolVersion.VERSION_THREE);
-    }
-
-    protected ByteBuffer encodeResponse(Response response) {
-        return ByteBuffer.wrap(response.toByteArray());
     }
 
     /**

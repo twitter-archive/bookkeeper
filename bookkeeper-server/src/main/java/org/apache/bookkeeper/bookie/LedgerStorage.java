@@ -26,14 +26,20 @@ import java.nio.ByteBuffer;
 import java.util.Observable;
 import java.util.Observer;
 
-import org.apache.bookkeeper.bookie.CheckpointProgress.CheckPoint;
-import org.apache.bookkeeper.jmx.BKMBeanInfo;
+import org.apache.bookkeeper.bookie.CheckpointSource.Checkpoint;
 
 /**
  * Interface for storing ledger data
  * on persistant storage.
  */
 interface LedgerStorage {
+
+    /**
+     * Register a listener on ledger storage changes.
+     *
+     * @param listener listener on ledger storage changes.
+     */
+    void registerListener(LedgerStorageListener listener);
 
     /**
      * Reclaim disk space from ledger storage.
@@ -129,17 +135,16 @@ interface LedgerStorage {
     void flush() throws IOException;
 
     /**
-     * Flushes the data in the storage to make a checkpoint. Once this is
-     * called, it means that data added before the checkpoint is persisted.
+     * Ask the ledger storage to sync data until the given <i>checkpoint</i>.
+     * The ledger storage implementation do checkpoint and return the real checkpoint
+     * that it finished. The returned checkpoint indicates that all entries added
+     * before that point already persist.
      *
      * @param checkpoint
-     *          Check Point
+     *          Check Point that {@link CheckpointSource} proposed.
      * @throws IOException
+     * @return the checkpoint that the ledger storage finished
      */
-    void checkpoint(CheckPoint checkpoint) throws IOException;
+    Checkpoint checkpoint(Checkpoint checkpoint) throws IOException;
 
-    /**
-     * Get the JMX management bean for this LedgerStorage
-     */
-    BKMBeanInfo getJMXBean();
 }

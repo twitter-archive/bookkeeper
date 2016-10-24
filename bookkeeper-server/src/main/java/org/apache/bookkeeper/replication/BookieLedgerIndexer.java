@@ -17,7 +17,6 @@
  */
 package org.apache.bookkeeper.replication;
 
-import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -26,14 +25,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.replication.ReplicationException.BKAuditException;
-import org.apache.bookkeeper.util.StringUtils;
 import org.apache.zookeeper.AsyncCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +66,11 @@ public class BookieLedgerIndexer {
             = new ConcurrentHashMap<String, Set<Long>>();
         final CountDownLatch ledgerCollectorLatch = new CountDownLatch(1);
 
+        LOG.info("Generating bookie to ledger index ...");
+
+        final AtomicInteger numLedgers = new AtomicInteger(0);
+
+        // TODO: avoid reading ledger metadata for closed ledger
         Processor<Long> ledgerProcessor = new Processor<Long>() {
             @Override
             public void process(final Long ledgerId,
@@ -74,22 +79,30 @@ public class BookieLedgerIndexer {
                     @Override
                     public void operationComplete(final int rc,
                             LedgerMetadata ledgerMetadata) {
+                        int rcToReturn = rc;
                         if (rc == BKException.Code.OK) {
-                            StringBuilder bookieAddr;
-                            for (Map.Entry<Long, ArrayList<InetSocketAddress>> ensemble : ledgerMetadata
+                            for (Map.Entry<Long, ArrayList<BookieSocketAddress>> ensemble : ledgerMetadata
                                     .getEnsembles().entrySet()) {
-                                for (InetSocketAddress bookie : ensemble
+                                for (BookieSocketAddress bookie : ensemble
                                         .getValue()) {
                                     putLedger(bookie2ledgersMap,
-                                              StringUtils.addrToString(bookie),
-                                              ledgerId);
+                                            bookie.toString(),
+                                            ledgerId);
                                 }
                             }
+                        } else if (rc == BKException.Code.NoSuchLedgerExistsException) {
+                            // ledger is deleted during indexing
+                            rcToReturn = BKException.Code.OK;
                         } else {
-                            LOG.warn("Unable to read the ledger:" + ledgerId
-                                    + " information");
+                            LOG.warn("Unable to read the ledger {}'s metadata : {}",
+                                    ledgerId, BKException.getMessage(rc));
                         }
-                        iterCallback.processResult(rc, null, null);
+
+                        if (numLedgers.incrementAndGet() % 2000 == 0) {
+                            LOG.info("indexed {} ledgers.", numLedgers.get());
+                        }
+
+                        iterCallback.processResult(rcToReturn, null, null);
                     }
                 };
                 ledgerManager.readLedgerMetadata(ledgerId, genericCallback);
@@ -102,6 +115,8 @@ public class BookieLedgerIndexer {
 
                     @Override
                     public void processResult(int rc, String s, Object obj) {
+                        LOG.info("Indexer completed indexing {} ledgers : rc = {}", numLedgers.get(),
+                                BKException.getMessage(rc));
                         resultCode.add(rc);
                         ledgerCollectorLatch.countDown();
                     }

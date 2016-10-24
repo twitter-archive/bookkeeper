@@ -22,19 +22,15 @@
 package org.apache.bookkeeper.meta;
 
 import java.io.IOException;
-import java.util.Random;
 import java.lang.reflect.Field;
 
-import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.conf.ClientConfiguration;
-import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs.Ids;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
-import org.junit.Assert.*;
+
+import static org.apache.bookkeeper.util.BookKeeperConstants.*;
 
 public class LedgerLayoutTest extends BookKeeperClusterTestCase {
 
@@ -48,7 +44,7 @@ public class LedgerLayoutTest extends BookKeeperClusterTestCase {
         conf.setLedgerManagerFactoryClass(HierarchicalLedgerManagerFactory.class);
         String ledgerRootPath = "/testLedgerLayout";
 
-        zkc.create(ledgerRootPath, new byte[0], 
+        zkc.create(ledgerRootPath, new byte[0],
                    Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
 
         LedgerLayout layout = LedgerLayout.readLayout(zkc, ledgerRootPath);
@@ -87,7 +83,7 @@ public class LedgerLayoutTest extends BookKeeperClusterTestCase {
                           FlatLedgerManagerFactory.class.getName(),
                           FlatLedgerManagerFactory.CUR_VERSION,
                           LedgerLayout.LAYOUT_FORMAT_VERSION + 1);
-        
+
         try {
             LedgerLayout.readLayout(zkc, conf.getZkLedgersRootPath());
             fail("Shouldn't reach here!");
@@ -99,7 +95,7 @@ public class LedgerLayoutTest extends BookKeeperClusterTestCase {
     @Test
     public void testAbsentLedgerManagerLayout() throws Exception {
         ClientConfiguration conf = new ClientConfiguration();
-        String ledgersLayout = conf.getZkLedgersRootPath() + "/" + LedgerLayout.LAYOUT_ZNODE;
+        String ledgersLayout = conf.getZkLedgersRootPath() + "/" + LAYOUT_ZNODE;
         // write bad format ledger layout
         StringBuilder sb = new StringBuilder();
         sb.append(LedgerLayout.LAYOUT_FORMAT_VERSION).append("\n");
@@ -118,7 +114,7 @@ public class LedgerLayoutTest extends BookKeeperClusterTestCase {
     public void testBaseLedgerManagerLayout() throws Exception {
         ClientConfiguration conf = new ClientConfiguration();
         String rootPath = conf.getZkLedgersRootPath();
-        String ledgersLayout = rootPath + "/" + LedgerLayout.LAYOUT_ZNODE;
+        String ledgersLayout = rootPath + "/" + LAYOUT_ZNODE;
         // write bad format ledger layout
         StringBuilder sb = new StringBuilder();
         sb.append(LedgerLayout.LAYOUT_FORMAT_VERSION).append("\n")

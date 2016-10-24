@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.util.concurrent.RateLimiter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.bookkeeper.util.ZkUtils;
 import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +53,7 @@ class ZooWorker {
 
     public boolean allowRetry(int rc) {
         elapsedTimeMs = MathUtils.elapsedMSec(startTimeNanos);
-        if (!ZooWorker.isRecoverableException(rc)) {
+        if (!ZkUtils.isRecoverableException(rc)) {
             if (KeeperException.Code.OK.intValue() == rc) {
                 statsLogger.registerSuccessfulEvent(MathUtils.elapsedMicroSec(startTimeNanos));
             } else {
@@ -66,29 +67,6 @@ class ZooWorker {
 
     public long nextRetryWaitTime() {
         return retryPolicy.nextRetryWaitTime(attempts, elapsedTimeMs);
-    }
-
-    /**
-     * Check whether the given result code is recoverable by retry.
-     *
-     * @param rc result code
-     * @return true if given result code is recoverable.
-     */
-    public static boolean isRecoverableException(int rc) {
-        return KeeperException.Code.CONNECTIONLOSS.intValue() == rc ||
-                KeeperException.Code.OPERATIONTIMEOUT.intValue() == rc ||
-                KeeperException.Code.SESSIONMOVED.intValue() == rc ||
-                KeeperException.Code.SESSIONEXPIRED.intValue() == rc;
-    }
-
-    /**
-     * Check whether the given exception is recoverable by retry.
-     *
-     * @param exception given exception
-     * @return true if given exception is recoverable.
-     */
-    public static boolean isRecoverableException(KeeperException exception) {
-        return isRecoverableException(exception.code().intValue());
     }
 
     static interface ZooCallable<T> {
@@ -145,7 +123,7 @@ class ZooWorker {
                 ++attempts;
                 boolean rethrow = true;
                 long elapsedTime = MathUtils.elapsedMSec(startTimeNanos);
-                if (((null != client && isRecoverableException(e)) || null == client) &&
+                if (((null != client && ZkUtils.isRecoverableException(e)) || null == client) &&
                         retryPolicy.allowRetry(attempts, elapsedTime)) {
                     rethrow = false;
                 }

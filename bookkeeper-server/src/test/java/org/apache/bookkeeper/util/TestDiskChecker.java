@@ -21,23 +21,43 @@ import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.bookkeeper.util.DiskChecker.DiskErrorException;
 import org.apache.bookkeeper.util.DiskChecker.DiskOutOfSpaceException;
+import org.apache.commons.io.FileUtils;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 /**
  * Test to verify {@link DiskChecker}
- * 
+ *
  */
 public class TestDiskChecker {
 
     DiskChecker diskChecker;
 
+    final List<File> tempDirs = new ArrayList<File>();
+
     @Before
     public void setup() {
         diskChecker = new DiskChecker(0.95f, 0.95f);
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        for (File dir : tempDirs) {
+            FileUtils.deleteDirectory(dir);
+        }
+        tempDirs.clear();
+    }
+
+    File createTempDir(String prefix, String suffix) throws IOException {
+        File dir = IOUtils.createTempDir(prefix, suffix);
+        tempDirs.add(dir);
+        return dir;
     }
 
     /**
@@ -45,7 +65,7 @@ public class TestDiskChecker {
      */
     @Test(expected = DiskOutOfSpaceException.class)
     public void testCheckDiskFull() throws IOException {
-        File file = File.createTempFile("DiskCheck", "test");
+        File file = createTempDir("DiskCheck", "test");
         long usableSpace = file.getUsableSpace();
         long totalSpace = file.getTotalSpace();
         diskChecker
@@ -59,7 +79,7 @@ public class TestDiskChecker {
      */
     @Test(expected = DiskOutOfSpaceException.class)
     public void testCheckDiskFullOnNonExistFile() throws IOException {
-        File file = File.createTempFile("DiskCheck", "test");
+        File file = createTempDir("DiskCheck", "test");
         long usableSpace = file.getUsableSpace();
         long totalSpace = file.getTotalSpace();
         diskChecker
@@ -73,9 +93,7 @@ public class TestDiskChecker {
      */
     @Test(expected = DiskErrorException.class)
     public void testCheckDiskErrorForFile() throws Exception {
-        File parent = File.createTempFile("DiskCheck", "test");
-        parent.delete();
-        parent.mkdir();
+        File parent = createTempDir("DiskCheck", "test");
         File child = File.createTempFile("DiskCheck", "test", parent);
         diskChecker.checkDir(child);
     }
@@ -85,9 +103,7 @@ public class TestDiskChecker {
      */
     @Test
     public void testCheckDiskErrorForDir() throws Exception {
-        File parent = File.createTempFile("DiskCheck", "test");
-        parent.delete();
-        parent.mkdir();
+        File parent = createTempDir("DiskCheck", "test");
         File child = File.createTempFile("DiskCheck", "test", parent);
         child.delete();
         child.mkdir();
