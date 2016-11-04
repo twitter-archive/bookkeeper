@@ -251,8 +251,7 @@ public class BookieServer {
     static {
         bkOpts.addOption("c", "conf", true, "Configuration for Bookie Server");
         bkOpts.addOption("r", "readonly", false, "Running Bookie Server in ReadOnly mode");
-        bkOpts.addOption("withAutoRecovery", false,
-                "Start Autorecovery service Bookie server");
+        bkOpts.addOption("withAutoRecovery", false, "Start Autorecovery service Bookie server");
         bkOpts.addOption("z", "zkserver", true, "Zookeeper Server");
         bkOpts.addOption("m", "zkledgerpath", true, "Zookeeper ledgers root path");
         bkOpts.addOption("p", "bookieport", true, "bookie port exported");
@@ -268,8 +267,14 @@ public class BookieServer {
      */
     private static void printUsage() {
         HelpFormatter hf = new HelpFormatter();
-        hf.printHelp("BookieServer [options]\nExample:\n" +
-                    "BookieServer -c bookie.conf -z localhost:2181 -m /bookkeeper/ledgers -p 3181 -j /mnt/journal -l \"/mnt/ledger1 /mnt/ledger2\"", bkOpts);
+        String header = "\n"
+                        + "BookieServer provide an interface to start a bookie with configuration file and/or arguments."
+                        + "The settings in configuration file will be overwrite by provided arguments.\n"
+                        + "Options including:\n";
+        String footer = "Here is an example:\n" +
+                        "\tBookieServer -c bookie.conf -z localhost:2181 -m /bookkeeper/ledgers " +
+                        "-p 3181 -j /mnt/journal -l \"/mnt/ledger1 /mnt/ledger2 /mnt/ledger3\"\n";
+        hf.printHelp("BookieServer [options]\n", header,  bkOpts, footer, true);
     }
 
     private static void loadConfFile(ServerConfiguration conf, String confFile)
@@ -344,15 +349,6 @@ public class BookieServer {
                 conf.setLedgerDirNames(sLedgerDirs);
             }
 
-/*            if (leftArgs.length < 4) {
-                throw new IllegalArgumentException();
-            }
-            conf.setZkServers(leftArgs[1]);
-            conf.setJournalDirName(leftArgs[2]);
-            String[] ledgerDirNames = new String[leftArgs.length - 3];
-            System.arraycopy(leftArgs, 3, ledgerDirNames, 0, ledgerDirNames.length);
-            conf.setLedgerDirNames(ledgerDirNames);
-*/
             return Pair.of(conf, cmdLine);
         } catch (ParseException e) {
             LOG.error("Error parsing command line arguments : ", e);
