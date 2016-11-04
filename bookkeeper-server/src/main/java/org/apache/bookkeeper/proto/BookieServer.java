@@ -42,6 +42,7 @@ import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
+import org.apache.commons.cli.Option;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.lang3.tuple.Pair;
@@ -51,6 +52,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import static java.lang.Integer.*;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
@@ -249,8 +251,14 @@ public class BookieServer {
     static {
         bkOpts.addOption("c", "conf", true, "Configuration for Bookie Server");
         bkOpts.addOption("r", "readonly", false, "Running Bookie Server in ReadOnly mode");
-        bkOpts.addOption("withAutoRecovery", false,
-                "Start Autorecovery service Bookie server");
+        bkOpts.addOption("withAutoRecovery", false, "Start Autorecovery service Bookie server");
+        bkOpts.addOption("z", "zkserver", true, "Zookeeper Server");
+        bkOpts.addOption("m", "zkledgerpath", true, "Zookeeper ledgers root path");
+        bkOpts.addOption("p", "bookieport", true, "bookie port exported");
+        bkOpts.addOption("j", "journal", true, "bookie journal directory");
+        Option ledgerDirs = new Option ("l", "ledgerdirs", true, "bookie ledgers directories");
+        ledgerDirs.setArgs(10);
+        bkOpts.addOption(ledgerDirs);
         bkOpts.addOption("h", "help", false, "Print help message");
     }
 
@@ -259,8 +267,14 @@ public class BookieServer {
      */
     private static void printUsage() {
         HelpFormatter hf = new HelpFormatter();
-        hf.printHelp("BookieServer [options]\n\tor\n"
-                + "BookieServer <bookie_port> <zk_servers> <journal_dir> <ledger_dir [ledger_dir]>", bkOpts);
+        String header = "\n"
+                        + "BookieServer provide an interface to start a bookie with configuration file and/or arguments."
+                        + "The settings in configuration file will be overwrite by provided arguments.\n"
+                        + "Options including:\n";
+        String footer = "Here is an example:\n" +
+                        "\tBookieServer -c bookie.conf -z localhost:2181 -m /bookkeeper/ledgers " +
+                        "-p 3181 -j /mnt/journal -l \"/mnt/ledger1 /mnt/ledger2 /mnt/ledger3\"\n";
+        hf.printHelp("BookieServer [options]\n", header,  bkOpts, footer, true);
     }
 
     private static void loadConfFile(ServerConfiguration conf, String confFile)
@@ -292,33 +306,48 @@ public class BookieServer {
             String[] leftArgs = cmdLine.getArgs();
 
             if (cmdLine.hasOption('c')) {
-                if (null != leftArgs && leftArgs.length > 0) {
-                    throw new IllegalArgumentException();
-                }
-                String confFile = cmdLine.getOptionValue("c");
+                String confFile = cmdLine.getOptionValue('c');
                 loadConfFile(conf, confFile);
-                return Pair.of(conf, cmdLine);
-            }
-
-            if (cmdLine.hasOption("withAutoRecovery")) {
-                conf.setAutoRecoveryDaemonEnabled(true);
-            }
-
-            if (cmdLine.hasOption("withAutoRecovery")) {
-                conf.setAutoRecoveryDaemonEnabled(true);
-            }
-
-            if (leftArgs.length < 4) {
-                throw new IllegalArgumentException();
             }
 
             // command line arguments overwrite settings in configuration file
-            conf.setBookiePort(Integer.parseInt(leftArgs[0]));
-            conf.setZkServers(leftArgs[1]);
-            conf.setJournalDirName(leftArgs[2]);
-            String[] ledgerDirNames = new String[leftArgs.length - 3];
-            System.arraycopy(leftArgs, 3, ledgerDirNames, 0, ledgerDirNames.length);
-            conf.setLedgerDirNames(ledgerDirNames);
+            if (cmdLine.hasOption("withAutoRecovery")) {
+                conf.setAutoRecoveryDaemonEnabled(true);
+            }
+
+            if (cmdLine.hasOption('z')) {
+                String sZK = cmdLine.getOptionValue('z');
+                LOG.info("Get cmdline zookeeper instance: " + sZK);
+                conf.setZkServers(sZK);
+            }
+
+            if (cmdLine.hasOption('m')) {
+                String sZkLedgersRootPath = cmdLine.getOptionValue('m');
+                LOG.info("Get cmdline zookeeper ledger path: " + sZkLedgersRootPath);
+                conf.setZkLedgersRootPath(sZkLedgersRootPath);
+            }
+
+            if (cmdLine.hasOption('p')) {
+                String sPort = cmdLine.getOptionValue('p');
+                LOG.info("Get cmdline bookie port: " + sPort);
+                Integer iPort = parseInt(sPort);
+                conf.setBookiePort(iPort.intValue());
+            }
+
+            if (cmdLine.hasOption('j')) {
+                String sJournalDir = cmdLine.getOptionValue('j');
+                LOG.info("Get cmdline journal dir: " + sJournalDir);
+                conf.setJournalDirName(sJournalDir);
+            }
+
+            if (cmdLine.hasOption('l')) {
+                String[] sLedgerDirs = cmdLine.getOptionValues('l');
+                LOG.info("Get cmdline ledger dirs: ");
+                for(String ledger : sLedgerDirs) {
+                    LOG.info("ledgerdir : " + ledger);
+                }
+                conf.setLedgerDirNames(sLedgerDirs);
+            }
 
             return Pair.of(conf, cmdLine);
         } catch (ParseException e) {
