@@ -51,6 +51,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import static java.lang.Integer.*;
 import static org.apache.bookkeeper.bookie.BookKeeperServerStats.*;
 import static org.apache.bookkeeper.replication.ReplicationStats.*;
 
@@ -251,6 +252,8 @@ public class BookieServer {
         bkOpts.addOption("r", "readonly", false, "Running Bookie Server in ReadOnly mode");
         bkOpts.addOption("withAutoRecovery", false,
                 "Start Autorecovery service Bookie server");
+        bkOpts.addOption("z", "zkserver", true, "Zookeeper Server");
+        bkOpts.addOption("p", "bookieport", true, "bookie port exported");
         bkOpts.addOption("h", "help", false, "Print help message");
     }
 
@@ -293,33 +296,41 @@ public class BookieServer {
 
             if (cmdLine.hasOption('c')) {
                 if (null != leftArgs && leftArgs.length > 0) {
-                    throw new IllegalArgumentException();
+                //    throw new IllegalArgumentException();
                 }
                 String confFile = cmdLine.getOptionValue("c");
                 loadConfFile(conf, confFile);
-                return Pair.of(conf, cmdLine);
+                //return Pair.of(conf, cmdLine);
             }
 
             if (cmdLine.hasOption("withAutoRecovery")) {
                 conf.setAutoRecoveryDaemonEnabled(true);
             }
 
-            if (cmdLine.hasOption("withAutoRecovery")) {
-                conf.setAutoRecoveryDaemonEnabled(true);
-            }
-
-            if (leftArgs.length < 4) {
-                throw new IllegalArgumentException();
-            }
 
             // command line arguments overwrite settings in configuration file
-            conf.setBookiePort(Integer.parseInt(leftArgs[0]));
+            if (cmdLine.hasOption('p')) {
+                String sPort = cmdLine.getOptionValue("p");
+                LOG.info("get cmdline bookie port: " + sPort);
+                Integer iPort = parseInt(sPort);
+                conf.setBookiePort(iPort.intValue());
+            }
+
+            if (cmdLine.hasOption('z')) {
+                String sZk = cmdLine.getOptionValue('z');
+                LOG.info("get cmdline zookeeper value: " + sZk);
+                conf.setZkServers(sZk);
+            }
+
+/*            if (leftArgs.length < 4) {
+                throw new IllegalArgumentException();
+            }
             conf.setZkServers(leftArgs[1]);
             conf.setJournalDirName(leftArgs[2]);
             String[] ledgerDirNames = new String[leftArgs.length - 3];
             System.arraycopy(leftArgs, 3, ledgerDirNames, 0, ledgerDirNames.length);
             conf.setLedgerDirNames(ledgerDirNames);
-
+*/
             return Pair.of(conf, cmdLine);
         } catch (ParseException e) {
             LOG.error("Error parsing command line arguments : ", e);
