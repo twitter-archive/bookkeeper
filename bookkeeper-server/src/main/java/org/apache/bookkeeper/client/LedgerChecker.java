@@ -42,10 +42,25 @@ import org.slf4j.LoggerFactory;
 public class LedgerChecker {
     private static Logger LOG = LoggerFactory.getLogger(LedgerChecker.class);
 
-    public final BookieClient bookieClient;
+    private final BookieClient bookieClient;
+    private final BookieClusterManager bcm;
 
     static class InvalidFragmentException extends Exception {
         private static final long serialVersionUID = 1467201276417062353L;
+    }
+
+    public LedgerChecker(BookKeeper bkc) {
+        this(bkc, new BookieClusterManager(bkc));
+    }
+
+    public LedgerChecker(BookKeeper bkc, BookieClusterManager bcm) {
+        this.bookieClient = bkc.getBookieClient();
+        this.bcm = bcm;
+        try {
+            this.bcm.start();
+        } catch (BKException e) {
+            LOG.error("Couldn't get bookie list when constructing ledger checker", e);
+        }
     }
 
     /**
@@ -70,17 +85,13 @@ public class LedgerChecker {
                 ChannelBuffer buffer, Object ctx) {
             if (rc == BKException.Code.OK) {
                 if (numEntries.decrementAndGet() == 0
-                        && !completed.getAndSet(true)) {
+                    && !completed.getAndSet(true)) {
                     cb.operationComplete(rc, fragment);
                 }
             } else if (!completed.getAndSet(true)) {
                 cb.operationComplete(rc, fragment);
             }
         }
-    }
-
-    public LedgerChecker(BookKeeper bkc) {
-        bookieClient = bkc.getBookieClient();
     }
 
     /**
@@ -143,16 +154,21 @@ public class LedgerChecker {
      */
     private void verifyLedgerFragment(LedgerFragment fragment,
                                       GenericCallback<LedgerFragment> cb)
-            throws InvalidFragmentException {
+            throws InvalidFragmentException, BKException {
         Set<Integer> bookiesToCheck = fragment.getBookiesIndexes();
         if (bookiesToCheck.isEmpty()) {
             cb.operationComplete(BKException.Code.OK, fragment);
             return;
         }
 
+        // if the fragment is closed and empty
+        // compare ensemble with available and/or readonly bookies
+        if (fragment.isClosed() && fragment.getLastKnownEntryId() < fragment.getFirstEntryId()) {
+            handleClosedEmptyFragment(fragment, cb);
+            return;
+        }
         AtomicInteger numBookies = new AtomicInteger(bookiesToCheck.size());
         Map<Integer, Integer> badBookies = new HashMap<Integer, Integer>();
-
         for (Integer bookieIndex : bookiesToCheck) {
             LedgerFragmentCallback lfCb = new LedgerFragmentCallback(
                     fragment, bookieIndex, cb, badBookies, numBookies);
@@ -178,20 +194,18 @@ public class LedgerChecker {
         long firstStored = fragment.getFirstStoredEntryId(bookieIndex);
         long lastStored = fragment.getLastStoredEntryId(bookieIndex);
 
-        if (firstStored == LedgerHandle.INVALID_ENTRY_ID) {
-            if (lastStored != LedgerHandle.INVALID_ENTRY_ID) {
-                throw new InvalidFragmentException();
-            }
-            cb.operationComplete(BKException.Code.OK, fragment);
-            return;
-        }
-
         BookieSocketAddress bookie = fragment.getAddress(bookieIndex);
         if (null == bookie) {
             throw new InvalidFragmentException();
         }
 
-        if (firstStored == lastStored) {
+        if (firstStored == LedgerHandle.INVALID_ENTRY_ID) {
+            // this fragment is not on this bookie
+            if (lastStored != LedgerHandle.INVALID_ENTRY_ID) {
+                throw new InvalidFragmentException();
+            }
+            cb.operationComplete(BKException.Code.OK, fragment);
+        } else if (firstStored == lastStored) {
             ReadManyEntriesCallback manycb = new ReadManyEntriesCallback(1,
                     fragment, cb);
             bookieClient.readEntry(bookie, fragment
@@ -290,24 +304,27 @@ public class LedgerChecker {
             curEnsemble = e.getValue();
         }
 
+
+
+
         /* Checking the last segment of the ledger can be complicated in some cases.
          * In the case that the ledger is closed, we can just check the fragments of
-         * the segment as normal, except in the case that no entry was ever written,
-         * to the ledger, in which case we check no fragments.
+         * the segment as normal even if no data has ever been written to.
          * In the case that the ledger is open, but enough entries have been written,
          * for lastAddConfirmed to be set above the start entry of the segment, we
          * can also check as normal.
-         * However, if lastAddConfirmed cannot be trusted, such as when it's lower than
-         * the first entry id, or not set at all, we cannot be sure if there has been
-         * data written to the segment. For this reason, we have to send a read request
+         * However, if ledger is open, sometimes lastAddConfirmed cannot be trusted,
+         * such as when it's lower than the first entry id, or not set at all,
+         * we cannot be sure if there has been data written to the segment.
+         * For this reason, we have to send a read request
          * to the bookies which should have the first entry. If they respond with
          * NoSuchEntry we can assume it was never written. If they respond with anything
          * else, we must assume the entry has been written, so we run the check.
          */
-        if (curEntryId != null && !(lh.getLedgerMetadata().isClosed() && lh.getLastAddConfirmed() < curEntryId)) {
+        if (curEntryId != null) {
             long lastEntry = lh.getLastAddConfirmed();
 
-            if (lastEntry < curEntryId) {
+            if (!lh.isClosed() && lastEntry < curEntryId) {
                 lastEntry = curEntryId;
             }
 
@@ -318,8 +335,7 @@ public class LedgerChecker {
             final LedgerFragment lastLedgerFragment = new LedgerFragment(lh, curEntryId,
                     lastEntry, bookieIndexes);
 
-            // Check for the case that no last confirmed entry has
-            // been set.
+            // Check for the case that no last confirmed entry has been set
             if (curEntryId == lastEntry) {
                 final long entryToRead = curEntryId;
 
@@ -366,7 +382,33 @@ public class LedgerChecker {
                 LOG.error("Invalid fragment found : {}", r);
                 allFragmentsCb.operationComplete(
                         BKException.Code.IncorrectParameterException, r);
+            } catch (BKException e) {
+                LOG.error("BKException when checking fragment : {}", r, e);
             }
         }
     }
+
+    /**
+     * If a closed fragment is emtpy, we're not able find the bad bookie by simply sending
+     * read entry request to each bookie. Because there's a corner case that if a bookie is registered
+     * in one cluster but moved to another cluster, that bookie is a lost bookie but it's still responding.
+     */
+    private void handleClosedEmptyFragment(LedgerFragment fragment,
+                                           GenericCallback<LedgerFragment> cb){
+        Set<Integer> badBookies = new HashSet<>();
+        Set<BookieSocketAddress> available = this.bcm.getAvailableBookies();
+        Set<BookieSocketAddress> readOnly = this.bcm.getReadOnlyBookies();
+        Set<Integer> bookiesToCheck = fragment.getBookiesIndexes();
+        for (Integer bookieIndex : bookiesToCheck) {
+            BookieSocketAddress bookieAddress = fragment.getAddress(bookieIndex);
+            boolean isBadBookie = !(available.contains(bookieAddress)
+                || readOnly.contains(bookieAddress));
+            if (isBadBookie) {
+                badBookies.add(bookieIndex);
+            }
+        }
+        int rc = badBookies.size() == 0 ? BKException.Code.OK : BKException.Code.BookieHandleNotAvailableException;
+        cb.operationComplete(rc, fragment.subset(badBookies));
+    }
+
 }

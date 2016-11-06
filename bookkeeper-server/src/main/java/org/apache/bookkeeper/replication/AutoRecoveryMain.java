@@ -31,6 +31,10 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieCriticalThread;
 import org.apache.bookkeeper.bookie.ExitCode;
+import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookieClusterManager;
+import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
@@ -54,6 +58,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
+import static org.apache.bookkeeper.replication.ReplicationStats.CLUSTER_SCOPE;
 import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_SCOPE;
 import static org.apache.bookkeeper.replication.ReplicationStats.REPLICATION_WORKER_SCOPE;
 
@@ -74,14 +79,14 @@ public class AutoRecoveryMain {
     private volatile boolean running = false;
 
     public AutoRecoveryMain(ServerConfiguration conf) throws IOException,
-            InterruptedException, KeeperException, UnavailableException,
-            CompatibilityException {
+        InterruptedException, KeeperException, UnavailableException,
+        CompatibilityException {
         this(conf, NullStatsLogger.INSTANCE);
     }
 
     public AutoRecoveryMain(ServerConfiguration conf, StatsLogger statsLogger)
-            throws IOException, InterruptedException, KeeperException, UnavailableException,
-            CompatibilityException {
+        throws IOException, InterruptedException, KeeperException, UnavailableException,
+        CompatibilityException {
         this.conf = conf;
         Set<Watcher> watchers = new HashSet<Watcher>();
         // TODO: better session handling for auto recovery daemon in future.
@@ -105,11 +110,19 @@ public class AutoRecoveryMain {
                 conf.getZkServers(), conf.getZkTimeout(), watchers,
                 new BoundExponentialBackoffRetryPolicy(baseBackoffTime, 3 * baseBackoffTime,
                                                        Integer.MAX_VALUE));
+        BookKeeper bkc = new BookKeeper(new ClientConfiguration(conf), zk);
+        BookieClusterManager bcm = new BookieClusterManager(conf, bkc);
+        try {
+            bcm.start();
+        } catch (BKException e) {
+            LOG.error("Couldn't get bookie list, exiting", e);
+            triggerShutdown(ExitCode.BOOKIE_EXCEPTION);
+            return;
+        }
         auditorElector = new AuditorElector(
                 Bookie.getBookieAddress(conf).toString(), conf,
-                zk, statsLogger.scope(AUDITOR_SCOPE));
-        replicationWorker = new ReplicationWorker(zk, conf,
-                statsLogger.scope(REPLICATION_WORKER_SCOPE));
+                zk, bcm, statsLogger.scope(AUDITOR_SCOPE));
+        replicationWorker = new ReplicationWorker(zk, conf, bcm, statsLogger.scope(REPLICATION_WORKER_SCOPE));
         deathWatcher = new AutoRecoveryDeathWatcher(this);
     }
 
@@ -228,6 +241,7 @@ public class AutoRecoveryMain {
     private static final Options opts = new Options();
     static {
         opts.addOption("c", "conf", true, "Bookie server configuration");
+        opts.addOption("r", "readonly", false, "Replicate read only bookies");
         opts.addOption("h", "help", false, "Print help message");
     }
 

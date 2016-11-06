@@ -349,9 +349,10 @@ public class BookieAutoRecoveryTest extends BookKeeperClusterTestCase {
      * Test that if a empty ledger loses the bookie not in the quorum for entry 0, it will
      * still be openable when it loses enough bookies to lose a whole quorum.
      */
-    @Test(timeout=10000)
+    @Test(timeout = 30000)
     public void testEmptyLedgerLosesQuorumEventually() throws Exception {
         LedgerHandle lh = bkc.createLedger(3, 2, 2, DigestType.CRC32, PASSWD);
+
         CountDownLatch latch = new CountDownLatch(1);
         String urZNode = getUrLedgerZNode(lh);
         watchUrLedgerNode(urZNode, latch);
@@ -362,30 +363,40 @@ public class BookieAutoRecoveryTest extends BookKeeperClusterTestCase {
                  LedgerHandleAdapter.getLedgerMetadata(lh).getEnsembles().get(0L));
         killBookie(replicaToKill);
 
-        getAuditor().submitAuditTask().get(); // ensure auditor runs
+        startNewBookie();
 
+        Auditor auditor = getAuditor();
+        // ensure auditor runs
+        while (auditor == null) {
+            Thread.sleep(100);
+            auditor = getAuditor();
+        }
         assertTrue("Should be marked as underreplicated", latch.await(5, TimeUnit.SECONDS));
         latch = new CountDownLatch(1);
         Stat s = watchUrLedgerNode(urZNode, latch); // should be marked as replicated
         if (s != null) {
             assertTrue("Should be marked as replicated", latch.await(10, TimeUnit.SECONDS));
         }
-
         replicaToKill = LedgerHandleAdapter
             .getLedgerMetadata(lh).getEnsembles().get(0L).get(1);
         LOG.info("Killing second bookie, {}, in ensemble {}", replicaToKill,
                  LedgerHandleAdapter.getLedgerMetadata(lh).getEnsembles().get(0L));
         killBookie(replicaToKill);
 
-        getAuditor().submitAuditTask().get(); // ensure auditor runs
+        startNewBookie();
 
+        // ensure auditor runs
+        auditor = getAuditor();
+        while (auditor == null) {
+            Thread.sleep(100);
+            auditor = getAuditor();
+        }
         assertTrue("Should be marked as underreplicated", latch.await(5, TimeUnit.SECONDS));
         latch = new CountDownLatch(1);
         s = watchUrLedgerNode(urZNode, latch); // should be marked as replicated
         if (s != null) {
             assertTrue("Should be marked as replicated", latch.await(5, TimeUnit.SECONDS));
         }
-
         // should be able to open ledger without issue
         bkc.openLedger(lh.getId(), DigestType.CRC32, PASSWD);
     }

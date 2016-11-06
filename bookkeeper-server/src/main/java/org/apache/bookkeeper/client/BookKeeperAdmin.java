@@ -205,35 +205,6 @@ public class BookKeeperAdmin {
     }
 
     /**
-     * Get a list of the available bookies.
-     *
-     * @return a collection of bookie addresses
-     */
-    public Collection<BookieSocketAddress> getAvailableBookies()
-            throws BKException {
-        return bkc.bookieWatcher.getBookies();
-    }
-
-    /**
-     * Get a list of readonly bookies
-     *
-     * @return a collection of bookie addresses
-     */
-    public Collection<BookieSocketAddress> getReadOnlyBookies()
-            throws BKException {
-        return bkc.bookieWatcher.getReadOnlyBookies();
-    }
-
-    /**
-     * Register a bookies listener to receive notifications about bookies changes.
-     *
-     * @param listener the listener to notify
-     */
-    public void registerBookiesListener(final BookiesListener listener) {
-        bkc.bookieWatcher.registerBookiesListener(listener);
-    }
-
-    /**
      * Open a ledger as an administrator. This means that no digest password
      * checks are done. Otherwise, the call is identical to BookKeeper#asyncOpenLedger
      *

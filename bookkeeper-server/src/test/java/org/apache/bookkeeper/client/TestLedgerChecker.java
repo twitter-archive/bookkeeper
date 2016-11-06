@@ -385,7 +385,7 @@ public class TestLedgerChecker extends BookKeeperClusterTestCase {
     }
 
     /**
-     * Tests that LedgerChecker does not return any fragments
+     * Tests that LedgerChecker should return the fragment
      * from a closed ledger with 0 entries.
      */
     @Test(timeout = 3000)
@@ -408,7 +408,7 @@ public class TestLedgerChecker extends BookKeeperClusterTestCase {
         Set<LedgerFragment> result = getUnderReplicatedFragments(lh1);
         assertNotNull("Result shouldn't be null", result);
         assertEquals("There should be 0 fragment. But returned fragments are "
-                + result, 0, result.size());
+                + result, 1, result.size());
     }
 
     /**

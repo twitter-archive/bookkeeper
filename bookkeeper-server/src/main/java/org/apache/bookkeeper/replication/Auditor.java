@@ -23,9 +23,9 @@ package org.apache.bookkeeper.replication;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
@@ -33,7 +33,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import org.apache.bookkeeper.client.BookieClusterManager;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.client.BKException;
@@ -51,8 +54,11 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.Processor;
 import org.apache.bookkeeper.replication.ReplicationException.BKAuditException;
 import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
 import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.stats.Counter;
+import org.apache.bookkeeper.stats.Gauge;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.AsyncCallback;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.ZooKeeper;
@@ -62,6 +68,10 @@ import org.slf4j.LoggerFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.SettableFuture;
+
+import static org.apache.bookkeeper.replication.ReplicationStats.PUBLISHED_UNDERREPLICATED_LEDGERS;
+import static org.apache.bookkeeper.replication.ReplicationStats.UNDERREPLICATED_LEDGERS;
+import static org.apache.bookkeeper.util.BookKeeperConstants.UNDER_REPLICATION_NODE;
 
 /**
  * Auditor is a single entity in the entire Bookie cluster and will be watching
@@ -73,70 +83,101 @@ import com.google.common.util.concurrent.SettableFuture;
 public class Auditor {
     private static final Logger LOG = LoggerFactory.getLogger(Auditor.class);
     private final ServerConfiguration conf;
-    private BookKeeper bkc;
-    private BookKeeperAdmin admin;
-    private BookieManager bookieManager;
+    private ZooKeeper zkc;
+    private BookieClusterManager bcm;
     private BookieLedgerIndexer bookieLedgerIndexer;
     private LedgerManager ledgerManager;
     private LedgerUnderreplicationManager ledgerUnderreplicationManager;
-    private final ScheduledExecutorService executor;
+    private final ScheduledExecutorService bookieCheckerExecutor;
+    private final ScheduledExecutorService urLedgerCheckerExecutor;
     private final String bookieIdentifier;
+    private Map<BookieSocketAddress, Set<Long>> ledgerDetails;
+    private Set<Long> underreplicatedLedgers;
+
+    // auditor stats
+    private StatsLogger statsLogger;
+    private Counter published_underreplicated_ledgers;
+
 
     public Auditor(final String bookieIdentifier, ServerConfiguration conf,
                    ZooKeeper zkc) throws UnavailableException {
-        this.conf = conf;
-        this.bookieIdentifier = bookieIdentifier;
-
-        initialize(conf, zkc);
-
-        executor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-                @Override
-                public Thread newThread(Runnable r) {
-                    Thread t = new Thread(r, "AuditorBookie-" + bookieIdentifier);
-                    t.setDaemon(true);
-                    return t;
-                }
-            });
+        this(bookieIdentifier, conf, zkc, null, NullStatsLogger.INSTANCE);
     }
 
-    private void initialize(ServerConfiguration conf, ZooKeeper zkc)
-            throws UnavailableException {
+    public Auditor(final String bookieIdentifier, ServerConfiguration conf,
+                   ZooKeeper zkc, BookieClusterManager bcm,
+                   StatsLogger statsLogger) throws UnavailableException {
+        this.conf = conf;
+        this.bookieIdentifier = bookieIdentifier;
+        this.zkc = zkc;
         try {
+            if(bcm == null){
+                BookKeeper bkc = new BookKeeper(new ClientConfiguration(conf), zkc);
+                this.bcm = new BookieClusterManager(conf, bkc);
+            } else {
+                this.bcm = bcm;
+            }
             LedgerManagerFactory ledgerManagerFactory = LedgerManagerFactory
-                    .newLedgerManagerFactory(conf, zkc);
+                .newLedgerManagerFactory(conf, zkc);
             ledgerManager = ledgerManagerFactory.newLedgerManager();
             this.bookieLedgerIndexer = new BookieLedgerIndexer(ledgerManager);
-
             this.ledgerUnderreplicationManager = ledgerManagerFactory
-                    .newLedgerUnderreplicationManager();
-
-            this.bkc = new BookKeeper(new ClientConfiguration(conf), zkc);
-            this.admin = new BookKeeperAdmin(bkc);
-            this.bookieManager = new BookieManager(conf, this.admin);
+                .newLedgerUnderreplicationManager();
         } catch (CompatibilityException ce) {
             throw new UnavailableException(
-                    "CompatibilityException while initializing Auditor", ce);
+                "CompatibilityException while initializing Auditor", ce);
         } catch (IOException ioe) {
             throw new UnavailableException(
-                    "IOException while initializing Auditor", ioe);
+                "IOException while initializing Auditor", ioe);
         } catch (KeeperException ke) {
             throw new UnavailableException(
-                    "KeeperException while initializing Auditor", ke);
+                "KeeperException while initializing Auditor", ke);
         } catch (InterruptedException ie) {
             throw new UnavailableException(
-                    "Interrupted while initializing Auditor", ie);
+                "Interrupted while initializing Auditor", ie);
         }
+
+        this.statsLogger = statsLogger;
+        this.published_underreplicated_ledgers = this.statsLogger.getCounter(PUBLISHED_UNDERREPLICATED_LEDGERS);
+        this.statsLogger.registerGauge(UNDERREPLICATED_LEDGERS, new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                return underreplicatedLedgers == null ? 0 : underreplicatedLedgers.size();
+            }
+        });
+        bookieCheckerExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "AuditorCheckBookie-" + bookieIdentifier);
+                t.setDaemon(true);
+                return t;
+            }
+        });
+        urLedgerCheckerExecutor = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "AuditorCheckUlLedgers-" + bookieIdentifier);
+                t.setDaemon(true);
+                return t;
+            }
+        });
+
     }
 
     private void submitShutdownTask() {
         synchronized (this) {
-            if (executor.isShutdown()) {
+            if (bookieCheckerExecutor.isShutdown()) {
                 return;
             }
-            executor.submit(new Runnable() {
+            bookieCheckerExecutor.submit(new Runnable() {
                     public void run() {
                         synchronized (Auditor.this) {
-                            executor.shutdown();
+                            bookieCheckerExecutor.shutdown();
                         }
                     }
                 });
@@ -145,24 +186,16 @@ public class Auditor {
 
     @VisibleForTesting
     synchronized Future<?> submitAuditTask() {
-        if (executor.isShutdown()) {
+        if (bookieCheckerExecutor.isShutdown()) {
             SettableFuture<Void> f = SettableFuture.<Void>create();
             f.setException(new BKAuditException("Auditor shutting down"));
             return f;
         }
-        return executor.submit(new Runnable() {
+        return bookieCheckerExecutor.submit(new Runnable() {
                 @SuppressWarnings("unchecked")
                 public void run() {
                     try {
-                        waitIfLedgerReplicationDisabled();
-
-                        // find lost bookies(if any)
-                        Collection<String> lostBookies =
-                                bookieManager.getAvailableAndStaleBookies().getRight();
-
-                        if (lostBookies.size() > 0) {
-                            auditBookies();
-                        }
+                        auditBookies();
                     } catch (BKException bke) {
                         LOG.error("Exception getting bookie list", bke);
                     } catch (InterruptedException ie) {
@@ -170,8 +203,6 @@ public class Auditor {
                         LOG.error("Interrupted while watching available bookies ", ie);
                     } catch (BKAuditException bke) {
                         LOG.error("Exception while watching available bookies", bke);
-                    } catch (UnavailableException ue) {
-                        LOG.error("Exception while watching available bookies", ue);
                     } catch (KeeperException ke) {
                         LOG.error("Exception reading bookie list", ke);
                     }
@@ -184,63 +215,44 @@ public class Auditor {
         // on startup watching available bookie and based on the
         // available bookies determining the bookie failures.
         synchronized (this) {
-            if (executor.isShutdown()) {
+            if (bookieCheckerExecutor.isShutdown()) {
                 return;
             }
 
             try {
-                bookieManager.start();
+                bcm.enableStats(this.statsLogger);
+                bcm.start();
             } catch (BKException bke) {
                 LOG.error("Couldn't get bookie list, exiting", bke);
                 submitShutdownTask();
                 return;
             }
 
-            long interval = conf.getAuditorPeriodicCheckInterval();
+            long ledgerCheckInterval = conf.getAuditorPeriodicCheckInterval();
+            long bookieCheckInterval = conf.getAuditorPeriodicBookieCheckInterval();
+            long urLedgerCheckInterval = conf.getAuditorURLedgerCheckInterval();
 
-            if (interval > 0) {
+            if (ledgerCheckInterval > 0) {
                 LOG.info("Auditor periodic ledger checking enabled"
-                         + " 'auditorPeriodicCheckInterval' {} seconds", interval);
-                executor.scheduleAtFixedRate(new Runnable() {
-                        public void run() {
-                            LOG.info("Running periodic check");
-
-                            try {
-                                if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
-                                    LOG.info("Ledger replication disabled, skipping");
-                                    return;
-                                }
-
-                                checkAllLedgers();
-                            } catch (KeeperException ke) {
-                                LOG.error("Exception while running periodic check", ke);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                LOG.error("Interrupted while running periodic check", ie);
-                            } catch (BKAuditException bkae) {
-                                LOG.error("Exception while running periodic check", bkae);
-                            } catch (BKException bke) {
-                                LOG.error("Exception running periodic check", bke);
-                            } catch (IOException ioe) {
-                                LOG.error("I/O exception running periodic check", ioe);
-                            } catch (ReplicationException.UnavailableException ue) {
-                                LOG.error("Underreplication manager unavailable "
-                                          +"running periodic check", ue);
-                            }
-                        }
-                    }, 0, interval, TimeUnit.SECONDS);
+                         + " 'auditorPeriodicCheckInterval' {} seconds", ledgerCheckInterval);
+                bookieCheckerExecutor.scheduleAtFixedRate(LEDGER_CHECK, 0, ledgerCheckInterval, TimeUnit.SECONDS);
             } else {
                 LOG.info("Periodic checking disabled");
             }
 
-            long bookieCheckInterval = conf.getAuditorPeriodicBookieCheckInterval();
             if (bookieCheckInterval == 0) {
                 LOG.info("Auditor periodic bookie checking disabled, running once check now anyhow");
-                executor.submit(BOOKIE_CHECK);
+                bookieCheckerExecutor.submit(BOOKIE_CHECK);
             } else {
                 LOG.info("Auditor periodic bookie checking enabled"
                          + " 'auditorPeriodicBookieCheckInterval' {} seconds", bookieCheckInterval);
-                executor.scheduleAtFixedRate(BOOKIE_CHECK, 0, bookieCheckInterval, TimeUnit.SECONDS);
+                bookieCheckerExecutor.scheduleAtFixedRate(BOOKIE_CHECK, 0, bookieCheckInterval, TimeUnit.SECONDS);
+            }
+
+            if (urLedgerCheckInterval > 0) {
+                LOG.info("Auditor periodic underreplicated ledger checking enabled"
+                        + " 'auditorPeriodUrLedgerCheckInterval' {} seconds", urLedgerCheckInterval);
+                urLedgerCheckerExecutor.scheduleAtFixedRate(UR_LEDGER_CHECK, 0, urLedgerCheckInterval, TimeUnit.SECONDS);
             }
         }
     }
@@ -260,7 +272,6 @@ public class Auditor {
             throws BKAuditException, KeeperException,
             InterruptedException, BKException {
         LOG.info("Auditing bookies.");
-
         try {
             waitIfLedgerReplicationDisabled();
         } catch (UnavailableException ue) {
@@ -269,14 +280,14 @@ public class Auditor {
             return;
         }
 
-        // put exit cases here
-        Map<String, Set<Long>> ledgerDetails = generateBookie2LedgersIndex();
+        // get leger to bookie map
+        ledgerDetails = generateBookie2LedgersIndex();
         try {
             if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
                 // TODO: discard this run will introduce more traffic to zookeeper, we should just wait.
                 // has been disabled while we were generating the index
                 // discard this run, and schedule a new one
-                executor.submit(BOOKIE_CHECK);
+                bookieCheckerExecutor.submit(BOOKIE_CHECK);
                 return;
             }
         } catch (UnavailableException ue) {
@@ -285,42 +296,50 @@ public class Auditor {
             return;
         }
 
-        // find lost bookies
-        Pair<Set<String>, Set<String>> availableAndStaleBookies =
-                bookieManager.getAvailableAndStaleBookies();
-        Set<String> lostBookies = new HashSet<String>();
-
-        lostBookies.addAll(availableAndStaleBookies.getRight());
-        lostBookies.addAll(Sets.difference(ledgerDetails.keySet(), availableAndStaleBookies.getLeft()));
-
+        // find failed bookies
+        Set<BookieSocketAddress> lostBookies = findLostBookies(ledgerDetails.keySet());
+        // reset the counter
+        this.published_underreplicated_ledgers.clear();
+        // publish suspected ledgers if any
         if (lostBookies.size() > 0) {
-            LOG.info("Lost bookies : {}", lostBookies);
+            LOG.info("Failed bookies : {}", lostBookies);
             handleLostBookies(lostBookies, ledgerDetails);
         } else {
-            LOG.info("No bookie is suspected to be lost.");
+            LOG.info("No bookie is suspected to be failed.");
         }
     }
 
-    private Map<String, Set<Long>> generateBookie2LedgersIndex()
+    public Set<BookieSocketAddress> findLostBookies(Set<BookieSocketAddress> bookiesFromLedgers) throws BKException {
+        Set<BookieSocketAddress> lostBookies = new HashSet<BookieSocketAddress>();
+        Set<BookieSocketAddress> staleBookies = bcm.fetchStaleBookies();
+        Set<BookieSocketAddress> activeBookies = bcm.getActiveBookies();
+        lostBookies.addAll(staleBookies);
+        lostBookies.addAll(Sets.difference(bookiesFromLedgers, activeBookies));
+        bcm.lostBookiesChanged(lostBookies);
+        return lostBookies;
+    }
+
+    private Map<BookieSocketAddress, Set<Long>> generateBookie2LedgersIndex()
             throws BKAuditException {
         return bookieLedgerIndexer.getBookieToLedgerIndex();
     }
 
-    private void handleLostBookies(Collection<String> lostBookies,
-            Map<String, Set<Long>> ledgerDetails) throws BKAuditException,
+    private void handleLostBookies(Collection<BookieSocketAddress> lostBookies,
+            Map<BookieSocketAddress, Set<Long>> ledgerDetails) throws BKAuditException,
             InterruptedException {
         LOG.info("Following are the failed bookies: " + lostBookies
                 + " and searching its ledgers for re-replication");
 
-        for (String bookieIP : lostBookies) {
+        for (BookieSocketAddress bookieIP : lostBookies) {
             // identify all the ledgers in bookieIP and publishing these ledgers
             // as under-replicated.
-            publishSuspectedLedgers(bookieIP, ledgerDetails.get(bookieIP));
+            publishSuspectedLedgers(bookieIP.toString(), ledgerDetails.get(bookieIP));
         }
     }
 
     private void publishSuspectedLedgers(String bookieIP, Set<Long> ledgers)
             throws InterruptedException, BKAuditException {
+
         if (null == ledgers || ledgers.size() == 0) {
             // there is no ledgers available for this bookie and just
             // ignoring the bookie failures
@@ -333,6 +352,7 @@ public class Auditor {
             try {
                 ledgerUnderreplicationManager.markLedgerUnderreplicated(
                         ledgerId, bookieIP);
+                this.published_underreplicated_ledgers.inc();
             } catch (UnavailableException ue) {
                 throw new BKAuditException(
                         "Failed to publish underreplicated ledger: " + ledgerId
@@ -494,17 +514,14 @@ public class Auditor {
         submitShutdownTask();
 
         try {
-            while (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+            while (!bookieCheckerExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
                 LOG.warn("Executor not shutting down, interrupting");
-                executor.shutdownNow();
+                bookieCheckerExecutor.shutdownNow();
+                urLedgerCheckerExecutor.shutdownNow();
             }
-            admin.close();
-            bkc.close();
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             LOG.warn("Interrupted while shutting down auditor bookie", ie);
-        } catch (BKException bke) {
-            LOG.warn("Exception while shutting down auditor bookie", bke);
         }
     }
 
@@ -514,28 +531,92 @@ public class Auditor {
      * @return auditor status
      */
     public boolean isRunning() {
-        return !executor.isShutdown();
+        return !bookieCheckerExecutor.isShutdown();
     }
 
-    private final Runnable BOOKIE_CHECK = new Runnable() {
-            public void run() {
-                try {
-                    auditBookies();
-                } catch (BKException bke) {
-                    LOG.error("Couldn't get bookie list, exiting", bke);
-                    submitShutdownTask();
-                } catch (KeeperException ke) {
-                    LOG.error("Exception while watching available bookies", ke);
-                    submitShutdownTask();
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    LOG.error("Interrupted while watching available bookies ", ie);
-                    submitShutdownTask();
-                } catch (BKAuditException bke) {
-                    LOG.error("Exception while watching available bookies", bke);
-                    submitShutdownTask();
+    private final Runnable LEDGER_CHECK = new Runnable() {
+        public void run() {
+            LOG.info("Running periodic check");
+
+            try {
+                if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
+                    LOG.info("Ledger replication disabled, skipping");
+                    return;
                 }
+                checkAllLedgers();
+            } catch (KeeperException ke) {
+                LOG.error("Exception while running periodic check", ke);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                LOG.error("Interrupted while running periodic check", ie);
+            } catch (BKAuditException bkae) {
+                LOG.error("Exception while running periodic check", bkae);
+            } catch (BKException bke) {
+                LOG.error("Exception running periodic check", bke);
+            } catch (IOException ioe) {
+                LOG.error("I/O exception running periodic check", ioe);
+            } catch (ReplicationException.UnavailableException ue) {
+                LOG.error("Underreplication manager unavailable "
+                    +"running periodic check", ue);
             }
-        };
+        }
+    };
+
+    private final Runnable BOOKIE_CHECK = new Runnable() {
+        public void run() {
+            try {
+                auditBookies();
+            } catch (BKException bke) {
+                LOG.error("Couldn't get bookie list, exiting", bke);
+                submitShutdownTask();
+            } catch (KeeperException ke) {
+                LOG.error("Exception while watching available bookies", ke);
+                submitShutdownTask();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                LOG.error("Interrupted while watching available bookies ", ie);
+                submitShutdownTask();
+            } catch (BKAuditException bke) {
+                LOG.error("Exception while watching available bookies", bke);
+                submitShutdownTask();
+            }
+        }
+    };
+
+    private final Runnable UR_LEDGER_CHECK = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                List<String> urLedgerPaths = ledgerUnderreplicationManager.getAllUnderreplicatedLedgers();
+                final Set<Long> ledgerIds = new HashSet<>();
+                LOG.info("Find {} underreplicated ledgers.", urLedgerPaths.size());
+                urLedgerPaths.forEach(path -> {
+                    Long ledgerId = extracLedgerId(path);
+                    if(ledgerId!=null){
+                        ledgerIds.add(ledgerId);
+                    }
+                });
+                underreplicatedLedgers = ledgerIds;
+            } catch (UnavailableException e) {
+                LOG.error("Underreplication manager unavailable while "
+                    + "running periodic underreplicated ledger check", e);
+            }
+        }
+
+        private Long extracLedgerId(String ledgerPath) {
+            if (ledgerPath == null || ledgerPath.isEmpty()) {
+                return null;
+            }
+            String regex = ".*/" + UNDER_REPLICATION_NODE + "/ledgers/(.+)$";
+            Pattern pattern = Pattern.compile(regex);
+            Matcher matcher = pattern.matcher(ledgerPath);
+            if (matcher.find()) {
+                String hexLedgerPart = matcher.group(1).replaceAll("/", "");
+                return Long.parseLong(hexLedgerPart, 16);
+            }
+            return null;
+        }
+    };
+
 
 }

@@ -42,6 +42,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.conf.TestBKConfiguration;
@@ -700,6 +702,37 @@ public class TestLedgerUnderreplicationManager {
         assertEquals("All hierarchies should be cleaned up", 0, children.size());
     }
 
+    @Test(timeout = 30000)
+    public void testGetAllUnderreplicatedLedgers() throws Exception {
+        String missingReplica = "localhost:3181";
+        Long ledgerA = 0xfeadeefdacL;
+        Long ledgerB = 0xdefadebL;
+        LedgerUnderreplicationManager m1 = lmf1.newLedgerUnderreplicationManager();
+        LedgerUnderreplicationManager m2 = lmf2.newLedgerUnderreplicationManager();
+
+        m1.markLedgerUnderreplicated(ledgerA, missingReplica);
+        m1.markLedgerUnderreplicated(ledgerB, missingReplica);
+
+        // there should be 2 ledgers marked as underreplicated
+        List<String> ledgerPaths = m2.getAllUnderreplicatedLedgers();
+        assertEquals(ledgerPaths.size(), 2);
+        for (String path : ledgerPaths) {
+            long ledgerId = extracLedgerId(path);
+            assertTrue(ledgerId == ledgerA || ledgerId == ledgerB);
+        }
+        Future<Long> fA = getLedgerToReplicate(m1);
+        Future<Long> fB = getLedgerToReplicate(m1);
+        fA.get(5, TimeUnit.SECONDS);
+        fB.get(5, TimeUnit.SECONDS);
+        m1.markLedgerReplicated(ledgerA);
+        m1.markLedgerReplicated(ledgerB);
+
+        // both ledgers should be marked as replicated
+        ledgerPaths = m2.getAllUnderreplicatedLedgers();
+        assertEquals(ledgerPaths.size(),0);
+
+    }
+
     private void verifyMarkLedgerUnderreplicated(Collection<String> missingReplica)
             throws KeeperException, InterruptedException,
             CompatibilityException, UnavailableException {
@@ -755,5 +788,19 @@ public class TestLedgerUnderreplicationManager {
             }
             latch.countDown();
         }
+    }
+
+    private Long extracLedgerId(String ledgerPath) {
+        if (ledgerPath == null || ledgerPath.isEmpty()) {
+            return null;
+        }
+        String regex = ".*/" + UNDER_REPLICATION_NODE + "/ledgers/(.+)$";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(ledgerPath);
+        if (matcher.find()) {
+            String hexLedgerPart = matcher.group(1).replaceAll("/", "");
+            return Long.parseLong(hexLedgerPart, 16);
+        }
+        return null;
     }
 }

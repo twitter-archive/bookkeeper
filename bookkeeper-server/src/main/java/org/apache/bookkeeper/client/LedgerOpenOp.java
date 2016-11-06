@@ -180,10 +180,19 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 public void safeOperationComplete(int rc, Void result) {
                     if (rc == BKException.Code.OK) {
                         openComplete(BKException.Code.OK, lh);
+                        return;
                     } else if (rc == BKException.Code.UnauthorizedAccessException) {
                         openComplete(BKException.Code.UnauthorizedAccessException, null);
                     } else {
                         openComplete(bk.getReturnRc(BKException.Code.LedgerRecoveryException), null);
+                    }
+                    // close the ledger to release the resources
+                    try {
+                        lh.close();
+                    } catch (InterruptedException e) {
+                        LOG.error("Interrupted while closing ReadOnlyLedgerHandle: ", e);
+                    } catch (BKException e) {
+                        LOG.error("BKException while closing ReadOnlyLedgerHandle: ", e);
                     }
                 }
                 @Override
@@ -197,6 +206,14 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
                 public void readLastConfirmedComplete(int rc,
                         long lastConfirmed, Object ctx) {
                     if (rc != BKException.Code.OK) {
+                        // close the ledger to release the resources
+                        try {
+                            lh.close();
+                        } catch (InterruptedException e) {
+                            LOG.error("Interrupted while closing ReadOnlyLedgerHandle: ", e);
+                        } catch (BKException e) {
+                            LOG.error("BKException while closing ReadOnlyLedgerHandle: ", e);
+                        }
                         openComplete(bk.getReturnRc(BKException.Code.ReadException), null);
                     } else {
                         synchronized (lh) {

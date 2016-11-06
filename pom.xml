@@ -63,7 +63,7 @@
     <!-- Guava Version -->
     <guava.version>16.0</guava.version>
     <netty.version>3.9.4.Final</netty.version>
-    <zookeeper.version>3.4.6</zookeeper.version>
+    <zookeeper.version>3.5.1-alpha</zookeeper.version>
   </properties>
   <url>http://zookeeper.apache.org/bookkeeper</url>
   <build>
@@ -75,10 +75,10 @@
       </plugin>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.0</version>
+        <version>3.5.1</version>
         <configuration>
-          <source>1.6</source>
-          <target>1.6</target>
+          <source>1.8</source>
+          <target>1.8</target>
         </configuration>
       </plugin>
       <plugin>
