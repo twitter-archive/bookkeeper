@@ -618,13 +618,13 @@ public abstract class BookKeeperClusterTestCase extends TestCase {
         }
     }
 
-    public Auditor getAuditor() throws Exception {
+    public Auditor getAuditor() {
         for (AutoRecoveryMain p : autoRecoveryProcesses.values()) {
             Auditor a = p.getAuditor();
             if (a != null) {
                 return a;
             }
         }
-        throw new Exception("No auditor found");
+        return null;
     }
 }

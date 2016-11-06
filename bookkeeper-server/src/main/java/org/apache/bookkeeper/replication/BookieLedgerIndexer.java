@@ -59,11 +59,11 @@ public class BookieLedgerIndexer {
      * @throws BKAuditException
      *             exception while getting bookie-ledgers
      */
-    public Map<String, Set<Long>> getBookieToLedgerIndex()
+    public Map<BookieSocketAddress, Set<Long>> getBookieToLedgerIndex()
             throws BKAuditException {
         // bookie vs ledgers map
-        final ConcurrentHashMap<String, Set<Long>> bookie2ledgersMap
-            = new ConcurrentHashMap<String, Set<Long>>();
+        final ConcurrentHashMap<BookieSocketAddress, Set<Long>> bookie2ledgersMap
+            = new ConcurrentHashMap<BookieSocketAddress, Set<Long>>();
         final CountDownLatch ledgerCollectorLatch = new CountDownLatch(1);
 
         LOG.info("Generating bookie to ledger index ...");
@@ -86,7 +86,7 @@ public class BookieLedgerIndexer {
                                 for (BookieSocketAddress bookie : ensemble
                                         .getValue()) {
                                     putLedger(bookie2ledgersMap,
-                                            bookie.toString(),
+                                            bookie,
                                             ledgerId);
                                 }
                             }
@@ -136,8 +136,8 @@ public class BookieLedgerIndexer {
         return bookie2ledgersMap;
     }
 
-    private void putLedger(ConcurrentHashMap<String, Set<Long>> bookie2ledgersMap,
-            String bookie, long ledgerId) {
+    private void putLedger(ConcurrentHashMap<BookieSocketAddress, Set<Long>> bookie2ledgersMap,
+            BookieSocketAddress bookie, long ledgerId) {
         Set<Long> ledgers = bookie2ledgersMap.get(bookie);
         // creates an empty list and add to bookie for keeping its ledgers
         if (ledgers == null) {

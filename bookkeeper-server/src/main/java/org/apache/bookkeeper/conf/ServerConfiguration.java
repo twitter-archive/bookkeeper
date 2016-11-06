@@ -97,6 +97,7 @@ public class ServerConfiguration extends AbstractConfiguration {
     protected final static String DISK_CHECK_INTERVAL = "diskCheckInterval";
     protected final static String AUDITOR_PERIODIC_CHECK_INTERVAL = "auditorPeriodicCheckInterval";
     protected final static String AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL = "auditorPeriodicBookieCheckInterval";
+    protected final static String AUDITOR_PERIODIC_UR_LEDGER_CHECK_INTERVAL = "auditorPeriodicURLedgerCheckInterval";
     protected final static String AUDITOR_STALE_BOOKIE_INTERVAL = "auditorStaleBookieInterval";
     protected final static String AUTO_RECOVERY_DAEMON_ENABLED = "autoRecoveryDaemonEnabled";
 
@@ -1531,6 +1532,27 @@ public class ServerConfiguration extends AbstractConfiguration {
      */
     public long getAuditorPeriodicBookieCheckInterval() {
         return getLong(AUDITOR_PERIODIC_BOOKIE_CHECK_INTERVAL, 84600);
+    }
+
+    /**
+     * Set the interval between auditor checks underreplicated ledgers.
+     * If the interval < 0, the periodic check will be disabled
+     *
+     * @param interval The period in seconds.
+     * @return server configuration
+     */
+    public ServerConfiguration setAuditorURLedgerCheckInterval(long interval) {
+        setProperty(AUDITOR_PERIODIC_UR_LEDGER_CHECK_INTERVAL, interval);
+        return this;
+    }
+
+    /**
+     * Get the interval between auditor checks underreplicated ledgers.
+     * @see #setAuditorURLedgerCheckInterval(long)
+     * @return the interval between bookie check runs, in seconds. Default is 300 (= 5 minutes)
+     */
+    public long getAuditorURLedgerCheckInterval() {
+        return getLong(AUDITOR_PERIODIC_UR_LEDGER_CHECK_INTERVAL, 300);
     }
 
     /**

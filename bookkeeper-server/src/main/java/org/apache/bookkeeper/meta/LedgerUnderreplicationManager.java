@@ -17,6 +17,8 @@
  */
 package org.apache.bookkeeper.meta;
 
+import java.util.List;
+
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
 import org.apache.bookkeeper.replication.ReplicationException;
 
@@ -36,6 +38,14 @@ public interface LedgerUnderreplicationManager {
      * already marked as underreplicated, this is a noop.
      */
     void markLedgerReplicated(long ledgerId)
+            throws ReplicationException.UnavailableException;
+
+    /**
+     * Get the list of all underreplicated ledgers
+     * @return - the list of znode path for all underreplicated ledgers
+     * @throws ReplicationException.UnavailableException
+     */
+    List<String> getAllUnderreplicatedLedgers()
             throws ReplicationException.UnavailableException;
 
     /**

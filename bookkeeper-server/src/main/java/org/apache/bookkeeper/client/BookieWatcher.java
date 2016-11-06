@@ -97,7 +97,42 @@ class BookieWatcher implements Watcher, ChildrenCallback {
         readOnlyBookieWatcher.registerBookiesListener(listener);
     }
 
-    Collection<BookieSocketAddress> getBookies() throws BKException {
+    void unregisterBookiesListener(final BookiesListener listener) {
+        listeners.remove(listener);
+        readOnlyBookieWatcher.unregisterBookiesListener(listener);
+    }
+
+    /**
+     * Get all the bookies registered under cookies path.
+     *
+     * @return the registered bookie list.
+     */
+    Collection<BookieSocketAddress> getRegisteredBookies() throws BKException {
+        String cookiePath = bk.getConf().getZkLedgersRootPath() + "/"
+            + BookKeeperConstants.COOKIE_NODE;
+        try {
+            List<String> children = bk.getZkHandle().getChildren(cookiePath, false);
+            List<BookieSocketAddress> bookies = new ArrayList<BookieSocketAddress>(children.size());
+            for (String child : children) {
+                try {
+                    bookies.add(new BookieSocketAddress(child));
+                } catch (IOException ioe) {
+                    logger.error("Error parsing bookie address {} : ", child, ioe);
+                    throw new BKException.ZKException();
+                }
+            }
+            return bookies;
+        } catch (KeeperException ke) {
+            logger.error("Failed to get registered bookie list : ", ke);
+            throw new BKException.ZKException();
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            logger.error("Interrupted reading registered bookie list", ie);
+            throw new BKException.BKInterruptedException();
+        }
+    }
+
+    Collection<BookieSocketAddress> getAvailableBookies() throws BKException {
         try {
             List<String> children = bk.getZkHandle().getChildren(this.bookieRegistrationPath, false);
             children.remove(BookKeeperConstants.READONLY);
@@ -307,6 +342,10 @@ class BookieWatcher implements Watcher, ChildrenCallback {
 
         void registerBookiesListener(final BookiesListener listener) {
             listeners.add(listener);
+        }
+
+        void unregisterBookiesListener(final BookiesListener listener) {
+            listeners.remove(listener);
         }
 
         @Override

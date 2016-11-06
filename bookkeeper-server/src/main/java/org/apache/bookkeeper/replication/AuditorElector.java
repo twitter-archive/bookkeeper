@@ -26,6 +26,8 @@ import java.util.List;
 import java.io.Serializable;
 import java.io.IOException;
 
+import org.apache.bookkeeper.client.BookKeeper;
+import org.apache.bookkeeper.client.BookieClusterManager;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.DataFormats.AuditorVoteFormat;
 import com.google.common.annotations.VisibleForTesting;
@@ -58,6 +60,7 @@ import static com.google.common.base.Charsets.UTF_8;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_STATUS;
 import static org.apache.bookkeeper.replication.ReplicationStats.ELECTION_ATTEMPTS;
 
@@ -89,12 +92,14 @@ public class AuditorElector {
     private final ServerConfiguration conf;
     private final ZooKeeper zkc;
     private final ExecutorService executor;
+    private final BookieClusterManager bcm;
 
     private String myVote;
     Auditor auditor;
     private AtomicBoolean running = new AtomicBoolean(false);
 
     // Expose Stats
+    private final StatsLogger statsLogger;
     private final Counter electionAttempts;
 
     /**
@@ -111,7 +116,7 @@ public class AuditorElector {
      */
     public AuditorElector(final String bookieId, ServerConfiguration conf,
                           ZooKeeper zkc) throws UnavailableException {
-        this(bookieId, conf, zkc, NullStatsLogger.INSTANCE);
+        this(bookieId, conf, zkc, null, NullStatsLogger.INSTANCE);
     }
 
     /**
@@ -123,16 +128,21 @@ public class AuditorElector {
      *            - configuration
      * @param zkc
      *            - ZK instance
+     * @param bcm
+     *            - BookieClusterManager (nullable)
      * @param statsLogger
      *            - stats logger
      * @throws UnavailableException
      *             throws unavailable exception while initializing the elector
      */
     public AuditorElector(final String bookieId, ServerConfiguration conf,
-                          ZooKeeper zkc, StatsLogger statsLogger) throws UnavailableException {
+                          ZooKeeper zkc, BookieClusterManager bcm,
+                          StatsLogger statsLogger) throws UnavailableException {
         this.bookieId = bookieId;
         this.conf = conf;
         this.zkc = zkc;
+        this.bcm = bcm;
+        this.statsLogger = statsLogger;
         basePath = conf.getZkLedgersRootPath() + '/'
                 + BookKeeperConstants.UNDER_REPLICATION_NODE;
         electionPath = basePath + '/' + ELECTION_ZNODE;
@@ -285,7 +295,7 @@ public class AuditorElector {
                                         TextFormat.printToString(builder.build()).getBytes(UTF_8), -1);
 
                             LOG.info("I become auditor: vote = {}.", bookieId, myVote);
-                            auditor = new Auditor(bookieId, conf, zkc);
+                            auditor = new Auditor(bookieId, conf, zkc, bcm, statsLogger);
                             auditor.start();
                         } else {
                             // If not an auditor, will be watching to my predecessor and

@@ -43,15 +43,13 @@ import static com.google.common.base.Charsets.UTF_8;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.Collections;
 import java.util.Arrays;
-
-
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 
@@ -312,6 +310,53 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
         }
     }
 
+    @Override
+    public List<String> getAllUnderreplicatedLedgers() throws ReplicationException.UnavailableException {
+        try {
+            return getChildrenFromHierarchy(urLedgerPath, 4);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ReplicationException.UnavailableException("Interrupted while contacting zookeeper", e);
+        } catch (KeeperException e) {
+            throw new ReplicationException.UnavailableException("Error contacting zookeeper", e);
+        }
+    }
+
+    /**
+     * Get list of children znode path under a given depth of the parent node.
+     * Iteratively using bfs
+     * @param parent parent node
+     * @param depth depth to search
+     * @return - the list of znode path with the given depth of the parent node
+     * @throws InterruptedException
+     * @throws KeeperException
+     */
+    private List<String> getChildrenFromHierarchy(String parent, long depth)
+            throws InterruptedException, KeeperException {
+        int level = 1;
+        List<String> znodePaths = new ArrayList<String>();
+        List<String> children = zkc.getChildren(parent, false);
+        for (String child : children) {
+            znodePaths.add(parent + "/" + child);
+        }
+        while (level < depth) {
+            List<String> childrenPaths = new ArrayList<String>();
+            for (String parentPath : znodePaths) {
+                try {
+                    children = zkc.getChildren(parentPath, false);
+                    for (String child : children) {
+                        childrenPaths.add(parentPath + "/" + child);
+                    }
+                } catch (KeeperException.NoNodeException e) {
+                    // this means the path has been deleted, so just ignore it
+                }
+            }
+            znodePaths = childrenPaths;
+            level++;
+        }
+        return znodePaths;
+    }
+
     private long getLedgerToRereplicateFromHierarchy(String parent, long depth, Watcher w)
             throws KeeperException, InterruptedException {
         if (depth == 4) {
@@ -378,7 +423,6 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
         }
         return -1;
     }
-
 
     @Override
     public long pollLedgerToRereplicate() throws ReplicationException.UnavailableException {

@@ -30,12 +30,15 @@ import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.ClientUtil;
 import org.apache.bookkeeper.client.LedgerEntry;
+import org.apache.bookkeeper.client.LedgerFragment;
 import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.LedgerHandleAdapter;
+import org.apache.bookkeeper.client.LedgerMetadata;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
 import org.apache.bookkeeper.meta.LedgerUnderreplicationManager;
 import org.apache.bookkeeper.net.BookieSocketAddress;
+import org.apache.bookkeeper.proto.BookieProtocol;
 import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
@@ -554,6 +557,63 @@ public class TestReplicationWorker extends MultiLedgerManagerTestCase {
         } finally {
             zk.close();
         }
+    }
+
+    /**
+     * Test that the replication worker should be able to replicate and update the ensemble metadata for
+     * the underreplicated closed ledgers that have no entry (lastEntry=-1)
+     *
+     * @throws Exception
+     */
+    @Test(timeout = 30000)
+    public void testRWReplicateClosedLedgerWithNoEntry() throws Exception {
+        LedgerHandle lh = bkc.createLedger(3, 3, BookKeeper.DigestType.CRC32,
+            TESTPASSWD);
+        lh.close();
+
+        // get ledger metadata
+        LedgerMetadata metadata = LedgerHandleAdapter.getLedgerMetadata(lh);
+        long ledgerId = lh.getId();
+        // closed empty ledger should have lastEntryId=-1
+        assertEquals(metadata.getLastEntryId(), BookieProtocol.INVALID_ENTRY_ID);
+        // now let's kill a bookie to make it lost
+        BookieSocketAddress replicaToKill = LedgerHandleAdapter
+            .getLedgerMetadata(lh).getEnsembles().get(0L).get(0);
+
+        LOG.info("Killing Bookie", replicaToKill);
+        killBookie(replicaToKill);
+        ReplicationWorker rw = new ReplicationWorker(zkc, baseConf);
+        Set<LedgerFragment> ledgerFragments = rw.getUnderreplicatedFragments(lh);
+        assertEquals(ledgerFragments.size(), 1);
+        LedgerFragment fragment = ledgerFragments.iterator().next();
+        // make sure only the bad bookie need to be replaced
+        assertEquals(fragment.getBookiesIndexes().size(), 1);
+        assertEquals(fragment.getAddress(0), replicaToKill);
+
+        int startNewBookie = startNewBookie();
+        BookieSocketAddress newBkAddr = new BookieSocketAddress(InetAddress
+            .getLocalHost().getHostAddress(), startNewBookie);
+        LOG.info("New Bookie addr :" + newBkAddr);
+
+        rw.start();
+        try {
+
+            underReplicationManager.markLedgerUnderreplicated(lh.getId(),
+                replicaToKill.toString());
+
+            while (isLedgerInUnderReplication(lh.getId(), basePath)) {
+                Thread.sleep(100);
+            }
+            // verify the bad bookie is replaced by new bookie
+            lh = bkc.openLedger(ledgerId, BookKeeper.DigestType.CRC32, TESTPASSWD);
+            metadata = LedgerHandleAdapter.getLedgerMetadata(lh);
+            List<BookieSocketAddress> newEnsemble = metadata.getEnsembles().values().iterator().next();
+            assertTrue(newEnsemble.contains(newBkAddr));
+            assertFalse(newEnsemble.contains(replicaToKill));
+        } finally {
+            rw.shutdown();
+        }
+
     }
 
     private void killAllBookies(LedgerHandle lh, BookieSocketAddress excludeBK)

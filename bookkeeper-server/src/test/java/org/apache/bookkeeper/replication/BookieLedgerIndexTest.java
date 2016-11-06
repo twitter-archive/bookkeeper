@@ -32,6 +32,7 @@ import org.apache.bookkeeper.client.LedgerHandle;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.replication.ReplicationException.BKAuditException;
 import org.apache.bookkeeper.test.MultiLedgerManagerTestCase;
 import org.apache.commons.io.FileUtils;
@@ -111,7 +112,7 @@ public class BookieLedgerIndexTest extends MultiLedgerManagerTestCase {
         BookieLedgerIndexer bookieLedgerIndex = new BookieLedgerIndexer(
                 ledgerManager);
 
-        Map<String, Set<Long>> bookieToLedgerIndex = bookieLedgerIndex
+        Map<BookieSocketAddress, Set<Long>> bookieToLedgerIndex = bookieLedgerIndex
                 .getBookieToLedgerIndex();
 
         assertEquals("Missed few bookies in the bookie-ledger mapping!", 3,
@@ -173,7 +174,7 @@ public class BookieLedgerIndexTest extends MultiLedgerManagerTestCase {
             BookieLedgerIndexer bookieLedgerIndex = new BookieLedgerIndexer(
                     ledgerManager);
 
-            Map<String, Set<Long>> bookieToLedgerIndex = bookieLedgerIndex
+            Map<BookieSocketAddress, Set<Long>> bookieToLedgerIndex = bookieLedgerIndex
                     .getBookieToLedgerIndex();
             assertEquals("Missed few bookies in the bookie-ledger mapping!", 4,
                     bookieToLedgerIndex.size());
