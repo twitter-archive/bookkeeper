@@ -26,6 +26,9 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Observable;
 import java.util.Observer;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.util.concurrent.SettableFuture;
 
 import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
@@ -44,8 +47,10 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
     final static Logger LOG = LoggerFactory.getLogger(LedgerDescriptor.class);
     final LedgerStorage ledgerStorage;
     private long ledgerId;
-
     final byte[] masterKey;
+
+    private AtomicBoolean fenceEntryPersisted = new AtomicBoolean();
+    private SettableFuture<Boolean> logFenceResult = null;
 
     // Stats
     final Counter writeBytesCounter;
@@ -88,6 +93,51 @@ public class LedgerDescriptorImpl extends LedgerDescriptor {
     boolean isFenced() throws IOException {
         return ledgerStorage.isFenced(ledgerId);
     }
+
+    @Override
+    synchronized SettableFuture<Boolean> fenceAndLogInJournal(Journal journal) throws IOException {
+        boolean success = this.setFenced();
+        if(success) {
+            // fenced for first time, we should add the key to journal ensure we can rebuild.
+            return logFenceEntryInJournal(journal);
+        } else {
+            // If we reach here, it means this ledger has been fenced before.
+            // However, fencing might still be in progress.
+            if(logFenceResult == null || fenceEntryPersisted.get()){
+                // Either ledger's fenced state is recovered from Journal
+                // Or Log fence entry in Journal succeed
+                SettableFuture<Boolean> result = SettableFuture.create();
+                result.set(true);
+                return result;
+            } else if (logFenceResult.isDone()) {
+                // We failed to log fence entry in Journal, try again.
+                return logFenceEntryInJournal(journal);
+            }
+            // Fencing is in progress
+            return logFenceResult;
+        }
+    }
+
+    /**
+     * Log the fence ledger entry in Journal so that we can rebuild the state.
+     * @param journal log the fence entry in the Journal
+     * @return A future which will be satisfied when add entry to journal complete
+     */
+    private SettableFuture<Boolean> logFenceEntryInJournal(Journal journal) {
+        logFenceResult = SettableFuture.create();
+        ByteBuffer entry = createLedgerFenceEntry(ledgerId);
+        journal.logAddEntry(entry, (rc, ledgerId, entryId, addr, ctx) -> {
+            LOG.debug("Record fenced state for ledger {} in journal with rc {}", ledgerId, rc);
+            if (rc == 0) {
+                fenceEntryPersisted.compareAndSet(false, true);
+                logFenceResult.set(true);
+            } else {
+                logFenceResult.set(false);
+            }
+        }, null);
+        return logFenceResult;
+    }
+
 
     @Override
     long addEntry(ByteBuffer entry) throws IOException {
