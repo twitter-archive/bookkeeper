@@ -188,9 +188,21 @@ public class LedgerDirsManager {
      * Issue warning if the directory w/ given path is picked up.
      */
     File pickRandomWritableDir(File dirExcl) throws NoWritableLedgerDirException {
-        List<File> writableDirs = getWritableLedgerDirs();
-        assert writableDirs.size() > 0;
-        File dir = writableDirs.get(rand.nextInt(writableDirs.size()));
+        List<File> dirs = getWritableLedgerDirs();
+        return pickRandomDir(dirExcl, dirs);
+
+    }
+
+    /**
+     * Return one of the ledger dir from all ledger dirs, regardless writable or not.
+     */
+    File pickRandomLedgerDir(File dirExcl) {
+        return pickRandomDir(dirExcl, getAllLedgerDirs());
+    }
+
+    private File pickRandomDir(File dirExcl, List<File> dirs) {
+        assert dirs.size() > 0;
+        File dir = dirs.get(rand.nextInt(dirs.size()));
         if (dirExcl != null) {
             if (dir.equals(dirExcl)) {
                 // Just issue warning as some tests use identical dirs

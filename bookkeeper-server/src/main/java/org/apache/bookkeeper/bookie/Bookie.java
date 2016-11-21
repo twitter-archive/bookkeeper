@@ -190,26 +190,6 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
         }
     }
 
-    static class FutureWriteCallback implements WriteCallback {
-
-        SettableFuture<Boolean> result = SettableFuture.create();
-
-        @Override
-        public void writeComplete(int rc, long ledgerId, long entryId,
-                                  BookieSocketAddress addr, Object ctx) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Finished writing entry {} @ ledger {} for {} : {}",
-                          new Object[] { entryId, ledgerId, addr, rc });
-            }
-
-            result.set(0 == rc);
-        }
-
-        public SettableFuture<Boolean> getResult() {
-            return result;
-        }
-    }
-
     @VisibleForTesting
     public SyncThread getSyncThread() {
         return syncThread;
@@ -1200,27 +1180,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
      */
     public SettableFuture<Boolean> fenceLedger(long ledgerId, byte[] masterKey) throws IOException, BookieException {
         LedgerDescriptor handle = handles.getHandle(ledgerId, masterKey);
-        boolean success;
-        synchronized (handle) {
-            success = handle.setFenced();
-        }
-        if (success) {
-            // fenced first time, we should add the key to journal ensure we can rebuild
-            ByteBuffer bb = ByteBuffer.allocate(8 + 8);
-            bb.putLong(ledgerId);
-            bb.putLong(METAENTRY_ID_FENCE_KEY);
-            bb.flip();
-
-            FutureWriteCallback fwc = new FutureWriteCallback();
-            LOG.debug("record fenced state for ledger {} in journal.", ledgerId);
-            journal.logAddEntry(bb, fwc, null);
-            return fwc.getResult();
-        } else {
-            // already fenced
-            SettableFuture<Boolean> successFuture = SettableFuture.create();
-            successFuture.set(true);
-            return successFuture;
-        }
+        return handle.fenceAndLogInJournal(journal);
     }
 
     public ByteBuffer readEntry(long ledgerId, long entryId)

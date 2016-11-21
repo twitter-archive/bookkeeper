@@ -278,7 +278,7 @@ public class IndexPersistenceMgr {
         }
 
         // We don't have a ledger index file on disk, so create it.
-        File lf = getNewLedgerIndexFile(ledger, null);
+        File lf = getNewLedgerIndexFile(ledger, null, true);
         RefFileInfo fi = new RefFileInfo(new FileInfo(lf, masterKey));
         RefFileInfo oldFi = fileInfoMap.putIfAbsent(ledger, fi);
         if (null != oldFi) {
@@ -330,7 +330,27 @@ public class IndexPersistenceMgr {
     }
 
     private File getNewLedgerIndexFile(Long ledger, File dirExcl) throws NoWritableLedgerDirException {
-        File dir = ledgerDirsManager.pickRandomWritableDir(dirExcl);
+        return getNewLedgerIndexFile(ledger, dirExcl, false);
+    }
+
+    /**
+     * Get a new index file for a ledger in a lazy way.
+     * If fallback is false, this function will throw exception when there are no writable dirs.
+     * If fallback is true and there's no writable dirs, it will ignore the error and pick any dir.
+     * Set fallback to true is useful when we want to delay disk check and just get the File pointer, e.g. fence ledger
+     */
+    private File getNewLedgerIndexFile(Long ledger, File dirExcl, boolean fallback)
+            throws NoWritableLedgerDirException {
+        File dir = null;
+        try {
+            dir = ledgerDirsManager.pickRandomWritableDir(dirExcl);
+        } catch (NoWritableLedgerDirException e){
+            if(fallback){
+                dir = ledgerDirsManager.pickRandomLedgerDir(dirExcl);
+            } else {
+                throw e;
+            }
+        }
         String ledgerName = LedgerCacheImpl.getLedgerName(ledger);
         return new File(dir, ledgerName);
     }
