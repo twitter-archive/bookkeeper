@@ -595,7 +595,7 @@ public class TestLedgerUnderreplicationManager {
      * Test that the hierarchy gets cleaned up as ledgers
      * are marked as fully replicated
      */
-    @Test
+    @Test(timeout=60000)
     public void testHierarchyCleanup() throws Exception {
         final LedgerUnderreplicationManager replicaMgr = lmf1
             .newLedgerUnderreplicationManager();
@@ -644,7 +644,7 @@ public class TestLedgerUnderreplicationManager {
         final LedgerUnderreplicationManager replicaMgr2 = lmf2
             .newLedgerUnderreplicationManager();
 
-        final int iterations = 1000;
+        final int iterations = 100;
         final AtomicBoolean threadFailed = new AtomicBoolean(false);
         Thread markUnder = new Thread() {
                 public void run() {
