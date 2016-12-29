@@ -150,15 +150,15 @@ class FileInfo extends Observable {
             }
             bb.flip();
             if (bb.getInt() != signature) {
-                throw new IOException("Missing ledger signature");
+                throw new IOException("Missing ledger signature while reading header for " + lf);
             }
             int version = bb.getInt();
             if (version != headerVersion) {
-                throw new IOException("Incompatible ledger version " + version);
+                throw new IOException("Incompatible ledger version " + version + " while reading header for " + lf);
             }
             int length = bb.getInt();
             if (length < 0) {
-                throw new IOException("Length " + length + " is invalid");
+                throw new IOException("Length " + length + " is invalid while reading header for " + lf);
             } else if (length > bb.remaining()) {
                 throw new BufferUnderflowException();
             }
@@ -167,7 +167,7 @@ class FileInfo extends Observable {
             stateBits = bb.getInt();
             needFlushHeader = false;
         } else {
-            throw new IOException("Ledger index file does not exist");
+            throw new IOException("Ledger index file " + lf +" does not exist");
         }
     }
 

@@ -210,7 +210,7 @@ class ReadEntryProcessorV3 extends PacketProcessorBaseV3 {
             }
             return buildResponse(readResponse, StatusCode.ENOENTRY, startTimeSw);
         } catch (IOException e) {
-            logger.error("IOException while reading entry: {} from ledger: {}", entryId, ledgerId);
+            logger.error("IOException while reading entry: {} from ledger {} ", new Object[]{entryId, ledgerId, e});
             return buildResponse(readResponse, StatusCode.EIO, startTimeSw);
         } catch (BookieException e) {
             logger.error(
