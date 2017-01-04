@@ -481,7 +481,13 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
                 } catch (NoLedgerException nsle) {
                     LOG.debug("Skip replaying entries of ledger {} since it was deleted.", ledgerId);
                 } catch (BookieException be) {
+                    LOG.info("Encountered exception on replay journal (ledger id : {}, entry id : {}):",
+                            ledgerId, entryId);
                     throw new IOException(be);
+                } catch (IOException ioe) {
+                    LOG.info("Encountered exception on replay journal (ledger id : {}, entry id : {}):",
+                            ledgerId, entryId);
+                    throw ioe;
                 }
             }
         });
