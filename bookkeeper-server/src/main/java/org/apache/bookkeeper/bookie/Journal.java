@@ -990,12 +990,14 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
             if (!running) {
                 return;
             }
+            LOG.info("Shutting down Journal thread");
             forceWriteThread.shutdown();
             cbThreadPool.shutdown();
             cbThreadPool.forceShutdown(5, TimeUnit.SECONDS);
             running = false;
             this.interrupt();
             this.join();
+            LOG.info("Finished Shutting down Journal thread");
         } catch (InterruptedException ie) {
             LOG.warn("Interrupted during shutting down journal : ", ie);
         }

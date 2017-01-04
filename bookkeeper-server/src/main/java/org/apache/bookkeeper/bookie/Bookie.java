@@ -1028,7 +1028,9 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
                 // mark bookie as in shutting down progress
                 shuttingdown = true;
 
-
+                // turn bookie to read only during shutting down process
+                LOG.info("Turning bookie to read only during shut down");
+                this.forceReadOnly.set(true);
 
                 // Shutdown Sync thread
                 syncThread.shutdown();

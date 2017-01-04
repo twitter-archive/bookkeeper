@@ -178,13 +178,16 @@ class InterleavedLedgerStorage implements LedgerStorage, EntryLogListener {
     public void shutdown() throws InterruptedException {
         // shut down gc thread, which depends on zookeeper client
         // also compaction will write entries again to entry log file
+        LOG.info("Shutting down GC thread");
         gcThread.shutdown();
+        LOG.info("Shutting down entry logger");
         entryLogger.shutdown();
         try {
             ledgerCache.close();
         } catch (IOException e) {
             LOG.error("Error while closing the ledger cache", e);
         }
+        LOG.info("Complete shutting down Ledger Storage");
     }
 
     @Override

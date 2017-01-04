@@ -241,9 +241,11 @@ public class LedgerDirsManager {
 
     // shutdown disk monitoring daemon
     public void shutdown() {
+        LOG.info("Shutting down ledgerDirsManager");
         monitor.interrupt();
         try {
             monitor.join();
+            LOG.info("Finished shutting down ledgerDirsManager");
         } catch (InterruptedException e) {
             // Ignore
         }
