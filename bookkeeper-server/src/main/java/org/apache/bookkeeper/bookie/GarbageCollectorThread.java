@@ -694,8 +694,15 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             try {
                 if (compactEntryLog(scannerFactory, meta)) {
                     compactedEntryLogCounter.inc();
-                    // schedule entry log to be removed after moving entries
-                    logsToRemove.add(meta);
+                    if (forceGarbageCollection.get()) {
+                        scannerFactory.flush();
+                        if (removeEntryLog(entryLogger, meta.entryLogId, "compacted")) {
+                            deletedEntryLogCounter.inc();
+                        }
+                    } else {
+                        // schedule entry log to be removed after moving entries
+                        logsToRemove.add(meta);
+                    }
                 }
             } catch (LedgerDirsManager.NoWritableLedgerDirException nwlde) {
                 LOG.warn("No writable ledger directory available, aborting compaction", nwlde);
@@ -860,7 +867,12 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                     if (enableMinorCompaction && !suspendMinorCompaction && !noWritableDirs
                             && entryLogMeta.getUsage() < minorCompactionThreshold) {
                         try {
-                            compactEntryLog(scannerFactory, entryLogMeta);
+                            if (compactEntryLog(scannerFactory, entryLogMeta) && forceGarbageCollection.get()) {
+                                scannerFactory.flush();
+                                if (removeEntryLog(entryLogger, entryLogMeta.entryLogId, "compacted")) {
+                                    deletedEntryLogCounter.inc();
+                                }
+                            }
                         } catch (LedgerDirsManager.NoWritableLedgerDirException nwle) {
                             noWritableDirs = true;
                             LOG.warn("No writable ledger directory available, skipping compaction", nwle);
