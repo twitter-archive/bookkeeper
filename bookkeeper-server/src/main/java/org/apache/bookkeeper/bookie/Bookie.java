@@ -962,6 +962,7 @@ public class Bookie extends BookieCriticalThread implements LedgerStorageListene
                 .operationRetryPolicy(new BoundExponentialBackoffRetryPolicy(conf.getZkRetryBackoffStartMs(),
                         conf.getZkRetryBackoffMaxMs(), Integer.MAX_VALUE))
                 .requestRateLimit(conf.getZkRequestRateLimit())
+                .statsLogger(this.statsLogger.scope(BOOKIE_SCOPE))
                 .build();
     }
 
