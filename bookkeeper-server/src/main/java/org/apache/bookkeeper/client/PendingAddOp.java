@@ -34,6 +34,8 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
+
 /**
  * This represents a pending add operation. When it has got success from all
  * bookies, it sees if its at the head of the pending adds queue, and if yes,
@@ -255,6 +257,8 @@ class PendingAddOp implements WriteCallback, TimerTask {
         if (null != timeout) {
             timeout.cancel();
         }
+        lh.getStatsLogger().scope(BookKeeperClientStats.ADD_ENTRY)
+            .scope(RESPONSE_CODE).getCounter(String.valueOf(rc)).inc();
         if (rc != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.ADD_ENTRY)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));

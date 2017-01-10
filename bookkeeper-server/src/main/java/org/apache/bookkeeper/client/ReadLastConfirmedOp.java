@@ -26,6 +26,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.jboss.netty.buffer.ChannelBuffer;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
+
 /**
  * This class encapsulated the read last confirmed operation.
  *
@@ -78,6 +80,8 @@ class ReadLastConfirmedOp implements ReadEntryCallback {
     }
 
     private void submitCallback(int rc) {
+        lh.getStatsLogger().scope(BookKeeperClientStats.READ_LAST_CONFIRMED)
+            .scope(RESPONSE_CODE).getCounter(String.valueOf(rc)).inc();
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
             lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED)

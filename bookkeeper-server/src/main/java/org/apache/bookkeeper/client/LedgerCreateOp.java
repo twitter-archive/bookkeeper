@@ -29,12 +29,15 @@ import org.apache.bookkeeper.client.BKException.BKNotEnoughBookiesException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
 import org.apache.bookkeeper.net.BookieSocketAddress;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GenericCallback;
+import org.apache.bookkeeper.stats.Counter;
 import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_CREATE;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
 
 /**
  * Encapsulates asynchronous ledger create operation
@@ -53,6 +56,7 @@ class LedgerCreateOp implements GenericCallback<Long> {
     DigestType digestType;
     long startTime;
     OpStatsLogger createOpLogger;
+    StatsLogger rcStatsLogger;
 
     /**
      * Constructor
@@ -85,6 +89,7 @@ class LedgerCreateOp implements GenericCallback<Long> {
         this.ctx = ctx;
         this.startTime = MathUtils.nowInNano();
         this.createOpLogger = bk.getStatsLogger().getOpStatsLogger(LEDGER_CREATE);
+        this.rcStatsLogger = bk.getStatsLogger().scope(LEDGER_CREATE).scope(RESPONSE_CODE);
     }
 
     /**
@@ -148,8 +153,11 @@ class LedgerCreateOp implements GenericCallback<Long> {
         createComplete(BKException.Code.OK, lh);
     }
 
+    /**
+     * Opened a new ledger complete
+     */
     private void createComplete(int rc, LedgerHandle lh) {
-        // Opened a new ledger
+        rcStatsLogger.getCounter(String.valueOf(rc)).inc();
         if (BKException.Code.OK != rc) {
             createOpLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
         } else {

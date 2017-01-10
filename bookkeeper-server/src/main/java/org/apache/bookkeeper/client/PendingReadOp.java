@@ -44,6 +44,8 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
+
 /**
  * Sequence of entries of a ledger that represents a pending read operation.
  * When all the data read has come back, the application callback is called.
@@ -544,7 +546,8 @@ class PendingReadOp  implements Enumeration<LedgerEntry>, ReadEntryCallback {
         if (!complete.compareAndSet(false, true)) {
             return;
         }
-
+        lh.getStatsLogger().scope(BookKeeperClientStats.READ_ENTRY)
+            .scope(RESPONSE_CODE).getCounter(String.valueOf(code)).inc();
         if (code != BKException.Code.OK) {
             lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_ENTRY)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(requestTimeNanos));

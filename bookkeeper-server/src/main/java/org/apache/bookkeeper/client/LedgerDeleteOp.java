@@ -23,12 +23,14 @@ package org.apache.bookkeeper.client;
 
 import org.apache.bookkeeper.client.AsyncCallback.DeleteCallback;
 import org.apache.bookkeeper.stats.OpStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
 import org.apache.bookkeeper.util.OrderedSafeExecutor.OrderedSafeGenericCallback;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_DELETE;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
 
 /**
  * Encapsulates asynchronous ledger delete operation
@@ -44,6 +46,7 @@ class LedgerDeleteOp extends OrderedSafeGenericCallback<Void> {
     Object ctx;
     long startTime;
     OpStatsLogger deleteOpLogger;
+    StatsLogger rcStatsLogger;
 
     /**
      * Constructor
@@ -65,6 +68,7 @@ class LedgerDeleteOp extends OrderedSafeGenericCallback<Void> {
         this.ctx = ctx;
         this.startTime = MathUtils.nowInNano();
         this.deleteOpLogger = bk.getStatsLogger().getOpStatsLogger(LEDGER_DELETE);
+        this.rcStatsLogger = bk.getStatsLogger().scope(LEDGER_DELETE).scope(RESPONSE_CODE);
     }
 
     /**
@@ -81,6 +85,7 @@ class LedgerDeleteOp extends OrderedSafeGenericCallback<Void> {
      */
     @Override
     public void safeOperationComplete(int rc, Void result) {
+        rcStatsLogger.getCounter(String.valueOf(rc)).inc();
         if (BKException.Code.OK != rc) {
             deleteOpLogger.registerFailedEvent(MathUtils.elapsedMicroSec(startTime));
         } else {

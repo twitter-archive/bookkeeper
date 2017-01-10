@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN;
 import static org.apache.bookkeeper.client.BookKeeperClientStats.LEDGER_OPEN_RECOVERY;
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
 
 /**
  * Encapsulates the ledger open operation
@@ -229,6 +230,7 @@ class LedgerOpenOp implements GenericCallback<LedgerMetadata> {
 
     void openComplete(int rc, LedgerHandle lh) {
         String statName = doRecovery ? LEDGER_OPEN_RECOVERY : LEDGER_OPEN;
+        bk.getStatsLogger().scope(statName).scope(RESPONSE_CODE).getCounter(String.valueOf(rc)).inc();
         if (BKException.Code.OK != rc) {
             bk.getStatsLogger().getOpStatsLogger(statName)
                     .registerFailedEvent(MathUtils.elapsedMicroSec(startTime));

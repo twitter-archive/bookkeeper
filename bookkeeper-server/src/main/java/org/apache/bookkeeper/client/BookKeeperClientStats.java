@@ -80,4 +80,7 @@ public interface BookKeeperClientStats {
     public final static String CHANNEL_WRITE_DISPATCH = "CHANNEL_WRITE_DISPATCH";
     public final static String CHANNEL_RESPONSE = "CHANNEL_RESPONSE";
 
+    // Operations Response Code
+    public final static String RESPONSE_CODE = "RESPONSE_CODE";
+
 }

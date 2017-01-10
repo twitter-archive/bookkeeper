@@ -26,6 +26,8 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
+
 /**
  * This op is try to read last confirmed without involving quorum coverage checking.
  * Use {@link ReadLastConfirmedOp} if you need quorum coverage checking.
@@ -65,6 +67,8 @@ class TryReadLastConfirmedOp implements ReadEntryCallback {
     }
 
     private void submitCallback(int rc, DigestManager.RecoveryData data) {
+        lh.getStatsLogger().scope(getRequestStatsOp())
+            .scope(RESPONSE_CODE).getCounter(String.valueOf(rc)).inc();
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
             lh.getStatsLogger().getOpStatsLogger(getRequestStatsOp())

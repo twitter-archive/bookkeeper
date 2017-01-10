@@ -20,6 +20,8 @@ import org.jboss.netty.buffer.ChannelBufferInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.bookkeeper.client.BookKeeperClientStats.RESPONSE_CODE;
+
 public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.ReadEntryCallback, SpeculativeRequestExectuor {
     static final Logger LOG = LoggerFactory.getLogger(ReadLastConfirmedAndEntryOp.class);
 
@@ -515,6 +517,8 @@ public class ReadLastConfirmedAndEntryOp implements BookkeeperInternalCallbacks.
     }
 
     private void submitCallback(int rc, long lastAddConfirmed, LedgerEntry entry) {
+        lh.getStatsLogger().scope(BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY)
+            .scope(RESPONSE_CODE).getCounter(String.valueOf(rc)).inc();
         long latencyMicros = MathUtils.elapsedMicroSec(requestTimeNano);
         if (BKException.Code.OK != rc) {
             lh.getStatsLogger().getOpStatsLogger(BookKeeperClientStats.READ_LAST_CONFIRMED_AND_ENTRY)
