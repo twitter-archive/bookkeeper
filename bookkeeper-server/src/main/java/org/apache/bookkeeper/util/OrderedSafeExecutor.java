@@ -224,6 +224,21 @@ public class OrderedSafeExecutor {
             });
         }
         // stats
+        statsLogger.registerGauge(String.format("%s-total-queue", name), new Gauge<Number>() {
+            @Override
+            public Number getDefaultValue() {
+                return 0;
+            }
+
+            @Override
+            public Number getSample() {
+                int totalSize = 0;
+                for (BlockingQueue<Runnable> queue : queues) {
+                    totalSize += queue.size();
+                }
+                return totalSize;
+            }
+        });
         this.taskExecutionStats = statsLogger.scope(name).getOpStatsLogger("task_execution");
         this.taskPendingStats = statsLogger.scope(name).getOpStatsLogger("task_queued");
         this.traceTaskExecution = traceTaskExecution;
