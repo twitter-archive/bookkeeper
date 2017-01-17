@@ -178,6 +178,10 @@ public class LedgerEntryPage {
             throw new ShortReadException("Short page read of ledger " + getLedger()
                     + " tried to get " + page.capacity() + " from position "
                     + getFirstEntryPosition() + " still need " + page.remaining(), sre);
+        } catch (IllegalArgumentException iae) {
+            LOG.error("IllegalArgumentException when trying to read ledger {} from position {}"
+                , new Object[]{getLedger(), getFirstEntryPosition(), iae});
+            throw iae;
         }
         // make sure we don't include partial index entry
         if (page.remaining() != 0) {
