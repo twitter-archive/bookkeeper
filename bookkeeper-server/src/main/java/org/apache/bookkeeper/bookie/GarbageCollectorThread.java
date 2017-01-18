@@ -51,6 +51,7 @@ import org.apache.bookkeeper.stats.Gauge;
 import org.apache.bookkeeper.stats.OpStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.util.MathUtils;
+import org.apache.commons.codec.binary.Hex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -220,6 +221,12 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                         long entryId = entry.getLong();
                         entry.rewind();
 
+                        if(entryId < 0) {
+                            String hexEntry = dumpEntryToHexString(entry);
+                            LOG.warn("Invalid entry with negative entryId found @ offset {} for ledger {}. " +
+                                "Entry body in hex format is: {}", new Object[] { offset, lid, hexEntry});
+                        }
+
                         long newoffset = entryLogger.addEntry(ledgerId, entry);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("Compact add entry : lid = {}, eid = {}, offset = {}",
@@ -305,6 +312,14 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             writeOffsetsToCache(EntryLogger.INVALID_LID, true);
             ledgerCache.flushLedger(true);
             deletedLedgers.clear();
+        }
+
+        private String dumpEntryToHexString(ByteBuffer entry) {
+            entry.rewind();
+            byte[] buf = new byte[entry.remaining()];
+            entry.get(buf);
+            entry.rewind();
+            return Hex.encodeHexString(buf);
         }
     }
 
