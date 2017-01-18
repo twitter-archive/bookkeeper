@@ -221,10 +221,9 @@ public class GarbageCollectorThread extends BookieCriticalThread {
                         long entryId = entry.getLong();
                         entry.rewind();
 
-                        if(entryId < 0) {
-                            String hexEntry = dumpEntryToHexString(entry);
-                            LOG.warn("Invalid entry with negative entryId found @ offset {} for ledger {}. " +
-                                "Entry body in hex format is: {}", new Object[] { offset, lid, hexEntry});
+                        if (entryId < 0) {
+                            LOG.warn("Invalid entry found with negative entryId {} @ offset {} for ledger {}. " +
+                                "Entry size is: {}", new Object[]{entryId, offset, lid, entry.remaining()});
                         }
 
                         long newoffset = entryLogger.addEntry(ledgerId, entry);
@@ -314,13 +313,6 @@ public class GarbageCollectorThread extends BookieCriticalThread {
             deletedLedgers.clear();
         }
 
-        private String dumpEntryToHexString(ByteBuffer entry) {
-            entry.rewind();
-            byte[] buf = new byte[entry.remaining()];
-            entry.get(buf);
-            entry.rewind();
-            return Hex.encodeHexString(buf);
-        }
     }
 
 
