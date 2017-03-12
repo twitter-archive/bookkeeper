@@ -205,7 +205,7 @@ public class ReplicationWorker implements Runnable {
         long ledgerIdToReplicate = underreplicationManager
                 .getLedgerToRereplicate();
 
-        Stopwatch stopwatch = new Stopwatch().start();
+        Stopwatch stopwatch = Stopwatch.createStarted();
         boolean success = false;
         try {
             success = rereplicate(ledgerIdToReplicate);

@@ -813,9 +813,10 @@ class Journal extends BookieCriticalThread implements CheckpointSource {
         ZeroBuffer.put(paddingBuff);
         JournalChannel logFile = null;
         forceWriteThread.start();
-        Stopwatch journalAllocationWatcher = new Stopwatch();
-        Stopwatch journalCreationWatcher = new Stopwatch();
-        Stopwatch journalFlushWatcher = new Stopwatch();
+        Stopwatch journalAllocationWatcher = Stopwatch.createUnstarted();
+        Stopwatch journalCreationWatcher = Stopwatch.createUnstarted();
+        Stopwatch journalFlushWatcher = Stopwatch.createUnstarted();
+
         long batchSize = 0;
         try {
             List<Long> journalIds = listJournalIds(journalDirectory, null);
