@@ -61,7 +61,7 @@
     <!-- ProtocolBuffer version -->
     <protobuf.version>2.4.1</protobuf.version>
     <!-- Guava Version -->
-    <guava.version>16.0</guava.version>
+    <guava.version>20.0</guava.version>
     <netty.version>3.9.4.Final</netty.version>
     <zookeeper.version>3.5.1-alpha</zookeeper.version>
   </properties>
