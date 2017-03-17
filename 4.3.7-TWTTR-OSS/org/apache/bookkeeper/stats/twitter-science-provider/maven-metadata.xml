@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>org.apache.bookkeeper.stats</groupId>
+  <artifactId>twitter-science-provider</artifactId>
+  <versioning>
+    <release>4.3.7-TWTTR-OSS</release>
+    <versions>
+      <version>4.3.7-TWTTR-OSS</version>
+    </versions>
+    <lastUpdated>20170317213748</lastUpdated>
+  </versioning>
+</metadata>
