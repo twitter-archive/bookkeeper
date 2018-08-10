@@ -116,7 +116,7 @@ public interface LedgerManager extends Closeable {
      * @param successRc
      *          Success RC code passed to finalCb when callback
      * @param failureRc
-     *          Failure RC code passed to finalCb when exceptions occured.
+     *          Failure RC code passed to finalCb when exceptions occurred.
      */
     public void asyncProcessLedgers(Processor<Long> processor, AsyncCallback.VoidCallback finalCb,
                                     Object context, int successRc, int failureRc);
