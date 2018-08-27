@@ -21,7 +21,7 @@
 #   The DX_*_FEATURE macros control the default setting for the given
 #   Doxygen feature. Supported features are 'DOXYGEN' itself, 'DOT' for
 #   generating graphics, 'HTML' for plain HTML, 'CHM' for compressed HTML
-#   help (for MS users), 'CHI' for generating a seperate .chi file by the
+#   help (for MS users), 'CHI' for generating a separate .chi file by the
 #   .chm file, and 'MAN', 'RTF', 'XML', 'PDF' and 'PS' for the appropriate
 #   output formats. The environment variable DOXYGEN_PAPER_SIZE may be
 #   specified to override the default 'a4wide' paper size.
